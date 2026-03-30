@@ -18,10 +18,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "zod": "^3.22.0"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "typescript": "^5.4.0",
-    "vitest": "^1.4.0"
+    "vitest": "^1.6.1"
   }
 }

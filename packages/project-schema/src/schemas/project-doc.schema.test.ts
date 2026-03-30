@@ -60,5 +60,59 @@ describe('projectDocSchema', () => {
       const result = projectDocSchema.safeParse({ ...baseDoc, createdAt: 'not-a-date' });
       expect(result.success).toBe(false);
     });
+
+    it('should reject a document with invalid updatedAt datetime', () => {
+      const result = projectDocSchema.safeParse({ ...baseDoc, updatedAt: 'not-a-date' });
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject a document missing title', () => {
+      const { title: _title, ...withoutTitle } = baseDoc;
+      const result = projectDocSchema.safeParse(withoutTitle);
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject durationFrames of zero', () => {
+      const result = projectDocSchema.safeParse({ ...baseDoc, durationFrames: 0 });
+      expect(result.success).toBe(false);
+    });
+
+    it('should parse a document with valid nested tracks', () => {
+      const docWithTracks = {
+        ...baseDoc,
+        tracks: [
+          { id: '00000000-0000-0000-0000-000000000020', type: 'video', name: 'Track 1' },
+        ],
+      };
+      const result = projectDocSchema.safeParse(docWithTracks);
+      expect(result.success).toBe(true);
+    });
+
+    it('should parse a document with valid nested clips', () => {
+      const docWithClips = {
+        ...baseDoc,
+        clips: [
+          {
+            id: '00000000-0000-0000-0000-000000000030',
+            type: 'video',
+            assetId: '00000000-0000-0000-0000-000000000031',
+            trackId: '00000000-0000-0000-0000-000000000032',
+            startFrame: 0,
+            durationFrames: 60,
+          },
+        ],
+      };
+      const result = projectDocSchema.safeParse(docWithClips);
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject a document with an invalid nested clip', () => {
+      const docWithBadClip = {
+        ...baseDoc,
+        clips: [{ id: 'not-a-uuid', type: 'video' }],
+      };
+      const result = projectDocSchema.safeParse(docWithBadClip);
+      expect(result.success).toBe(false);
+    });
   });
 });

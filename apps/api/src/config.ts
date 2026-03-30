@@ -1,28 +1,57 @@
+import { z } from 'zod';
+
+const envSchema = z.object({
+  APP_DB_HOST: z.string().min(1),
+  APP_DB_PORT: z.string().default('3306'),
+  APP_DB_NAME: z.string().default('cliptale'),
+  APP_DB_USER: z.string().default('cliptale'),
+  APP_DB_PASSWORD: z.string().min(1),
+  APP_REDIS_URL: z.string().url(),
+  APP_S3_BUCKET: z.string().min(1),
+  APP_S3_ENDPOINT: z.string().optional(),
+  APP_S3_REGION: z.string().default('us-east-1'),
+  APP_S3_ACCESS_KEY_ID: z.string().min(1),
+  APP_S3_SECRET_ACCESS_KEY: z.string().min(1),
+  APP_JWT_SECRET: z.string().min(32),
+  APP_JWT_EXPIRES_IN: z.string().default('7d'),
+  APP_PORT: z.string().default('3001'),
+  APP_CORS_ORIGIN: z.string().default('http://localhost:5173'),
+});
+
+const parsed = envSchema.safeParse(process.env);
+
+if (!parsed.success) {
+  console.error('Missing required environment variables:', parsed.error.format());
+  process.exit(1);
+}
+
+const env = parsed.data;
+
 /** Central environment variable access — the ONLY file allowed to read process.env in apps/api. */
 export const config = {
   db: {
-    host: process.env.DB_HOST ?? 'localhost',
-    port: Number(process.env.DB_PORT ?? 3306),
-    name: process.env.DB_NAME ?? 'cliptale',
-    user: process.env.DB_USER ?? 'cliptale',
-    password: process.env.DB_PASSWORD ?? '',
+    host: env.APP_DB_HOST,
+    port: Number(env.APP_DB_PORT),
+    name: env.APP_DB_NAME,
+    user: env.APP_DB_USER,
+    password: env.APP_DB_PASSWORD,
   },
   redis: {
-    url: process.env.REDIS_URL ?? 'redis://localhost:6379',
+    url: env.APP_REDIS_URL,
   },
   s3: {
-    bucket: process.env.S3_BUCKET ?? '',
-    endpoint: process.env.S3_ENDPOINT,
-    region: process.env.S3_REGION ?? 'us-east-1',
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? '',
+    bucket: env.APP_S3_BUCKET,
+    endpoint: env.APP_S3_ENDPOINT,
+    region: env.APP_S3_REGION,
+    accessKeyId: env.APP_S3_ACCESS_KEY_ID,
+    secretAccessKey: env.APP_S3_SECRET_ACCESS_KEY,
   },
   auth: {
-    jwtSecret: process.env.JWT_SECRET ?? '',
-    jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
+    jwtSecret: env.APP_JWT_SECRET,
+    jwtExpiresIn: env.APP_JWT_EXPIRES_IN,
   },
   server: {
-    port: Number(process.env.API_PORT ?? 3001),
-    corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
+    port: Number(env.APP_PORT),
+    corsOrigin: env.APP_CORS_ORIGIN,
   },
 } as const;
