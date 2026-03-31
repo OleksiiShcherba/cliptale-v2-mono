@@ -143,6 +143,11 @@ apps/api/
 │   │   ├── bullmq.ts               # BullMQ Queue and Worker setup; connection config
 │   │   └── jobs/
 │   │       └── enqueue-ingest.ts   # Typed job enqueue helpers (not job handlers)
+│   ├── lib/
+│   │   ├── errors.ts               # Typed error classes (ValidationError, NotFoundError, …)
+│   │   └── s3.ts                   # Singleton S3Client configured from config
+│   ├── types/
+│   │   └── express.d.ts            # Express Request augmentation (req.user)
 │   └── config.ts                   # Central env var access — ONLY file that reads process.env
 └── index.ts                        # Express app entry point
 ```
@@ -165,7 +170,10 @@ apps/media-worker/
 │   ├── jobs/
 │   │   ├── ingest.job.ts           # FFprobe metadata + thumbnail + waveform generation
 │   │   └── transcribe.job.ts       # Whisper API call + segment storage
-│   └── index.ts
+│   ├── lib/
+│   │   ├── s3.ts                   # Singleton S3Client configured from config
+│   │   └── db.ts                   # mysql2 pool for updating project_assets_current
+│   └── index.ts                    # Worker entry point; wires BullMQ worker + job handlers
 ```
 
 ### `packages/remotion-comps/`
@@ -516,6 +524,39 @@ import { ClipBlock } from './ClipBlock';
 
 Always place a blank line between each group. Never mix groups on the same line.
 
+### Absolute imports (`@/`) — mandatory for all apps
+
+Every `apps/*` package **must** use the `@/` alias for intra-app imports. Relative imports that cross directory boundaries (e.g. `../../config.js`) are **forbidden**; only same-folder relative imports (e.g. `./ClipBlock`) are allowed.
+
+```typescript
+// CORRECT — absolute alias for anything outside the current folder
+import { config } from '@/config.js';
+import { assetRepository } from '@/repositories/asset.repository.js';
+
+// WRONG — relative imports crossing directory boundaries
+import { config } from '../../config.js';
+import { assetRepository } from '../repositories/asset.repository.js';
+```
+
+**Required setup in every `apps/*` tsconfig.json:**
+```json
+{
+  "compilerOptions": {
+    "paths": { "@/*": ["./src/*"] }
+  }
+}
+```
+
+**Required devDependency and build script** (TypeScript does not rewrite aliases in output — `tsc-alias` does):
+```json
+{
+  "devDependencies": { "tsc-alias": "^1.8.0" },
+  "scripts": { "build": "tsc && tsc-alias" }
+}
+```
+
+`tsx` resolves `@/` natively during dev (`tsx watch src/index.ts`) — no extra config needed for the dev workflow. The `tsc-alias` step is only needed for the compiled `dist/` output used in production.
+
 ### File length
 
 Files MUST NOT exceed 300 lines. When a file exceeds this, extract the next logical unit (a hook, a sub-component, a helper function) into a new file in the same folder.
@@ -540,7 +581,7 @@ rootRef.current.style.setProperty('--playhead-x', `${frame * pxPerFrame}px`);
 
 ### Unit tests
 
-- **Test:** service functions in `apps/api/src/services/`, utility functions in `packages/editor-core/`, Zod schemas in `packages/project-schema/`, custom hooks in `apps/web-editor/src/features/*/hooks/`.
+- **Test:** service functions in `apps/api/src/services/`, middleware in `apps/api/src/middleware/`, utility functions in `packages/editor-core/`, Zod schemas in `packages/project-schema/`, custom hooks in `apps/web-editor/src/features/*/hooks/`.
 - **Do NOT test:** Express route registration, React component rendering details, BullMQ worker wiring, repository SQL correctness (that is integration test territory).
 - **Tool:** Vitest
 - **File location:** Colocated. Test file lives next to the file under test with `.test.ts` or `.test.tsx` suffix (e.g. `version.service.test.ts` next to `version.service.ts`).
@@ -569,6 +610,77 @@ describe('version.service', () => {
   });
 });
 ```
+
+### Running tests locally
+
+#### Installing dependencies
+
+The monorepo uses `workspace:*` in inter-package dependencies (pnpm protocol), but the declared `packageManager` is `npm`. Running `npm install` from the **root** will fail because npm does not understand `workspace:*`. Use this per-app approach instead:
+
+```bash
+# Install only one app's deps (resolves workspace:* conflict):
+cd apps/api
+npm install --workspaces=false
+
+# Then run tests from that same directory:
+./node_modules/.bin/vitest run                              # all unit tests in apps/api
+./node_modules/.bin/vitest run src/services/               # service tests only
+./node_modules/.bin/vitest run src/middleware/             # middleware tests only
+./node_modules/.bin/vitest run src/services/asset.service.test.ts  # single file
+```
+
+The same pattern applies to `packages/project-schema` and other workspaces — each has its own `node_modules` after a local `npm install --workspaces=false`.
+
+#### Integration tests (require running Docker services)
+
+```bash
+# Start DB + Redis:
+docker compose up -d db redis
+
+# Run integration tests (from apps/api after install):
+./node_modules/.bin/vitest run src/__tests__/integration/
+```
+
+Integration tests talk to a real MySQL instance. If `APP_DB_PASSWORD` is non-default, pass it inline:
+```bash
+APP_DB_PASSWORD=cliptale ./node_modules/.bin/vitest run src/__tests__/integration/
+```
+
+#### Running tests for apps/media-worker and apps/render-worker
+
+Same install pattern as `apps/api`:
+```bash
+cd apps/media-worker   # or apps/render-worker
+npm install --workspaces=false
+./node_modules/.bin/vitest run
+```
+
+`@ai-video-editor/project-schema` must be **built** before installing worker packages (the workers import types from its compiled output). If you get a missing module error, run `cd packages/project-schema && npm install --workspaces=false && ./node_modules/.bin/tsc` first.
+
+#### vi.mock hoisting pitfall
+
+`vi.mock(...)` factories are hoisted to the **top of the file** before any variable declarations. Variables declared outside the factory and referenced inside it will cause a `ReferenceError`. Use `vi.hoisted()` to declare shared mock objects that are needed by both the factory and the test body:
+
+```typescript
+// CORRECT — vi.hoisted ensures the object is available when the factory runs
+const { mockStream } = vi.hoisted(() => ({
+  mockStream: { on: vi.fn().mockReturnThis() },
+}));
+
+vi.mock('some-module', () => ({
+  createStream: vi.fn().mockReturnValue(mockStream), // safe — mockStream is hoisted
+}));
+
+// WRONG — ReferenceError at runtime
+const mockStream = { on: vi.fn() };           // declared after hoisted mock factory
+vi.mock('some-module', () => ({
+  createStream: vi.fn().mockReturnValue(mockStream), // ← TDZ: mockStream not yet init
+}));
+```
+
+#### E2E tests (CI only)
+
+Playwright E2E tests live in `e2e/` at the monorepo root and run only on `main` branch merges in CI. Do not run them locally unless explicitly debugging an E2E failure.
 
 ### Coverage expectations
 
@@ -792,219 +904,97 @@ The official Remotion system prompt for LLM usage is stored at `docs/ai/remotion
 
 ## 15. Local Development Environment
 
-This section documents everything needed to run the full project stack on a local machine. All infrastructure dependencies are containerized via Docker Compose. Application code (Node.js apps) runs on the host machine via `turbo dev` for hot-reload support. An AI agent adding a new infrastructure dependency MUST add it to `docker-compose.yml` and document it in this section.
+This section documents everything needed to run the full project stack on a local machine. The entire stack — infrastructure, API, workers, and web editor — runs inside Docker Compose. No application code needs to run on the host to use the product. An AI agent adding a new service MUST add it to `docker-compose.yml` and document it in this section.
 
 ### Prerequisites
 
-Install these tools on the host machine before starting:
-
 | Tool | Minimum version | Purpose |
 |---|---|---|
-| Node.js | 20 LTS | Run all `apps/` and `packages/` |
-| pnpm | 9.x | Monorepo package manager (`corepack enable`) |
-| Docker Desktop | 4.x | Run infrastructure containers |
-| Docker Compose | v2 (bundled with Docker Desktop) | Orchestrate local infrastructure |
+| Docker Desktop | 4.x | Run all containers |
+| Docker Compose | v2 (bundled with Docker Desktop) | Orchestrate the full stack |
+| Node.js | 20 LTS | Run unit tests and local scripts only (not needed to start the stack) |
 
-### Infrastructure containers (Docker Compose)
+### Services (Docker Compose)
 
-The following services run in Docker. Application code does NOT run in Docker locally — only stateful infrastructure does.
+All five services are defined in `docker-compose.yml` at the monorepo root.
 
-| Service | Image | Local port | Purpose |
+| Service | Build | Local port | Purpose |
 |---|---|---|---|
-| `mysql` | `mysql:8.0` | `3306` | Primary database |
+| `db` | `mysql:8.0` | `3306` | Primary database; auto-applies migrations from `apps/api/src/db/migrations/` on first boot |
 | `redis` | `redis:7-alpine` | `6379` | BullMQ queue backend |
-| `minio` | `minio/minio` | `9000` (API), `9001` (Console) | S3-compatible local object storage |
-| `minio-init` | `minio/mc` | — | One-shot container that creates the default bucket on first run |
-| `mailhog` | `mailhog/mailhog` | `1025` (SMTP), `8025` (Web UI) | Local email capture (for auth emails) |
+| `api` | `apps/api/Dockerfile` | `3001` | Express API — presigned URL issuance, finalization, job enqueue |
+| `web-editor` | `apps/web-editor/Dockerfile` | `5173` | Vite dev server serving the React editor |
+| `media-worker` | `apps/media-worker/Dockerfile` | — | BullMQ worker — FFprobe ingest, thumbnail, waveform |
 
-### `docker-compose.yml`
+### Startup — single command
 
-Place this file at the monorepo root.
+**Step 1 — Configure S3 credentials**
 
-```yaml
-version: '3.9'
-
-services:
-
-  # ── MySQL ─────────────────────────────────────────────────────────────────
-  mysql:
-    image: mysql:8.0
-    container_name: aive_mysql
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: aivideoeditor
-      MYSQL_USER: appuser
-      MYSQL_PASSWORD: apppassword
-    ports:
-      - '3306:3306'
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./infra/mysql/init:/docker-entrypoint-initdb.d   # seed scripts run once on first boot
-    healthcheck:
-      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-u', 'root', '-prootpassword']
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ── Redis ──────────────────────────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: aive_redis
-    restart: unless-stopped
-    ports:
-      - '6379:6379'
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ── MinIO (S3-compatible object storage) ──────────────────────────────────
-  minio:
-    image: minio/minio:latest
-    container_name: aive_minio
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - '9000:9000'   # S3 API — used by app services
-      - '9001:9001'   # MinIO web console — open in browser to inspect buckets
-    volumes:
-      - minio_data:/data
-    healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # One-shot init container: creates the default bucket after MinIO is healthy.
-  # Re-running docker compose up will skip this if the bucket already exists.
-  minio-init:
-    image: minio/mc:latest
-    container_name: aive_minio_init
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-        mc alias set local http://minio:9000 minioadmin minioadmin &&
-        mc mb --ignore-existing local/aivideoeditor-assets &&
-        mc mb --ignore-existing local/aivideoeditor-renders &&
-        echo 'Buckets ready.'
-      "
-    restart: 'no'
-
-  # ── Mailhog (local email capture) ─────────────────────────────────────────
-  mailhog:
-    image: mailhog/mailhog:latest
-    container_name: aive_mailhog
-    restart: unless-stopped
-    ports:
-      - '1025:1025'   # SMTP — point APP_SMTP_HOST here
-      - '8025:8025'   # Web UI — http://localhost:8025 to view captured emails
-
-volumes:
-  mysql_data:
-  redis_data:
-  minio_data:
-```
-
-### `.env` for local development
-
-Copy `.env.example` to `.env` at the monorepo root and fill in values matching the Docker Compose services above. The `.env` file MUST NOT be committed.
+Copy `.env.example` to `.env` and fill in your S3/R2 credentials. The `.env` file MUST NOT be committed.
 
 ```bash
-# ── API ────────────────────────────────────────────────────────────────────
-APP_PORT=3001
-
-# Database (matches docker-compose mysql service)
-APP_DB_HOST=127.0.0.1
-APP_DB_PORT=3306
-APP_DB_NAME=aivideoeditor
-APP_DB_USER=appuser
-APP_DB_PASSWORD=apppassword
-
-# Redis (matches docker-compose redis service)
-APP_REDIS_URL=redis://127.0.0.1:6379
-
-# Object storage — MinIO local (S3-compatible)
-APP_S3_ENDPOINT=http://127.0.0.1:9000
-APP_S3_REGION=us-east-1
-APP_S3_ACCESS_KEY_ID=minioadmin
-APP_S3_SECRET_ACCESS_KEY=minioadmin
-APP_S3_BUCKET_ASSETS=aivideoeditor-assets
-APP_S3_BUCKET_RENDERS=aivideoeditor-renders
-APP_S3_FORCE_PATH_STYLE=true       # Required for MinIO; set false in production S3/R2
-
-# Auth
-APP_JWT_SECRET=local-dev-jwt-secret-change-in-production-minimum-32-chars
-
-# AI services
-APP_WHISPER_API_KEY=sk-...         # OpenAI API key
-
-# Email (Mailhog locally)
-APP_SMTP_HOST=127.0.0.1
-APP_SMTP_PORT=1025
-
-# ── Web Editor ─────────────────────────────────────────────────────────────
-VITE_PUBLIC_API_BASE_URL=http://localhost:3001
-
-# ── Workers ────────────────────────────────────────────────────────────────
-# render-worker and media-worker share the same Redis and DB config above
+cp .env.example .env
+# Edit .env — set APP_S3_ACCESS_KEY_ID, APP_S3_SECRET_ACCESS_KEY, APP_S3_BUCKET, APP_S3_ENDPOINT
 ```
 
-### Local startup sequence
+All other values have working defaults in `.env.example` for local development.
 
-Run these commands in order. Each step must succeed before the next.
-
-**Step 1 — Install dependencies**
+**Step 2 — Start the full stack**
 
 ```bash
-corepack enable          # activates pnpm from package.json packageManager field
-pnpm install             # installs all workspace packages
+docker compose up --build
 ```
 
-**Step 2 — Start infrastructure**
+Docker Compose builds all three app images, starts `db` and `redis` first, then `api` and `media-worker` (waiting for Redis healthy), then `web-editor`. The database migration runs automatically on first boot.
 
-```bash
-docker compose up -d
-```
-
-Wait for all health checks to pass. Verify with:
-
-```bash
-docker compose ps        # all services should show "healthy" or "running"
-```
-
-**Step 3 — Run database migrations**
-
-```bash
-pnpm --filter api run migrate
-```
-
-This runs all numbered SQL files in `apps/api/src/db/migrations/` in order against the local MySQL instance. Running this command again is safe — migrations are idempotent (use `CREATE TABLE IF NOT EXISTS`).
-
-**Step 4 — Start all application services**
-
-```bash
-pnpm turbo dev
-```
-
-Turborepo starts all `apps/` in parallel with hot-reload. Default ports:
+**Step 3 — Open the editor**
 
 | Service | URL |
 |---|---|
 | Web editor (Vite) | http://localhost:5173 |
 | API (Express) | http://localhost:3001 |
-| Render worker | No HTTP — BullMQ worker only |
-| Media worker | No HTTP — BullMQ worker only |
-| MinIO console | http://localhost:9001 (login: `minioadmin` / `minioadmin`) |
-| Mailhog UI | http://localhost:8025 |
+| DB (MySQL) | `localhost:3306` (user: `cliptale`, pass: `cliptale`, db: `cliptale`) |
+| Redis | `localhost:6379` |
+
+### `.env` reference
+
+```bash
+# ── Database ──────────────────────────────────────────────────────────────
+APP_DB_HOST=localhost
+APP_DB_PORT=3306
+APP_DB_NAME=cliptale
+APP_DB_USER=cliptale
+APP_DB_PASSWORD=cliptale
+
+# ── Redis / BullMQ ────────────────────────────────────────────────────────
+APP_REDIS_URL=redis://localhost:6379
+
+# ── Object Storage (S3 / Cloudflare R2) ──────────────────────────────────
+APP_S3_ACCESS_KEY_ID=            # required
+APP_S3_SECRET_ACCESS_KEY=        # required
+APP_S3_BUCKET=cliptale-assets    # required
+APP_S3_ENDPOINT=                 # leave blank for AWS; set for R2: https://<account>.r2.cloudflarestorage.com
+APP_S3_REGION=us-east-1
+
+# ── Auth ──────────────────────────────────────────────────────────────────
+APP_JWT_SECRET=local-dev-jwt-secret-change-in-production-minimum-32-chars
+APP_JWT_EXPIRES_IN=7d
+
+# ── API server ────────────────────────────────────────────────────────────
+APP_PORT=3001
+APP_CORS_ORIGIN=http://localhost:5173
+
+# ── Web editor ────────────────────────────────────────────────────────────
+VITE_PUBLIC_API_BASE_URL=http://localhost:3001
+```
+
+### Database migrations
+
+Migrations live in `apps/api/src/db/migrations/` as numbered SQL files (e.g. `001_project_assets_current.sql`). They are mounted into the MySQL container and executed automatically on the **first boot** (when the `db_data` volume is empty).
+
+- Migration files use `CREATE TABLE IF NOT EXISTS` — safe to re-run.
+- To apply a new migration to an existing volume: `docker compose restart db` does NOT re-run init scripts. Instead, exec into the container or wipe the volume (see below).
+- To add a migration: create the next numbered file in `apps/api/src/db/migrations/` and document it here.
 
 ### Stopping and resetting
 
@@ -1012,48 +1002,42 @@ Turborepo starts all `apps/` in parallel with hot-reload. Default ports:
 # Stop all containers (preserves data volumes)
 docker compose down
 
-# Stop and WIPE all local data (full reset — runs minio-init again on next up)
+# Stop and wipe all data — triggers migration re-run on next `docker compose up`
 docker compose down -v
 
-# Restart a single service (e.g. after changing MySQL init scripts)
-docker compose restart mysql
+# Rebuild a single service after code changes (e.g. API)
+docker compose up --build api
+
+# Tail logs for a specific service
+docker compose logs -f api
 ```
 
-### `infra/mysql/init/` — seed scripts
+### Running tests locally (host machine)
 
-Place SQL files in `infra/mysql/init/` to be executed by MySQL once on the very first container boot (when the `mysql_data` volume is empty). Use this for test seed data only — never for schema migrations. Schema migrations run via `pnpm --filter api run migrate`, not via Docker init scripts.
-
-```
-infra/
-└── mysql/
-    └── init/
-        └── 001_seed_dev_user.sql   # Creates a local test user account for development
-```
-
-### FFmpeg in workers (local)
-
-The `media-worker` requires `ffmpeg` and `ffprobe` binaries on the host machine (since workers run on the host, not in Docker). Install via:
+Tests run on the host against the Docker infrastructure (db + redis must be up).
 
 ```bash
-# macOS
-brew install ffmpeg
+# API unit + integration tests
+cd apps/api && npm install && npm test
 
-# Ubuntu / Debian
-sudo apt-get install ffmpeg
+# Media worker unit tests (no Docker needed)
+cd apps/media-worker && npm install && npm test
+
+# Web editor unit tests (no Docker needed)
+cd apps/web-editor && npm install && npm test
 ```
 
-Verify: `ffmpeg -version` and `ffprobe -version` must both succeed before running `pnpm turbo dev`.
-
-### Common local issues and fixes
+### Common issues and fixes
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `ECONNREFUSED 127.0.0.1:3306` | MySQL container not yet healthy | Run `docker compose ps` and wait; or `docker compose logs mysql` |
-| `ERR_MODULE_NOT_FOUND @ai-video-editor/project-schema` | Workspace packages not built | Run `pnpm turbo build --filter=project-schema` before `pnpm turbo dev` |
-| MinIO upload returns `InvalidAccessKeyId` | `.env` credentials don't match MinIO init | Ensure `APP_S3_ACCESS_KEY_ID=minioadmin` matches `MINIO_ROOT_USER` in `docker-compose.yml` |
-| Presigned URL returns `localhost:9000` but browser can't reach it | `APP_S3_ENDPOINT` not set or wrong | Set `APP_S3_ENDPOINT=http://127.0.0.1:9000` and `APP_S3_FORCE_PATH_STYLE=true` |
-| `ffprobe: command not found` in media-worker | FFmpeg not installed on host | Run `brew install ffmpeg` (macOS) or `apt-get install ffmpeg` (Linux) |
-| Port `5173` already in use | Another Vite process running | `lsof -ti:5173 \| xargs kill` |
+| `api` exits immediately on startup | DB not ready yet | Add a small startup delay or retry; `docker compose up` again — db healthcheck is `service_started`, not `healthy` |
+| `ECONNREFUSED 127.0.0.1:3306` in tests | DB container not running | Run `docker compose up -d db redis` before running tests |
+| S3 upload returns `InvalidAccessKeyId` | Missing `.env` values | Ensure `APP_S3_ACCESS_KEY_ID` and `APP_S3_SECRET_ACCESS_KEY` are set in `.env` |
+| Presigned URL works but browser PUT fails | CORS on S3/R2 bucket | Configure the bucket's CORS policy to allow PUT from `http://localhost:5173` |
+| Port `5173` already in use | Another process on the port | `lsof -ti:5173 \| xargs kill` |
+| Port `3001` already in use | Another API process running | `lsof -ti:3001 \| xargs kill` |
+| `web-editor` container starts but page is blank | Vite still bundling | Wait ~10 s and refresh; check `docker compose logs web-editor` |
 
 ---
 

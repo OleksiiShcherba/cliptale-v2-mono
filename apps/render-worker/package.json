@@ -12,8 +12,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-video-editor/project-schema": "workspace:*",
-    "@ai-video-editor/remotion-comps": "workspace:*",
+    "@ai-video-editor/project-schema": "file:../../packages/project-schema",
+    "@ai-video-editor/remotion-comps": "file:../../packages/remotion-comps",
     "bullmq": "^5.4.0",
     "ioredis": "^5.3.0",
     "@aws-sdk/client-s3": "^3.540.0",

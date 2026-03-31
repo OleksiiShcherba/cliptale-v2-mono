@@ -12,10 +12,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-video-editor/project-schema": "workspace:*",
-    "@ai-video-editor/ui": "workspace:*",
-    "@ai-video-editor/editor-core": "workspace:*",
-    "@ai-video-editor/remotion-comps": "workspace:*",
+    "@ai-video-editor/project-schema": "file:../../packages/project-schema",
+    "@ai-video-editor/ui": "file:../../packages/ui",
+    "@ai-video-editor/editor-core": "file:../../packages/editor-core",
+    "@ai-video-editor/remotion-comps": "file:../../packages/remotion-comps",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "@tanstack/react-query": "^5.28.0",

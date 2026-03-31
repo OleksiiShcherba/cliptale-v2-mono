@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-video-editor/project-schema": "workspace:*",
+    "@ai-video-editor/project-schema": "file:../project-schema",
     "zod": "^3.22.0"
   },
   "devDependencies": {

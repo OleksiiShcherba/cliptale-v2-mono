@@ -18,7 +18,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-video-editor/project-schema": "workspace:*",
+    "@ai-video-editor/project-schema": "file:../project-schema",
     "immer": "^10.0.0"
   },
   "devDependencies": {
