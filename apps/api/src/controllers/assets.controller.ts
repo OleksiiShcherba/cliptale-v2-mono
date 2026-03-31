@@ -42,6 +42,20 @@ export async function createUploadUrl(
   }
 }
 
+/** GET /projects/:id/assets — returns all assets for a project as a JSON array. */
+export async function getProjectAssets(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const assets = await assetService.getProjectAssets(req.params['id']!);
+    res.json(assets);
+  } catch (err) {
+    next(err);
+  }
+}
+
 /** GET /assets/:id — returns the current asset record; used by the FE polling hook. */
 export async function getAsset(
   req: Request,

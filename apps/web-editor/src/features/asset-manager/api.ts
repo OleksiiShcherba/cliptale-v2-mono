@@ -4,7 +4,7 @@ import type { Asset, UploadUrlRequest, UploadUrlResponse } from './types';
 
 /** Request a presigned PUT URL for a new asset upload. */
 export async function requestUploadUrl(payload: UploadUrlRequest): Promise<UploadUrlResponse> {
-  const res = await apiClient.post('/assets/upload-url', payload);
+  const res = await apiClient.post(`/projects/${payload.projectId}/assets/upload-url`, payload);
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Failed to request upload URL (${res.status}): ${body}`);

@@ -17,6 +17,10 @@ router.post(
   assetsController.createUploadUrl,
 );
 
+// GET /projects/:id/assets
+// Returns all assets for a project as a JSON array (empty array if none).
+router.get('/projects/:id/assets', authMiddleware, assetsController.getProjectAssets);
+
 // GET /assets/:id
 // Returns the current state of an asset — used by the FE polling hook.
 router.get('/assets/:id', authMiddleware, assetsController.getAsset);

@@ -3,13 +3,15 @@ import type { S3Client } from '@aws-sdk/client-s3';
 
 import { ValidationError, NotFoundError } from '@/lib/errors.js';
 import * as assetRepository from '@/repositories/asset.repository.js';
-import { createUploadUrl, getAsset } from './asset.service.js';
+
+import { createUploadUrl, getAsset, getProjectAssets } from './asset.service.js';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 vi.mock('@/repositories/asset.repository.js', () => ({
   insertPendingAsset: vi.fn().mockResolvedValue(undefined),
   getAssetById: vi.fn(),
+  getAssetsByProjectId: vi.fn(),
 }));
 
 // Mock presigned URL generation — avoids real AWS credentials in unit tests.
@@ -181,6 +183,60 @@ describe('asset.service', () => {
       vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(null);
 
       await expect(getAsset('nonexistent-id')).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+
+  // ── getProjectAssets ─────────────────────────────────────────────────────────
+
+  describe('getProjectAssets', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it('returns an array of assets when assets exist for the project', async () => {
+      const mockAssets = [
+        {
+          assetId: 'asset-001',
+          projectId: 'proj-abc',
+          userId: 'user-1',
+          filename: 'a.mp4',
+          contentType: 'video/mp4',
+          fileSizeBytes: 1000,
+          storageUri: 's3://bucket/a.mp4',
+          status: 'ready' as const,
+          errorMessage: null,
+          durationFrames: 120,
+          width: 1920,
+          height: 1080,
+          fps: 30,
+          thumbnailUri: null,
+          waveformJson: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ];
+      vi.mocked(assetRepository.getAssetsByProjectId).mockResolvedValueOnce(mockAssets);
+
+      const result = await getProjectAssets('proj-abc');
+
+      expect(result).toEqual(mockAssets);
+      expect(assetRepository.getAssetsByProjectId).toHaveBeenCalledWith('proj-abc');
+    });
+
+    it('returns an empty array when the project has no assets', async () => {
+      vi.mocked(assetRepository.getAssetsByProjectId).mockResolvedValueOnce([]);
+
+      const result = await getProjectAssets('proj-empty');
+
+      expect(result).toEqual([]);
+    });
+
+    it('propagates errors from the repository', async () => {
+      vi.mocked(assetRepository.getAssetsByProjectId).mockRejectedValueOnce(
+        new Error('DB connection lost'),
+      );
+
+      await expect(getProjectAssets('proj-abc')).rejects.toThrow('DB connection lost');
     });
   });
 });

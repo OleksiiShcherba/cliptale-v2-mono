@@ -3,11 +3,24 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { getAssets } from '@/features/asset-manager/api';
 import { useAssetUpload } from '@/features/asset-manager/hooks/useAssetUpload';
+import { useAssetPolling } from '@/features/asset-manager/hooks/useAssetPolling';
 import type { Asset, AssetFilterTab } from '@/features/asset-manager/types';
 
 import { AssetCard } from './AssetCard';
 import { AssetDetailPanel } from './AssetDetailPanel';
 import { UploadDropzone } from './UploadDropzone';
+
+/** Renders nothing; runs useAssetPolling for one asset and calls onSettled when done. */
+function AssetPoller({
+  assetId,
+  onSettled,
+}: {
+  assetId: string;
+  onSettled: () => void;
+}): null {
+  useAssetPolling({ assetId, onReady: onSettled, onError: onSettled });
+  return null;
+}
 
 const TABS: { label: string; value: AssetFilterTab }[] = [
   { label: 'All', value: 'all' },
@@ -226,6 +239,17 @@ export function AssetBrowserPanel({ projectId }: AssetBrowserPanelProps): React.
           onDone={handleDone}
         />
       )}
+
+      {/* Background pollers — one per processing asset; render nothing, fire invalidation when settled */}
+      {assets
+        .filter((a) => a.status === 'processing' || a.status === 'pending')
+        .map((a) => (
+          <AssetPoller
+            key={a.id}
+            assetId={a.id}
+            onSettled={() => void queryClient.invalidateQueries({ queryKey: ['assets', projectId] })}
+          />
+        ))}
     </div>
   );
 }

@@ -110,6 +110,15 @@ export async function getAssetById(assetId: string): Promise<Asset | null> {
   return rows.length ? mapRowToAsset(rows[0]!) : null;
 }
 
+/** Returns all assets belonging to a project, ordered by creation date ascending. */
+export async function getAssetsByProjectId(projectId: string): Promise<Asset[]> {
+  const [rows] = await pool.execute<AssetRow[]>(
+    'SELECT * FROM project_assets_current WHERE project_id = ? ORDER BY created_at ASC',
+    [projectId],
+  );
+  return rows.map(mapRowToAsset);
+}
+
 /** Updates the status (and optional error message) of an asset in-place. */
 export async function updateAssetStatus(
   assetId: string,

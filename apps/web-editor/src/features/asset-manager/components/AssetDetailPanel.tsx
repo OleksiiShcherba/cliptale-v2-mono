@@ -177,36 +177,39 @@ export function AssetDetailPanel({ asset, onDelete }: AssetDetailPanelProps): Re
       <div style={{ flex: 1 }} />
 
       <button
+        disabled
         style={{
           width: 248,
           height: 36,
           borderRadius: 8,
           border: '1px solid #252535',
           backgroundColor: 'transparent',
-          color: '#F0F0FA',
+          color: '#555560',
           fontSize: 13,
-          cursor: 'pointer',
+          cursor: 'not-allowed',
           fontFamily: 'Inter, sans-serif',
           flexShrink: 0,
+          opacity: 0.5,
         }}
       >
         Replace File
       </button>
 
       <button
+        disabled
         aria-label={`Delete asset ${asset.filename}`}
-        onClick={() => onDelete?.(asset.id)}
         style={{
           width: 248,
           height: 36,
           borderRadius: 8,
           border: '1px solid #252535',
           backgroundColor: 'transparent',
-          color: '#EF4444',
+          color: '#555560',
           fontSize: 13,
-          cursor: 'pointer',
+          cursor: 'not-allowed',
           fontFamily: 'Inter, sans-serif',
           flexShrink: 0,
+          opacity: 0.5,
         }}
       >
         Delete Asset

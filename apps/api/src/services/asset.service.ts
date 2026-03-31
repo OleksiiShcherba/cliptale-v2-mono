@@ -125,6 +125,14 @@ export async function createUploadUrl(
   return { assetId, uploadUrl, storageUri, expiresAt };
 }
 
+/**
+ * Returns all assets for a project. Returns an empty array when the project
+ * has no assets — never throws NotFoundError for a missing project.
+ */
+export async function getProjectAssets(projectId: string): Promise<Asset[]> {
+  return assetRepository.getAssetsByProjectId(projectId);
+}
+
 /** Returns an asset by ID, or throws NotFoundError if it does not exist. */
 export async function getAsset(assetId: string): Promise<Asset> {
   const asset = await assetRepository.getAssetById(assetId);

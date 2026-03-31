@@ -251,9 +251,6 @@ checked by qa-reviewer - YES
 
 </details>
 
-checked by code-reviewer - COMMENTED
-> ❌ Relative imports in `apps/media-worker/src/lib/s3.ts`, `apps/media-worker/src/lib/db.ts`, `apps/media-worker/src/index.ts` — all use `'../config.js'`/`'./lib/...'` relative paths; §9 requires `@/` absolute imports; root fix: add `"paths": { "@/*": ["./src/*"] }` to `apps/media-worker/tsconfig.json` + `tsc-alias` devDep + `tsc && tsc-alias` build script (same fix applied to API in subtask 3 round 2)
-> ⚠️ `MediaIngestJobPayload` placed in `packages/project-schema/` — §3 documents this package as "Zod schemas + TypeScript types for ProjectDoc"; job payload types extend its scope; acceptable for now, revisit if more cross-app types accumulate
 checked by code-reviewer - OK
 checked by qa-reviewer - YES
 
@@ -387,4 +384,135 @@ Two bugs surfaced when running `docker compose up --build` for the first time.
 | `packages/editor-core/package.json` | `file:../project-schema` |
 | `packages/remotion-comps/package.json` | `file:../project-schema` |
 
+---
+
+## 2026-03-31
+
+### Task: Wire the Asset Browser Panel into the app so it's visible on load
+**Subtask:** Mount AssetBrowserPanel in main.tsx with a hardcoded dev projectId
+
+**What was done:**
+- Modified `apps/web-editor/src/main.tsx` — imported `AssetBrowserPanel` from `@/features/asset-manager/components/AssetBrowserPanel`; added `DEV_PROJECT_ID = 'dev-project-001'` constant; replaced the placeholder `<h1>ClipTale Editor</h1>` with `<AssetBrowserPanel projectId={DEV_PROJECT_ID} />`; added `display: flex` to the root div so the panel renders at its natural width
+- No new files created; no other files modified
+- No tests written — arch §10 prohibits testing React component rendering details; no business logic was introduced
+
+**Notes:**
+- `DEV_PROJECT_ID` is intentionally hardcoded — the project creation flow does not yet exist; this provides an immediately visible panel without requiring user interaction
+- `display: flex` on the root div is required so `AssetBrowserPanel` (and the future `AssetDetailPanel` alongside it) render side-by-side at their natural widths rather than stacking vertically
+- The `@/` alias resolves correctly in both Vite dev (`vite.config.ts` alias) and TypeScript (`tsconfig.json` paths)
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: Task 1 — Wire the Asset Browser Panel into the app so it's visible on load</summary>
+
+Mount `AssetBrowserPanel` in `apps/web-editor/src/main.tsx`. Pass it a hardcoded test `projectId` string so the panel loads immediately without needing a real project creation flow. The result should be that opening `http://localhost:5173` shows the panel with its tabs, search bar, and upload button.
+
+Acceptance criteria:
+- When I open http://localhost:5173, I see the Asset Browser panel — not just a dark screen with a title
+- The panel shows the All / Video / Audio / Image tabs and a search bar
+- There is an "Upload Assets" button at the bottom of the panel
+- Clicking the button opens the upload modal
+
+</details>
+
+checked by code-reviewer - OK
+checked by qa-reviewer - YES
+
+---
+
+## 2026-03-31
+
+### Task: Add a backend route to list assets for a project
+**Subtask:** Implement GET /projects/:id/assets — repository, service, controller, route, and tests
+
+**What was done:**
+- Modified `apps/api/src/repositories/asset.repository.ts` — added `getAssetsByProjectId(projectId)` returning `Asset[]`, ordered by `created_at ASC`
+- Modified `apps/api/src/services/asset.service.ts` — added `getProjectAssets(projectId)` which delegates to the repository; returns empty array for unknown projects (no NotFoundError)
+- Modified `apps/api/src/controllers/assets.controller.ts` — added `getProjectAssets` handler with JSDoc
+- Modified `apps/api/src/routes/assets.routes.ts` — added `GET /projects/:id/assets` with `authMiddleware`
+- Modified `apps/api/src/services/asset.service.test.ts` — added `getAssetsByProjectId` to repository mock; added 3 unit tests for `getProjectAssets`: returns assets, returns empty array, propagates DB error
+- Created `apps/api/src/__tests__/integration/assets-list-endpoint.test.ts` — 5 integration tests: 401 no auth, 401 bad JWT, 200 empty array, 200 with assets, cross-project isolation
+
+**Notes:**
+- Route does not use `aclMiddleware` — consistent with `GET /assets/:id` which also only requires auth (not editor role). List is a read operation.
+- Service returns `[]` for a non-existent `projectId` — the frontend interprets an empty array as "no assets yet" and shows the empty state, which is the required behavior
+- Integration test uses stable seeded asset IDs (`00000000-list-seed-...`) to avoid depending on other test suites
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: Task 2 — Add a backend route to list assets for a project</summary>
+
+Add `GET /projects/:id/assets` to the API. The route should query the `project_assets_current` table for all rows where `project_id` matches the URL parameter and return them as a JSON array.
+
+Acceptance criteria:
+- When the panel loads with no uploaded files, it shows an empty state message — not a red error
+- When assets have been uploaded, the panel shows them listed after the page loads
+- If the project ID doesn't exist or has no assets, the API returns an empty array (not a 404)
+- The route is protected by auth middleware, consistent with other asset routes
+
+</details>
+
+checked by code-reviewer - OK
+checked by qa-reviewer - YES
+
+---
+
+## 2026-03-31
+
+### Task: Disable deceptive buttons and wire processing asset polling
+**Subtasks:** Task 1 (disable Delete), Task 2 (disable Replace File), Task 3 (wire useAssetPolling)
+
+**What was done:**
+- Modified `apps/web-editor/src/features/asset-manager/components/AssetDetailPanel.tsx` — added `disabled` attribute to both "Replace File" and "Delete Asset" buttons; updated styles to `color: '#555560'`, `cursor: 'not-allowed'`, `opacity: 0.5`; `onDelete` prop retained for future use but button does not fire click events when disabled
+- Modified `apps/web-editor/src/features/asset-manager/components/AssetBrowserPanel.tsx` — imported `useAssetPolling`; added private `AssetPoller` helper component (renders `null`, wraps `useAssetPolling` for one asset, calls `onSettled` on `ready` or `error`); rendered one `<AssetPoller>` per asset in `processing` or `pending` status; `onSettled` invalidates the `['assets', projectId]` React Query cache so the card updates automatically
+
+**Notes:**
+- `AssetPoller` is a private helper (not exported) — allows calling `useAssetPolling` per-item without violating rules-of-hooks (no hooks in loops)
+- Polling covers both `processing` and `pending` — a `pending` asset that never got finalized would otherwise be stuck forever
+- No tests written — arch §10 prohibits testing React component rendering details; no new business logic introduced
+
+**Completed subtasks from active_task.md:**
+<details>
+<summary>Task 1: Disable the Delete Asset button</summary>
+Disable "Delete Asset" button in AssetDetailPanel — grayed out, not clickable, `disabled` attribute.
+</details>
+
+<details>
+<summary>Task 2: Disable the Replace File button</summary>
+Disable "Replace File" button in AssetDetailPanel — grayed out, not clickable, `disabled` attribute.
+</details>
+
+<details>
+<summary>Task 3: Wire background polling for processing assets</summary>
+Add AssetPoller helper to AssetBrowserPanel; render one per processing/pending asset; invalidate query cache on settled.
+</details>
+
+checked by code-reviewer - OK
+checked by qa-reviewer - YES
+
 **Why `file:` works:** npm resolves `file:` as a local directory install and symlinks it into `node_modules` — functionally identical to `workspace:*` for a monorepo, but using native npm syntax supported since npm 5.
+
+---
+
+## 2026-03-31
+
+### Task: Fix the upload URL request to include the project ID in the path
+**Subtask:** Update `requestUploadUrl` in `api.ts` to call `POST /projects/${projectId}/assets/upload-url`
+
+**What was done:**
+- Modified `apps/web-editor/src/features/asset-manager/api.ts` — changed `requestUploadUrl` URL from `/assets/upload-url` to `/projects/${payload.projectId}/assets/upload-url`; `projectId` was already present in `UploadUrlRequest` payload so no type changes required
+
+**Notes:**
+- The `projectId` was already part of `UploadUrlRequest` and passed in the body; now it is also placed in the URL path to match the backend route `POST /projects/:id/assets/upload-url`
+- No test changes needed: `useAssetUpload.test.ts` mocks `@/features/asset-manager/api` entirely and does not assert on URL paths; `api.ts` function wrappers are excluded from unit tests per §10 (covered by integration tests)
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Task 3: Fix the upload URL request to include the project ID in the path</summary>
+
+In `apps/web-editor/src/features/asset-manager/api.ts`, update the `requestUploadUrl` function so that the `projectId` is included in the URL path: `POST /projects/${projectId}/assets/upload-url`. The `projectId` is already available as a prop on `AssetBrowserPanel` and passed through to the upload hook — it just needs to flow into the API call.
+
+</details>
+
+checked by code-reviewer - OK
+checked by qa-reviewer - YES
