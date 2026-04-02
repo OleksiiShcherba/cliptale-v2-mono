@@ -18,6 +18,11 @@
     },
     "typecheck": {
       "dependsOn": ["^build"]
+    },
+    "e2e": {
+      "dependsOn": ["^build"],
+      "outputs": [],
+      "cache": false
     }
   }
 }

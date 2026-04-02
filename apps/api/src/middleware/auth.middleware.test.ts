@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
@@ -9,8 +9,9 @@ vi.mock('@/config.js', () => ({
 
 const TEST_SECRET = 'unit-test-jwt-secret-must-be-32-chars!!';
 
-import { authMiddleware } from './auth.middleware.js';
 import { UnauthorizedError } from '@/lib/errors.js';
+
+import { authMiddleware } from './auth.middleware.js';
 
 function mockReq(headers: Record<string, string> = {}): Request {
   return { headers } as unknown as Request;
@@ -21,6 +22,35 @@ function mockNext(): NextFunction {
 }
 
 describe('authMiddleware', () => {
+  describe('development bypass (NODE_ENV === "development")', () => {
+    beforeEach(() => {
+      process.env.NODE_ENV = 'development';
+    });
+
+    afterEach(() => {
+      process.env.NODE_ENV = 'test';
+    });
+
+    it('attaches hardcoded dev user and calls next() with no arguments regardless of headers', () => {
+      const req = mockReq() as Request & { user?: { id: string; email: string } };
+      const next = mockNext();
+
+      authMiddleware(req, {} as Response, next);
+
+      expect(next).toHaveBeenCalledWith();
+      expect(req.user).toEqual({ id: 'dev-user-001', email: 'dev@cliptale.local' });
+    });
+
+    it('bypasses JWT verification even when Authorization header is absent', () => {
+      const req = mockReq() as Request & { user?: { id: string; email: string } };
+      const next = mockNext();
+
+      authMiddleware(req, {} as Response, next);
+
+      expect(next).not.toHaveBeenCalledWith(expect.any(Error));
+    });
+  });
+
   describe('missing / malformed Authorization header', () => {
     it('calls next(UnauthorizedError) when Authorization header is absent', () => {
       const next = mockNext();

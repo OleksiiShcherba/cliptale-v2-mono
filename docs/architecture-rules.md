@@ -100,7 +100,8 @@ apps/web-editor/
 │   ├── shared/
 │   │   ├── components/             # Re-exports from packages/ui + any editor-specific shared UI
 │   │   └── utils/                  # formatTimecode, pxToFrame, frameToPx
-│   └── main.tsx                    # App entry point
+│   ├── App.tsx                     # Root app shell: QueryClient provider + two-column layout
+│   └── main.tsx                    # Entry point: ReactDOM.createRoot → mounts <App />
 ├── index.html
 └── vite.config.ts
 ```
@@ -372,7 +373,7 @@ function UploadDropzone() {
 **2. Global editor state** (project document, selection, playhead, zoom)
 - Tool: `useSyncExternalStore` with a hand-rolled external store
 - `store/project-store.ts` — holds the authoritative `ProjectDoc` in memory; all Immer patches are applied here; changes trigger subscribers
-- `store/ephemeral-store.ts` — holds `selectedClipIds: Set<string>`, `playheadFrame: number`, `zoomPxPerFrame: number`; NOT persisted
+- `store/ephemeral-store.ts` — holds `selectedClipIds: string[]`, `playheadFrame: number`, `zoom: number`; NOT persisted
 - `store/history-store.ts` — holds `patches: Patch[][]` and `inversePatches: Patch[][]` for undo/redo
 
 **3. Component-local UI state**
@@ -560,6 +561,17 @@ import { assetRepository } from '../repositories/asset.repository.js';
 ### File length
 
 Files MUST NOT exceed 300 lines. When a file exceeds this, extract the next logical unit (a hook, a sub-component, a helper function) into a new file in the same folder.
+
+#### Split test file naming convention
+
+When a test file for `foo.ts` would exceed 300 lines, split it into multiple co-located files using a multi-part suffix that describes the test group:
+
+- `foo.test.ts` — primary tests (initial state, core happy paths)
+- `foo.seek.test.ts` — seek / navigation tests
+- `foo.raf.test.ts` — animation-frame loop tests
+- `foo.keyboard.test.ts` — keyboard listener tests
+
+Shared fixture helpers (e.g. `makePlayerRef`, `makeProjectDoc`) MUST be extracted to a co-located `foo.fixtures.ts` file and imported in every split test file. Do NOT duplicate fixtures verbatim across test files.
 
 ### Comments
 

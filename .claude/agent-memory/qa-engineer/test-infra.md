@@ -1,0 +1,33 @@
+---
+name: Test Infrastructure
+description: Test runner setup, environment, and per-package conventions across the monorepo
+type: project
+---
+
+## Test framework: Vitest everywhere
+
+All packages and apps use Vitest (not Jest). Run tests per-package with `npm test` from the package directory. There is no root-level test command that runs all suites.
+
+- `apps/api` — Vitest, Node environment, `vitest.config.ts` with `@` alias → `src/`. Setup file at `vitest.setup.ts` injects stub env vars so `config.ts` does not call `process.exit(1)` during test collection.
+- `apps/web-editor` — Vitest, jsdom environment (no vitest.config.ts; vite.config.ts drives it). `@testing-library/react` + `@testing-library/user-event`.
+- `packages/remotion-comps` — Vitest, jsdom, explicit `vitest.config.ts` required because it is a standalone package (not under Vite).
+
+**Why:** Vitest was chosen for native TypeScript+ESM support without transpile overhead.
+
+## No E2E framework
+
+No Playwright or Cypress config exists in the repo as of 2026-04-02. E2E tests cannot be written or run until a framework is wired. Do not block QA stamps on E2E for now.
+
+## dev auth bypass affects integration tests
+
+`auth.middleware.ts` and `acl.middleware.ts` both short-circuit when `NODE_ENV === 'development'`. Tests that set `NODE_ENV = 'development'` in a `beforeEach` must restore it to `'test'` in `afterEach`, otherwise subsequent test files in the same worker process see the wrong environment. Both middleware test files already do this correctly — enforce the pattern if new tests are added.
+
+**Impact:** Any integration test for an authenticated endpoint must ensure `NODE_ENV` is not `'development'` during the test run, or the middleware bypasses auth and the test will not exercise the real path.
+
+## Remotion Player mock must use forwardRef
+
+When testing `PreviewPanel` (or any component that passes a `ref` to Remotion `<Player>`), the `vi.mock('@remotion/player')` factory must use `React.forwardRef` to capture the ref. A plain functional mock component silently discards the ref, making `playerRef` forwarding behavior untestable.
+
+**Why:** Discovered when adding tests for the optional `playerRef` prop in PreviewPanel. The original mock was a plain function; ref was invisible to assertions.
+
+**Impact:** Always use `React.forwardRef` in the Player mock when ref forwarding is part of the contract being tested.

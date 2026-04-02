@@ -6,8 +6,16 @@ import { UnauthorizedError } from '@/lib/errors.js';
 
 type JwtPayload = { sub: string; email: string; iat: number; exp: number };
 
+/** Hardcoded dev user attached to every request when NODE_ENV === 'development'. */
+const DEV_USER = { id: 'dev-user-001', email: 'dev@cliptale.local' } as const;
+
 /** Validates the Bearer JWT in the Authorization header and attaches `req.user`. */
 export function authMiddleware(req: Request, _res: Response, next: NextFunction): void {
+  if (process.env.NODE_ENV === 'development') {
+    req.user = DEV_USER;
+    return next();
+  }
+
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     return next(new UnauthorizedError('Missing or malformed Authorization header'));

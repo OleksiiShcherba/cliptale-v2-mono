@@ -56,6 +56,11 @@ services:
       APP_S3_SECRET_ACCESS_KEY: ${APP_S3_SECRET_ACCESS_KEY}
       APP_PORT: '3001'
       APP_CORS_ORIGIN: http://localhost:5173
+      NODE_ENV: development
+    volumes:
+      - ./apps/api/src:/app/apps/api/src
+      - ./packages/project-schema:/app/packages/project-schema
+    command: npx tsx watch --tsconfig apps/api/tsconfig.json apps/api/src/index.ts
 
   web-editor:
     build:
@@ -68,6 +73,12 @@ services:
       - '5173:5173'
     environment:
       VITE_PUBLIC_API_BASE_URL: http://localhost:3001
+    volumes:
+      - ./apps/web-editor/src:/app/apps/web-editor/src
+      - ./packages/project-schema:/app/packages/project-schema
+      - ./packages/ui:/app/packages/ui
+      - ./packages/editor-core:/app/packages/editor-core
+      - ./packages/remotion-comps:/app/packages/remotion-comps
 
   media-worker:
     build:
@@ -91,6 +102,10 @@ services:
       APP_S3_REGION: ${APP_S3_REGION:-us-east-1}
       APP_S3_ACCESS_KEY_ID: ${APP_S3_ACCESS_KEY_ID}
       APP_S3_SECRET_ACCESS_KEY: ${APP_S3_SECRET_ACCESS_KEY}
+    volumes:
+      - ./apps/media-worker/src:/app/apps/media-worker/src
+      - ./packages/project-schema:/app/packages/project-schema
+    command: npx tsx watch --tsconfig apps/media-worker/tsconfig.json apps/media-worker/src/index.ts
 
 volumes:
   db_data:

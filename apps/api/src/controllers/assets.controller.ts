@@ -4,6 +4,50 @@ import { z } from 'zod';
 import { config } from '@/config.js';
 import { s3Client } from '@/lib/s3.js';
 import * as assetService from '@/services/asset.service.js';
+import type { Asset as RepositoryAsset } from '@/repositories/asset.repository.js';
+
+/** Converts an internal s3:// URI to a public HTTPS URL. Returns null if input is null. */
+function s3UriToHttps(s3Uri: string | null): string | null {
+  if (!s3Uri || !s3Uri.startsWith('s3://')) return s3Uri;
+  const withoutScheme = s3Uri.slice(5);
+  const slashIndex = withoutScheme.indexOf('/');
+  const bucket = withoutScheme.slice(0, slashIndex);
+  const key = withoutScheme.slice(slashIndex + 1);
+  if (config.s3.endpoint) {
+    return `${config.s3.endpoint}/${bucket}/${key}`;
+  }
+  return `https://${bucket}.s3.${config.s3.region}.amazonaws.com/${key}`;
+}
+
+/**
+ * Maps the internal repository Asset shape to the API response shape the frontend expects.
+ * - assetId → id
+ * - thumbnailUri: s3:// → https://
+ * - durationFrames + fps → durationSeconds
+ * - waveformJson → waveformPeaks
+ * - Date fields → ISO strings
+ */
+function serializeAsset(asset: RepositoryAsset) {
+  return {
+    id: asset.assetId,
+    projectId: asset.projectId,
+    filename: asset.filename,
+    contentType: asset.contentType,
+    storageUri: asset.storageUri,
+    status: asset.status,
+    durationSeconds:
+      asset.durationFrames != null && asset.fps != null
+        ? asset.durationFrames / asset.fps
+        : null,
+    width: asset.width,
+    height: asset.height,
+    fileSizeBytes: asset.fileSizeBytes,
+    thumbnailUri: s3UriToHttps(asset.thumbnailUri),
+    waveformPeaks: asset.waveformJson as number[] | null,
+    createdAt: asset.createdAt instanceof Date ? asset.createdAt.toISOString() : asset.createdAt,
+    updatedAt: asset.updatedAt instanceof Date ? asset.updatedAt.toISOString() : asset.updatedAt,
+  };
+}
 
 /** Zod schema for the POST /assets/upload-url request body. Exported for use in route middleware. */
 export const createUploadUrlSchema = z.object({
@@ -50,7 +94,7 @@ export async function getProjectAssets(
 ): Promise<void> {
   try {
     const assets = await assetService.getProjectAssets(req.params['id']!);
-    res.json(assets);
+    res.json(assets.map(serializeAsset));
   } catch (err) {
     next(err);
   }
@@ -64,7 +108,7 @@ export async function getAsset(
 ): Promise<void> {
   try {
     const asset = await assetService.getAsset(req.params['id']!);
-    res.json(asset);
+    res.json(serializeAsset(asset));
   } catch (err) {
     next(err);
   }
@@ -82,7 +126,7 @@ export async function finalizeAsset(
 ): Promise<void> {
   try {
     const asset = await assetService.finalizeAsset(req.params['id']!, s3Client);
-    res.json(asset);
+    res.json(serializeAsset(asset));
   } catch (err) {
     next(err);
   }

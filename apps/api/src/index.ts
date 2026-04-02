@@ -10,7 +10,7 @@ import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, Conf
 const app = express();
 
 app.use(helmet());
-app.use(cors({ origin: config.server.corsOrigin }));
+app.use(cors({ origin: config.server.corsOrigin, credentials: true }));
 app.use(express.json());
 app.use(rateLimit({ windowMs: 60_000, max: 200 }));
 
@@ -38,8 +38,11 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(config.server.port, () => {
-  console.log(`API listening on port ${config.server.port}`);
-});
+// Only bind the port when running as the entry point, not when imported by tests.
+if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'))) {
+  app.listen(config.server.port, () => {
+    console.log(`API listening on port ${config.server.port}`);
+  });
+}
 
 export default app;

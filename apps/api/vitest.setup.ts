@@ -7,10 +7,10 @@
  */
 Object.assign(process.env, {
   APP_DB_HOST:              process.env['APP_DB_HOST']              ?? 'localhost',
-  APP_DB_PASSWORD:          process.env['APP_DB_PASSWORD']          ?? 'unit-test-stub',
+  APP_DB_PASSWORD:          process.env['APP_DB_PASSWORD']          ?? 'cliptale',
   APP_REDIS_URL:            process.env['APP_REDIS_URL']            ?? 'redis://localhost:6379',
-  APP_S3_BUCKET:            process.env['APP_S3_BUCKET']            ?? 'unit-test-bucket',
-  APP_S3_ACCESS_KEY_ID:     process.env['APP_S3_ACCESS_KEY_ID']     ?? 'unit-test-key-id',
-  APP_S3_SECRET_ACCESS_KEY: process.env['APP_S3_SECRET_ACCESS_KEY'] ?? 'unit-test-secret-key',
+  APP_S3_BUCKET:            process.env['APP_S3_BUCKET']            ?? 'test-bucket',
+  APP_S3_ACCESS_KEY_ID:     process.env['APP_S3_ACCESS_KEY_ID']     ?? 'test-access-key-id',
+  APP_S3_SECRET_ACCESS_KEY: process.env['APP_S3_SECRET_ACCESS_KEY'] ?? 'test-secret-key-value',
   APP_JWT_SECRET:           process.env['APP_JWT_SECRET']           ?? 'unit-test-jwt-secret-exactly-32ch!',
 });

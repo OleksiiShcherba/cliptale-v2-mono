@@ -1,518 +1,211 @@
-# Development Log
+# Development Log (compacted — 2026-03-29 to 2026-04-02)
 
----
+## Monorepo Scaffold (Epic 1 — Subtask 1)
+- added: `package.json`, `turbo.json` — npm workspaces (`apps/*`, `packages/*`), Turborepo pipeline
+- added: root `tsconfig.json` — strict TypeScript baseline
+- added: `.env.example` — DB, Redis, S3/R2, JWT, OpenAI, API, Vite vars
+- added: `.gitignore` — node_modules, dist, .env, .turbo, coverage
+- added: `docker-compose.yml` — MySQL 8.0 + Redis 7 Alpine; DB mounts migrations as init scripts
+- added: `apps/api/` — Express + helmet + cors + rate-limit; BullMQ queue stubs (`media-ingest`, `render`, `transcription`)
+- added: `apps/web-editor/` — React 18 + Vite + QueryClientProvider; feature subdirs
+- added: `apps/media-worker/` — BullMQ Worker stub on `media-ingest`
+- added: `apps/render-worker/` — BullMQ Worker stub on `render`
+- added: `packages/project-schema/` — Zod schemas: `ProjectDoc`, `Track`, `Clip` (discriminated union: `VideoClip | AudioClip | TextOverlayClip`)
+- added: `packages/api-contracts/`, `packages/ui/`, `packages/editor-core/` — empty stubs
+- added: `packages/remotion-comps/` — `VideoComposition`, `VideoLayer`, `AudioLayer`, `ImageLayer`, `TextOverlayLayer`, `useRemotionEnvironment`
+- tested: `clip.schema.test.ts` (14 cases), `project-doc.schema.test.ts` (7 cases)
+- fixed: all backend env vars use `APP_` prefix; Zod startup validation + `process.exit(1)` in all backend configs
+- fixed: `VITE_PUBLIC_API_BASE_URL` in web-editor config; added `zod` dep to media-worker and render-worker
 
-## 2026-03-29
+## DB Migration (Subtask 2)
+- added: `apps/api/src/db/migrations/001_project_assets_current.sql` — `project_assets_current` table with full column set (status ENUM, fps DECIMAL, waveform_json JSON, etc.)
+- added: composite index `idx_project_assets_project_status` on `(project_id, status)`
+- tested: `migration-001.test.ts` — table existence, idempotency, column types, ENUM default/rejection, index presence
 
-### Task: EPIC 1 — Asset Manager & Upload Pipeline
-**Subtask:** 1. Scaffold monorepo structure
+## Redis + BullMQ Infrastructure (Subtask 3)
+- updated: `docker-compose.yml` — Redis healthcheck
+- updated: `apps/api/src/queues/bullmq.ts` — error handlers; removed Worker re-export
+- updated: `apps/media-worker/src/index.ts` — error handler, graceful shutdown, `concurrency: 2`
+- updated: `apps/render-worker/src/index.ts` — same pattern, `concurrency: 1`
+- fixed: `@/` alias + `tsc-alias` added to api tsconfig/package.json
+
+## Presigned URL Endpoint (Subtask 4)
+- added: `apps/api/src/lib/errors.ts` — `ValidationError`, `NotFoundError`, `ForbiddenError`, `UnauthorizedError`, `ConflictError`, `OptimisticLockError`
+- added: `apps/api/src/lib/s3.ts` — singleton `S3Client`; `forcePathStyle` for R2
+- added: `apps/api/src/types/express.d.ts` — `req.user?: { id, email }`
+- added: `apps/api/src/middleware/validate.middleware.ts`, `auth.middleware.ts`, `acl.middleware.ts` (auth-presence stub)
+- added: `apps/api/src/repositories/asset.repository.ts`, `services/asset.service.ts`, `controllers/assets.controller.ts`, `routes/assets.routes.ts`
+- added: `POST /projects/:id/assets/upload-url`, `GET /assets/:id`
+- tested: `asset.service.test.ts` (13), `assets-endpoints.test.ts` (integration)
+- fixed: `sanitizeFilename` strips `..` traversal; `validateBody` added to upload-url route; `ConflictError` mapped in error handler
+
+## Asset Finalization + Ingest Enqueue (Subtask 5)
+- added: `apps/api/src/queues/jobs/enqueue-ingest.ts` — `MediaIngestJobPayload` + `enqueueIngestJob()`; jobId=assetId idempotency; 3 retries, exponential backoff
+- updated: `asset.service.ts` — `finalizeAsset`: NotFoundError guard, idempotency for `processing`/`ready`, S3 HEAD verify, enqueue
+- added: `POST /assets/:id/finalize` + `aclMiddleware('editor')`
+- tested: `asset.finalize.service.test.ts` (7), `assets-finalize-endpoint.test.ts` (6)
+
+## Media Worker — Ingest Job (Subtask 6)
+- added: `packages/project-schema/src/types/job-payloads.ts` — `MediaIngestJobPayload` (single source of truth)
+- added: `apps/media-worker/src/lib/s3.ts`, `db.ts` — singleton S3Client + mysql2 pool
+- added: `apps/media-worker/src/jobs/ingest.job.ts` — S3 download → FFprobe → thumbnail → waveform peaks → S3 upload → DB `ready`; error path → DB `error`
+- added: `apps/media-worker/Dockerfile` — `node:20-alpine` + `apk add ffmpeg`
+- updated: `docker-compose.yml` — `media-worker` service
+- tested: `ingest.job.test.ts` (11)
+
+## Asset Browser Panel + Upload UI (Subtask 7)
+- added: `apps/web-editor/src/features/asset-manager/types.ts`, `api.ts`, `hooks/useAssetUpload.ts`, `hooks/useAssetPolling.ts`
+- added: `components/AssetCard.tsx`, `AssetDetailPanel.tsx`, `UploadDropzone.tsx`, `UploadProgressList.tsx`, `AssetBrowserPanel.tsx`
+- tested: `useAssetUpload.test.ts` (7), `useAssetPolling.test.ts` (6)
+
+## Docker Services + App Wiring
+- added: `apps/api/Dockerfile`, `apps/web-editor/Dockerfile`
+- updated: `docker-compose.yml` — `api` (port 3001), `web-editor` (port 5173)
+- added: `GET /projects/:id/assets` — returns `[]` for unknown projects; tested (5 integration tests)
+- updated: `apps/web-editor/src/main.tsx` — mounted `AssetBrowserPanel` with hardcoded `DEV_PROJECT_ID='dev-project-001'`
+- fixed: `workspace:*` → `file:` paths in all package.json files (npm doesn't support pnpm workspace protocol)
+
+## EPIC 2 — VideoComposition Fixes (Subtask 1)
+- updated: `packages/remotion-comps/src/compositions/VideoComposition.tsx` — z-order sort by track array index, muted track filtering, `trimInFrame`→`startFrom` / `trimOutFrame`→`endAt` passthrough
+- extracted: sort/filter logic to `VideoComposition.utils.ts` (`prepareClipsForComposition`) per §5
+- added: `packages/remotion-comps/vitest.config.ts` — jsdom environment
+- added: `VideoComposition.test.tsx` (15 tests), `VideoComposition.utils.test.ts` (7 tests)
+- added: `VideoComposition.fixtures.ts` — extracted fixture helpers from test file
+
+## EPIC 2 — Storybook for remotion-comps (Subtask 2)
+- added: `packages/remotion-comps/.storybook/main.ts`, `preview.ts` — react-vite builder, dark theme backgrounds
+- added: `packages/remotion-comps/src/stories/VideoComposition.stories.tsx` — 5 stories: EmptyTimeline, SingleVideoClip, AudioAndVideo, OverlappingClips, TextOverlay
+- added: `storybook`, `build-storybook` scripts to `packages/remotion-comps/package.json`
+
+## EPIC 2 — Stores (Subtask 3)
+- added: `apps/web-editor/src/store/project-store.ts` — `useSyncExternalStore`-based singleton; `getSnapshot()`, `subscribe()`, `setProject()`, dev fixture (30fps, 300 frames, 1920×1080)
+- added: `apps/web-editor/src/store/ephemeral-store.ts` — `{ playheadFrame, selectedClipIds, zoom }`; `setPlayheadFrame`/`setZoom` skip notify on no-op to prevent unnecessary re-renders
+- tested: `project-store.test.ts` (9), `ephemeral-store.test.ts` (14)
+
+## EPIC 2 — PreviewPanel + useRemotionPlayer (Subtask 4)
+- added: `apps/web-editor/src/features/preview/hooks/useRemotionPlayer.ts` — subscribes project/ephemeral stores; `useQueries` for asset URLs (dedup by assetId, staleTime 5min); returns `{ projectDoc, assetUrls, currentFrame, playerRef }`
+- added: `apps/web-editor/src/features/preview/components/PreviewPanel.tsx` — memoized `inputProps`, Remotion `<Player controls={false}>`, optional external `playerRef` prop
+- tested: `useRemotionPlayer.test.ts` (11), `PreviewPanel.test.tsx`
+
+## EPIC 2 — PlaybackControls + usePlaybackControls (Subtask 5)
+- added: `apps/web-editor/src/features/preview/hooks/usePlaybackControls.ts` — rAF loop mutates `--playhead-frame` CSS property; `play()`, `pause()`, `rewind()`, `stepForward()`, `stepBack()`, `seekTo()`; keyboard listeners (Space, Arrow keys, Home)
+- added: `apps/web-editor/src/features/preview/components/PlaybackControls.tsx` — `role="toolbar"`, inline SVG icons, scrub slider, frame counter, timecode; styled per design-guide
+- added: `apps/web-editor/src/shared/utils/formatTimecode.ts` — `HH:MM:SS:FF` formatter
+- tested: `usePlaybackControls.test.ts` (44), `PlaybackControls.test.tsx` (18)
+
+## EPIC 2 — Dev Auth Bypass (Subtask 6)
+- updated: `apps/api/src/middleware/auth.middleware.ts` — `NODE_ENV === 'development'` early-return attaches hardcoded `DEV_USER`; production JWT path unchanged
+- updated: `apps/api/src/middleware/acl.middleware.ts` — `NODE_ENV === 'development'` early-return; production unchanged
+- tested: 2 bypass tests added to each middleware test file
+
+## EPIC 2 — App Shell Wiring (Subtask 7)
+- added: `apps/web-editor/src/App.tsx` — two-column shell: 320px `AssetBrowserPanel` aside + `PreviewSection` (PreviewPanel + PlaybackControls stacked)
+- updated: `apps/web-editor/src/main.tsx` — minimal mount point only (imports `App`, calls `createRoot`)
+- updated: `docs/architecture-rules.md` §3 — documented `App.tsx` at web-editor src root
+- tested: `App.test.tsx` (10 behavior-focused tests; CSS assertions removed per §10)
+
+## EPIC 2 — Bug Fix: rAF Loop Frame Updates
+- fixed: `usePlaybackControls.ts` rAF `tick` missing `setCurrentFrameState(frame)` — frame counter, timecode, scrub slider frozen during playback
+- updated: JSDoc on `usePlaybackControls` to reflect both CSS and state update
+- added: `usePlaybackControls.raf.test.ts` (4), `usePlaybackControls.seek.test.ts` refactored
+- added: `usePlaybackControls.fixtures.ts` — shared `makePlayerRef`/`makeProjectDoc` factories
+- updated: `docs/architecture-rules.md` §9 — multi-part test suffix + `.fixtures.ts` co-location rule
+
+## EPIC 2 — Dev Fixture: Visible Preview Content
+- updated: `apps/web-editor/src/store/project-store.ts` — added `TextOverlayClip` (`text: 'ClipTale'`, fontSize 64, center, 0–300 frames) + matching overlay track to `DEV_PROJECT`
+
+## Docker + API Runtime Fixes (post-Epic 2 dev session)
+- fixed: `docker-compose.yml` — tsx commands were run from monorepo root without `--tsconfig`, causing `@/` path alias resolution failure; added `--tsconfig apps/api/tsconfig.json` and `--tsconfig apps/media-worker/tsconfig.json` to respective service commands
+- fixed: `docker-compose.yml` — `--tsconfig` flag placed before `watch` subcommand caused tsx to treat `watch` as entry file (`/app/watch` not found); moved flag after `watch`
+- fixed: `docker-compose.yml` — `NODE_ENV: development` missing from `api` service environment; auth/ACL dev-bypass was not activating in Docker
+- added: `apps/web-editor/.env.local` — `VITE_PUBLIC_API_BASE_URL=http://localhost:3001` for local non-Docker dev
+- fixed: `apps/web-editor/.env.test` — corrected port from 3000 → 3001 to match API default
+- fixed: `apps/api/src/controllers/assets.controller.ts` — added `serializeAsset()` to map internal `Asset` shape to API response shape expected by frontend: `assetId → id`, `s3:// thumbnailUri → HTTPS URL`, `durationFrames + fps → durationSeconds`, `waveformJson → waveformPeaks`, `Date → ISO string`; applied to all three asset response sites (`getProjectAssets`, `getAsset`, `finalizeAsset`)
+
+## [2026-04-02]
+
+### Task: Setup Playwright E2E Tests
+**Subtask:** Subtask 1 — Install Playwright and configure playwright.config.ts
 
 **What was done:**
-- Created root `package.json` (npm workspaces: `apps/*`, `packages/*`) and `turbo.json` with build/dev/lint/test/typecheck pipeline tasks
-- Created root `tsconfig.json` with strict-mode TypeScript baseline (extended by all apps/packages)
-- Created `.env.example` with all required variables: DB, Redis, S3/R2, JWT, OpenAI, API server, Vite API URL
-- Created `.gitignore` covering `node_modules`, `dist`, `.env`, `.turbo`, `coverage`
-- Created `docker-compose.yml` with `db` (MySQL 8.0) and `redis` (Redis 7 Alpine) services; DB mounts migrations dir as init scripts
-- Scaffolded `apps/api/` — `package.json`, `tsconfig.json`, `src/index.ts` (Express + helmet + cors + rate-limit), `src/config.ts`, `src/db/connection.ts`, `src/queues/bullmq.ts` (Queue definitions for `media-ingest`, `render`, `transcription`)
-- Scaffolded `apps/web-editor/` — `package.json`, `tsconfig.json`, `vite.config.ts`, `index.html`, `src/main.tsx` (React 18 + QueryClientProvider), `src/lib/config.ts`, `src/lib/api-client.ts`; all feature subdirectories created
-- Scaffolded `apps/media-worker/` — `package.json`, `tsconfig.json`, `src/config.ts`, `src/index.ts` (BullMQ Worker stub on `media-ingest` queue)
-- Scaffolded `apps/render-worker/` — `package.json`, `tsconfig.json`, `src/config.ts`, `src/index.ts` (BullMQ Worker stub on `render` queue)
-- Scaffolded `packages/project-schema/` — Zod schemas for `ProjectDoc`, `Track`, `Clip` (discriminated union: `VideoClip | AudioClip | TextOverlayClip`), TypeScript type exports; `src/index.ts` barrel
-- Scaffolded `packages/api-contracts/` — empty stub (`src/index.ts`); will be populated with OpenAPI-generated client in subtask 4+
-- Scaffolded `packages/ui/` — empty stub; shared React components added per feature
-- Scaffolded `packages/editor-core/` — empty stub; timeline math/Immer patch logic added per feature
-- Scaffolded `packages/remotion-comps/` — `VideoComposition.tsx` (root composition consuming `ProjectDoc`), `VideoLayer.tsx` (dual-mode: `<OffthreadVideo>` in SSR, `<Video>` in browser), `AudioLayer.tsx`, `ImageLayer.tsx`, `TextOverlayLayer.tsx`, `useRemotionEnvironment.ts` hook
-- Wrote unit tests (Vitest, co-located): `clip.schema.test.ts` (14 cases covering happy path, defaults, edge cases, discriminated union routing) and `project-doc.schema.test.ts` (7 cases covering defaults, required fields, invalid values)
+- Added `@playwright/test` (resolved ^1.59.1) to root `package.json` devDependencies
+- Added `"e2e": "playwright test"` script to root `package.json`
+- Added `"e2e"` pipeline task to `turbo.json` (dependsOn `^build`, cache disabled)
+- Created `playwright.config.ts` at the monorepo root — baseURL `http://localhost:5173`, Chromium project, `reuseExistingServer: true`, 30s test timeout, `webServer` block to auto-start Vite when Docker Compose is not running
+- Installed Chromium browser via `npx playwright install chromium`
 
 **Notes:**
-- Package scope uses `@ai-video-editor/` for shared packages (as referenced in `architecture-rules.md` import examples) and `@cliptale/` for apps — consistent with the monorepo root name
-- `docker-compose.yml` mounts `apps/api/src/db/migrations/` as MySQL init scripts so running `docker compose up` automatically applies migrations — this is the intended workflow for subtask 2
-- Subtasks 2 (DB migration) and 3 (Redis/BullMQ infra) are unblocked and can proceed in parallel — both were partially addressed here (Redis is in Docker Compose, BullMQ queue names defined)
-- `packages/api-contracts/` is a stub — the typed API client pattern (calling `apiClient.assets.createUploadUrl(...)`) requires the OpenAPI spec to exist first; the `lib/api-client.ts` in web-editor uses a plain fetch wrapper until then
-
-checked by code-reviewer - YES
-checked by qa-reviewer - YES
-
-**Review fixes applied (2026-03-30):**
-- Fixed all backend env var names to use `APP_` prefix across `apps/api/src/config.ts`, `apps/media-worker/src/config.ts`, `apps/render-worker/src/config.ts`, and `.env.example`
-- Added Zod startup validation + `process.exit(1)` in all three backend config modules; frontend config throws instead of `process.exit` (browser environment)
-- Fixed frontend env var to `VITE_PUBLIC_API_BASE_URL` in `apps/web-editor/src/lib/config.ts` and `.env.example`
-- Added `zod` dependency to `apps/media-worker/package.json` and `apps/render-worker/package.json`
-- Added JSDoc comments to all exported types in `packages/project-schema/src/types/index.ts`
-- Note: `api-client.ts` plain-fetch stub is intentional — will be replaced with typed client at subtask 4
-
-**Remaining subtasks (2–7) stay in `docs/active_task.md`.**
-
----
-
-## 2026-03-30
-
-### Task: EPIC 1 — Asset Manager & Upload Pipeline
-**Subtask:** 2. DB migration — `project_assets_current` table
-
-**What was done:**
-- Created `apps/api/src/db/migrations/001_project_assets_current.sql`
-- Table has all required columns: `asset_id` (PK, CHAR(36)), `project_id`, `user_id`, `filename`, `content_type`, `file_size_bytes`, `storage_uri`, `status` (ENUM: `pending|processing|ready|error`, default `pending`), `error_message`, `duration_frames`, `width`, `height`, `fps`, `thumbnail_uri`, `waveform_json` (JSON), `created_at`, `updated_at`
-- Composite index `idx_project_assets_project_status` on `(project_id, status)` for the most common query pattern (list assets for a project filtered by status)
-- Migration is idempotent via `CREATE TABLE IF NOT EXISTS`
-- MySQL will auto-execute this on first Docker Compose boot via the `docker-entrypoint-initdb.d` volume mount already configured in `docker-compose.yml`
-
-**Notes:**
-- `fps` is stored as `DECIMAL(10, 4)` to avoid floating-point drift (e.g. 29.9700 for 29.97fps NTSC)
-- `waveform_json` uses MySQL `JSON` column type — no separate JSON blob column needed; MySQL validates JSON on write
-- No unit test written: architecture-rules.md §testing explicitly states "Do NOT test: repository SQL correctness (that is integration test territory)"
-- No separate migrate script added: docker-compose mounts `apps/api/src/db/migrations/` to `docker-entrypoint-initdb.d` so MySQL runs it automatically on first boot
-- Integration test added at `apps/api/src/__tests__/integration/migration-001.test.ts` — bootstraps the integration test infrastructure for the API; covers: table existence, idempotency, all column types/nullability, ENUM default (`pending`), ENUM rejection of invalid values, composite index presence
+- `reuseExistingServer: true` means tests can run against either Docker Compose (port 5173 already bound) or a local Vite dev server started automatically by Playwright's `webServer` block
+- `@playwright/test` lives at root only — E2E tests are not co-located with the apps
 
 **Completed subtask from active_task.md:**
 <details>
-<summary>Subtask: 2. DB migration — `project_assets_current` table</summary>
+<summary>Subtask: Subtask 1 — Install Playwright and configure playwright.config.ts</summary>
 
-- What: Write and run the numbered SQL migration that creates the `project_assets_current` table with columns `asset_id`, `project_id`, `user_id`, `filename`, `content_type`, `file_size_bytes`, `storage_uri`, `status` (`pending | processing | ready | error`), `error_message`, `duration_frames`, `width`, `height`, `fps`, `thumbnail_uri`, `waveform_json`, `created_at`, `updated_at`; add index on `(project_id, status)`
-- Where: `apps/api/src/db/migrations/001_project_assets_current.sql`
-- Why: The presigned URL endpoint must insert a `pending` row — the table must exist before any BE code runs
-- Depends on: subtask 1 ✅
+- Add `@playwright/test` to root `package.json` devDependencies
+- Add an `e2e` script to root `package.json`
+- Add `e2e` task to `turbo.json`
+- Create `playwright.config.ts` at the monorepo root
+  - Base URL: `http://localhost:5173` (web-editor Docker Compose service)
+  - Set `webServer` to start web-editor dev server if not already running
+  - Reasonable timeouts
 
 </details>
 
 checked by code-reviewer - OK
-checked by qa-reviewer - YES
+checked by qa-reviewer - NOT
+
+**Code-reviewer comment fixes (2026-04-02):**
+- Removed `fullyParallel: true` from `playwright.config.ts` — it was contradictory with `workers: 1` in CI
+- Changed `webServer.command` to `npm run dev -w apps/web-editor` for standard npm portability
+- Added `"outputs": []` to the `e2e` task in `turbo.json` for consistency with the `test` task
+- Created `e2e/.gitkeep` so the `testDir: './e2e'` directory exists and Playwright can run without error
 
 ---
 
-## 2026-03-30
+## [2026-04-02]
 
-### Task: EPIC 1 — Asset Manager & Upload Pipeline
-**Subtask:** 3. Redis + BullMQ infrastructure setup
+### Task: Setup Playwright E2E Tests
+**Subtask:** Subtask 2 — Write E2E test files (app-shell.spec.ts, preview.spec.ts, asset-manager.spec.ts)
 
 **What was done:**
-- `docker-compose.yml` — added `healthcheck` to Redis service (`redis-cli ping`, 5s interval, 3 retries) so container orchestrators can wait for Redis to be ready
-- `apps/api/src/queues/bullmq.ts` — added `error` event handler to all three Queue instances to prevent unhandled promise rejections when Redis is temporarily unavailable; removed unnecessary `Worker` class re-export (API enqueues only — workers run in worker apps)
-- `apps/media-worker/src/index.ts` — added `worker.on('error', ...)` handler; added graceful shutdown via `SIGTERM`/`SIGINT` signal handlers that call `worker.close()` before exiting; set `concurrency: 2`
-- `apps/render-worker/src/index.ts` — same graceful shutdown and error handler pattern; `concurrency: 1` (render jobs are CPU-heavy)
-- No changes to `.env.example` or `apps/api/src/config.ts` — Redis URL config was already complete from subtask 1
+- Created `e2e/app-shell.spec.ts` — 4 smoke tests: app loads without crashing, asset browser sidebar visible (`aria-label="Asset browser"`), preview main region visible, no uncaught JS errors on load (`page.on('pageerror')`)
+- Created `e2e/preview.spec.ts` — 6 tests: Remotion player container present, play button visible with "Play" label, clicking play changes aria-label to "Pause", timecode display present and matches `HH:MM:SS:FF` pattern, scrubber slider present, frame counter present; `test.setTimeout(60_000)` applied per QA reviewer recommendation for video initialization
+- Created `e2e/asset-manager.spec.ts` — 10 tests: panel present, filter tabs visible (All/Video/Audio/Image), search bar visible, empty-state or error message shown without live backend, upload button present, clicking upload opens dialog (`role="dialog" aria-label="Upload Assets"`), dropzone text present, Browse Files button present, close via X button, close via Cancel button; actual upload flow scoped out with TODO explaining API + S3 requirement
 
 **Notes:**
-- Arch-rules §10 explicitly: "Do NOT test: BullMQ worker wiring" — no unit tests written
-- Graceful shutdown is critical: without `worker.close()`, an in-progress job gets abandoned mid-execution when a container is stopped/scaled; BullMQ marks it as stalled and retries — acceptable for idempotent jobs but wasteful; `worker.close()` waits for the current job to finish before exiting
-- `concurrency: 1` on render-worker intentional — Remotion SSR renders are multi-threaded internally and compete for CPU; running two simultaneously on a single core would be slower
-- `connection` is still exported from `bullmq.ts` — will be used by `enqueue-ingest.ts` (subtask 5) to call `queue.getJob(assetId)` for the idempotency check
+- All selectors are based on existing `aria-label`, `role`, and text in the components — no `data-testid` attributes were added to application code
+- The `getByRole('generic', { name: 'Timecode' })` targets the `<span aria-label="Timecode">` element rendered by `PlaybackControls.tsx`
+- Asset browser empty-state test accepts either the empty-state text OR an error alert — the API is not running during E2E so the query may fail or return empty
+- Each spec file has the `// QA: cross-browser — intentionally Chromium-only for initial suite` header comment
 
 **Completed subtask from active_task.md:**
 <details>
-<summary>Subtask: 3. Redis + BullMQ infrastructure setup</summary>
+<summary>Subtask: Subtask 2 — Write E2E smoke tests (app-shell.spec.ts)</summary>
 
-- What: Add Redis to the local dev environment (Docker Compose service), configure the BullMQ Queue and Worker connection in apps/api/src/queues/bullmq.ts, and wire the media-worker app entry point (apps/media-worker/src/index.ts) to register its worker against the same Redis instance
-- Where: docker-compose.yml, apps/api/src/queues/bullmq.ts, apps/media-worker/src/index.ts, .env.example
-- Why: The finalization endpoint enqueues a media-ingest job — Redis must be reachable before that endpoint can be tested end-to-end
-- Depends on: subtask 1 ✅
+- App loads and both panels are visible (asset browser sidebar + preview area)
+- No console errors on load
 
-</details>
-
-checked by code-reviewer - OK
-checked by qa-reviewer - YES
-
-**Review fixes applied (2026-03-30):**
-- Fixed import in `apps/api/src/queues/bullmq.ts`: `../config.js` → `@/config.js` (§9 absolute `@/` path convention)
-- Added `"paths": { "@/*": ["./src/*"] }` to `apps/api/tsconfig.json` to define the `@/` alias
-- Added `tsc-alias` devDependency to `apps/api/package.json` and updated build script to `tsc && tsc-alias` so the path alias is rewritten in compiled output (tsx in dev handles aliases natively)
-
----
-
-## 2026-03-30
-
-### Task: EPIC 1 — Asset Manager & Upload Pipeline
-**Subtask:** 4. [BE] Presigned URL endpoint
-
-**What was done:**
-- Created `apps/api/src/lib/errors.ts` — typed error classes: `ValidationError`, `NotFoundError`, `ForbiddenError`, `UnauthorizedError`, `ConflictError`, `OptimisticLockError`; each carries `statusCode` for controller mapping
-- Created `apps/api/src/lib/s3.ts` — singleton `S3Client` configured from `config.s3`; `forcePathStyle: true` when a custom endpoint is set (R2 compatibility)
-- Created `apps/api/src/types/express.d.ts` — augments `Express.Request` with `user?: { id, email }` attached by auth middleware
-- Created `apps/api/src/middleware/validate.middleware.ts` — `validateBody(schema)` Zod middleware; returns 400 with field-level errors
-- Created `apps/api/src/middleware/auth.middleware.ts` — verifies Bearer JWT via `jsonwebtoken`, attaches `req.user`
-- Created `apps/api/src/middleware/acl.middleware.ts` — stub that enforces auth presence; full project-membership check deferred to projects CRUD subtask
-- Created `apps/api/src/repositories/asset.repository.ts` — `insertPendingAsset`, `getAssetById`, `updateAssetStatus`; all SQL only, typed row mapping
-- Created `apps/api/src/services/asset.service.ts` — `createUploadUrl` (content-type allowlist, filename sanitization, max 2 GiB, presigned PUT URL at 15 min expiry, inserts pending row), `getAsset` (throws NotFoundError if missing)
-- Created `apps/api/src/controllers/assets.controller.ts` — thin: parse body with Zod, call service with injected s3Client + bucket, return response
-- Created `apps/api/src/routes/assets.routes.ts` — `POST /projects/:id/assets/upload-url` (auth + acl('editor')), `GET /assets/:id` (auth only)
-- Modified `apps/api/src/index.ts` — registered `assetsRouter`; added centralized error handler that maps typed errors to HTTP status codes
-- Created `apps/api/src/services/asset.service.test.ts` — 13 unit tests covering happy path, all audio/image content types, size limits, filename sanitization edge cases, NotFoundError, DB error propagation
-
-**Notes:**
-- S3Client is injected into the service (not imported directly) — enables unit testing without AWS credentials
-- `sanitize-html` strips HTML tags then replaces non-safe chars; leading dots removed to prevent hidden files on Linux
-- `fileSizeBytes` is validated in the service (not trusted blindly from client) but actual upload size enforcement is via `ContentLength` in the presigned PUT command — S3/R2 will reject PUTs that don't match
-- `GET /assets/:id` added as noted in the Open Questions — needed by `useAssetPolling` FE hook (subtask 7)
-- ACL middleware is a stub; real project ownership check will be implemented in the projects CRUD subtask
-- `updateAssetStatus` added to repository now (used by subtask 5 finalization + subtask 6 worker)
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: 4. [BE] Presigned URL endpoint</summary>
-
-- What: Implement POST /projects/:id/assets/upload-url — route → controller → asset.service.ts (validates content type, generates presigned PUT URL via S3/R2 SDK, calls repository to insert pending row) → asset.repository.ts (INSERT SQL)
-- Where: apps/api/src/routes/assets.routes.ts, apps/api/src/controllers/assets.controller.ts, apps/api/src/services/asset.service.ts, apps/api/src/repositories/asset.repository.ts
-- Why: This is the entry point of the upload pipeline; unblocks the finalization endpoint and the FE upload flow
-- Depends on: subtasks 2, 3
-
-</details>
-
-**Review fixes applied (2026-03-30):**
-- `asset.service.ts` — Added `.replace(/\.\./g, '_')` step in `sanitizeFilename` to strip `..` traversal sequences; changed post-sanitization guard from `=== '_'` to `/^_+$/.test()` to catch all-underscore filenames like `"!!!"` (BUG 1, BUG 2)
-- `assets.controller.ts` — Exported `createUploadUrlSchema`; removed inline `.parse()` call from handler; controller now receives pre-validated body cast to `CreateUploadUrlBody`; added JSDoc to both exported handlers (BUG 3 + code-reviewer §3/§9)
-- `assets.routes.ts` — Added `validateBody(createUploadUrlSchema)` middleware to upload-url route; invalid bodies now return 400 via the middleware before reaching the controller (BUG 3 + code-reviewer §3)
-- `asset.repository.ts` — Added expanded JSDoc to `AssetStatus` and `Asset` exports (code-reviewer §9); `AssetRow` already used `type` not `interface`
-- `asset.service.ts` — Added JSDoc to `CreateUploadUrlParams` and `UploadUrlResult` (code-reviewer §9)
-- `index.ts` — Added `ConflictError` to centralized error handler so 409 is returned correctly for conflict/optimistic-lock errors (code-reviewer §8)
-
-**Review fixes applied (2026-03-30, round 2):**
-- `docs/architecture-rules.md` §3 — Added `lib/` (errors.ts, s3.ts) and `types/` (express.d.ts) to documented `apps/api/` folder structure
-- `asset.service.test.ts` — Renamed all `it('should ...')` descriptions to present-tense (e.g. `'throws ValidationError when...'`, `'returns uploadUrl...'`) per §10 convention
-- `assets-endpoints.test.ts` — Seeded a dedicated asset row in `beforeAll` (`seededAssetId`); GET 200 test now uses that fixture instead of implicitly depending on POST happy-path test order; cleanup extended to include seeded row
-
-checked by code-reviewer - OK
-checked by qa-reviewer - YES
-
----
-
-## 2026-03-30
-
-### Task: EPIC 1 — Asset Manager & Upload Pipeline
-**Subtask:** 5. [BE] Asset finalization + ingest enqueue endpoint
-
-**What was done:**
-- Created `apps/api/src/queues/jobs/enqueue-ingest.ts` — `MediaIngestJobPayload` type + `enqueueIngestJob()` helper; uses `assetId` as BullMQ `jobId` for idempotency; skips re-enqueue if non-failed/non-completed job already exists; 3 attempts with exponential backoff (5s base)
-- Extended `apps/api/src/services/asset.service.ts` — added `finalizeAsset(assetId, s3)`: fetches asset (NotFoundError if missing), idempotency guard for `processing`/`ready` status, S3 HEAD verification (ValidationError if NotFound/NoSuchKey), `updateAssetStatus → processing`, `enqueueIngestJob`; added `parseStorageUri` private helper
-- Extended `apps/api/src/controllers/assets.controller.ts` — added `finalizeAsset` handler with JSDoc
-- Extended `apps/api/src/routes/assets.routes.ts` — added `POST /assets/:id/finalize` with `authMiddleware`
-- Extended `apps/api/src/services/asset.service.test.ts` — 7 new unit tests for `finalizeAsset`: happy path, idempotency (processing), idempotency (ready), NotFoundError, ValidationError on S3 404, unexpected S3 error re-throw, error-status re-finalization; added `updateAssetStatus` to repository mock and `enqueueIngestJob` module mock
-- Extended `apps/api/src/__tests__/integration/assets-endpoints.test.ts` — 6 new integration tests for `POST /assets/:id/finalize`: 401 (no auth), 401 (bad JWT), 404 (missing asset), 400 (S3 object not uploaded), 200 happy path (DB row verified), 200 idempotency; added `@/lib/s3.js` mock + seeded fixture in `beforeAll`
-
-**Notes:**
-- `HeadObjectCommand` used (not `GetObjectCommand`) — cheap metadata-only check; no object download
-- `err.name === 'NotFound'` covers AWS SDK v3 HEAD 404; `'NoSuchKey'` covers GET-style errors defensively
-- BullMQ `getJob(assetId)` checks before enqueue — skips if waiting/active/delayed, allows re-enqueue if failed/completed
-- `error` status intentionally not guarded — allows client to retry finalization after a failed ingest
-- `parseStorageUri` kept private — only needed inside service for HeadObjectCommand
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: 5. [BE] Asset finalization + ingest enqueue endpoint</summary>
-
-- What: Implement `POST /assets/:id/finalize` — verifies object exists in storage (HEAD request in service layer), transitions status `pending → processing`, enqueues `media-ingest` BullMQ job via `enqueue-ingest.ts` helper; idempotency guard (no duplicate jobs if already processing/ready)
-- Where: `apps/api/src/routes/assets.routes.ts`, `apps/api/src/controllers/assets.controller.ts`, `apps/api/src/services/asset.service.ts`, `apps/api/src/repositories/asset.repository.ts`, `apps/api/src/queues/jobs/enqueue-ingest.ts`
-- Why: Closes the upload loop — client calls this after the XHR PUT completes, triggering background processing
-- Depends on: subtask 4
-
-</details>
-
-**Review fixes applied (2026-03-30, round 2):**
-- `asset.service.test.ts` — Removed `finalizeAsset` describe block; split into `asset.finalize.service.test.ts` (new file, 130 lines) keeping both files under 300-line limit
-- `assets-endpoints.test.ts` — Removed finalize endpoint tests; split into `assets-finalize-endpoint.test.ts` (new file, 155 lines) with its own `beforeAll`/`afterAll`/`beforeEach` setup
-- `assets.routes.ts` — Added `aclMiddleware('editor')` to `POST /assets/:id/finalize` route, consistent with upload-url route
-
-checked by code-reviewer - OK
-checked by qa-reviewer - YES
-
----
-
-## 2026-03-30
-
-### Task: EPIC 1 — Asset Manager & Upload Pipeline
-**Subtask:** 6. [BE/INFRA] Media worker — `media-ingest` job handler
-
-**What was done:**
-- Created `packages/project-schema/src/types/job-payloads.ts` — `MediaIngestJobPayload` type; exported from `packages/project-schema/src/index.ts` so both API and worker import it without duplication
-- Updated `apps/api/src/queues/jobs/enqueue-ingest.ts` — removed local type definition; now imports `MediaIngestJobPayload` from `@ai-video-editor/project-schema`; re-exports for callers
-- Created `apps/media-worker/src/lib/s3.ts` — singleton S3Client from config
-- Created `apps/media-worker/src/lib/db.ts` — mysql2 connection pool from config
-- Created `apps/media-worker/src/jobs/ingest.job.ts` — full ingest handler: S3 download → FFprobe metadata → thumbnail (video) → waveform peaks (audio/video) → S3 thumbnail upload → DB `ready`; error path: DB `error` + re-throw for BullMQ retry; pure helpers `parseStorageUri`, `parseFps`, `computeRmsPeaks` exported for testing
-- Updated `apps/media-worker/src/index.ts` — wired `processIngestJob` with real S3 + DB deps; typed `Worker<MediaIngestJobPayload>`
-- Created `apps/media-worker/src/jobs/ingest.job.test.ts` — 11 unit tests: pure helper tests (parseStorageUri, parseFps, computeRmsPeaks), flow tests (happy path, S3 error path, image asset skips thumbnail/waveform)
-- Created `apps/media-worker/Dockerfile` — `node:20-alpine` + `apk add ffmpeg`; resolves FFmpeg dependency
-- Updated `docker-compose.yml` — added `media-worker` service with Redis/DB deps + S3 env vars from `.env`
-- Updated `docs/architecture-rules.md` §3 — added `lib/` folder to documented `apps/media-worker/` structure
-
-**Notes:**
-- `computeRmsPeaks` operates on s16le mono PCM at 8 kHz — low sample rate keeps memory small; 200 peaks sufficient for waveform display
-- `parseFps` stores 4-decimal float (e.g. 29.9700) matching `DECIMAL(10,4)` DB column from migration 001
-- `processIngestJob` uses UUID-based temp dirs under `os.tmpdir()`; cleaned up in `finally` to avoid disk leaks
-- BullMQ retry configured at enqueue time (3 attempts, 5s exponential) — job handler just re-throws
-- `MediaIngestJobPayload` is now single source of truth in `packages/project-schema/`
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: 6. [BE/INFRA] Media worker — `media-ingest` job handler</summary>
-
-- What: Implement the BullMQ job handler in `apps/media-worker/src/jobs/ingest.job.ts`
-- Where: `apps/media-worker/src/jobs/ingest.job.ts`, `apps/media-worker/src/index.ts`
-- Why: Without this, assets are stuck in `processing` forever
-- Depends on: subtask 5, subtask 3
+Also covers preview.spec.ts and asset-manager.spec.ts per task description.
 
 </details>
 
 checked by code-reviewer - OK
-checked by qa-reviewer - YES
+checked by qa-reviewer - NOT
 
-**Review fixes applied (2026-03-31, round 2):**
-- `apps/media-worker/tsconfig.json` — added `"paths": { "@/*": ["./src/*"] }` for `@/` import alias
-- `apps/media-worker/package.json` — added `tsc-alias` devDep; updated build script to `tsc && tsc-alias`
-- `apps/media-worker/src/lib/s3.ts`, `db.ts`, `src/index.ts` — replaced all relative imports (`'../config.js'`, `'./lib/...'`, `'./jobs/...'`) with `@/` absolute imports per §9
-
-## 2026-03-31
-
-### Task: EPIC 1 — Asset Manager & Upload Pipeline
-**Subtask:** 7. [FE] Asset browser panel + upload UI
-
-**What was done:**
-- Created `apps/web-editor/src/features/asset-manager/types.ts` — `Asset`, `AssetStatus`, `AssetFilterTab`, `UploadEntry`, `UploadUrlRequest`, `UploadUrlResponse` types
-- Created `apps/web-editor/src/features/asset-manager/api.ts` — `requestUploadUrl`, `finalizeAsset`, `getAsset`, `getAssets` calling `apiClient`
-- Created `apps/web-editor/src/features/asset-manager/hooks/useAssetUpload.ts` — multi-file XHR upload hook with per-file progress, finalize call, and `onUploadComplete` callback
-- Created `apps/web-editor/src/features/asset-manager/hooks/useAssetPolling.ts` — 2 s interval polling hook with cleanup; stops on `ready`/`error`; callbacks held in refs to avoid restarting interval
-- Created `apps/web-editor/src/features/asset-manager/components/AssetCard.tsx` — 296×64px card with 48×48 thumbnail, filename, type label, status badge
-- Created `apps/web-editor/src/features/asset-manager/components/AssetDetailPanel.tsx` — 280px right panel: preview, filename, metadata row, status badge, Replace/Delete buttons
-- Created `apps/web-editor/src/features/asset-manager/components/UploadDropzone.tsx` — modal with drag-and-drop zone, browse button, per-file XHR progress bars, Cancel/Done footer
-- Created `apps/web-editor/src/features/asset-manager/components/AssetBrowserPanel.tsx` — main 320px panel: All/Video/Audio/Image tabs, search bar, React Query asset list, upload button; wires detail panel and upload modal; invalidates query cache on upload complete
-- Created `hooks/useAssetUpload.test.ts` — 7 unit tests: initial state, entry added on URL request resolve, XHR progress updates, done on load+finalize, error on XHR fail, onUploadComplete callback, clearEntries
-- Created `hooks/useAssetPolling.test.ts` — 6 unit tests: onReady on first poll, onError on error status, continues polling through processing, no poll when assetId null, stops after unmount, continues through network errors
-- Created `components/AssetCard.test.tsx` — 11 unit tests: filename, status badge, onClick, Enter key, Space key, thumbnail img, aria-pressed, type labels
-- Created `components/AssetBrowserPanel.test.tsx` — 8 integration-style tests: tabs render, assets load, Video tab filter, search filter, empty state, upload modal opens, detail panel on select, error state
-
-**Notes:**
-- `useAssetUpload` uses native `XMLHttpRequest` (not `fetch`) so `xhr.upload.onprogress` fires during the S3 PUT — `fetch` does not expose upload progress
-- `useAssetPolling` stores callbacks in refs so the `setInterval` is only created/destroyed when `assetId` changes, not on every render
-- `AssetBrowserPanel` calls `queryClient.invalidateQueries` in `onUploadComplete` so the asset list refreshes automatically after each file finishes
-- `UploadDropzone` resets `e.target.value = ''` after selection so the same file can be re-uploaded
-- `AssetDetailPanel` uses a spacer `flex: 1` div to push Replace/Delete buttons to y=508 and y=560 (bottom of 620px panel), matching Figma
-- Tests for `AssetBrowserPanel` mock `useAssetUpload` to isolate from XHR logic; mocking `@/features/asset-manager/api` covers the React Query paths
-- Tests cannot be run in this environment because `web-editor`'s `workspace:*` deps require pnpm; install and run with `cd apps/web-editor && pnpm install && pnpm test`
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: 7. [FE] Asset browser panel + upload UI</summary>
-
-- What: Build `apps/web-editor/src/features/asset-manager/` — `AssetBrowserPanel` (grouped list by type with thumbnail cards), `UploadDropzone` (drag-and-drop + file picker), `useAssetUpload` hook (presigned URL flow + XHR progress), `useAssetPolling` hook (2 s poll on `/assets/:id` until `ready`), detail popover (duration, resolution, size), empty state, error toasts
-- Where: `apps/web-editor/src/features/asset-manager/components/`, `hooks/`, `api.ts`, `types.ts`
-- Why: This is the user-facing surface of the entire epic — visible proof that the pipeline works
-- Depends on: subtasks 4 + 5 live or mocked; FE development can start against mock stubs in parallel
-
-</details>
-
-**Review fixes applied (2026-03-31, round 2):**
-- `useAssetUpload.ts` — Changed `interface UseAssetUploadOptions` and `interface UseAssetUploadResult` to `type` (§9 allows `interface` only for `*Props` shapes)
-- `useAssetPolling.ts` — Changed `interface UseAssetPollingOptions` to `type`
-- `UploadDropzone.tsx` — Extracted per-file progress list into new `UploadProgressList.tsx`; `UploadDropzone` now 250 lines (under 300-line limit)
-- `AssetBrowserPanel.tsx` — Moved `@/features/asset-manager/types` type import before relative component imports per §9 ordering
-
-**Review fixes applied (2026-03-31, round 3):**
-- `AssetBrowserPanel.tsx` — Added blank line between `@/` import group and relative import group (§9)
-- `UploadDropzone.tsx` — Added blank line between `@/` import group and relative import group (§9)
-- Deleted `components/AssetCard.test.tsx` — §10 prohibits testing React component rendering details
-- Deleted `components/AssetBrowserPanel.test.tsx` — §10 same rule
-- Note: `getTypeLabel` duplication is a warning only; will extract to `src/shared/utils/` if a third consumer appears
-
-checked by code-reviewer - OK
-checked by qa-reviewer - YES
+**Comment fixes (2026-04-02):**
+- `e2e/app-shell.spec.ts` — removed the first redundant test ("app loads without crashing"); kept only "no uncaught JS errors on load" (the more thorough version with `waitForLoadState('networkidle')`)
+- `e2e/preview.spec.ts` — removed the duplicate toolbar assertion from "Remotion player container is present in the main area" test; the `beforeEach` block already guarantees toolbar visibility
+- `e2e/preview.spec.ts` — replaced `getByRole('generic', { name: 'Timecode' })` with `getByLabel('Timecode')` and `getByRole('generic', { name: 'Current frame' })` with `getByLabel('Current frame')` — `role="generic"` is not reliably queryable by Playwright in headless mode
+- `e2e/asset-manager.spec.ts` — replaced `isVisible().catch(() => false)` with `(await locator.count()) > 0` to prevent silent swallowing of selector resolution errors
 
 ---
 
-## 2026-03-31
-
-### Task: Add API and Web Editor to Docker Compose
-**Subtask:** 1. Add `api` and `web-editor` Docker services
-
-**What was done:**
-- Created `apps/api/Dockerfile` — copies monorepo root + api + project-schema; `npm ci`; builds with `tsc && tsc-alias`; runs `node apps/api/dist/index.js`
-- Created `apps/web-editor/Dockerfile` — copies all five workspace packages; `npm ci`; runs Vite dev server via `npx vite --host 0.0.0.0` from `apps/web-editor/`
-- Updated `docker-compose.yml` — added `api` service (port 3001, depends on db + redis healthy, env vars from `.env`) and `web-editor` service (port 5173, depends on api, `VITE_PUBLIC_API_BASE_URL=http://localhost:3001`)
-- No tests written: Dockerfile correctness is verified by `docker compose up --build`; arch-rules §10 excludes Docker/infra wiring from unit test scope
-
-**Notes:**
-- `VITE_PUBLIC_API_BASE_URL` is set to `http://localhost:3001` — Vite dev server injects this at runtime so the browser on the host reaches the API on the mapped port
-- DB and Redis use Docker-internal hostnames (`db`, `redis`); API env vars set accordingly
-- `APP_JWT_SECRET` defaults to the dev value from `.env.example` so the stack works without a `.env` file for local testing
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: 1. Add `api` and `web-editor` Docker services</summary>
-
-- What: Create `apps/api/Dockerfile`, `apps/web-editor/Dockerfile`, update `docker-compose.yml` with `api` and `web-editor` services
-- Where: `apps/api/Dockerfile`, `apps/web-editor/Dockerfile`, `docker-compose.yml`
-- Acceptance: `docker compose up --build` starts all five services; browser at `http://localhost:5173` loads the editor
-
-</details>
-
-checked by code-reviewer - OK
-checked by qa-reviewer - YES
-
----
-
-## 2026-03-31
-
-### Hotfix: Docker Compose build errors
-
-Two bugs surfaced when running `docker compose up --build` for the first time.
-
----
-
-#### Bug 1 — `npm ci` fails: no root `package-lock.json`
-
-**Error:** `The npm ci command can only install with an existing package-lock.json`
-
-**Root cause:** The Dockerfiles used `npm ci`, which requires a lockfile at the copied path. The monorepo has per-app lockfiles (`apps/api/package-lock.json`, etc.) but no root-level one. The `COPY package-lock.json* ./` glob silently copied nothing, so `npm ci` found no lockfile and aborted.
-
-**Fix:** Switched from `npm ci` to `npm install` in all three Dockerfiles and removed the `package-lock.json*` copy line.
-
-**Files changed:** `apps/api/Dockerfile`, `apps/media-worker/Dockerfile`, `apps/web-editor/Dockerfile`
-
----
-
-#### Bug 2 — `npm install` fails: `workspace:*` protocol not supported by npm
-
-**Error:** `EUNSUPPORTEDPROTOCOL: Unsupported URL Type "workspace:": workspace:*`
-
-**Root cause:** Six `package.json` files used `"workspace:*"` as a dependency version. This is a **pnpm-specific** protocol — npm (which runs inside `node:20-alpine`) does not understand it. `apps/web-editor/package.json` was already correct (used `file:` references); all other apps and shared packages were not.
-
-**Fix:** Replaced every `"workspace:*"` with the equivalent `file:` path:
-
-| File | New value |
-|---|---|
-| `apps/api/package.json` | `file:../../packages/project-schema` |
-| `apps/media-worker/package.json` | `file:../../packages/project-schema` |
-| `apps/render-worker/package.json` | `file:../../packages/project-schema`, `file:../../packages/remotion-comps` |
-| `packages/api-contracts/package.json` | `file:../project-schema` |
-| `packages/editor-core/package.json` | `file:../project-schema` |
-| `packages/remotion-comps/package.json` | `file:../project-schema` |
-
----
-
-## 2026-03-31
-
-### Task: Wire the Asset Browser Panel into the app so it's visible on load
-**Subtask:** Mount AssetBrowserPanel in main.tsx with a hardcoded dev projectId
-
-**What was done:**
-- Modified `apps/web-editor/src/main.tsx` — imported `AssetBrowserPanel` from `@/features/asset-manager/components/AssetBrowserPanel`; added `DEV_PROJECT_ID = 'dev-project-001'` constant; replaced the placeholder `<h1>ClipTale Editor</h1>` with `<AssetBrowserPanel projectId={DEV_PROJECT_ID} />`; added `display: flex` to the root div so the panel renders at its natural width
-- No new files created; no other files modified
-- No tests written — arch §10 prohibits testing React component rendering details; no business logic was introduced
-
-**Notes:**
-- `DEV_PROJECT_ID` is intentionally hardcoded — the project creation flow does not yet exist; this provides an immediately visible panel without requiring user interaction
-- `display: flex` on the root div is required so `AssetBrowserPanel` (and the future `AssetDetailPanel` alongside it) render side-by-side at their natural widths rather than stacking vertically
-- The `@/` alias resolves correctly in both Vite dev (`vite.config.ts` alias) and TypeScript (`tsconfig.json` paths)
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: Task 1 — Wire the Asset Browser Panel into the app so it's visible on load</summary>
-
-Mount `AssetBrowserPanel` in `apps/web-editor/src/main.tsx`. Pass it a hardcoded test `projectId` string so the panel loads immediately without needing a real project creation flow. The result should be that opening `http://localhost:5173` shows the panel with its tabs, search bar, and upload button.
-
-Acceptance criteria:
-- When I open http://localhost:5173, I see the Asset Browser panel — not just a dark screen with a title
-- The panel shows the All / Video / Audio / Image tabs and a search bar
-- There is an "Upload Assets" button at the bottom of the panel
-- Clicking the button opens the upload modal
-
-</details>
-
-checked by code-reviewer - OK
-checked by qa-reviewer - YES
-
----
-
-## 2026-03-31
-
-### Task: Add a backend route to list assets for a project
-**Subtask:** Implement GET /projects/:id/assets — repository, service, controller, route, and tests
-
-**What was done:**
-- Modified `apps/api/src/repositories/asset.repository.ts` — added `getAssetsByProjectId(projectId)` returning `Asset[]`, ordered by `created_at ASC`
-- Modified `apps/api/src/services/asset.service.ts` — added `getProjectAssets(projectId)` which delegates to the repository; returns empty array for unknown projects (no NotFoundError)
-- Modified `apps/api/src/controllers/assets.controller.ts` — added `getProjectAssets` handler with JSDoc
-- Modified `apps/api/src/routes/assets.routes.ts` — added `GET /projects/:id/assets` with `authMiddleware`
-- Modified `apps/api/src/services/asset.service.test.ts` — added `getAssetsByProjectId` to repository mock; added 3 unit tests for `getProjectAssets`: returns assets, returns empty array, propagates DB error
-- Created `apps/api/src/__tests__/integration/assets-list-endpoint.test.ts` — 5 integration tests: 401 no auth, 401 bad JWT, 200 empty array, 200 with assets, cross-project isolation
-
-**Notes:**
-- Route does not use `aclMiddleware` — consistent with `GET /assets/:id` which also only requires auth (not editor role). List is a read operation.
-- Service returns `[]` for a non-existent `projectId` — the frontend interprets an empty array as "no assets yet" and shows the empty state, which is the required behavior
-- Integration test uses stable seeded asset IDs (`00000000-list-seed-...`) to avoid depending on other test suites
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: Task 2 — Add a backend route to list assets for a project</summary>
-
-Add `GET /projects/:id/assets` to the API. The route should query the `project_assets_current` table for all rows where `project_id` matches the URL parameter and return them as a JSON array.
-
-Acceptance criteria:
-- When the panel loads with no uploaded files, it shows an empty state message — not a red error
-- When assets have been uploaded, the panel shows them listed after the page loads
-- If the project ID doesn't exist or has no assets, the API returns an empty array (not a 404)
-- The route is protected by auth middleware, consistent with other asset routes
-
-</details>
-
-checked by code-reviewer - OK
-checked by qa-reviewer - YES
-
----
-
-## 2026-03-31
-
-### Task: Disable deceptive buttons and wire processing asset polling
-**Subtasks:** Task 1 (disable Delete), Task 2 (disable Replace File), Task 3 (wire useAssetPolling)
-
-**What was done:**
-- Modified `apps/web-editor/src/features/asset-manager/components/AssetDetailPanel.tsx` — added `disabled` attribute to both "Replace File" and "Delete Asset" buttons; updated styles to `color: '#555560'`, `cursor: 'not-allowed'`, `opacity: 0.5`; `onDelete` prop retained for future use but button does not fire click events when disabled
-- Modified `apps/web-editor/src/features/asset-manager/components/AssetBrowserPanel.tsx` — imported `useAssetPolling`; added private `AssetPoller` helper component (renders `null`, wraps `useAssetPolling` for one asset, calls `onSettled` on `ready` or `error`); rendered one `<AssetPoller>` per asset in `processing` or `pending` status; `onSettled` invalidates the `['assets', projectId]` React Query cache so the card updates automatically
-
-**Notes:**
-- `AssetPoller` is a private helper (not exported) — allows calling `useAssetPolling` per-item without violating rules-of-hooks (no hooks in loops)
-- Polling covers both `processing` and `pending` — a `pending` asset that never got finalized would otherwise be stuck forever
-- No tests written — arch §10 prohibits testing React component rendering details; no new business logic introduced
-
-**Completed subtasks from active_task.md:**
-<details>
-<summary>Task 1: Disable the Delete Asset button</summary>
-Disable "Delete Asset" button in AssetDetailPanel — grayed out, not clickable, `disabled` attribute.
-</details>
-
-<details>
-<summary>Task 2: Disable the Replace File button</summary>
-Disable "Replace File" button in AssetDetailPanel — grayed out, not clickable, `disabled` attribute.
-</details>
-
-<details>
-<summary>Task 3: Wire background polling for processing assets</summary>
-Add AssetPoller helper to AssetBrowserPanel; render one per processing/pending asset; invalidate query cache on settled.
-</details>
-
-checked by code-reviewer - OK
-checked by qa-reviewer - YES
-
-**Why `file:` works:** npm resolves `file:` as a local directory install and symlinks it into `node_modules` — functionally identical to `workspace:*` for a monorepo, but using native npm syntax supported since npm 5.
-
----
-
-## 2026-03-31
-
-### Task: Fix the upload URL request to include the project ID in the path
-**Subtask:** Update `requestUploadUrl` in `api.ts` to call `POST /projects/${projectId}/assets/upload-url`
-
-**What was done:**
-- Modified `apps/web-editor/src/features/asset-manager/api.ts` — changed `requestUploadUrl` URL from `/assets/upload-url` to `/projects/${payload.projectId}/assets/upload-url`; `projectId` was already present in `UploadUrlRequest` payload so no type changes required
-
-**Notes:**
-- The `projectId` was already part of `UploadUrlRequest` and passed in the body; now it is also placed in the URL path to match the backend route `POST /projects/:id/assets/upload-url`
-- No test changes needed: `useAssetUpload.test.ts` mocks `@/features/asset-manager/api` entirely and does not assert on URL paths; `api.ts` function wrappers are excluded from unit tests per §10 (covered by integration tests)
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Task 3: Fix the upload URL request to include the project ID in the path</summary>
-
-In `apps/web-editor/src/features/asset-manager/api.ts`, update the `requestUploadUrl` function so that the `projectId` is included in the URL path: `POST /projects/${projectId}/assets/upload-url`. The `projectId` is already available as a prop on `AssetBrowserPanel` and passed through to the upload hook — it just needs to flow into the API call.
-
-</details>
-
-checked by code-reviewer - OK
-checked by qa-reviewer - YES
+## Known Issues / TODOs
+- ACL middleware is a stub — real project ownership check deferred to projects CRUD epic
+- `packages/api-contracts/` is a stub — typed API client deferred until OpenAPI spec exists
+- `getTypeLabel` duplicated in FE — extract to `src/shared/utils/` if a third consumer appears
+- Presigned download URL (`GET /assets/:id/download-url`) deferred to a later epic; `storage_uri` used directly for now
+- Timeline ruler bi-directional sync deferred to Timeline Editor epic
+- S3 CORS policy must be configured on the bucket to allow PUT from `http://localhost:5173` for browser-direct uploads to work
+- Assets stay in `processing` state until media-worker ingest job processes them (worker must be running)
