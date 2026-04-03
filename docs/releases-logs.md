@@ -1295,3 +1295,4 @@ checked by qa-reviewer - YES
 - `getTypeLabel` duplicated in FE — extract to `src/shared/utils/` if a third consumer appears
 - Presigned download URL (`GET /assets/:id/download-url`) deferred to a later epic; `storage_uri` used directly for now
 - Timeline ruler bi-directional sync deferred to Timeline Editor epic
+

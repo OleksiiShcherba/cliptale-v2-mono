@@ -1,4 +1,4 @@
-# Development Log (compacted — 2026-03-29 to 2026-04-02)
+# Development Log (compacted — 2026-03-29 to 2026-04-03)
 
 ## Monorepo Scaffold (Epic 1 — Subtask 1)
 - added: `package.json`, `turbo.json` — npm workspaces (`apps/*`, `packages/*`), Turborepo pipeline
@@ -114,92 +114,24 @@
 ## EPIC 2 — Dev Fixture: Visible Preview Content
 - updated: `apps/web-editor/src/store/project-store.ts` — added `TextOverlayClip` (`text: 'ClipTale'`, fontSize 64, center, 0–300 frames) + matching overlay track to `DEV_PROJECT`
 
-## Docker + API Runtime Fixes (post-Epic 2 dev session)
-- fixed: `docker-compose.yml` — tsx commands were run from monorepo root without `--tsconfig`, causing `@/` path alias resolution failure; added `--tsconfig apps/api/tsconfig.json` and `--tsconfig apps/media-worker/tsconfig.json` to respective service commands
-- fixed: `docker-compose.yml` — `--tsconfig` flag placed before `watch` subcommand caused tsx to treat `watch` as entry file (`/app/watch` not found); moved flag after `watch`
-- fixed: `docker-compose.yml` — `NODE_ENV: development` missing from `api` service environment; auth/ACL dev-bypass was not activating in Docker
-- added: `apps/web-editor/.env.local` — `VITE_PUBLIC_API_BASE_URL=http://localhost:3001` for local non-Docker dev
-- fixed: `apps/web-editor/.env.test` — corrected port from 3000 → 3001 to match API default
-- fixed: `apps/api/src/controllers/assets.controller.ts` — added `serializeAsset()` to map internal `Asset` shape to API response shape expected by frontend: `assetId → id`, `s3:// thumbnailUri → HTTPS URL`, `durationFrames + fps → durationSeconds`, `waveformJson → waveformPeaks`, `Date → ISO string`; applied to all three asset response sites (`getProjectAssets`, `getAsset`, `finalizeAsset`)
+## Docker + API Runtime Fixes
+- fixed: `docker-compose.yml` — `tsx watch` tsconfig flag order; `NODE_ENV: development` missing from api service
+- fixed: `apps/api/src/controllers/assets.controller.ts` — `serializeAsset()` maps internal shape to API response: `assetId→id`, S3 URI→HTTPS URL, `durationFrames+fps→durationSeconds`, `waveformJson→waveformPeaks`, Date→ISO string
+- added: `apps/web-editor/.env.local` — `VITE_PUBLIC_API_BASE_URL=http://localhost:3001`
+- fixed: `apps/web-editor/.env.test` — corrected port 3000→3001
 
-## [2026-04-02]
+## Playwright E2E Setup (Subtask 1)
+- added: `@playwright/test` (^1.59.1) to root devDependencies; `"e2e": "playwright test"` script
+- added: `e2e` task to `turbo.json` (dependsOn `^build`, cache disabled, `"outputs": []`)
+- added: `playwright.config.ts` — baseURL `http://localhost:5173`, Chromium only, `reuseExistingServer: true`, `webServer` auto-starts Vite
+- added: `e2e/.gitkeep` — ensures testDir exists
+- fixed: removed `fullyParallel: true` (contradicted `workers: 1`); changed webServer command to `npm run dev -w apps/web-editor`
 
-### Task: Setup Playwright E2E Tests
-**Subtask:** Subtask 1 — Install Playwright and configure playwright.config.ts
-
-**What was done:**
-- Added `@playwright/test` (resolved ^1.59.1) to root `package.json` devDependencies
-- Added `"e2e": "playwright test"` script to root `package.json`
-- Added `"e2e"` pipeline task to `turbo.json` (dependsOn `^build`, cache disabled)
-- Created `playwright.config.ts` at the monorepo root — baseURL `http://localhost:5173`, Chromium project, `reuseExistingServer: true`, 30s test timeout, `webServer` block to auto-start Vite when Docker Compose is not running
-- Installed Chromium browser via `npx playwright install chromium`
-
-**Notes:**
-- `reuseExistingServer: true` means tests can run against either Docker Compose (port 5173 already bound) or a local Vite dev server started automatically by Playwright's `webServer` block
-- `@playwright/test` lives at root only — E2E tests are not co-located with the apps
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: Subtask 1 — Install Playwright and configure playwright.config.ts</summary>
-
-- Add `@playwright/test` to root `package.json` devDependencies
-- Add an `e2e` script to root `package.json`
-- Add `e2e` task to `turbo.json`
-- Create `playwright.config.ts` at the monorepo root
-  - Base URL: `http://localhost:5173` (web-editor Docker Compose service)
-  - Set `webServer` to start web-editor dev server if not already running
-  - Reasonable timeouts
-
-</details>
-
-checked by code-reviewer - OK
-checked by qa-reviewer - NOT
-
-**Code-reviewer comment fixes (2026-04-02):**
-- Removed `fullyParallel: true` from `playwright.config.ts` — it was contradictory with `workers: 1` in CI
-- Changed `webServer.command` to `npm run dev -w apps/web-editor` for standard npm portability
-- Added `"outputs": []` to the `e2e` task in `turbo.json` for consistency with the `test` task
-- Created `e2e/.gitkeep` so the `testDir: './e2e'` directory exists and Playwright can run without error
-
----
-
-## [2026-04-02]
-
-### Task: Setup Playwright E2E Tests
-**Subtask:** Subtask 2 — Write E2E test files (app-shell.spec.ts, preview.spec.ts, asset-manager.spec.ts)
-
-**What was done:**
-- Created `e2e/app-shell.spec.ts` — 4 smoke tests: app loads without crashing, asset browser sidebar visible (`aria-label="Asset browser"`), preview main region visible, no uncaught JS errors on load (`page.on('pageerror')`)
-- Created `e2e/preview.spec.ts` — 6 tests: Remotion player container present, play button visible with "Play" label, clicking play changes aria-label to "Pause", timecode display present and matches `HH:MM:SS:FF` pattern, scrubber slider present, frame counter present; `test.setTimeout(60_000)` applied per QA reviewer recommendation for video initialization
-- Created `e2e/asset-manager.spec.ts` — 10 tests: panel present, filter tabs visible (All/Video/Audio/Image), search bar visible, empty-state or error message shown without live backend, upload button present, clicking upload opens dialog (`role="dialog" aria-label="Upload Assets"`), dropzone text present, Browse Files button present, close via X button, close via Cancel button; actual upload flow scoped out with TODO explaining API + S3 requirement
-
-**Notes:**
-- All selectors are based on existing `aria-label`, `role`, and text in the components — no `data-testid` attributes were added to application code
-- The `getByRole('generic', { name: 'Timecode' })` targets the `<span aria-label="Timecode">` element rendered by `PlaybackControls.tsx`
-- Asset browser empty-state test accepts either the empty-state text OR an error alert — the API is not running during E2E so the query may fail or return empty
-- Each spec file has the `// QA: cross-browser — intentionally Chromium-only for initial suite` header comment
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: Subtask 2 — Write E2E smoke tests (app-shell.spec.ts)</summary>
-
-- App loads and both panels are visible (asset browser sidebar + preview area)
-- No console errors on load
-
-Also covers preview.spec.ts and asset-manager.spec.ts per task description.
-
-</details>
-
-checked by code-reviewer - OK
-checked by qa-reviewer - NOT
-
-**Comment fixes (2026-04-02):**
-- `e2e/app-shell.spec.ts` — removed the first redundant test ("app loads without crashing"); kept only "no uncaught JS errors on load" (the more thorough version with `waitForLoadState('networkidle')`)
-- `e2e/preview.spec.ts` — removed the duplicate toolbar assertion from "Remotion player container is present in the main area" test; the `beforeEach` block already guarantees toolbar visibility
-- `e2e/preview.spec.ts` — replaced `getByRole('generic', { name: 'Timecode' })` with `getByLabel('Timecode')` and `getByRole('generic', { name: 'Current frame' })` with `getByLabel('Current frame')` — `role="generic"` is not reliably queryable by Playwright in headless mode
-- `e2e/asset-manager.spec.ts` — replaced `isVisible().catch(() => false)` with `(await locator.count()) > 0` to prevent silent swallowing of selector resolution errors
-
----
+## Playwright E2E Tests (Subtask 2)
+- added: `e2e/app-shell.spec.ts` — 3 smoke tests: sidebar + preview panels visible, no uncaught JS errors
+- added: `e2e/preview.spec.ts` — 6 tests: player container, play/pause toggle, timecode `HH:MM:SS:FF` pattern, scrubber, frame counter; `test.setTimeout(60_000)`
+- added: `e2e/asset-manager.spec.ts` — 10 tests: panel, filter tabs, search bar, empty-state, upload button, dialog open/close
+- fixed: `getByRole('generic')` → `getByLabel()` for timecode/frame elements (headless reliability); `isVisible().catch()` → `(await locator.count()) > 0`
 
 ## Known Issues / TODOs
 - ACL middleware is a stub — real project ownership check deferred to projects CRUD epic
