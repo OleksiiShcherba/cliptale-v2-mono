@@ -5,6 +5,8 @@ import type { TextOverlayClip, Track } from '@ai-video-editor/project-schema';
 import { getSnapshot, setProject } from '@/store/project-store';
 import type { CaptionSegment } from '@/features/captions/types';
 
+const CAPTIONS_TRACK_NAME = 'Captions';
+
 /**
  * Returns a function that converts transcript segments into `TextOverlayClip` objects
  * and appends a new "Captions" track to the project document.
@@ -13,8 +15,8 @@ import type { CaptionSegment } from '@/features/captions/types';
  *   startFrame     = Math.round(segment.start * fps)
  *   durationFrames = Math.max(1, Math.round((segment.end - segment.start) * fps))
  *
- * Each call creates a fresh track so multiple "Add Captions" actions don't clobber
- * each other (future deduplication can be added when undo/redo lands).
+ * Idempotency: if a track named "Captions" already exists, the function returns
+ * early without adding a duplicate track.
  */
 export function useAddCaptionsToTimeline(): {
   addCaptionsToTimeline: (segments: CaptionSegment[]) => void;
@@ -23,12 +25,18 @@ export function useAddCaptionsToTimeline(): {
     const current = getSnapshot();
     const { fps } = current;
 
+    // Guard against duplicate captions tracks.
+    const captionsTrackExists = current.tracks.some(
+      (t: Track) => t.name === CAPTIONS_TRACK_NAME,
+    );
+    if (captionsTrackExists) return;
+
     const trackId = crypto.randomUUID();
 
     const newTrack: Track = {
       id: trackId,
       type: 'overlay',
-      name: 'Captions',
+      name: CAPTIONS_TRACK_NAME,
       muted: false,
       locked: false,
     };

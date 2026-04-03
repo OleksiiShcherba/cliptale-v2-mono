@@ -141,4 +141,66 @@ describe('useAddCaptionsToTimeline', () => {
     expect(updated.clips).toHaveLength(0);
     expect(updated.tracks).toHaveLength(1); // empty captions track still created
   });
+
+  describe('idempotency guard', () => {
+    it('does not add a duplicate Captions track when one already exists', () => {
+      const existingCaptionsTrack: Track = {
+        id: 'existing-captions-track',
+        type: 'overlay',
+        name: 'Captions',
+        muted: false,
+        locked: false,
+      };
+      mockGetSnapshot.mockReturnValue(
+        makeProject(30, { tracks: [existingCaptionsTrack], clips: [] }),
+      );
+
+      const { result } = renderHook(() => useAddCaptionsToTimeline());
+      act(() => result.current.addCaptionsToTimeline(TEST_SEGMENTS));
+
+      // setProject should NOT be called — hook returns early.
+      expect(mockSetProject).not.toHaveBeenCalled();
+    });
+
+    it('still adds a Captions track when no track named "Captions" exists', () => {
+      const unrelatedTrack: Track = {
+        id: 'video-track',
+        type: 'video',
+        name: 'Main Video',
+        muted: false,
+        locked: false,
+      };
+      mockGetSnapshot.mockReturnValue(
+        makeProject(30, { tracks: [unrelatedTrack], clips: [] }),
+      );
+
+      const { result } = renderHook(() => useAddCaptionsToTimeline());
+      act(() => result.current.addCaptionsToTimeline(TEST_SEGMENTS));
+
+      expect(mockSetProject).toHaveBeenCalledTimes(1);
+      const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
+      const captionsTrack = updated.tracks.find((t: Track) => t.name === 'Captions');
+      expect(captionsTrack).toBeDefined();
+    });
+
+    it('returns without calling setProject when guard triggers', () => {
+      const existingCaptionsTrack: Track = {
+        id: 'existing-captions-track',
+        type: 'overlay',
+        name: 'Captions',
+        muted: false,
+        locked: false,
+      };
+      mockGetSnapshot.mockReturnValue(
+        makeProject(30, { tracks: [existingCaptionsTrack], clips: [] }),
+      );
+
+      const { result } = renderHook(() => useAddCaptionsToTimeline());
+      // Call twice — should be a no-op both times due to guard.
+      act(() => result.current.addCaptionsToTimeline(TEST_SEGMENTS));
+      act(() => result.current.addCaptionsToTimeline(TEST_SEGMENTS));
+
+      expect(mockSetProject).not.toHaveBeenCalled();
+    });
+  });
 });

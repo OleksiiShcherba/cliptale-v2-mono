@@ -24,6 +24,14 @@ No Playwright or Cypress config exists in the repo as of 2026-04-02. E2E tests c
 
 **Impact:** Any integration test for an authenticated endpoint must ensure `NODE_ENV` is not `'development'` during the test run, or the middleware bypasses auth and the test will not exercise the real path.
 
+## App.test.tsx is a live file — extend it for every new App.tsx feature
+
+`apps/web-editor/src/App.test.tsx` already exists and covers the shell layout, sidebar, and preview section. When a new component is conditionally rendered inside `App.tsx` (e.g. `RightSidebar`), the new conditional logic must be tested by adding a describe block to `App.test.tsx` — not by creating a separate test file. Mock both `useEphemeralStore` and `useProjectStore` at the module level in that file; they are already wired in.
+
+**Why:** Discovered during Subtask 7 review — the `RightSidebar` conditional logic (all 4 guard branches + happy path + clip prop forwarding) was unimplemented in `App.test.tsx` despite the test file existing.
+
+**Impact:** Every future feature that touches `App.tsx` must update `App.test.tsx`. Check for this file before creating a new test file for any root-level App logic.
+
 ## Remotion Player mock must use forwardRef
 
 When testing `PreviewPanel` (or any component that passes a `ref` to Remotion `<Player>`), the `vi.mock('@remotion/player')` factory must use `React.forwardRef` to capture the ref. A plain functional mock component silently discards the ref, making `playerRef` forwarding behavior untestable.

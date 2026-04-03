@@ -29,6 +29,65 @@ vi.mock('@/features/preview/hooks/useRemotionPlayer', () => ({
   useRemotionPlayer: () => ({ playerRef: { current: null } }),
 }));
 
+vi.mock('@/features/captions/components/CaptionEditorPanel', () => ({
+  CaptionEditorPanel: ({ clip }: { clip: { id: string } }) =>
+    React.createElement('div', { 'data-testid': 'caption-editor-panel', 'data-clip-id': clip.id }),
+}));
+
+vi.mock('@/store/ephemeral-store', () => ({
+  useEphemeralStore: vi.fn(),
+}));
+
+vi.mock('@/store/project-store', () => ({
+  useProjectStore: vi.fn(),
+  getSnapshot: vi.fn(),
+  subscribe: vi.fn().mockReturnValue(() => {}),
+  setProject: vi.fn(),
+}));
+
+import * as ephemeralStoreModule from '@/store/ephemeral-store';
+import * as projectStoreModule from '@/store/project-store';
+import type { TextOverlayClip } from '@ai-video-editor/project-schema';
+
+const mockUseEphemeralStore = vi.mocked(ephemeralStoreModule.useEphemeralStore);
+const mockUseProjectStore = vi.mocked(projectStoreModule.useProjectStore);
+
+// ── Fixtures ─────────────────────────────────────────────────────────────────
+
+const CLIP_ID = '00000000-0000-0000-0000-000000000020';
+const TRACK_ID = '00000000-0000-0000-0000-000000000010';
+
+function makeTextOverlayClip(overrides: Partial<TextOverlayClip> = {}): TextOverlayClip {
+  return {
+    id: CLIP_ID,
+    type: 'text-overlay',
+    trackId: TRACK_ID,
+    startFrame: 0,
+    durationFrames: 30,
+    text: 'Hello',
+    fontSize: 24,
+    color: '#FFFFFF',
+    position: 'bottom',
+    ...overrides,
+  };
+}
+
+function makeProjectDoc(clips: TextOverlayClip[] = []) {
+  return {
+    schemaVersion: 1,
+    id: 'proj-001',
+    title: 'Test',
+    fps: 30,
+    durationFrames: 300,
+    width: 1920,
+    height: 1080,
+    tracks: [],
+    clips,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+  } as unknown as ReturnType<typeof projectStoreModule.useProjectStore>;
+}
+
 import { App, PreviewSection, DEV_PROJECT_ID } from './App.js';
 
 // ---------------------------------------------------------------------------
@@ -38,6 +97,13 @@ import { App, PreviewSection, DEV_PROJECT_ID } from './App.js';
 describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: no clip selected, empty project
+    mockUseEphemeralStore.mockReturnValue({
+      selectedClipIds: [],
+      playheadFrame: 0,
+      zoom: 1,
+    });
+    mockUseProjectStore.mockReturnValue(makeProjectDoc());
   });
 
   describe('two-column shell layout', () => {
@@ -120,5 +186,99 @@ describe('PreviewPanel props', () => {
     // PreviewPanel mock accepts any props — tested here via PreviewSection integration.
     render(<PreviewSection />);
     expect(screen.getByTestId('preview-panel')).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RightSidebar — conditional inspector panel
+// ---------------------------------------------------------------------------
+
+describe('RightSidebar', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUseProjectStore.mockReturnValue(makeProjectDoc());
+  });
+
+  it('does not render the inspector when no clips are selected', () => {
+    mockUseEphemeralStore.mockReturnValue({ selectedClipIds: [], playheadFrame: 0, zoom: 1 });
+    render(<App />);
+    expect(screen.queryByRole('complementary', { name: 'Inspector' })).toBeNull();
+    expect(screen.queryByTestId('caption-editor-panel')).toBeNull();
+  });
+
+  it('does not render the inspector when more than one clip is selected', () => {
+    mockUseEphemeralStore.mockReturnValue({
+      selectedClipIds: [CLIP_ID, '00000000-0000-0000-0000-000000000099'],
+      playheadFrame: 0,
+      zoom: 1,
+    });
+    mockUseProjectStore.mockReturnValue(makeProjectDoc([makeTextOverlayClip()]));
+    render(<App />);
+    expect(screen.queryByRole('complementary', { name: 'Inspector' })).toBeNull();
+    expect(screen.queryByTestId('caption-editor-panel')).toBeNull();
+  });
+
+  it('does not render the inspector when the selected clip id does not exist in the project', () => {
+    mockUseEphemeralStore.mockReturnValue({
+      selectedClipIds: ['non-existent-id'],
+      playheadFrame: 0,
+      zoom: 1,
+    });
+    // Project has no clips
+    mockUseProjectStore.mockReturnValue(makeProjectDoc([]));
+    render(<App />);
+    expect(screen.queryByRole('complementary', { name: 'Inspector' })).toBeNull();
+    expect(screen.queryByTestId('caption-editor-panel')).toBeNull();
+  });
+
+  it('does not render the inspector when the selected clip is not a text-overlay', () => {
+    const videoClip = {
+      id: CLIP_ID,
+      type: 'video' as const,
+      trackId: TRACK_ID,
+      startFrame: 0,
+      durationFrames: 30,
+      assetId: 'asset-001',
+      volume: 1,
+    };
+    mockUseEphemeralStore.mockReturnValue({
+      selectedClipIds: [CLIP_ID],
+      playheadFrame: 0,
+      zoom: 1,
+    });
+    mockUseProjectStore.mockReturnValue({
+      ...makeProjectDoc([]),
+      clips: [videoClip],
+    } as unknown as ReturnType<typeof projectStoreModule.useProjectStore>);
+    render(<App />);
+    expect(screen.queryByRole('complementary', { name: 'Inspector' })).toBeNull();
+    expect(screen.queryByTestId('caption-editor-panel')).toBeNull();
+  });
+
+  it('renders the inspector aside with CaptionEditorPanel when one text-overlay clip is selected', () => {
+    const clip = makeTextOverlayClip();
+    mockUseEphemeralStore.mockReturnValue({
+      selectedClipIds: [CLIP_ID],
+      playheadFrame: 0,
+      zoom: 1,
+    });
+    mockUseProjectStore.mockReturnValue(makeProjectDoc([clip]));
+    render(<App />);
+    const inspector = screen.getByRole('complementary', { name: 'Inspector' });
+    expect(inspector).toBeTruthy();
+    expect(screen.getByTestId('caption-editor-panel')).toBeTruthy();
+  });
+
+  it('passes the correct clip to CaptionEditorPanel', () => {
+    const clip = makeTextOverlayClip({ id: CLIP_ID });
+    mockUseEphemeralStore.mockReturnValue({
+      selectedClipIds: [CLIP_ID],
+      playheadFrame: 0,
+      zoom: 1,
+    });
+    mockUseProjectStore.mockReturnValue(makeProjectDoc([clip]));
+    render(<App />);
+    const panel = screen.getByTestId('caption-editor-panel');
+    expect(panel.getAttribute('data-clip-id')).toBe(CLIP_ID);
   });
 });

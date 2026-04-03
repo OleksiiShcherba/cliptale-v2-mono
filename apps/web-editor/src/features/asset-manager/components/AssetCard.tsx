@@ -104,7 +104,7 @@ export function AssetCard({ asset, isSelected, onSelect }: AssetCardProps): Reac
             <span
               aria-label={`Status: ${asset.status}`}
               style={{
-                fontSize: 10,
+                fontSize: 11,
                 fontWeight: 500,
                 color: '#F0F0FA',
                 backgroundColor: badgeBg,
