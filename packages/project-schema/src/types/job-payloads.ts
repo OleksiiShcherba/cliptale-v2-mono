@@ -10,3 +10,18 @@ export type MediaIngestJobPayload = {
   storageUri: string;
   contentType: string;
 };
+
+/** Payload for a `transcription` job — carries everything the worker needs to transcribe an asset via Whisper. */
+export type TranscriptionJobPayload = {
+  assetId: string;
+  storageUri: string;
+  contentType: string;
+  language?: string;
+};
+
+/** A single Whisper transcript segment with timing and text. */
+export type CaptionSegment = {
+  start: number;
+  end: number;
+  text: string;
+};

@@ -12,20 +12,12 @@ import type { Pool } from 'mysql2/promise';
 
 import type { MediaIngestJobPayload } from '@ai-video-editor/project-schema';
 
+import { parseStorageUri } from '@/lib/storage-uri.js';
+
+export { parseStorageUri };
+
 /** Number of waveform amplitude peaks returned for audio/video assets. */
 const WAVEFORM_PEAKS = 200;
-
-// ── Pure helpers ──────────────────────────────────────────────────────────────
-
-/** Parses bucket name and object key from a `s3://bucket/key` URI. */
-export function parseStorageUri(storageUri: string): { bucket: string; key: string } {
-  const withoutScheme = storageUri.replace(/^s3:\/\//, '');
-  const slashIndex = withoutScheme.indexOf('/');
-  return {
-    bucket: withoutScheme.slice(0, slashIndex),
-    key: withoutScheme.slice(slashIndex + 1),
-  };
-}
 
 /**
  * Parses an FFprobe `r_frame_rate` string (e.g. `"30000/1001"`) into a decimal fps value.

@@ -141,3 +141,204 @@
 - Timeline ruler bi-directional sync deferred to Timeline Editor epic
 - S3 CORS policy must be configured on the bucket to allow PUT from `http://localhost:5173` for browser-direct uploads to work
 - Assets stay in `processing` state until media-worker ingest job processes them (worker must be running)
+
+---
+
+## [2026-04-03]
+
+### Task: EPIC 3 — AI Captions / Auto-Subtitles
+**Subtask:** 1. DB Migration — `caption_tracks` table
+
+**What was done:**
+- Created `apps/api/src/db/migrations/002_caption_tracks.sql` — idempotent `CREATE TABLE IF NOT EXISTS` for `caption_tracks` with `caption_track_id CHAR(36) PK`, `asset_id CHAR(36) NOT NULL`, `project_id CHAR(36) NOT NULL`, `language VARCHAR(10) NOT NULL DEFAULT 'en'`, `segments_json JSON NOT NULL`, `created_at DATETIME(3)`, and composite index `idx_caption_tracks_asset_project` on `(asset_id, project_id)`
+- Created `apps/api/src/__tests__/integration/migration-002.test.ts` — integration smoke tests following the `migration-001.test.ts` pattern
+
+**Notes:**
+- Test requires a live MySQL instance; uses `APP_DB_*` env vars with docker-compose defaults as fallbacks
+- `segments_json` is `NOT NULL` — the table never stores a row without segment data; an in-progress transcription is represented by the absence of a row (404 from the API), not a null column
+- TypeScript compilation passes cleanly (`tsc --noEmit` on the API project)
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 1. DB Migration — caption_tracks table</summary>
+
+- What: Create `apps/api/src/db/migrations/002_caption_tracks.sql` with the `caption_tracks` table and a migration test.
+- Where: `apps/api/src/db/migrations/`, `apps/api/src/db/migrations/__tests__/migration-002.test.ts`
+- Why: Stores Whisper transcript segments (as JSON) per asset; required by the service layer before any other subtask can be tested end-to-end.
+- Schema: `caption_track_id CHAR(36) PK`, `asset_id CHAR(36) NOT NULL`, `project_id CHAR(36) NOT NULL`, `language VARCHAR(10) NOT NULL DEFAULT 'en'`, `segments_json JSON NOT NULL`, `created_at DATETIME(3)`. Index on `(asset_id, project_id)`. Idempotent (`CREATE TABLE IF NOT EXISTS`).
+- Depends on: none
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-03]
+
+### Task: EPIC 3 — AI Captions / Auto-Subtitles
+**Subtask:** 2. `TranscriptionJobPayload` type
+
+**What was done:**
+- Added `TranscriptionJobPayload` to `packages/project-schema/src/types/job-payloads.ts` with fields: `assetId: string`, `storageUri: string`, `contentType: string`, `language?: string`
+- Re-exported `TranscriptionJobPayload` from `packages/project-schema/src/index.ts` alongside existing `MediaIngestJobPayload`
+- Created `packages/project-schema/src/types/job-payloads.test.ts` — 4 tests covering happy path (all fields, no language), explicit language, undefined language, and MediaIngestJobPayload regression check
+
+**Notes:**
+- This is a pure TypeScript type addition — no Zod schema needed (payloads are not validated at a runtime API boundary; they are produced and consumed in trusted code paths)
+- `language` is optional (`?`) so callers can omit it; the worker will pass it directly to Whisper and Whisper defaults to auto-detection when undefined
+- TypeScript compilation passes clean (`tsc --noEmit`)
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 2. TranscriptionJobPayload type</summary>
+
+- What: Add `TranscriptionJobPayload` to `packages/project-schema/src/types/job-payloads.ts` and re-export it from the package index.
+- Where: `packages/project-schema/src/types/job-payloads.ts`, `packages/project-schema/src/index.ts`
+- Why: Single source of truth for the payload shape used by both the API (enqueue side) and the media-worker (consume side). Must exist before either side is implemented.
+- Shape: `{ assetId: string; storageUri: string; contentType: string; language?: string }`.
+- Depends on: none
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-03. No UI changes in this subtask — pure TypeScript type addition with no visual, layout, color, typography, or component impact. Design review not applicable; auto-approved.
+
+---
+
+## [2026-04-03]
+
+### Task: EPIC 3 — AI Captions / Auto-Subtitles
+**Subtask:** 3. BE — Transcription enqueue helper + caption repository/service/routes
+
+**What was done:**
+- Created `apps/api/src/queues/jobs/enqueue-transcription.ts` — follows `enqueue-ingest.ts` pattern; uses `assetId` as BullMQ `jobId` for idempotency; 3 retries, exponential backoff; returns the job ID string
+- Created `apps/api/src/repositories/caption.repository.ts` — `insertCaptionTrack()` with `INSERT IGNORE` for idempotency; `getCaptionTrackByAssetId()` returns null when no track exists yet; maps snake_case DB rows to camelCase TS types; handles both string and parsed JSON for `segments_json`
+- Created `apps/api/src/services/caption.service.ts` — `transcribeAsset()` (NotFoundError if asset missing, ConflictError 409 if track exists, enqueue job, return `{ jobId }`); `getCaptions()` (NotFoundError 404 if no track, return `{ segments }`)
+- Created `apps/api/src/controllers/captions.controller.ts` — thin parse/delegate; `transcribeAsset` returns 202, `getCaptions` returns 200
+- Created `apps/api/src/routes/captions.routes.ts` — POST `/assets/:id/transcribe` (auth + acl editor) → 202; GET `/assets/:id/captions` (auth) → 200 or 404
+- Updated `apps/api/src/index.ts` — mounted `captionsRouter` alongside `assetsRouter`
+- Created `apps/api/src/services/caption.service.test.ts` — 8 unit tests (transcribeAsset: happy path, payload shape, NotFoundError, ConflictError, propagates DB errors; getCaptions: returns segments, NotFoundError, propagates DB errors)
+- Created `apps/api/src/__tests__/integration/captions-endpoints.test.ts` — integration tests covering all HTTP status codes for both endpoints (401, 404, 409, 202, 200); BullMQ mocked to avoid Redis dependency; seeds real MySQL rows for fixture data
+
+**Notes:**
+- `transcriptionQueue.add()` is called with `jobId: assetId` so the returned `job.id` always equals `assetId` — the service returns this as `{ jobId }`
+- `getCaptionTrackByAssetId` returns `null` (not an empty array) to signal "not yet transcribed"; the FE uses the 404 status to distinguish this case
+- `INSERT IGNORE` in `insertCaptionTrack` means the worker side (subtask 4) is safe to call this even if a race condition causes two completions for the same asset
+- TypeScript compiles clean (`tsc --noEmit` on api project passes with 0 errors)
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 3. BE — Transcription enqueue helper + caption repository/service/routes</summary>
+
+- What: Build the full API slice: `enqueue-transcription.ts` job helper, `caption.repository.ts` (insert/get by assetId), `caption.service.ts` (enqueue + 409 guard), `captions.controller.ts` (thin parse/delegate), `captions.routes.ts` (POST `/assets/:id/transcribe` → 202, GET `/assets/:id/captions`), wired into `apps/api/index.ts`.
+- Acceptance: POST returns `{ jobId }` with 202; GET returns `{ segments: [{start, end, text}] }` when ready, 404 when not yet transcribed; POST returns 409 if transcript already exists.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-03. No UI changes in this subtask — entirely backend API code (BullMQ enqueue helper, DB repository, service layer, HTTP controllers, Express routes). No visual, layout, color, typography, or component impact. Design review not applicable; auto-approved.
+
+---
+
+## [2026-04-03]
+
+### Task: EPIC 3 — AI Captions / Auto-Subtitles
+**Subtask:** 4. Media Worker — `transcribe.job.ts`
+
+**What was done:**
+- Added `"openai": "^4.0.0"` to `apps/media-worker/package.json` dependencies
+- Updated `apps/media-worker/src/config.ts` — added `APP_OPENAI_API_KEY` env var (Zod validation, `config.openai.apiKey` accessor)
+- Created `apps/media-worker/src/jobs/transcribe.job.ts` — BullMQ job handler following `ingest.job.ts` pattern: downloads asset from S3 to temp file (using `origFilename` from storage key so Whisper gets the right extension), calls OpenAI Whisper API with `response_format: 'verbose_json'`, maps `segments[]` to `CaptionSegment[]` (with text trimming), inserts via `INSERT IGNORE`, cleans up temp dir in finally block; uses `TranscribeJobDeps` injection for testability
+- Updated `apps/media-worker/src/index.ts` — added `transcriptionWorker` (BullMQ `Worker` on `QUEUE_TRANSCRIPTION`, `concurrency: 1`), renamed `worker` → `ingestWorker`, updated `shutdown()` to close both workers in parallel
+- Created `apps/media-worker/src/jobs/transcribe.job.test.ts` — 12 unit tests covering: happy path segment insertion with trim, language forwarded to Whisper, language omitted when not in payload, INSERT IGNORE used, 'auto' stored when language undefined, NotFoundError when asset missing from DB, S3 failure re-throws for retry, Whisper API failure re-throws for retry, temp dir cleaned on error, empty segments handled gracefully
+
+**Notes:**
+- `createReadStream` is cast to `unknown as File` to satisfy the OpenAI SDK's TypeScript overload resolution; at runtime the SDK accepts `ReadStream` via its Node.js path
+- `INSERT IGNORE` in the worker mirrors the repository layer — safe if two job completions race for the same asset
+- Concurrency is set to `1` for the transcription worker (Whisper calls are slow and expensive)
+- `origFilename` extracted from `path.basename(key)` ensures Whisper receives a filename with the correct extension (e.g. `video.mp4`) for format detection
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 4. Media Worker — transcribe.job.ts</summary>
+
+- What: Implement the BullMQ job handler that downloads the asset from S3, sends it to the OpenAI Whisper API, parses segments[], inserts into caption_tracks, and handles errors with retry. Wire it into apps/media-worker/src/index.ts.
+- Depends on: Subtask 1, Subtask 2, Subtask 3 (repo for DB insert)
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-03. No UI changes in this subtask — entirely backend/worker code (BullMQ job handler, env config, worker wiring, unit tests). No visual, layout, color, typography, or component impact. Design review not applicable; auto-approved.
+
+---
+
+## [2026-04-03]
+
+### Task: EPIC 3 — AI Captions / Auto-Subtitles
+**Subtask:** 5. FE — Captions feature: types, api.ts, `useTranscriptionStatus` hook
+
+**What was done:**
+- Created `apps/web-editor/src/features/captions/types.ts` — `CaptionSegment` (`start, end, text`) and `CaptionTrackStatus` (`idle | pending | processing | ready | error`) types
+- Created `apps/web-editor/src/features/captions/api.ts` — `triggerTranscription(assetId)` (POST /assets/:id/transcribe → 202 `{ jobId }`); `getCaptions(assetId)` (GET /assets/:id/captions → `{ segments }` or `null` on 404; throws on other errors) — both go through `apiClient`
+- Created `apps/web-editor/src/features/captions/hooks/useTranscriptionStatus.ts` — React Query `useQuery` polls every 3s; `refetchInterval` returns `false` when data is present (ready) or query errored; `retry: false` so 404 is not retried; status derived as `ready` | `error` | `idle`
+- Created `apps/web-editor/src/features/captions/hooks/useTranscriptionStatus.test.ts` — 7 unit tests: idle (404), ready (200 with segments), error (non-404 throw), disabled when assetId null, correct assetId forwarded, poll-to-ready transition via queryClient.refetchQueries, isFetching true on in-flight
+
+**Notes:**
+- `getCaptions` returns `null` (not throws) on 404 so React Query treats "not yet transcribed" as empty data, not an error
+- `CaptionTrackStatus` includes `pending` and `processing` for use by the component (subtask 6); the hook itself only sets `idle`, `ready`, or `error` — consumers track `pending` locally after calling `triggerTranscription`
+- The shared `queryClient` pattern in tests (destructuring `{ Wrapper, queryClient }`) allows forcing re-fetches without fake timers
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 5. FE — Captions feature: types, api.ts, useTranscriptionStatus hook</summary>
+
+- What: Define CaptionSegment, CaptionTrackStatus types; implement api.ts (triggerTranscription, getCaptions); implement useTranscriptionStatus hook (React Query poll on /assets/:id/captions every 3s while status is not ready).
+- Depends on: Subtask 3 (endpoints must be specced)
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-03. No UI changes in this subtask — entirely TypeScript types, API functions, and a React Query hook with no JSX or visual output. No visual, layout, color, typography, or component impact. Design review not applicable; auto-approved.
+
+---
+
+## [2026-04-03]
+
+### Task: EPIC 3 — AI Captions / Auto-Subtitles
+**Subtask:** 6. FE — "Transcribe" button + "Add Captions to Timeline" action
+
+**What was done:**
+- Created `apps/web-editor/src/features/captions/components/TranscribeButton.tsx` — manages the full transcription CTA flow: idle→pending→ready→error; uses `useTranscriptionStatus` for polling (only starts polling after trigger is called), `triggerTranscription` for POST, `useAddCaptionsToTimeline` for the add action; aria-label, aria-busy on button for accessibility; styled using design-guide tokens (`#7C3AED` idle, `#10B981` ready, `#EF4444` error, `#8A8AA0` disabled)
+- Created `apps/web-editor/src/features/captions/hooks/useAddCaptionsToTimeline.ts` — converts `CaptionSegment[]` to `TextOverlayClip[]` using frame math (`startFrame = Math.round(seg.start * fps)`, `durationFrames = Math.max(1, Math.round((seg.end - seg.start) * fps))`); creates `overlay` track named "Captions"; calls `setProject()` with spread-updated ProjectDoc
+- Updated `apps/web-editor/src/features/asset-manager/components/AssetCard.tsx` — card container changed from fixed `height: 64` to `minHeight: 64` with `flexDirection: 'column'`; top row preserved as `flexDirection: 'row'`; `TranscribeButton` added conditionally when `asset.status === 'ready'` and asset is video or audio
+- Created `apps/web-editor/src/features/captions/hooks/useAddCaptionsToTimeline.test.ts` — 6 unit tests: track type overlay, frame math at 30fps, durationFrames clamped to min 1, clip trackId matches new track, existing tracks/clips preserved, empty segments no-throw
+
+**Notes:**
+- `TranscribeButton` only starts polling (`assetId !== null` passed to `useTranscriptionStatus`) after `triggerTranscription` succeeds — avoids unnecessary polling for idle assets
+- `isTranscribable` helper checks `video/` or `audio/` MIME prefix before rendering `TranscribeButton`
+- `TranscribeButton` only rendered when `asset.status === 'ready'` (asset must be ingested before it can be transcribed)
+- `crypto.randomUUID()` uses the browser's Web Crypto API (not Node.js `node:crypto`)
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 6. FE — "Transcribe" button + "Add Captions to Timeline" action</summary>
+
+- What: Add a "Transcribe" button to AssetCard (video/audio assets). Show status inline. When ready, "Add Captions to Timeline" button converts segments into TextOverlayClips and appends a captions track.
+- Depends on: Subtask 5
+
+</details>
+
+checked by code-reviewer - NOT
+checked by qa-reviewer - NOT
+checked by design-reviewer - NOT

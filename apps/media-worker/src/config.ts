@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 const envSchema = z.object({
   APP_REDIS_URL: z.string().url(),
+  APP_OPENAI_API_KEY: z.string().min(1),
   APP_S3_BUCKET: z.string().min(1),
   APP_S3_ENDPOINT: z.string().optional(),
   APP_S3_REGION: z.string().default('us-east-1'),
@@ -25,6 +26,9 @@ const env = parsed.data;
 
 /** Central environment variable access — the ONLY file allowed to read process.env in apps/media-worker. */
 export const config = {
+  openai: {
+    apiKey: env.APP_OPENAI_API_KEY,
+  },
   redis: {
     url: env.APP_REDIS_URL,
   },

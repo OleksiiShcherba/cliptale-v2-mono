@@ -17,6 +17,7 @@
     "ioredis": "^5.3.0",
     "@aws-sdk/client-s3": "^3.540.0",
     "fluent-ffmpeg": "^2.1.0",
+    "openai": "^4.0.0",
     "mysql2": "^3.9.0",
     "zod": "^3.22.0"
   },

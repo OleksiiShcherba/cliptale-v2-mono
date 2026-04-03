@@ -1,6 +1,7 @@
 import React from 'react';
 
 import type { Asset } from '@/features/asset-manager/types';
+import { TranscribeButton } from '@/features/captions/components/TranscribeButton';
 
 const STATUS_BG: Record<string, string> = {
   ready: '#10B981',
@@ -27,6 +28,9 @@ export interface AssetCardProps {
  * A 296×64px card row: 48×48 thumbnail on the left, filename + status badge on the right.
  * While status is `processing` the badge pulses to indicate ongoing ingest.
  */
+const isTranscribable = (contentType: string) =>
+  contentType.startsWith('video/') || contentType.startsWith('audio/');
+
 export function AssetCard({ asset, isSelected, onSelect }: AssetCardProps): React.ReactElement {
   const badgeBg = STATUS_BG[asset.status] ?? '#8A8AA0';
 
@@ -42,10 +46,9 @@ export function AssetCard({ asset, isSelected, onSelect }: AssetCardProps): Reac
       }}
       style={{
         display: 'flex',
-        alignItems: 'center',
-        gap: 8,
+        flexDirection: 'column',
         width: 296,
-        height: 64,
+        minHeight: 64,
         padding: 8,
         borderRadius: 8,
         backgroundColor: isSelected ? '#4C1D95' : '#1E1E2E',
@@ -55,64 +58,72 @@ export function AssetCard({ asset, isSelected, onSelect }: AssetCardProps): Reac
         flexShrink: 0,
       }}
     >
-      {/* Thumbnail */}
-      <div
-        aria-hidden
-        style={{
-          width: 48,
-          height: 48,
-          borderRadius: 4,
-          backgroundColor: '#16161F',
-          flexShrink: 0,
-          overflow: 'hidden',
-        }}
-      >
-        {asset.thumbnailUri && (
-          <img
-            src={asset.thumbnailUri}
-            alt=""
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-        )}
-      </div>
-
-      {/* Metadata */}
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span
+      {/* Top row: thumbnail + metadata */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {/* Thumbnail */}
+        <div
+          aria-hidden
           style={{
-            fontSize: 12,
-            fontWeight: 500,
-            color: '#F0F0FA',
-            whiteSpace: 'nowrap',
+            width: 48,
+            height: 48,
+            borderRadius: 4,
+            backgroundColor: '#16161F',
+            flexShrink: 0,
             overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            fontFamily: 'Inter, sans-serif',
           }}
         >
-          {asset.filename}
-        </span>
+          {asset.thumbnailUri && (
+            <img
+              src={asset.thumbnailUri}
+              alt=""
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+          )}
+        </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 11, color: '#8A8AA0', fontFamily: 'Inter, sans-serif' }}>
-            {getTypeLabel(asset.contentType)}
-          </span>
+        {/* Metadata */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span
-            aria-label={`Status: ${asset.status}`}
             style={{
-              fontSize: 10,
+              fontSize: 12,
               fontWeight: 500,
               color: '#F0F0FA',
-              backgroundColor: badgeBg,
-              borderRadius: 9999,
-              padding: '2px 8px',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
               fontFamily: 'Inter, sans-serif',
-              textTransform: 'capitalize',
             }}
           >
-            {asset.status}
+            {asset.filename}
           </span>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, color: '#8A8AA0', fontFamily: 'Inter, sans-serif' }}>
+              {getTypeLabel(asset.contentType)}
+            </span>
+            <span
+              aria-label={`Status: ${asset.status}`}
+              style={{
+                fontSize: 10,
+                fontWeight: 500,
+                color: '#F0F0FA',
+                backgroundColor: badgeBg,
+                borderRadius: 9999,
+                padding: '2px 8px',
+                fontFamily: 'Inter, sans-serif',
+                textTransform: 'capitalize',
+              }}
+            >
+              {asset.status}
+            </span>
+          </div>
         </div>
       </div>
+
+      {/* Transcription CTA — only for video and audio assets */}
+      {asset.status === 'ready' && isTranscribable(asset.contentType) && (
+        <TranscribeButton assetId={asset.id} />
+      )}
     </div>
   );
 }

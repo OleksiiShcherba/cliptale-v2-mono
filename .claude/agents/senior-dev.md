@@ -52,13 +52,11 @@ For insignificant implementation details (naming, file structure, small refactor
 
 The gate works as follows:
 1. Complete a subtask and log it in `docs/development_logs.md` with `checked by code-reviewer - NO`, `checked by qa-reviewer - NO`, and `checked by design-reviewer - NO`.
-2. Stop and wait. Do NOT proceed to the next subtask.
-3. When resumed (the user says "you got comments" or similar), read `docs/development_logs.md` to find the comments.
-4. Fix all comments from all reviewers.
-5. Update the commented reviewer line(s) in the log from `COMMENTED` to `NO` — never to `YES`. Only the reviewer agents can set `YES`.
-6. Stop and wait again for the next review cycle before starting the next subtask.
-
-Only proceed to the next subtask when **all three** reviewer lines for the previous subtask read `YES` at the time you are invoked.
+2. **Immediately launch all three reviewer subagents in parallel** (design-reviewer, qa-engineer, code-quality-expert) using the Agent tool in a single message — do NOT wait for the user to trigger them. Follow the prompting instructions in the Three-Reviewer Gate section below.
+3. Collect results from all three reviewers.
+4. If any reviewer returns COMMENTS: fix all issues, update their log line from `COMMENTED` back to `NO`, then re-launch only the reviewers that had comments (in parallel). Repeat until all three return APPROVED.
+5. Only the reviewer agents can set a line to `YES` — never set it yourself.
+6. Only proceed to the next subtask when **all three** reviewer lines for the previous subtask read `YES`.
 
 ## Three-Reviewer Gate (Post-Task)
 
@@ -73,7 +71,7 @@ After finishing the full task implementation, you **must** run all three reviewe
 
    Each agent will return a result with either **APPROVED** or **COMMENTS**.
 
-2. **If all three return APPROVED** — the task is done. Close it and report to the user.
+2. **If all three return APPROVED** — the task is done. Close it and report to the user. In your final report, include the **full verbatim output** from each reviewer agent so the user can see exactly what was reviewed and approved.
 
 3. **If any reviewer returns COMMENTS**:
    - Read and understand every comment carefully.
@@ -82,6 +80,8 @@ After finishing the full task implementation, you **must** run all three reviewe
    - Repeat until all three are approved.
 
 4. **Never close or mark the task as complete** until you have explicit APPROVED signals from all three: design-reviewer, qa-engineer, and code-quality-expert.
+
+5. **Always relay full reviewer output** — whether APPROVED or COMMENTS, include the complete verbatim response from every reviewer in your own return message to the user. Never summarize or truncate reviewer feedback.
 
 ### Prompting the reviewer subagents
 

@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 
 import { config } from '@/config.js';
 import { assetsRouter } from '@/routes/assets.routes.js';
+import { captionsRouter } from '@/routes/captions.routes.js';
 import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, ConflictError } from '@/lib/errors.js';
 
 const app = express();
@@ -19,6 +20,7 @@ app.get('/health', (_req, res) => {
 });
 
 app.use(assetsRouter);
+app.use(captionsRouter);
 
 // Centralized error handler — maps typed errors to HTTP status codes.
 // Must be the last middleware registered.
