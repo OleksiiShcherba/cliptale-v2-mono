@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from '@/config.js';
 import { assetsRouter } from '@/routes/assets.routes.js';
 import { captionsRouter } from '@/routes/captions.routes.js';
+import { clipsRouter } from '@/routes/clips.routes.js';
 import { versionsRouter } from '@/routes/versions.routes.js';
 import { rendersRouter } from '@/routes/renders.routes.js';
 import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, ConflictError, UnprocessableEntityError } from '@/lib/errors.js';
@@ -23,6 +24,7 @@ app.get('/health', (_req, res) => {
 
 app.use(assetsRouter);
 app.use(captionsRouter);
+app.use(clipsRouter);
 app.use(versionsRouter);
 app.use(rendersRouter);
 

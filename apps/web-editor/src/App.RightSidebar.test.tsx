@@ -65,6 +65,10 @@ vi.mock('@/features/export/components/ExportModal', () => ({
     React.createElement('div', { 'data-testid': 'export-modal', onClick: onClose }),
 }));
 
+vi.mock('@/features/timeline/components/TimelinePanel', () => ({
+  TimelinePanel: () => React.createElement('div', { 'data-testid': 'timeline-panel' }),
+}));
+
 import * as ephemeralStoreModule from '@/store/ephemeral-store';
 import * as projectStoreModule from '@/store/project-store';
 import { App } from './App.js';
@@ -86,7 +90,7 @@ describe('RightSidebar', () => {
   });
 
   it('does not render the inspector when no clips are selected', () => {
-    mockUseEphemeralStore.mockReturnValue({ selectedClipIds: [], playheadFrame: 0, zoom: 1 });
+    mockUseEphemeralStore.mockReturnValue({ selectedClipIds: [], playheadFrame: 0, zoom: 1, pxPerFrame: 4, scrollOffsetX: 0 });
     render(<App />);
     expect(screen.queryByRole('complementary', { name: 'Inspector' })).toBeNull();
     expect(screen.queryByTestId('caption-editor-panel')).toBeNull();
@@ -97,6 +101,8 @@ describe('RightSidebar', () => {
       selectedClipIds: [CLIP_ID, '00000000-0000-0000-0000-000000000099'],
       playheadFrame: 0,
       zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
     });
     mockUseProjectStore.mockReturnValue(
       makeProjectDoc([makeTextOverlayClip()]) as ReturnType<typeof mockUseProjectStore>,
@@ -111,6 +117,8 @@ describe('RightSidebar', () => {
       selectedClipIds: ['non-existent-id'],
       playheadFrame: 0,
       zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
     });
     render(<App />);
     expect(screen.queryByRole('complementary', { name: 'Inspector' })).toBeNull();
@@ -131,6 +139,8 @@ describe('RightSidebar', () => {
       selectedClipIds: [CLIP_ID],
       playheadFrame: 0,
       zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
     });
     mockUseProjectStore.mockReturnValue({
       ...makeProjectDoc([]),
@@ -147,6 +157,8 @@ describe('RightSidebar', () => {
       selectedClipIds: [CLIP_ID],
       playheadFrame: 0,
       zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
     });
     mockUseProjectStore.mockReturnValue(
       makeProjectDoc([clip]) as ReturnType<typeof mockUseProjectStore>,
@@ -163,6 +175,8 @@ describe('RightSidebar', () => {
       selectedClipIds: [CLIP_ID],
       playheadFrame: 0,
       zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
     });
     mockUseProjectStore.mockReturnValue(
       makeProjectDoc([clip]) as ReturnType<typeof mockUseProjectStore>,

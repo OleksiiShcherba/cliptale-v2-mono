@@ -6,6 +6,8 @@ import {
   setPlayheadFrame,
   setSelectedClips,
   setZoom,
+  setPxPerFrame,
+  setScrollOffsetX,
 } from './ephemeral-store.js';
 
 describe('ephemeral-store', () => {
@@ -104,6 +106,79 @@ describe('ephemeral-store', () => {
       const unsub = subscribe(listener);
 
       setZoom(3);
+
+      expect(listener).not.toHaveBeenCalled();
+      unsub();
+    });
+  });
+
+  describe('setPxPerFrame', () => {
+    it('updates pxPerFrame in the snapshot', () => {
+      setPxPerFrame(8);
+      expect(getSnapshot().pxPerFrame).toBe(8);
+    });
+
+    it('clamps pxPerFrame to minimum of 1', () => {
+      setPxPerFrame(0);
+      expect(getSnapshot().pxPerFrame).toBe(1);
+    });
+
+    it('clamps pxPerFrame to maximum of 100', () => {
+      setPxPerFrame(200);
+      expect(getSnapshot().pxPerFrame).toBe(100);
+    });
+
+    it('notifies subscribers when pxPerFrame changes', () => {
+      setPxPerFrame(4);
+      const listener = vi.fn();
+      const unsub = subscribe(listener);
+
+      setPxPerFrame(10);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      unsub();
+    });
+
+    it('does not notify when pxPerFrame is unchanged', () => {
+      setPxPerFrame(5);
+      const listener = vi.fn();
+      const unsub = subscribe(listener);
+
+      setPxPerFrame(5);
+
+      expect(listener).not.toHaveBeenCalled();
+      unsub();
+    });
+  });
+
+  describe('setScrollOffsetX', () => {
+    it('updates scrollOffsetX in the snapshot', () => {
+      setScrollOffsetX(120);
+      expect(getSnapshot().scrollOffsetX).toBe(120);
+    });
+
+    it('clamps scrollOffsetX to minimum of 0', () => {
+      setScrollOffsetX(-50);
+      expect(getSnapshot().scrollOffsetX).toBe(0);
+    });
+
+    it('notifies subscribers when scrollOffsetX changes', () => {
+      setScrollOffsetX(0);
+      const listener = vi.fn();
+      const unsub = subscribe(listener);
+
+      setScrollOffsetX(100);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      unsub();
+    });
+
+    it('does not notify when scrollOffsetX is unchanged', () => {
+      setScrollOffsetX(50);
+      const listener = vi.fn();
+      const unsub = subscribe(listener);
+
+      setScrollOffsetX(50);
 
       expect(listener).not.toHaveBeenCalled();
       unsub();

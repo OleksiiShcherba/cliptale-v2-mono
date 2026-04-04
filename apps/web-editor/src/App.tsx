@@ -7,9 +7,10 @@ import { PlaybackControls } from '@/features/preview/components/PlaybackControls
 import { CaptionEditorPanel } from '@/features/captions/components/CaptionEditorPanel';
 import { VersionHistoryPanel } from '@/features/version-history/components/VersionHistoryPanel';
 import { ExportModal } from '@/features/export/components/ExportModal';
+import { TimelinePanel } from '@/features/timeline/components/TimelinePanel';
 import { useRemotionPlayer } from '@/features/preview/hooks/useRemotionPlayer';
 import { useEphemeralStore } from '@/store/ephemeral-store';
-import { useProjectStore, getCurrentVersionId } from '@/store/project-store';
+import { useProjectStore, getSnapshot as getProjectSnapshot, setProject, getCurrentVersionId } from '@/store/project-store';
 import { TopBar } from './TopBar';
 import { DEV_PROJECT_ID } from '@/lib/constants';
 import type { TextOverlayClip } from '@ai-video-editor/project-schema';
@@ -87,6 +88,7 @@ function RightSidebar(): React.ReactElement | null {
  * A conditional right inspector panel is shown when a caption clip is selected.
  * The version history panel is toggled from the top bar.
  * The top bar includes the save status indicator via `useAutosave`.
+ * The timeline panel is rendered below the editor row.
  */
 export function App(): React.ReactElement {
   const [isHistoryOpen, setIsHistoryOpen] = React.useState(false);
@@ -107,6 +109,30 @@ export function App(): React.ReactElement {
   const handleCloseExport = (): void => {
     setIsExportOpen(false);
   };
+
+  const handleRenameTrack = React.useCallback((trackId: string, newName: string): void => {
+    const doc = getProjectSnapshot();
+    setProject({
+      ...doc,
+      tracks: doc.tracks.map((t) => (t.id === trackId ? { ...t, name: newName } : t)),
+    });
+  }, []);
+
+  const handleToggleMute = React.useCallback((trackId: string): void => {
+    const doc = getProjectSnapshot();
+    setProject({
+      ...doc,
+      tracks: doc.tracks.map((t) => (t.id === trackId ? { ...t, muted: !t.muted } : t)),
+    });
+  }, []);
+
+  const handleToggleLock = React.useCallback((trackId: string): void => {
+    const doc = getProjectSnapshot();
+    setProject({
+      ...doc,
+      tracks: doc.tracks.map((t) => (t.id === trackId ? { ...t, locked: !t.locked } : t)),
+    });
+  }, []);
 
   const currentVersionId = getCurrentVersionId();
 
@@ -144,6 +170,13 @@ export function App(): React.ReactElement {
             <RightSidebar />
           )}
         </div>
+
+        {/* Timeline panel — full width, fixed height at the bottom of the editor */}
+        <TimelinePanel
+          onRenameTrack={handleRenameTrack}
+          onToggleMute={handleToggleMute}
+          onToggleLock={handleToggleLock}
+        />
       </div>
 
       {/* Export modal — rendered as a portal-like overlay above the editor */}

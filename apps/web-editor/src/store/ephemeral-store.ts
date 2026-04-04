@@ -9,6 +9,10 @@ type EphemeralState = {
   playheadFrame: number;
   selectedClipIds: string[];
   zoom: number;
+  /** Timeline zoom: pixels rendered per frame. Range [1, 100]. */
+  pxPerFrame: number;
+  /** Horizontal scroll offset of the timeline clip lane area in pixels. */
+  scrollOffsetX: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -18,6 +22,8 @@ let snapshot: EphemeralState = {
   playheadFrame: 0,
   selectedClipIds: [],
   zoom: 1,
+  pxPerFrame: 4,
+  scrollOffsetX: 0,
 };
 
 const listeners = new Set<() => void>();
@@ -80,6 +86,27 @@ export function setSelectedClips(ids: string[]): void {
 export function setZoom(zoom: number): void {
   if (snapshot.zoom === zoom) return;
   snapshot = { ...snapshot, zoom };
+  notifyListeners();
+}
+
+/**
+ * Sets the timeline zoom level in pixels per frame.
+ * Clamped to the valid range [1, 100].
+ */
+export function setPxPerFrame(pxPerFrame: number): void {
+  const clamped = Math.max(1, Math.min(100, pxPerFrame));
+  if (snapshot.pxPerFrame === clamped) return;
+  snapshot = { ...snapshot, pxPerFrame: clamped };
+  notifyListeners();
+}
+
+/**
+ * Sets the horizontal scroll offset of the timeline clip lane in pixels.
+ */
+export function setScrollOffsetX(offsetX: number): void {
+  const clamped = Math.max(0, offsetX);
+  if (snapshot.scrollOffsetX === clamped) return;
+  snapshot = { ...snapshot, scrollOffsetX: clamped };
   notifyListeners();
 }
 

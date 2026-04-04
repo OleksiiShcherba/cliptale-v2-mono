@@ -69,6 +69,10 @@ vi.mock('@/features/export/components/ExportModal', () => ({
     React.createElement('div', { 'data-testid': 'export-modal', onClick: onClose }),
 }));
 
+vi.mock('@/features/timeline/components/TimelinePanel', () => ({
+  TimelinePanel: () => React.createElement('div', { 'data-testid': 'timeline-panel' }),
+}));
+
 import * as ephemeralStoreModule from '@/store/ephemeral-store';
 import * as projectStoreModule from '@/store/project-store';
 import * as autosaveModule from '@/features/version-history/hooks/useAutosave';
@@ -90,6 +94,8 @@ describe('App', () => {
       selectedClipIds: [],
       playheadFrame: 0,
       zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
     });
     mockUseProjectStore.mockReturnValue(
       makeProjectDoc() as ReturnType<typeof mockUseProjectStore>,
@@ -141,7 +147,8 @@ describe('App', () => {
       const { container } = render(<App />);
       const shell = container.firstChild as HTMLElement;
       const shellChildren = Array.from(shell.children);
-      expect(shellChildren.length).toBe(2);
+      // Shell has: TopBar + editor row + TimelinePanel = 3 children
+      expect(shellChildren.length).toBe(3);
       const editorRow = shellChildren[1] as HTMLElement;
       const editorRowChildren = Array.from(editorRow.children);
       expect(editorRowChildren.length).toBeGreaterThanOrEqual(3);
