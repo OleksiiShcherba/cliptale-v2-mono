@@ -1744,3 +1744,486 @@ checked by qa-reviewer - YES
 checked by design-reviewer - YES
 design-reviewer notes: Re-reviewed on 2026-04-03. Both previously flagged issues confirmed fixed. (1) backgroundColor override removed — `STATUS_COLOR[effectiveState]` now applies unconditionally; `loading` and `added` correctly render `#8A8AA0` (text-secondary token). (2) aria-busy corrected — now `effectiveState === 'loading' || effectiveState === 'pending' || effectiveState === 'processing'`; terminal `added` state excluded. Full audit of TranscribeButton.tsx passes: all STATUS_COLOR values are design-guide tokens, typography matches caption scale (11px/500/Inter), all spacing on the 4px grid, border-radius uses radius-sm (4px), no new issues introduced.
 
+
+---
+## Release Snapshot — 2026-04-04 06:59 UTC
+
+# Development Log (compacted — 2026-03-29 to 2026-04-03)
+
+## Monorepo Scaffold (Epic 1 — Subtask 1)
+- added: `package.json`, `turbo.json` — npm workspaces (`apps/*`, `packages/*`), Turborepo pipeline
+- added: root `tsconfig.json` — strict TypeScript baseline
+- added: `.env.example` — DB, Redis, S3/R2, JWT, OpenAI, API, Vite vars
+- added: `.gitignore` — node_modules, dist, .env, .turbo, coverage
+- added: `docker-compose.yml` — MySQL 8.0 + Redis 7 Alpine; DB mounts migrations as init scripts
+- added: `apps/api/` — Express + helmet + cors + rate-limit; BullMQ queue stubs (`media-ingest`, `render`, `transcription`)
+- added: `apps/web-editor/` — React 18 + Vite + QueryClientProvider; feature subdirs
+- added: `apps/media-worker/` — BullMQ Worker stub on `media-ingest`
+- added: `apps/render-worker/` — BullMQ Worker stub on `render`
+- added: `packages/project-schema/` — Zod schemas: `ProjectDoc`, `Track`, `Clip` (discriminated union: `VideoClip | AudioClip | TextOverlayClip`)
+- added: `packages/api-contracts/`, `packages/ui/`, `packages/editor-core/` — empty stubs
+- added: `packages/remotion-comps/` — `VideoComposition`, `VideoLayer`, `AudioLayer`, `ImageLayer`, `TextOverlayLayer`, `useRemotionEnvironment`
+- tested: `clip.schema.test.ts` (14), `project-doc.schema.test.ts` (7)
+- fixed: all backend env vars use `APP_` prefix; Zod startup validation + `process.exit(1)` in all backend configs
+- fixed: `VITE_PUBLIC_API_BASE_URL` in web-editor config; `zod` dep added to media-worker and render-worker
+
+## DB Migration (Epic 1 — Subtask 2)
+- added: `apps/api/src/db/migrations/001_project_assets_current.sql` — `project_assets_current` table (status ENUM, fps DECIMAL, waveform_json JSON); composite index on `(project_id, status)`
+- tested: `migration-001.test.ts` — table existence, idempotency, column types, ENUM, index
+
+## Redis + BullMQ Infrastructure (Epic 1 — Subtask 3)
+- updated: `docker-compose.yml` — Redis healthcheck
+- updated: `apps/api/src/queues/bullmq.ts` — error handlers; removed Worker re-export
+- updated: `apps/media-worker/src/index.ts` — error handler, graceful shutdown, `concurrency: 2`
+- updated: `apps/render-worker/src/index.ts` — same pattern, `concurrency: 1`
+- fixed: `@/` alias + `tsc-alias` in api tsconfig/package.json
+
+## Presigned URL Endpoint (Epic 1 — Subtask 4)
+- added: `apps/api/src/lib/errors.ts` — `ValidationError`, `NotFoundError`, `ForbiddenError`, `UnauthorizedError`, `ConflictError`, `OptimisticLockError`
+- added: `apps/api/src/lib/s3.ts` — singleton `S3Client`; `forcePathStyle` for R2
+- added: `apps/api/src/types/express.d.ts` — `req.user?: { id, email }`
+- added: `validate.middleware.ts`, `auth.middleware.ts`, `acl.middleware.ts` (auth-presence stub)
+- added: `asset.repository.ts`, `asset.service.ts`, `assets.controller.ts`, `assets.routes.ts`
+- added: `POST /projects/:id/assets/upload-url`, `GET /assets/:id`
+- tested: `asset.service.test.ts` (13), `assets-endpoints.test.ts` (integration)
+- fixed: `sanitizeFilename` strips `..` traversal; `validateBody` on upload-url route; `ConflictError` mapped in error handler
+
+## Asset Finalization + Ingest Enqueue (Epic 1 — Subtask 5)
+- added: `apps/api/src/queues/jobs/enqueue-ingest.ts` — `MediaIngestJobPayload` + `enqueueIngestJob()`; jobId=assetId idempotency; 3 retries, exponential backoff
+- updated: `asset.service.ts` — `finalizeAsset`: NotFoundError guard, idempotency for `processing`/`ready`, S3 HEAD verify, enqueue
+- added: `POST /assets/:id/finalize` + `aclMiddleware('editor')`
+- tested: `asset.finalize.service.test.ts` (7), `assets-finalize-endpoint.test.ts` (6)
+
+## Media Worker — Ingest Job (Epic 1 — Subtask 6)
+- added: `packages/project-schema/src/types/job-payloads.ts` — `MediaIngestJobPayload` (single source of truth)
+- added: `apps/media-worker/src/lib/s3.ts`, `db.ts` — singleton S3Client + mysql2 pool
+- added: `apps/media-worker/src/jobs/ingest.job.ts` — S3 download → FFprobe → thumbnail → waveform peaks → S3 upload → DB `ready`; error path → DB `error`
+- added: `apps/media-worker/Dockerfile` — `node:20-alpine` + `apk add ffmpeg`
+- updated: `docker-compose.yml` — `media-worker` service
+- tested: `ingest.job.test.ts` (11)
+
+## Asset Browser Panel + Upload UI (Epic 1 — Subtask 7)
+- added: `apps/web-editor/src/features/asset-manager/types.ts`, `api.ts`, `hooks/useAssetUpload.ts`, `hooks/useAssetPolling.ts`
+- added: `AssetCard.tsx`, `AssetDetailPanel.tsx`, `UploadDropzone.tsx`, `UploadProgressList.tsx`, `AssetBrowserPanel.tsx`
+- tested: `useAssetUpload.test.ts` (7), `useAssetPolling.test.ts` (6)
+
+## Docker Services + App Wiring
+- added: `apps/api/Dockerfile`, `apps/web-editor/Dockerfile`
+- updated: `docker-compose.yml` — `api` (port 3001), `web-editor` (port 5173)
+- added: `GET /projects/:id/assets` — returns `[]` for unknown projects; tested (5 integration tests)
+- updated: `apps/web-editor/src/main.tsx` — minimal mount; `DEV_PROJECT_ID='dev-project-001'`
+- fixed: `workspace:*` → `file:` paths in all package.json files
+
+## EPIC 2 — VideoComposition Fixes
+- updated: `VideoComposition.tsx` — z-order sort by track index, muted track filtering, `trimInFrame`→`startFrom` / `trimOutFrame`→`endAt`
+- extracted: `VideoComposition.utils.ts` (`prepareClipsForComposition`)
+- added: `packages/remotion-comps/vitest.config.ts` — jsdom environment
+- added: `VideoComposition.test.tsx` (15), `VideoComposition.utils.test.ts` (7), `VideoComposition.fixtures.ts`
+
+## EPIC 2 — Storybook
+- added: `packages/remotion-comps/.storybook/main.ts`, `preview.ts` — react-vite builder, dark theme
+- added: `VideoComposition.stories.tsx` — 5 stories: EmptyTimeline, SingleVideoClip, AudioAndVideo, OverlappingClips, TextOverlay
+
+## EPIC 2 — Stores
+- added: `apps/web-editor/src/store/project-store.ts` — `useSyncExternalStore` singleton; `getSnapshot()`, `subscribe()`, `setProject()`; dev fixture (30fps, 300 frames, 1920×1080)
+- added: `apps/web-editor/src/store/ephemeral-store.ts` — `{ playheadFrame, selectedClipIds, zoom }`; no-op skip on unchanged values
+- tested: `project-store.test.ts` (9), `ephemeral-store.test.ts` (14)
+
+## EPIC 2 — PreviewPanel + useRemotionPlayer
+- added: `useRemotionPlayer.ts` — subscribes project/ephemeral stores; `useQueries` for asset URLs (dedup, staleTime 5min); returns `{ projectDoc, assetUrls, currentFrame, playerRef }`
+- added: `PreviewPanel.tsx` — memoized `inputProps`, Remotion `<Player controls={false}>`, optional `playerRef` prop
+- tested: `useRemotionPlayer.test.ts` (11), `PreviewPanel.test.tsx`
+
+## EPIC 2 — PlaybackControls + usePlaybackControls
+- added: `usePlaybackControls.ts` — rAF loop mutates `--playhead-frame` CSS property + `setCurrentFrameState`; `play/pause/rewind/stepForward/stepBack/seekTo`; keyboard listeners (Space, Arrows, Home)
+- added: `PlaybackControls.tsx` — `role="toolbar"`, SVG icons, scrub slider, frame counter, timecode
+- added: `apps/web-editor/src/shared/utils/formatTimecode.ts` — `HH:MM:SS:FF` formatter
+- tested: `usePlaybackControls.test.ts` (44), `PlaybackControls.test.tsx` (18), `usePlaybackControls.raf.test.ts` (4)
+- added: `usePlaybackControls.fixtures.ts` — `makePlayerRef`/`makeProjectDoc` factories
+- fixed: rAF `tick` missing `setCurrentFrameState(frame)` — frame counter/timecode/scrub frozen during playback
+
+## EPIC 2 — Dev Auth Bypass + App Shell
+- updated: `auth.middleware.ts`, `acl.middleware.ts` — `NODE_ENV === 'development'` early-return with hardcoded `DEV_USER`
+- added: `App.tsx` — two-column shell: 320px `AssetBrowserPanel` + `PreviewSection` + conditional `RightSidebar` (CaptionEditorPanel when text-overlay clip selected)
+- updated: `main.tsx` — minimal mount point
+- updated: `docs/architecture-rules.md` §3 (App.tsx location), §9 (multi-part test suffix + `.fixtures.ts` rule)
+- tested: `App.test.tsx` (10)
+- fixed: `docker-compose.yml` — `tsx watch` tsconfig flag order; `NODE_ENV: development` missing from api service
+- fixed: `assets.controller.ts` — `serializeAsset()` maps internal shape to API response
+- added: `apps/web-editor/.env.local` — `VITE_PUBLIC_API_BASE_URL=http://localhost:3001`
+- fixed: `apps/web-editor/.env.test` — port 3000→3001
+
+## Playwright E2E
+- added: `@playwright/test` (^1.59.1); `e2e` task in `turbo.json`
+- added: `playwright.config.ts` — baseURL `http://localhost:5173`, Chromium, `reuseExistingServer`
+- added: `e2e/app-shell.spec.ts` (3), `e2e/preview.spec.ts` (6), `e2e/asset-manager.spec.ts` (10)
+
+## EPIC 3 — Caption Tracks DB Migration
+- added: `apps/api/src/db/migrations/002_caption_tracks.sql` — `caption_tracks` table: `caption_track_id CHAR(36) PK`, `asset_id`, `project_id`, `language VARCHAR(10) DEFAULT 'en'`, `segments_json JSON NOT NULL`, `created_at DATETIME(3)`; composite index on `(asset_id, project_id)`; idempotent (`CREATE TABLE IF NOT EXISTS`)
+- tested: `migration-002.test.ts` — smoke tests following migration-001 pattern
+
+## EPIC 3 — TranscriptionJobPayload Type
+- added: `TranscriptionJobPayload` to `packages/project-schema/src/types/job-payloads.ts` — `{ assetId, storageUri, contentType, language? }`; re-exported from package index
+- tested: `job-payloads.test.ts` (4)
+
+## EPIC 3 — Transcription API (BE)
+- added: `apps/api/src/queues/jobs/enqueue-transcription.ts` — jobId=assetId idempotency; 3 retries, exponential backoff
+- added: `caption.repository.ts` — `insertCaptionTrack()` (`INSERT IGNORE`); `getCaptionTrackByAssetId()` returns null on miss; snake_case→camelCase mapping
+- added: `caption.service.ts` — `transcribeAsset()` (NotFoundError/ConflictError 409/enqueue); `getCaptions()` (NotFoundError 404 / return segments)
+- added: `captions.controller.ts`, `captions.routes.ts` — POST `/assets/:id/transcribe` → 202; GET `/assets/:id/captions` → 200/404; mounted in `index.ts`
+- tested: `caption.service.test.ts` (8), `captions-endpoints.test.ts` (integration, all status codes)
+
+## EPIC 3 — Transcription Worker
+- added: `openai ^4.0.0` to `apps/media-worker/package.json`; `APP_OPENAI_API_KEY` to `config.ts`
+- added: `apps/media-worker/src/jobs/transcribe.job.ts` — S3 download → Whisper `verbose_json` → map segments (trim text) → `INSERT IGNORE` → DB `ready`; `TranscribeJobDeps` injection for testability
+- updated: `apps/media-worker/src/index.ts` — `transcriptionWorker` (`concurrency: 1`); `ingestWorker` rename; parallel shutdown
+- tested: `transcribe.job.test.ts` (12)
+
+## EPIC 3 — Captions FE: Types, API, Hook
+- added: `apps/web-editor/src/features/captions/types.ts` — `CaptionSegment`, `CaptionTrackStatus`
+- added: `apps/web-editor/src/features/captions/api.ts` — `triggerTranscription()`, `getCaptions()` (null on 404)
+- added: `useTranscriptionStatus.ts` — React Query poll every 3s; stops when data present or errored; `retry: false`
+- tested: `useTranscriptionStatus.test.ts` (7)
+
+## EPIC 3 — TranscribeButton + Add Captions to Timeline
+- added: `TranscribeButton.tsx` — state machine: `loading|idle|pending|processing|ready|error|added`; always passes `assetId` to `useTranscriptionStatus` on mount (detects existing captions); `loading` state ("Checking…") while initial fetch in-flight; `added` state ("Captions Added", disabled) after `addCaptionsToTimeline` call
+- added: `useAddCaptionsToTimeline.ts` — frame math (startFrame=`Math.round(seg.start*fps)`, durationFrames=`Math.max(1,...)`); `CAPTIONS_TRACK_NAME='Captions'` constant; idempotency guard (skips if "Captions" track already exists)
+- updated: `AssetCard.tsx` — `minHeight: 64`, `flexDirection: column`; `TranscribeButton` rendered for ready video/audio assets
+- tested: `TranscribeButton.test.tsx` (updated), `useAddCaptionsToTimeline.test.ts` (updated + 3 idempotency tests); total 233 tests pass
+
+## EPIC 3 — Caption Editor Panel
+- added: `apps/web-editor/src/features/captions/components/CaptionEditorPanel.tsx` — inspector panel: text (textarea), start/end frame, font size, color (text input), position (select); all mutations via `useCaptionEditor`
+- added: `apps/web-editor/src/features/captions/hooks/useCaptionEditor.ts` — per-field handlers; `patchClip` reads latest snapshot via `getSnapshot()`, calls `setProject()`; `setEndFrame` converts absolute frame → `durationFrames` (clamped ≥1)
+- updated: `App.tsx` — `RightSidebar` renders `CaptionEditorPanel` when exactly one `text-overlay` clip selected in ephemeral store
+- tested: `CaptionEditorPanel.test.tsx` (20), `useCaptionEditor.test.ts`
+
+## Known Issues / TODOs
+- ACL middleware is a stub — real project ownership check deferred to projects CRUD epic
+- `packages/api-contracts/` is a stub — typed API client deferred until OpenAPI spec exists
+- `getTypeLabel` duplicated in FE — extract to `src/shared/utils/` if a third consumer appears
+- Presigned download URL (`GET /assets/:id/download-url`) deferred to a later epic
+- Timeline ruler bi-directional sync deferred to Timeline Editor epic
+- S3 CORS policy must be configured on bucket for browser-direct PUT from `http://localhost:5173`
+- Assets stay in `processing` until media-worker is running
+- Pre-existing TypeScript errors in `PlaybackControls.tsx`, `PreviewPanel.tsx`, `usePlaybackControls.ts`, `config.ts` — not introduced by recent work
+- `useCaptionEditor` uses object spread instead of Immer `produceWithPatches` — non-blocking but deviates from stated design intent; to be addressed in autosave epic (Epic 4)
+
+---
+
+## [2026-04-03]
+
+### Task: EPIC 4 — Version History & Rollback
+**Subtask:** 1. DB Migration 003 — Version tables
+
+**What was done:**
+- Created `apps/api/src/db/migrations/003_project_versions.sql` — idempotent SQL migration creating 4 tables: `projects`, `project_versions`, `project_version_patches`, `project_audit_log`
+- `projects`: CHAR(36) PK, `latest_version_id` BIGINT UNSIGNED NULL (optimistic lock pointer), timestamps with auto-defaults; index on `project_id`
+- `project_versions`: BIGINT UNSIGNED AUTO_INCREMENT PK, `project_id`, `doc_json JSON NOT NULL`, `doc_schema_version INT DEFAULT 1`, nullable `created_by_user_id` and `parent_version_id`; composite index on `(project_id, created_at DESC)`
+- `project_version_patches`: BIGINT UNSIGNED AUTO_INCREMENT PK, `version_id`, `patches_json JSON NOT NULL`, `inverse_patches_json JSON NOT NULL`; index on `version_id`
+- `project_audit_log`: BIGINT UNSIGNED AUTO_INCREMENT PK, `project_id`, `event_type VARCHAR(64) NOT NULL`, nullable `version_id` and `user_id`, `created_at`; composite index on `(project_id, created_at DESC)`
+- Created `apps/api/src/__tests__/integration/migration-003.test.ts` (246 lines) — smoke tests for `projects` and `project_versions` tables: existence, idempotency, column types, INSERT behaviour, composite index
+- Created `apps/api/src/__tests__/integration/migration-003.patches-audit.test.ts` (298 lines) — smoke tests for `project_version_patches` and `project_audit_log` tables: existence, column types, INSERT/retrieve behaviour, index verification
+
+**Notes:**
+- Test file split into two parts (multi-part suffix convention) to stay under the 300-line limit per architecture rules
+- `projects` table does not have explicit FK constraints to `project_versions` — `latest_version_id` is a soft pointer to avoid circular FK issues (versions reference project, project references latest version)
+- All tables use `ENGINE=InnoDB`, `utf8mb4_unicode_ci` to match existing migrations
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 1. DB Migration 003 — Version tables</summary>
+
+- [ ] **1. DB Migration 003 — Version tables**
+  - What: Create `projects`, `project_versions`, `project_version_patches`, and `project_audit_log` tables as a numbered SQL migration file; idempotent (`CREATE TABLE IF NOT EXISTS`).
+  - Where: `apps/api/src/db/migrations/003_project_versions.sql`
+  - Why: All BE and FE version work depends on the DB schema. `projects` table does not yet exist; `latest_version_id` FK lives here.
+  - Test: `migration-003.test.ts` — smoke tests for table existence + column types following `migration-001.test.ts` pattern
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-03]
+
+### Task: EPIC 4 — Version History & Rollback
+**Subtask:** 2. BE — Version persistence endpoint
+
+**What was done:**
+- Created `apps/api/src/repositories/version.repository.ts` — all SQL for version tables: `insertVersionTransaction` (accepts a `PoolConnection` for caller-managed transaction), `getLatestVersionId`, `getVersionById`, `listVersions`, `getConnection`
+- Created `apps/api/src/services/version.service.ts` — validates `doc_schema_version` (throws `UnprocessableEntityError` for unsupported values), enforces optimistic lock via `OptimisticLockError`, manages `beginTransaction`/`commit`/`rollback`/`release` lifecycle
+- Created `apps/api/src/controllers/versions.controller.ts` — Zod schema `saveVersionSchema`, thin `saveVersion` handler: parses body → calls service → returns 201 `{ versionId, createdAt }`
+- Created `apps/api/src/routes/versions.routes.ts` — mounts `POST /projects/:id/versions` with `authMiddleware`, `aclMiddleware('editor')`, `validateBody`
+- Modified `apps/api/src/index.ts` — imports and mounts `versionsRouter`; imports `UnprocessableEntityError` in error handler
+- Modified `apps/api/src/lib/errors.ts` — added `UnprocessableEntityError` class (statusCode 422) for schema version mismatch
+- Created `apps/api/src/services/version.service.test.ts` — 12 unit tests: happy path (first save + subsequent), schema version validation, optimistic lock enforcement, rollback on error, connection release guarantee, null createdByUserId
+- Created `apps/api/src/__tests__/integration/versions-persist-endpoint.test.ts` — 10 integration tests: 401/400/422 error cases, 201 first save, DB row verification (versions + patches + project pointer + audit log), second save with correct parent, 409 stale parent, 409 null parent conflict, JSON storage fidelity
+
+**Notes:**
+- Used `UnprocessableEntityError` (422) rather than the existing `ValidationError` (400) for schema version mismatch, as specified in the task error cases
+- `insertVersionTransaction` accepts a `PoolConnection` (not pool) so the service controls the transaction boundary — follows the pattern described in task notes
+- First-save detection: both `parentVersionId === null` AND `currentVersionId === null` must be true to skip the optimistic lock; if project already has a version and client sends `parentVersionId: null`, a 409 is returned
+- Integration test handles MySQL JSON columns returned as parsed objects (not strings) — uses conditional `JSON.parse` to handle both representations
+- Two pre-existing integration test failures in `assets-endpoints.test.ts` and `assets-finalize-endpoint.test.ts` were present before this subtask — not introduced by this work
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 2. BE — Version persistence endpoint</summary>
+
+- [ ] **2. BE — Version persistence endpoint**
+  - What: Implement `version.repository.ts` (atomic transaction: insert version + patches + update `projects.latest_version_id` + write audit log), `version.service.ts` (validates `doc_schema_version`, enforces optimistic lock via `OptimisticLockError`), `versions.controller.ts`, `versions.routes.ts` (`POST /projects/:id/versions`), and mount the router in `apps/api/src/index.ts`.
+  - Where: `apps/api/src/repositories/version.repository.ts`, `apps/api/src/services/version.service.ts`, `apps/api/src/controllers/versions.controller.ts`, `apps/api/src/routes/versions.routes.ts`, `apps/api/src/index.ts`
+  - Why: This is the blocker for all FE autosave and version history work.
+  - Depends on: Subtask 1
+  - Returns: `{ versionId, createdAt }` with 201 Created
+  - Error cases: 409 `OptimisticLockError` on stale parent, 422 on schema version mismatch, 404 if project not found
+  - Tests: `version.service.test.ts` (unit, with mocked repository), `versions-persist-endpoint.test.ts` (integration)
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-03]
+
+### Task: EPIC 4 — Version History & Rollback
+**Subtask:** 3. BE — List and restore version endpoints
+
+**What was done:**
+- Extended `apps/api/src/repositories/version.repository.ts`:
+  - Added `durationFrames: number | null` to `ProjectVersionSummary` type
+  - Updated `listVersions` SQL to extract `JSON_EXTRACT(doc_json, '$.durationFrames') AS duration_frames`
+  - Added `restoreVersionTransaction(conn, { projectId, versionId, restoredByUserId })` — updates `projects.latest_version_id` and writes `project.restore` audit log entry inside a caller-managed transaction
+- Extended `apps/api/src/services/version.service.ts`:
+  - Added `listVersions(projectId)` — delegates to repository
+  - Added `restoreVersion({ projectId, versionId, restoredByUserId })` — verifies version ownership (404 if missing), manages `beginTransaction`/`commit`/`rollback`/`release`, returns `docJson` of the restored version
+- Extended `apps/api/src/controllers/versions.controller.ts`:
+  - Added `listVersions` handler — GET /projects/:id/versions; returns 200 `[{ versionId, createdAt, createdByUserId, durationFrames }]`
+  - Added `restoreVersion` handler — POST /projects/:id/versions/:versionId/restore; validates versionId is a positive integer (400 on invalid), returns 200 `{ docJson }` on success
+- Extended `apps/api/src/routes/versions.routes.ts`:
+  - Added `GET /projects/:id/versions` with `authMiddleware` + `aclMiddleware('viewer')`
+  - Added `POST /projects/:id/versions/:versionId/restore` with `authMiddleware` + `aclMiddleware('editor')`
+- Extended `apps/api/src/services/version.service.test.ts`:
+  - Added `listVersions` suite (3 unit tests): returns summaries, empty array, delegates with correct project id
+  - Added `restoreVersion` suite (6 unit tests): happy path returns docJson, transaction ordering, NotFoundError on unknown version, rollback on DB error, connection release guarantee, null restoredByUserId
+- Created `apps/api/src/__tests__/integration/versions-list-restore-endpoint.test.ts` (14 integration tests):
+  - GET /projects/:id/versions: 401 no-auth, 401 bad-JWT, 200 empty array, 200 with summaries (versionId/createdAt/createdByUserId/durationFrames), newest-first ordering, no doc_json in response
+  - POST /projects/:id/versions/:versionId/restore: 401 no-auth, 401 bad-JWT, 400 invalid versionId, 404 unknown version, 404 cross-project version, 200 with docJson, latest_version_id updated in DB, project.restore audit log written
+
+**Notes:**
+- `durationFrames` is extracted via `JSON_EXTRACT(doc_json, '$.durationFrames')` — avoids fetching full doc_json in the list query while still exposing it for the version history panel
+- `restoreVersionTransaction` is intentionally minimal: it only updates `latest_version_id` and writes the audit event; it does NOT rematerialize current tables (no `project_assets_current` equivalent for versions exists yet in this schema)
+- Restore does NOT require `parentVersionId` / optimistic lock check — restoring to a prior version is an explicit user action, not an autosave conflict scenario
+- 21 unit tests in `version.service.test.ts` (9 new), 14 integration tests in new file — all pass
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 3. BE — List and restore version endpoints</summary>
+
+- [ ] **3. BE — List and restore version endpoints**
+  - What: Add `GET /projects/:id/versions` (paginated, last 50, newest-first) and `POST /projects/:id/versions/:versionId/restore` (updates `latest_version_id` + rematerializes current tables atomically + writes `project.restore` audit event + returns full `doc_json`) to the existing versions router, repository, and service.
+  - Where: extend `version.repository.ts`, `version.service.ts`, `versions.controller.ts`, `versions.routes.ts`
+  - Why: Required for the version history panel and restore flow on the FE.
+  - Depends on: Subtask 2
+  - GET returns: `[{ versionId, createdAt, createdByUserId, durationFrames }]`
+  - POST restore returns: full project document at that version
+  - Tests: extend `version.service.test.ts`; `versions-list-restore-endpoint.test.ts` (integration)
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-03]
+
+### Task: EPIC 4 — Version History & Rollback
+**Subtask:** 4. FE — Upgrade project-store + add history-store
+
+**What was done:**
+- Modified `apps/web-editor/src/store/project-store.ts`:
+  - Added `enablePatches()` call at module init to activate Immer's Patches plugin
+  - Changed `setProject()` to use `produceWithPatches(snapshot, () => doc)` — derives forward and inverse patches on every call
+  - After producing patches, calls `pushPatches(patches, inversePatches)` into history-store before notifying subscribers
+  - Added module-level `currentVersionId: number | null = null`
+  - Added `getCurrentVersionId()` getter and `setCurrentVersionId(id: number)` setter for autosave integration
+- Created `apps/web-editor/src/store/history-store.ts`:
+  - `useSyncExternalStore` singleton pattern matching `project-store.ts` and `ephemeral-store.ts`
+  - `pushPatches(patches, inversePatches)` — adds to undo stack, clears redo stack, accumulates in drain buffer
+  - `undo()` / `redo()` — LIFO pop with reciprocal stack move; return null when empty
+  - `drainPatches()` — returns and clears accumulated forward+inverse patches; used by useAutosave
+  - `hasPendingPatches()` — convenience for autosave trigger
+  - `getSnapshot()`, `subscribe()`, `useHistoryStore()` hook
+  - `_resetForTesting()` — testing-only state reset
+- Updated `apps/web-editor/src/store/project-store.test.ts`:
+  - Added `getCurrentVersionId` / `setCurrentVersionId` suite (3 tests)
+  - Added patch emission tests (2 tests)
+  - Added `beforeEach` calling `_resetForTesting()` to prevent cross-test contamination
+  - Updated reference-equality test to value-equality (`toEqual`) since produceWithPatches returns new Immer object
+- Created `apps/web-editor/src/store/history-store.test.ts` — 29 tests covering pushPatches, undo, redo, drainPatches, hasPendingPatches, subscribe/getSnapshot, edge cases
+
+**Notes:**
+- `enablePatches()` must be called before `produceWithPatches` — placed at module-init level so it runs once on first import
+- `setProject()` public signature unchanged — all existing callers unaffected
+- The prior test `'returns the exact same reference from getSnapshot after setting'` was updated to `toEqual` because `produceWithPatches` returns an Immer-produced copy
+- All 267 existing tests continue to pass; 29 new tests added (296 total)
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 4. FE — Upgrade project-store + add history-store</summary>
+
+- [ ] **4. FE — Upgrade project-store + add history-store**
+  - What: Refactor `project-store.ts` so that `setProject()` uses `produceWithPatches` from Immer instead of direct assignment; on every call, push the produced `[patches, inversePatches]` pair into `history-store.ts`. Create `history-store.ts` as a `useSyncExternalStore` singleton exposing `undo()`, `redo()`, `canUndo`, `canRedo`, and `drainPatches()` (returns accumulated patches since last drain then clears them — used by autosave).
+  - Where: `apps/web-editor/src/store/project-store.ts`, `apps/web-editor/src/store/history-store.ts` (new)
+  - Why: Immer patches are the transport format sent to the API with every autosave. Undo/redo uses in-memory inverse patches without re-fetching from the API. This refactor also fixes the deviation flagged in dev logs for `useCaptionEditor`.
+  - Tests: `history-store.test.ts` (undo/redo correctness, drainPatches clears correctly); update `project-store.test.ts` to verify patch emission
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-03]
+
+### Task: EPIC 4 — Version History & Rollback
+**Subtask:** 5. FE — useAutosave hook + save status indicator
+
+**What was done:**
+- Created `apps/web-editor/src/features/version-history/api.ts` — typed fetch calls for all version endpoints: `saveVersion` (POST /projects/:id/versions), `listVersions` (GET), `restoreVersion` (POST .../restore). Uses `apiClient` from `@/lib/api-client`. 409 response throws an error with `status: 409` property for caller discrimination
+- Created `apps/web-editor/src/features/version-history/hooks/useAutosave.ts` — subscribes to project-store via `subscribeToProject`, debounces 2000ms, drains patches from history-store, POSTs full doc + patches to API. Uses a ref-copy of `saveStatus` so the subscription closure reads the latest value without re-subscribing on every state change. Registers a `beforeunload` listener for immediate flush on tab close. Exposes `saveStatus: 'idle' | 'saving' | 'saved' | 'conflict'` and `lastSavedAt: Date | null`
+- Updated `apps/web-editor/src/App.tsx` — added `TopBar` component rendering project title + `SaveStatusBadge`. `SaveStatusBadge` displays icon + text for all 4 save states (idle=dot, saving=hourglass, saved=check, conflict=warning). Shell layout changed from flat flex row to column flex (TopBar + editorRow). Design-guide tokens used for colors (SUCCESS=#10B981, WARNING=#F59E0B, TEXT_SECONDARY=#8A8AA0)
+- Created `apps/web-editor/src/features/version-history/hooks/useAutosave.test.ts` — 16 tests covering: initial state, subscribe/unsubscribe lifecycle, debounce timing (no save before 2s, save at 2s, reset on rapid changes), successful save (status+lastSavedAt+setCurrentVersionId), parentVersionId forwarding, 409 conflict (sticky state, blocks further saves), non-409 error (reverts to idle), beforeunload listener (register/remove/trigger), concurrent save guard
+- Updated `apps/web-editor/src/App.test.tsx` — added mocks for `@/store/history-store`, `@/features/version-history/hooks/useAutosave`, and `getCurrentVersionId`/`setCurrentVersionId` from project-store; updated vertical divider test to match new shell structure (header + editorRow); added top bar and save status badge tests (2 new tests, total 19 in App.test.tsx)
+
+**Notes:**
+- `vi.advanceTimersByTimeAsync` is required when testing hooks that use both `setTimeout` and async promises under `vi.useFakeTimers()` — this is the established pattern in this project (`useAssetPolling.test.ts`)
+- `saveStatusRef` ref-copy pattern avoids the subscription effect re-running every time `saveStatus` changes (which would re-subscribe on every status transition)
+- Subtask 6 can now use `api.ts` for `listVersions` and `restoreVersion` without creating a new file
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 5. FE — useAutosave hook + save status indicator</summary>
+
+- [ ] **5. FE — useAutosave hook + save status indicator**
+  - What: Create `apps/web-editor/src/features/version-history/hooks/useAutosave.ts` — subscribes to project-store changes, debounces 2s, calls `drainPatches()` from history-store, POSTs `{ doc_json, patches, inversePatches, parentVersionId }` to the versions endpoint. On 409 conflict shows "Reload to get latest" warning. Expose `saveStatus: 'idle' | 'saving' | 'saved' | 'conflict'` and `lastSavedAt: Date | null`. Create `apps/web-editor/src/features/version-history/api.ts` for the fetch call. Wire `saveStatus` display into `App.tsx` header area.
+  - Where: `apps/web-editor/src/features/version-history/hooks/useAutosave.ts` (new), `apps/web-editor/src/features/version-history/api.ts` (new), `apps/web-editor/src/App.tsx`
+  - Why: Autosave is the primary user-facing value of this epic — no data loss on close.
+  - Depends on: Subtask 2 (for the endpoint), Subtask 4 (for drainPatches)
+  - Also: add `beforeunload` listener for immediate save on tab close
+  - Tests: `useAutosave.test.ts` — debounce timing (vi.useFakeTimers), 409 conflict state, `beforeunload` trigger
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-03]
+
+### Task: EPIC 4 — Version History & Rollback
+**Subtask:** 6. FE — Version history panel + restore modal
+
+**What was done:**
+- Created `apps/web-editor/src/features/version-history/hooks/useVersionHistory.ts` — React Query hook (`useQuery` for `listVersions`, staleTime 30s); exposes `versions`, `isLoading`, `isError`, `restoreToVersion` (calls restore API → `setProject` → invalidates query), `isRestoring` state flag
+- Created `apps/web-editor/src/features/version-history/components/VersionHistoryPanel.tsx` — 320px aside panel: panel header with title + close button, scrollable list of version entries (`VersionEntryRow` subcomponent); current version highlighted with `primary-light` background + "Current" badge; Restore button per non-current entry; loading/error/empty states; triggers `RestoreModal` on Restore click
+- Created `apps/web-editor/src/features/version-history/components/RestoreModal.tsx` — fixed overlay dialog (`role="dialog"`, `aria-modal`, `aria-labelledby`, `aria-describedby`); shows relative timestamp with absolute ISO in `title` attribute; Cancel + destructive Restore buttons; disabled state during restore; closes on overlay backdrop click
+- Updated `apps/web-editor/src/App.tsx` — added `VersionHistoryPanel` import; added `isHistoryOpen` state to `App`; added "History" toggle button in `TopBar` (`aria-pressed`, active/inactive styles); `TopBar` now accepts `isHistoryOpen` + `onToggleHistory` props; right column renders `VersionHistoryPanel` when open, `RightSidebar` otherwise; added `topBarRight`, `historyButton`, `historyButtonActive` styles; added `PRIMARY` and `PRIMARY_LIGHT` color tokens
+- Updated `apps/web-editor/src/App.test.tsx` — added `VersionHistoryPanel` mock; added 4 new tests (History button renders, panel hidden by default, shown after click, hidden after second click); imported `fireEvent`
+- Created `apps/web-editor/src/features/version-history/components/VersionHistoryPanel.test.tsx` — 22 tests: rendering (heading, entries, labels, timestamps, diffSummary), current version highlight (badge, no restore button), loading/error/empty states, close button, RestoreModal lifecycle (open, correct versionId, cancel, confirm+call), accessibility (aria-label on aside, descriptive restore button labels)
+- Created `apps/web-editor/src/features/version-history/components/RestoreModal.test.tsx` — 20 tests: rendering (title, description, version ID, buttons, button text states), accessibility (role, aria-modal, aria-labelledby, aria-describedby, title on timestamp), interactions (Cancel, Confirm, overlay click, content click no-op), disabled state during restore, edge cases (null durationFrames, null createdByUserId)
+
+**Notes:**
+- `useVersionHistory` uses `React.useState` for `isRestoring` rather than a React Query mutation because the restore operation is user-triggered (not a background sync) and the loading state is local to the hook
+- `VersionHistoryPanel` calls `getCurrentVersionId()` directly (not via store subscription) so the current version highlight updates when the panel re-renders after a restore (query invalidation triggers re-render)
+- `RestoreModal` is positioned with `position: fixed` and `zIndex: 1000` — renders within the same `<>` fragment as `VersionHistoryPanel` (no React portal needed since the parent has no `transform` or `overflow: hidden`)
+- All 337 tests pass (44 new total: 40 component tests + 4 App tests)
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 6. FE — Version history panel + restore modal</summary>
+
+- [ ] **6. FE — Version history panel + restore modal**
+  - What: Create `VersionHistoryPanel.tsx` (lists last 50 versions, relative timestamps with absolute tooltip, current version distinguished, "Restore" button per entry), `RestoreModal.tsx` (confirmation modal: "This will replace your current version"), and `useVersionHistory.ts` React Query hook. After confirmed restore: call restore API, call `setProject()` with returned doc, invalidate version list query. Wire panel into `App.tsx` (e.g. toggled from header button).
+  - Where: `apps/web-editor/src/features/version-history/components/VersionHistoryPanel.tsx` (new), `apps/web-editor/src/features/version-history/components/RestoreModal.tsx` (new), `apps/web-editor/src/features/version-history/hooks/useVersionHistory.ts` (new); extend `api.ts`; update `App.tsx`
+  - Why: Completes the visible version history UX — users can see and revert to any prior save.
+  - Depends on: Subtask 3 (for list + restore endpoints), Subtask 5 (api.ts partially exists)
+  - Tests: `VersionHistoryPanel.test.tsx`, `RestoreModal.test.tsx`
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-04]
+
+### Task: Active Tasks — From Client Feedback (EPIC 4 feedback fixes)
+**Subtask:** Task 1 — Restore a Version Without Breaking Autosave
+
+**What was done:**
+- Modified `apps/web-editor/src/features/version-history/hooks/useVersionHistory.ts`: added `setCurrentVersionId` to the import from `@/store/project-store` and called `setCurrentVersionId(versionId)` immediately after `setProject(response.docJson)` in the `restoreToVersion` callback, so the project store's version pointer matches the server's after a successful restore.
+- Created `apps/web-editor/src/features/version-history/hooks/useVersionHistory.test.ts`: 9 tests covering list loading (idle/success/error), `restoreToVersion` happy path (setProject called, setCurrentVersionId called with correct id, call order), isRestoring flag, and error path (neither store setter called, isRestoring resets).
+
+**Notes:**
+- The root cause was that `restoreToVersion` called `setProject` but never updated `currentVersionId` in the project store. Autosave then chained the next save off the stale pointer, creating a conflict. The fix is a one-line addition after `setProject`.
+- No architectural changes — purely additive to the existing store contract.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: Task 1 — Restore a Version Without Breaking Autosave</summary>
+
+After a restore completes successfully, update the editor's internal current-version pointer to the ID of the version that was just restored. This way, when autosave fires a few seconds later, it correctly chains the new save off the restored version instead of the stale previous save.
+
+- File changed: `apps/web-editor/src/features/version-history/hooks/useVersionHistory.ts`
+- Added `setCurrentVersionId(versionId)` call after `setProject(response.docJson)` in `restoreToVersion`.
+- Created `useVersionHistory.test.ts` with 9 tests.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-04]
+
+### Task: Active Tasks — From Client Feedback (EPIC 4 feedback fixes)
+**Subtask:** Task 2 — Show a Neutral Save Status on First Load
+
+**What was done:**
+- Modified `apps/web-editor/src/features/version-history/hooks/useAutosave.ts`: added `hasEverEdited: boolean` to `UseAutosaveResult`, added `useState(false)` for it, and set it to `true` inside the project-store subscription callback on first change. Returned `hasEverEdited` from the hook.
+- Modified `apps/web-editor/src/App.tsx`: updated `getSaveStatusLabel` to accept `hasEverEdited` param and return `'Not yet saved'` when `status === 'idle'` and `!hasEverEdited`; updated `SaveStatusBadgeProps` and `SaveStatusBadge` to accept and forward `hasEverEdited`; updated `TopBar` to destructure `hasEverEdited` from `useAutosave()` and pass it to `SaveStatusBadge`.
+- Modified `apps/web-editor/src/features/version-history/hooks/useAutosave.test.ts`: added 2 tests — `hasEverEdited` starts `false` and flips `true` on first subscription callback.
+- Modified `apps/web-editor/src/App.test.tsx`: updated `useAutosave` mock default to include `hasEverEdited: false`; added `mockUseAutosave` handle; added 2 tests — "Not yet saved" when `hasEverEdited: false`, "Unsaved changes" when `hasEverEdited: true`.
+
+**Notes:**
+- `hasEverEdited` is set inside the subscription callback (not in a `useEffect`), so it flips synchronously with the first `setProject` call — no timing race.
+- The flag is NOT reset on save; once any edit has been made in a session it stays `true`, which is the correct product behavior.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: Task 2 — Show a Neutral Save Status on First Load</summary>
+
+Added `hasEverEdited` boolean to `useAutosave`, starting `false` and flipping `true` on the first project-store change. Updated `getSaveStatusLabel` in `App.tsx` to return `'Not yet saved'` when `status === 'idle'` and `!hasEverEdited`, and `'Unsaved changes'` after the first edit. Updated tests in both files.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
