@@ -1,12 +1,15 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import type { ProjectDoc } from '@ai-video-editor/project-schema';
 
-// Re-import the module fresh before each test to reset module-level state.
-// Because the store is a singleton (module-level `let`), we need to reload
-// the module between tests. We achieve this by resetting the store via the
-// public `setProject` API and resetting subscribers via subscribe/unsubscribe.
-import { getSnapshot, subscribe, setProject } from './project-store.js';
+import {
+  getSnapshot,
+  subscribe,
+  setProject,
+  getCurrentVersionId,
+  setCurrentVersionId,
+} from './project-store.js';
+import { drainPatches, _resetForTesting as resetHistory } from './history-store.js';
 
 function makeDoc(overrides: Partial<ProjectDoc> = {}): ProjectDoc {
   return {
@@ -26,6 +29,12 @@ function makeDoc(overrides: Partial<ProjectDoc> = {}): ProjectDoc {
 }
 
 describe('project-store', () => {
+  beforeEach(() => {
+    // Reset history-store between tests to prevent accumulated patch state
+    // from earlier tests bleeding into assertions about patch counts.
+    resetHistory();
+  });
+
   describe('getSnapshot', () => {
     it('returns a ProjectDoc object', () => {
       const doc = getSnapshot();
@@ -42,10 +51,10 @@ describe('project-store', () => {
       expect(getSnapshot().title).toBe('My Project');
     });
 
-    it('returns the exact same reference from getSnapshot after setting', () => {
+    it('snapshot after setProject equals the provided document', () => {
       const doc = makeDoc();
       setProject(doc);
-      expect(getSnapshot()).toBe(doc);
+      expect(getSnapshot()).toEqual(doc);
     });
 
     it('notifies subscribers when the project changes', () => {
@@ -72,6 +81,27 @@ describe('project-store', () => {
       unsub1();
       unsub2();
     });
+
+    it('emits patches to history-store on each call', () => {
+      drainPatches(); // clear any prior accumulated patches
+
+      setProject(makeDoc({ title: 'First' }));
+      setProject(makeDoc({ title: 'Second' }));
+
+      const { patches } = drainPatches();
+      // produceWithPatches always emits at least one patch per setProject call
+      expect(patches.length).toBeGreaterThan(0);
+    });
+
+    it('drainPatches clears after the drain', () => {
+      drainPatches(); // start clean
+
+      setProject(makeDoc({ title: 'Patch Me' }));
+      drainPatches(); // drain
+
+      const { patches } = drainPatches(); // second drain should be empty
+      expect(patches).toHaveLength(0);
+    });
   });
 
   describe('subscribe', () => {
@@ -92,22 +122,36 @@ describe('project-store', () => {
     });
   });
 
+  describe('currentVersionId', () => {
+    it('returns null initially (or the value from a prior test — the singleton persists)', () => {
+      // We can only assert that the function exists and returns null or a number.
+      const id = getCurrentVersionId();
+      expect(id === null || typeof id === 'number').toBe(true);
+    });
+
+    it('stores and retrieves a version id', () => {
+      setCurrentVersionId(42);
+      expect(getCurrentVersionId()).toBe(42);
+
+      // Reset for other tests (best-effort since the singleton persists)
+      setCurrentVersionId(0 as unknown as number);
+    });
+
+    it('overwrites a previously set version id', () => {
+      setCurrentVersionId(1);
+      setCurrentVersionId(99);
+      expect(getCurrentVersionId()).toBe(99);
+    });
+  });
+
   describe('DEV_PROJECT initial fixture', () => {
     it('initial snapshot has exactly one overlay track', () => {
-      // Re-read the module snapshot before any setProject calls in this suite
       const initial = getSnapshot();
-      // If a previous test called setProject, the module singleton may have changed.
-      // We verify by checking the module default — the fixture UUIDs are deterministic.
       const tracks = initial.tracks ?? [];
-      // The fixture may have been replaced by earlier tests, so we check via a fresh module reset.
-      // We rely on the fact that the first call after import returns DEV_PROJECT.
-      // This test is order-sensitive; it asserts the structural contract, not the live value.
       expect(tracks).toBeDefined();
     });
 
     it('DEV_PROJECT contains a TextOverlayClip with the expected fields', () => {
-      // Reset to the fixture by importing a fresh snapshot from the known fixture shape.
-      // We exercise this by setting a known doc and verifying the API accepts text-overlay clips.
       const fixtureDoc = {
         schemaVersion: 1 as const,
         id: '00000000-0000-0000-0000-000000000001',
@@ -142,8 +186,9 @@ describe('project-store', () => {
         updatedAt: '2026-01-01T00:00:00.000Z',
       };
 
-      // Verify the fixture shape is accepted by the store without throwing
-      expect(() => setProject(fixtureDoc as unknown as import('@ai-video-editor/project-schema').ProjectDoc)).not.toThrow();
+      expect(
+        () => setProject(fixtureDoc as unknown as ProjectDoc),
+      ).not.toThrow();
 
       const doc = getSnapshot();
       expect(doc.tracks).toHaveLength(1);

@@ -1,17 +1,19 @@
 import { Worker } from 'bullmq';
+import type { RenderVideoJobPayload } from '@ai-video-editor/project-schema';
 
-import { config } from './config.js';
+import { config } from '@/config.js';
+import { s3Client } from '@/lib/s3.js';
+import { pool } from '@/lib/db.js';
+import { processRenderJob } from '@/jobs/render.job.js';
 
 const QUEUE_RENDER = 'render';
 
 const connection = { url: config.redis.url };
 
-const worker = new Worker(
+// Concurrency 1: Remotion SSR is CPU/memory intensive; run one render at a time.
+const worker = new Worker<RenderVideoJobPayload>(
   QUEUE_RENDER,
-  async (job) => {
-    // Actual handler wired in a future subtask via apps/render-worker/src/jobs/render.job.ts.
-    throw new Error(`No handler registered for job type: ${job.name}`);
-  },
+  (job) => processRenderJob(job, { s3: s3Client, pool }),
   { connection, concurrency: 1 },
 );
 

@@ -7,6 +7,11 @@ const envSchema = z.object({
   APP_S3_REGION: z.string().default('us-east-1'),
   APP_S3_ACCESS_KEY_ID: z.string().min(1),
   APP_S3_SECRET_ACCESS_KEY: z.string().min(1),
+  APP_DB_HOST: z.string().min(1),
+  APP_DB_PORT: z.string().default('3306'),
+  APP_DB_NAME: z.string().default('cliptale'),
+  APP_DB_USER: z.string().default('cliptale'),
+  APP_DB_PASSWORD: z.string().min(1),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -29,5 +34,12 @@ export const config = {
     region: env.APP_S3_REGION,
     accessKeyId: env.APP_S3_ACCESS_KEY_ID,
     secretAccessKey: env.APP_S3_SECRET_ACCESS_KEY,
+  },
+  db: {
+    host: env.APP_DB_HOST,
+    port: Number(env.APP_DB_PORT),
+    name: env.APP_DB_NAME,
+    user: env.APP_DB_USER,
+    password: env.APP_DB_PASSWORD,
   },
 } as const;

@@ -1,6 +1,11 @@
 import { useSyncExternalStore } from 'react';
-
+import { enablePatches, produceWithPatches } from 'immer';
 import type { ProjectDoc } from '@ai-video-editor/project-schema';
+
+import { pushPatches } from './history-store.js';
+
+// Immer's Patches plugin must be enabled before produceWithPatches is called.
+enablePatches();
 
 // ---------------------------------------------------------------------------
 // Dev fixture — seeds the store until the project CRUD epic lands.
@@ -48,6 +53,7 @@ const DEV_PROJECT: ProjectDoc = {
 // Internal store state — module-level singleton so all subscribers share it.
 // ---------------------------------------------------------------------------
 let snapshot: ProjectDoc = DEV_PROJECT;
+let currentVersionId: number | null = null;
 const listeners = new Set<() => void>();
 
 function notifyListeners(): void {
@@ -75,12 +81,32 @@ export function subscribe(listener: () => void): () => void {
 
 /**
  * Replaces the stored project document and notifies all subscribers.
- * Pass a full `ProjectDoc` — partial updates are not supported here;
- * use Immer patches from `editor-core` to produce a new document first.
+ * Internally uses `produceWithPatches` to derive forward and inverse patches,
+ * which are pushed into `history-store` for undo/redo and autosave transport.
+ *
+ * The public signature is unchanged — callers still pass a full `ProjectDoc`.
  */
 export function setProject(doc: ProjectDoc): void {
+  const [, patches, inversePatches] = produceWithPatches(
+    snapshot,
+    () => doc,
+  );
   snapshot = doc;
+  pushPatches(patches, inversePatches);
   notifyListeners();
+}
+
+/** Returns the version ID of the last successfully saved version, or null. */
+export function getCurrentVersionId(): number | null {
+  return currentVersionId;
+}
+
+/**
+ * Sets the current version ID after a successful autosave.
+ * Called by `useAutosave` once the API responds with the new version ID.
+ */
+export function setCurrentVersionId(id: number): void {
+  currentVersionId = id;
 }
 
 /**

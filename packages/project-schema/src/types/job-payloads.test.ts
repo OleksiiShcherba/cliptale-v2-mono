@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 
-import type { MediaIngestJobPayload, TranscriptionJobPayload } from './job-payloads.js';
+import type {
+  MediaIngestJobPayload,
+  TranscriptionJobPayload,
+  RenderPreset,
+  RenderVideoJobPayload,
+} from './job-payloads.js';
 
 describe('TranscriptionJobPayload', () => {
   it('should accept a valid payload with all required fields and no language', () => {
@@ -36,6 +41,79 @@ describe('TranscriptionJobPayload', () => {
     };
 
     expect(payload.language).toBeUndefined();
+  });
+});
+
+describe('RenderVideoJobPayload', () => {
+  it('should accept a valid payload with all required fields', () => {
+    const preset: RenderPreset = {
+      key: '1080p',
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      format: 'mp4',
+      codec: 'h264',
+    };
+
+    const payload: RenderVideoJobPayload = {
+      jobId: 'job-001',
+      projectId: 'proj-abc',
+      versionId: 42,
+      requestedBy: 'user-001',
+      preset,
+    };
+
+    expect(payload.jobId).toBe('job-001');
+    expect(payload.projectId).toBe('proj-abc');
+    expect(payload.versionId).toBe(42);
+    expect(payload.requestedBy).toBe('user-001');
+    expect(payload.preset.key).toBe('1080p');
+    expect(payload.preset.width).toBe(1920);
+    expect(payload.preset.codec).toBe('h264');
+  });
+
+  it('should accept null requestedBy for anonymous render', () => {
+    const preset: RenderPreset = {
+      key: 'webm',
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      format: 'webm',
+      codec: 'vp8',
+    };
+
+    const payload: RenderVideoJobPayload = {
+      jobId: 'job-002',
+      projectId: 'proj-xyz',
+      versionId: 1,
+      requestedBy: null,
+      preset,
+    };
+
+    expect(payload.requestedBy).toBeNull();
+    expect(payload.preset.format).toBe('webm');
+  });
+
+  it('should accept vertical preset key', () => {
+    const preset: RenderPreset = {
+      key: 'vertical',
+      width: 1080,
+      height: 1920,
+      fps: 30,
+      format: 'mp4',
+      codec: 'h264',
+    };
+
+    const payload: RenderVideoJobPayload = {
+      jobId: 'job-003',
+      projectId: 'proj-vert',
+      versionId: 5,
+      requestedBy: 'user-002',
+      preset,
+    };
+
+    expect(payload.preset.key).toBe('vertical');
+    expect(payload.preset.height).toBeGreaterThan(payload.preset.width);
   });
 });
 

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
     "start": "node dist/index.js",
     "lint": "eslint src/",
     "test": "vitest run --passWithNoTests",
@@ -17,12 +17,15 @@
     "bullmq": "^5.4.0",
     "ioredis": "^5.3.0",
     "@aws-sdk/client-s3": "^3.540.0",
+    "@remotion/bundler": "^4.0.0",
     "@remotion/renderer": "^4.0.0",
+    "mysql2": "^3.6.0",
     "remotion": "^4.0.0",
     "zod": "^3.22.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "tsc-alias": "^1.8.0",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0",
     "vitest": "^1.4.0"

@@ -2227,3 +2227,378 @@ Added `hasEverEdited` boolean to `useAutosave`, starting `false` and flipping `t
 checked by code-reviewer - YES
 checked by qa-reviewer - YES
 checked by design-reviewer - YES
+
+---
+## Release Snapshot — 2026-04-04 11:26 UTC
+
+# Development Log (compacted — 2026-03-29 to 2026-04-04)
+
+---
+
+## [2026-04-04]
+
+### Task: EPIC 5 — Client Feedback Fixes
+**Subtask:** Task 1 — Disable Export Button Before First Save
+
+**What was done:**
+- Modified `apps/web-editor/src/TopBar.tsx`:
+  - Added `canExport: boolean` prop to `TopBarProps` interface
+  - Added `TEXT_DISABLED` (#4A4A5A) and `SURFACE_DISABLED` (#252535) constants using design-guide tokens
+  - Added `exportButtonDisabled` style (grey background, `cursor: not-allowed`, muted text color)
+  - Export button: when `canExport` is false, uses disabled style, no `onClick` handler, sets `aria-disabled="true"`, sets `title="Save your project first to export."`
+  - When `canExport` is true, behavior is unchanged (normal purple styling, toggles modal)
+- Modified `apps/web-editor/src/App.tsx`:
+  - Passes `canExport={currentVersionId !== null}` to `TopBar`
+- Created `apps/web-editor/src/TopBar.test.tsx`:
+  - 14 tests covering: header landmark, save badge, button presence, History button aria-pressed, onToggleHistory call, Export button enabled state (clicks fire, no aria-disabled, no title), Export button disabled state (clicks ignored, aria-disabled="true", cursor not-allowed, tooltip shown), integration scenarios with canExport true/false
+- Added 4 new tests to `apps/web-editor/src/App.test.tsx`:
+  - Export button aria-disabled reflects currentVersionId (null → true, non-null → false)
+  - Clicking disabled Export button does not open ExportModal
+  - Disabled Export button shows tooltip
+
+**Notes:**
+- Used `aria-disabled` (not HTML `disabled`) on the button to keep it focusable/discoverable by screen readers while still preventing interaction
+- Design tokens `TEXT_DISABLED` (#4A4A5A) and `SURFACE_DISABLED` (#252535) are derived from the design guide's `border` token (#252535) for background and a mid-tone variant for text
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: Task 1 — Disable Export Button Before First Save</summary>
+
+When `currentVersionId` is null, the Export button in the TopBar is visually disabled (greyed out, cursor: not-allowed) with a title tooltip "Save your project first to export." It does not open the Export modal when disabled. After first autosave, button becomes enabled with normal purple styling.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-04]
+
+### Task: EPIC 5 — Client Feedback Fixes
+**Subtask:** Task 2 — Show User-Friendly Message When Concurrent Render Limit Is Reached
+
+**What was done:**
+- Modified `apps/web-editor/src/features/export/api.ts`:
+  - Exported `CONCURRENT_RENDER_LIMIT_MESSAGE` constant with user-friendly text
+  - Added `if (res.status === 409)` branch before the generic error handler in `createRender`
+  - 409 responses throw `new Error(CONCURRENT_RENDER_LIMIT_MESSAGE)` instead of raw backend text
+  - All other error statuses (400, 404, 500, etc.) continue to use the existing generic error format
+- Created `apps/web-editor/src/features/export/api.test.ts`:
+  - 10 tests: happy path (201 success, correct URL/payload), 409 throws user-friendly message, 409 does not expose raw backend text, CONCURRENT_RENDER_LIMIT_MESSAGE value assertion, 400/404/500 throw generic errors with status code, non-409 errors don't use the 409 message
+
+**Notes:**
+- Fix is placed in `api.ts` (API layer) not `ExportModal.tsx` (UI layer) per architecture rule that UI components don't contain business logic
+- Raw backend string "Maximum concurrent renders per user is 2" is never surfaced to the user
+- `CONCURRENT_RENDER_LIMIT_MESSAGE` exported so tests can assert the exact string without duplication
+- ExportModal already renders `error.message` in `role="alert"` area — no UI changes needed
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: Task 2 — Show User-Friendly Message When Concurrent Render Limit Is Reached</summary>
+
+When the API returns 409 on render creation, the Export modal shows a clear, non-technical message. The raw backend error string is never shown. The error appears in the existing red alert area. Other error types unchanged.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-04]
+
+### Task: EPIC 5 — Background Render Pipeline
+**Subtask:** 1. DB migration: `render_jobs` table
+
+**What was done:**
+- Created `apps/api/src/db/migrations/004_render_jobs.sql` — defines `render_jobs` table with columns: `job_id` (CHAR(36) PK), `project_id`, `version_id`, `requested_by`, `status` (ENUM queued/processing/complete/failed, default queued), `progress_pct` (TINYINT, default 0), `preset_json` (JSON), `output_uri`, `error_message`, `created_at`, `updated_at`. Four indexes: `idx_render_jobs_project_id`, `idx_render_jobs_project_status`, `idx_render_jobs_requested_by`, `idx_render_jobs_created_at`. Migration is idempotent (`CREATE TABLE IF NOT EXISTS`).
+- Created `apps/api/src/__tests__/integration/migration-004.test.ts` — 13 integration tests covering: table existence + idempotency, column schema and types, INSERT defaults (status=queued, progress_pct=0), UPDATE to processing/complete/failed states, NOT NULL enforcement on preset_json, invalid ENUM rejection, and all four index presence checks.
+
+**Notes:**
+- Migration uses ENUM type for `status` to enforce valid states at the DB level — avoids invalid state strings slipping through.
+- `progress_pct` is TINYINT UNSIGNED (0–255) which accommodates 0–100 values without wasting storage; it is not a FK to `project_versions` by design (no FK enforcement in this schema as per existing migration patterns).
+- All subsequent BE subtasks (render.repository.ts, render.service.ts) depend on this migration.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 1. DB migration: render_jobs table</summary>
+
+- [ ] **1. DB migration: `render_jobs` table**
+  - What: Create `004_render_jobs.sql` with `render_jobs` table (job_id, project_id, version_id, requested_by, status ENUM, progress_pct, preset_json, output_uri, error_message, created_at, updated_at) and required indexes
+  - Where: `apps/api/src/db/migrations/004_render_jobs.sql`
+  - Why: All subsequent BE subtasks depend on this table existing
+  - Depends on: none
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-04]
+
+### Task: EPIC 5 — Background Render Pipeline
+**Subtask:** 2. BE: Render repository + service + enqueue helper
+
+**What was done:**
+- Added `RenderPresetKey`, `RenderPreset`, `RenderVideoJobPayload` types to `packages/project-schema/src/types/job-payloads.ts` and re-exported from `packages/project-schema/src/index.ts`.
+- Created `apps/api/src/repositories/render.repository.ts` — `insertRenderJob`, `getRenderJobById`, `listRenderJobsByProject`, `updateRenderProgress`, `completeRenderJob`, `failRenderJob`, `countActiveJobsByUser`. Only SQL, no business logic.
+- Created `apps/api/src/services/render.service.ts` — `createRender` (preset validation, version ownership check, per-user 2-concurrent limit, DB row + BullMQ enqueue), `getRenderStatus` (presigned URL for complete jobs), `listProjectRenders`. All business logic lives here.
+- Created `apps/api/src/queues/jobs/enqueue-render.ts` — idempotent enqueue helper using `renderQueue`, jobId as BullMQ jobId, 3 attempts with exponential backoff.
+- Created `apps/api/src/services/render.service.test.ts` (12 tests) + `render.service.presets.test.ts` (7 tests, split per 300-line rule) + `render.service.fixtures.ts` (shared fixtures).
+- Updated `packages/project-schema/src/types/job-payloads.test.ts` with 3 new RenderVideoJobPayload tests (7 total).
+
+**Notes:**
+- `ALLOWED_PRESETS` is a const exported from the service so the controller can reference it for docs and the test can introspect it.
+- The concurrency check is skipped for `requestedBy=null` (anonymous) to avoid blocking unauthenticated scenarios.
+- S3 key extraction assumes `s3://<bucket>/<key>` format — same convention used in asset service.
+- Test files split: `render.service.test.ts` (createRender + getRenderStatus), `render.service.presets.test.ts` (listProjectRenders + ALLOWED_PRESETS + all-presets acceptance).
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 2. BE: Render repository + service + enqueue helper</summary>
+
+- [ ] **2. BE: Render repository + service + enqueue helper**
+  - What: Create `render.repository.ts`, `render.service.ts`, `enqueue-render.ts`, `RenderVideoJobPayload` type in `packages/project-schema/`
+  - Depends on: subtask 1
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-04]
+
+### Task: EPIC 5 — Background Render Pipeline
+**Subtask:** 3. BE: Render endpoints (controller + routes)
+
+**What was done:**
+- Created `apps/api/src/controllers/renders.controller.ts` — thin handlers for `createRender` (POST 202), `getRenderStatus` (GET 200), `listProjectRenders` (GET 200). Each parses request, calls service, formats response. Includes fire-and-forget `writeRenderAuditLog` for `render.requested` events.
+- Created `apps/api/src/routes/renders.routes.ts` — three routes: `POST /projects/:id/renders` (authMiddleware + aclMiddleware('editor') + validateBody), `GET /renders/:jobId` (authMiddleware), `GET /projects/:id/renders` (authMiddleware + aclMiddleware('viewer')).
+- Updated `apps/api/src/index.ts` — imported and mounted `rendersRouter`.
+- Created `apps/api/src/__tests__/integration/renders-endpoint.test.ts` — 12 integration tests covering: POST happy path (202), invalid preset (400), version not found (404), missing auth (401), missing body fields (400); GET single job (200 with fields), not found (404), missing auth (401); GET list (200 with array), field presence, missing auth (401), empty project (200 with []).
+
+**Notes:**
+- `validateBody` middleware returns 400 (not 422) for schema errors — test was adjusted accordingly.
+- Audit log write is fire-and-forget: a failure to write audit entry must not fail the render request.
+- BullMQ and S3/presigner are mocked in integration tests so the suite can run with only MySQL.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 3. BE: Render endpoints (controller + routes)</summary>
+
+- [ ] **3. BE: Render endpoints (controller + routes)**
+  - What: Create renders.controller.ts, renders.routes.ts, wire into index.ts, add audit log write
+  - Depends on: subtask 2
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-04]
+
+### Task: EPIC 5 — Background Render Pipeline
+**Subtask:** 4. Render worker: Remotion SSR job handler
+
+**What was done:**
+- Updated `apps/render-worker/package.json` — added `@remotion/bundler`, `mysql2` dependencies; `tsc-alias` devDependency; updated build script to include `tsc-alias`.
+- Updated `apps/render-worker/tsconfig.json` — added `@/*` path alias mapping `./src/*`.
+- Updated `apps/render-worker/src/config.ts` — added `APP_DB_*` env vars and `db` config block (following media-worker pattern).
+- Created `apps/render-worker/src/lib/db.ts` — mysql2 pool singleton (following media-worker/lib/db.ts pattern).
+- Created `apps/render-worker/src/lib/s3.ts` — S3Client singleton (following api/lib/s3.ts pattern).
+- Created `apps/render-worker/src/lib/remotion-renderer.ts` — `renderComposition()` wrapper around Remotion `bundle()` + `selectComposition()` + `renderMedia()`. Bundles the `packages/remotion-comps/dist/index.js` entry point.
+- Created `apps/render-worker/src/jobs/render.job.ts` — `processRenderJob()` BullMQ job handler: sets status to processing, fetches doc_json from DB, renders via Remotion, reports progress every 5%, uploads to S3, marks complete. On failure: marks failed, re-throws for retry. Uses injected deps pattern for testability.
+- Updated `apps/render-worker/src/index.ts` — replaced stub handler with real `processRenderJob` wired with `s3Client` and `pool`.
+- Created `apps/render-worker/src/jobs/render.job.test.ts` — 10 unit tests covering: processing status on start, renderComposition called with correct args, S3 upload on success, output_uri format, fail-on-render-throw, fail-on-version-not-found, tmp cleanup on success, tmp cleanup on failure, webm extension, mp4 extension.
+
+**Notes:**
+- `node:fs/promises` default import requires the `importOriginal` approach in Vitest mocks to avoid "No default export" errors.
+- `@remotion/bundler` was missing from package.json — added it; `@remotion/bundler` bundles remotion-comps using Webpack.
+- The `REMOTION_ENTRY_POINT` path in `remotion-renderer.ts` resolves relative to the compiled `dist/` output so it points to `packages/remotion-comps/dist/index.js`.
+- Progress reporting is throttled to 5% intervals to avoid flooding DB with updates at 60fps during rendering.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 4. Render worker: Remotion SSR job handler</summary>
+
+- [ ] **4. Render worker: Remotion SSR job handler**
+  - What: Implement render.job.ts, remotion-renderer.ts, db.ts, update config.ts, wire index.ts
+  - Depends on: subtasks 1, 2
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-04]
+
+### Task: EPIC 5 — Background Render Pipeline
+**Subtask:** 5. FE: Export feature slice — API layer + hooks
+
+**What was done:**
+- Created `apps/web-editor/src/features/export/types.ts` — `RenderPresetKey`, `RenderPresetOption`, `RenderJobStatus`, `RenderJob`, `CreateRenderResponse`, `ListRendersResponse`, `RENDER_PRESET_OPTIONS` (the 6 preset cards for the export modal UI).
+- Created `apps/web-editor/src/features/export/api.ts` — `createRender`, `getRenderStatus`, `listRenders`. All calls go through `apiClient` per architecture rules. Each function surfaces a meaningful error message on non-OK responses.
+- Created `apps/web-editor/src/features/export/hooks/useExportRender.ts` — `useExportRender(versionId)` hook: submits render via `createRender`, polls GET /renders/:jobId every 3s via React Query while status is queued/processing, stops polling on complete/failed. Exposes `startRender`, `isSubmitting`, `activeJobId`, `activeJob` (with downloadUrl when complete), `isPolling`, `error`, `reset`.
+- Created `apps/web-editor/src/features/export/hooks/useExportRender.test.ts` — 10 tests: initial state, startRender happy path (activeJobId set, createRender called with correct args, isSubmitting flag), error path (error set, activeJobId null), activeJob polling (queued data, complete with downloadUrl), reset (clears state and error), failed job errorMessage.
+
+**Notes:**
+- Polling uses React Query `refetchInterval` as a function that returns `3000` while status is queued/processing and `false` otherwise — this is the standard React Query pattern for conditional polling.
+- `reset()` is exposed so the modal can clear state on close without unmounting the hook's query cache.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 5. FE: Export feature slice — API layer + hooks</summary>
+
+- [ ] **5. FE: Export feature slice — API layer + hooks**
+  - What: Create api.ts, hooks/useExportRender.ts, types.ts in features/export/
+  - Depends on: subtask 3
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+## Monorepo Scaffold (Epic 1)
+- added: `package.json`, `turbo.json` — npm workspaces, Turborepo pipeline
+- added: root `tsconfig.json`, `.env.example`, `.gitignore`, `docker-compose.yml` (MySQL 8 + Redis 7)
+- added: `apps/api/` — Express + helmet + cors + rate-limit; BullMQ queue stubs
+- added: `apps/web-editor/` — React 18 + Vite; `apps/media-worker/`, `apps/render-worker/` — BullMQ stubs
+- added: `packages/project-schema/` — Zod schemas: `ProjectDoc`, `Track`, `Clip` union
+- added: `packages/remotion-comps/` — `VideoComposition` + layer components
+- tested: `clip.schema.test.ts` (14), `project-doc.schema.test.ts` (7)
+- fixed: `APP_` env prefix; Zod startup validation; `VITE_PUBLIC_API_BASE_URL`; `workspace:*` → `file:` paths
+
+## DB Migrations
+- added: `001_project_assets_current.sql` — `project_assets_current` table; tested `migration-001.test.ts`
+- added: `002_caption_tracks.sql` — `caption_tracks` table; tested `migration-002.test.ts`
+- added: `003_project_versions.sql` — `projects`, `project_versions`, `project_version_patches`, `project_audit_log` tables; tested `migration-003.test.ts` + `migration-003.patches-audit.test.ts`
+
+## Redis + BullMQ Infrastructure (Epic 1)
+- updated: `docker-compose.yml` Redis healthcheck; `bullmq.ts` error handlers
+- updated: media-worker + render-worker — error handlers, graceful shutdown, concurrency settings
+- fixed: `@/` alias + `tsc-alias` in api tsconfig
+
+## Asset Upload Pipeline (Epic 1)
+- added: `apps/api/src/lib/errors.ts` — `ValidationError`, `NotFoundError`, `ForbiddenError`, `UnauthorizedError`, `ConflictError`, `OptimisticLockError`
+- added: `s3.ts`, `validate.middleware.ts`, `auth.middleware.ts`, `acl.middleware.ts`
+- added: `asset.repository.ts`, `asset.service.ts`, `assets.controller.ts`, `assets.routes.ts`
+- added: `POST /projects/:id/assets/upload-url`, `GET /assets/:id`, `GET /projects/:id/assets`
+- added: `enqueue-ingest.ts` — idempotency, 3 retries, exponential backoff
+- added: `POST /assets/:id/finalize` with `aclMiddleware('editor')`
+- tested: `asset.service.test.ts` (13), `assets-endpoints.test.ts`, `asset.finalize.service.test.ts` (7), `assets-finalize-endpoint.test.ts` (6)
+
+## Media Worker — Ingest Job (Epic 1)
+- added: `MediaIngestJobPayload` single source of truth in `job-payloads.ts`
+- added: `media-worker/src/jobs/ingest.job.ts` — S3 download → FFprobe → thumbnail → waveform → S3 upload → DB ready
+- added: `media-worker/Dockerfile` — node:20-alpine + ffmpeg; updated `docker-compose.yml`
+- tested: `ingest.job.test.ts` (11)
+
+## Asset Browser Panel + Upload UI (Epic 1)
+- added: `features/asset-manager/` — `types.ts`, `api.ts`, `useAssetUpload.ts`, `useAssetPolling.ts`, `AssetCard.tsx`, `AssetDetailPanel.tsx`, `UploadDropzone.tsx`, `UploadProgressList.tsx`, `AssetBrowserPanel.tsx`
+- tested: `useAssetUpload.test.ts` (7), `useAssetPolling.test.ts` (6)
+
+## VideoComposition + Storybook (Epic 2)
+- updated: `VideoComposition.tsx` — z-order sort, muted filtering, `trimInFrame`→`startFrom`/`trimOutFrame`→`endAt`
+- extracted: `VideoComposition.utils.ts` (`prepareClipsForComposition`)
+- added: Storybook `.storybook/` config + `VideoComposition.stories.tsx` (5 stories)
+- tested: `VideoComposition.test.tsx` (15), `VideoComposition.utils.test.ts` (7)
+
+## Stores (Epic 2)
+- added: `project-store.ts` — `useSyncExternalStore` singleton; `getSnapshot`, `subscribe`, `setProject`; dev fixture
+- added: `ephemeral-store.ts` — `playheadFrame`, `selectedClipIds`, `zoom`; no-op skip on unchanged
+- tested: `project-store.test.ts` (9), `ephemeral-store.test.ts` (14)
+
+## PreviewPanel + PlaybackControls (Epic 2)
+- added: `useRemotionPlayer.ts` — subscribes stores; `useQueries` for asset URLs (staleTime 5min)
+- added: `PreviewPanel.tsx` — memoized inputProps, Remotion `<Player>`
+- added: `usePlaybackControls.ts` — rAF loop, play/pause/rewind/step/seek, keyboard listeners
+- added: `PlaybackControls.tsx` — toolbar, SVG icons, scrub slider, timecode
+- added: `formatTimecode.ts` — `HH:MM:SS:FF` formatter
+- fixed: rAF tick missing `setCurrentFrameState` — frame counter frozen during playback
+- tested: `useRemotionPlayer.test.ts` (11), `PlaybackControls.test.tsx` (18), `usePlaybackControls.test.ts` (44)
+
+## Dev Auth Bypass + App Shell (Epic 2)
+- updated: `auth.middleware.ts`, `acl.middleware.ts` — `NODE_ENV=development` early-return with `DEV_USER`
+- added: `App.tsx` — two-column shell: `AssetBrowserPanel` + `PreviewSection` + conditional `RightSidebar`
+- updated: `architecture-rules.md` §3 (App.tsx location), §9 (multi-part test suffix + fixtures rule)
+- tested: `App.test.tsx` (10)
+- fixed: `docker-compose.yml` tsx watch order; `NODE_ENV: development` missing; `serializeAsset()` mapping
+
+## Playwright E2E (Epic 2)
+- added: `@playwright/test` (^1.59.1); `e2e` task in `turbo.json`; `playwright.config.ts`
+- added: `e2e/app-shell.spec.ts` (3), `e2e/preview.spec.ts` (6), `e2e/asset-manager.spec.ts` (10)
+
+## Captions / Transcription (Epic 3)
+- added: `TranscriptionJobPayload` to `job-payloads.ts`; `enqueue-transcription.ts`
+- added: `caption.repository.ts`, `caption.service.ts`, `captions.controller.ts`, `captions.routes.ts`
+- added: `POST /assets/:id/transcribe` (202), `GET /assets/:id/captions` (200/404)
+- added: `openai ^4.0.0`; `transcribe.job.ts` — S3 download → Whisper → `INSERT IGNORE` → DB ready
+- updated: `media-worker/src/index.ts` — `transcriptionWorker` (concurrency 1), parallel shutdown
+- added: `features/captions/types.ts`, `api.ts`, `useTranscriptionStatus.ts`
+- added: `TranscribeButton.tsx` — 7-state machine; detects existing captions on mount
+- added: `useAddCaptionsToTimeline.ts` — frame math, idempotency guard
+- added: `CaptionEditorPanel.tsx` — text, frames, font size, color, position
+- added: `useCaptionEditor.ts` — per-field handlers, `patchClip` via `getSnapshot()`/`setProject()`
+- tested: `caption.service.test.ts` (8), `captions-endpoints.test.ts`, `transcribe.job.test.ts` (12), `useTranscriptionStatus.test.ts` (7), `TranscribeButton.test.tsx`, `CaptionEditorPanel.test.tsx` (20)
+
+## Version History & Rollback — BE (Epic 4)
+- added: `version.repository.ts` — `insertVersionTransaction`, `getLatestVersionId`, `getVersionById`, `listVersions`, `restoreVersionTransaction`, `getConnection`
+- added: `version.service.ts` — schema version validation (422), optimistic lock (409), transaction lifecycle
+- added: `versions.controller.ts` — `saveVersion`, `listVersions`, `restoreVersion` handlers
+- added: `versions.routes.ts` — `POST /projects/:id/versions`, `GET /projects/:id/versions`, `POST /projects/:id/versions/:versionId/restore`
+- updated: `index.ts` — mounts versionsRouter; `errors.ts` — added `UnprocessableEntityError` (422)
+- tested: `version.service.test.ts` (21 unit), `versions-persist-endpoint.test.ts` (10 integration), `versions-list-restore-endpoint.test.ts` (14 integration)
+
+## Version History & Rollback — FE (Epic 4)
+- updated: `project-store.ts` — `enablePatches()`, `produceWithPatches`, `pushPatches` to history-store, `getCurrentVersionId`/`setCurrentVersionId`
+- added: `history-store.ts` — `pushPatches`, `undo`, `redo`, `drainPatches`, `hasPendingPatches`, `_resetForTesting`
+- added: `features/version-history/api.ts` — `saveVersion`, `listVersions`, `restoreVersion` fetch calls; 409 throws with `status: 409`
+- added: `useAutosave.ts` — debounce 2s, drainPatches, POST to API, `beforeunload` flush, `saveStatus`, `lastSavedAt`, `hasEverEdited`
+- added: `useVersionHistory.ts` — React Query list (staleTime 30s); `restoreToVersion` → setProject + setCurrentVersionId + invalidate
+- added: `VersionHistoryPanel.tsx` — 320px aside, version list, current highlight, RestoreModal trigger
+- added: `RestoreModal.tsx` — fixed overlay dialog, accessible (role/aria), disabled during restore
+- added: `TopBar.tsx`, `SaveStatusBadge.tsx` — save state display (idle/saving/saved/conflict/not-yet-saved)
+- updated: `App.tsx` — column layout, TopBar, history toggle button, `isHistoryOpen` state
+- tested: `history-store.test.ts` (29), `useAutosave.test.ts` (18), `useVersionHistory.test.ts` (9), `VersionHistoryPanel.test.tsx` (22), `RestoreModal.test.tsx` (20); App.test.tsx updated (23 total)
+
+## Background Render Pipeline — FE Export Modal (Epic 5, Subtask 6)
+- added: `features/export/types.ts` — `RenderPresetKey`, `RenderPresetOption`, `RenderJob`, `CreateRenderResponse`, `ListRendersResponse`, `RENDER_PRESET_OPTIONS` (6 presets)
+- added: `features/export/api.ts` — `createRender`, `getRenderStatus`, `listRenders` via `apiClient`
+- added: `features/export/hooks/useExportRender.ts` — `startRender`, polling via React Query `refetchInterval: 3000` while queued/processing, `reset`
+- added: `features/export/components/RenderProgressBar.tsx` — 8px track with primary fill, ARIA progressbar role, `progressPct` clamping
+- added: `features/export/components/ExportModal.tsx` — 560×700px modal, 4 phases: preset selection (3×2 grid), rendering in progress (progress bar), complete (download link), failed (retry)
+- updated: `TopBar.tsx` — added `isExportOpen`/`onToggleExport` props, Export button (primary purple, always visible)
+- updated: `App.tsx` — `isExportOpen` state, `handleToggleExport`/`handleCloseExport`, `ExportModal` rendered when open + `currentVersionId` non-null, imports `getCurrentVersionId` from project-store
+- added: `ExportModal.styles.ts` — extracted design tokens and styles const (>300 line rule compliance)
+- added: `ExportModal.fixtures.ts` — shared fixture helpers for test files
+- tested: `RenderProgressBar.test.tsx` (14), `ExportModal.test.tsx` (18), `ExportModal.phases.test.tsx` (12), `useExportRender.test.ts` (10); App.test.tsx updated (+4 Export button tests, 23 total); all 409 tests pass across 32 test files
+
+**checked by code-reviewer - YES**
+**checked by qa-reviewer - YES**
+**checked by design-reviewer - YES**
+
+## Known Issues / TODOs
+- ACL middleware is a stub — real project ownership check deferred to projects CRUD epic
+- `packages/api-contracts/` is a stub — deferred until OpenAPI spec exists
+- Presigned download URL (`GET /assets/:id/download-url`) deferred
+- Timeline ruler bi-directional sync deferred to Timeline Editor epic
+- S3 CORS policy must be configured on bucket for browser-direct PUT
+- Assets stay in `processing` until media-worker is running
+- Pre-existing TypeScript errors in `PlaybackControls.tsx`, `PreviewPanel.tsx`, `usePlaybackControls.ts`, `config.ts`
+- Two pre-existing integration test failures in `assets-endpoints.test.ts`, `assets-finalize-endpoint.test.ts`

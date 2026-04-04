@@ -6,7 +6,9 @@ import rateLimit from 'express-rate-limit';
 import { config } from '@/config.js';
 import { assetsRouter } from '@/routes/assets.routes.js';
 import { captionsRouter } from '@/routes/captions.routes.js';
-import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, ConflictError } from '@/lib/errors.js';
+import { versionsRouter } from '@/routes/versions.routes.js';
+import { rendersRouter } from '@/routes/renders.routes.js';
+import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, ConflictError, UnprocessableEntityError } from '@/lib/errors.js';
 
 const app = express();
 
@@ -21,6 +23,8 @@ app.get('/health', (_req, res) => {
 
 app.use(assetsRouter);
 app.use(captionsRouter);
+app.use(versionsRouter);
+app.use(rendersRouter);
 
 // Centralized error handler — maps typed errors to HTTP status codes.
 // Must be the last middleware registered.
@@ -30,7 +34,8 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     err instanceof NotFoundError ||
     err instanceof UnauthorizedError ||
     err instanceof ForbiddenError ||
-    err instanceof ConflictError
+    err instanceof ConflictError ||
+    err instanceof UnprocessableEntityError
   ) {
     res.status(err.statusCode).json({ error: err.message });
     return;

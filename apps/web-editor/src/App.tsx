@@ -5,24 +5,25 @@ import { AssetBrowserPanel } from '@/features/asset-manager/components/AssetBrow
 import { PreviewPanel } from '@/features/preview/components/PreviewPanel';
 import { PlaybackControls } from '@/features/preview/components/PlaybackControls';
 import { CaptionEditorPanel } from '@/features/captions/components/CaptionEditorPanel';
+import { VersionHistoryPanel } from '@/features/version-history/components/VersionHistoryPanel';
+import { ExportModal } from '@/features/export/components/ExportModal';
 import { useRemotionPlayer } from '@/features/preview/hooks/useRemotionPlayer';
 import { useEphemeralStore } from '@/store/ephemeral-store';
-import { useProjectStore } from '@/store/project-store';
+import { useProjectStore, getCurrentVersionId } from '@/store/project-store';
+import { TopBar } from './TopBar';
+import { DEV_PROJECT_ID } from '@/lib/constants';
 import type { TextOverlayClip } from '@ai-video-editor/project-schema';
 
-// Hardcoded project ID for development until the project creation flow is implemented.
-export const DEV_PROJECT_ID = 'dev-project-001';
+// Re-export for test compatibility and backward compat with existing consumers.
+export { DEV_PROJECT_ID };
 
-const queryClient = new QueryClient();
-
-// ---------------------------------------------------------------------------
 // Design-guide tokens
-// ---------------------------------------------------------------------------
-
 const SURFACE = '#0D0D14';
 const SURFACE_ALT = '#16161F';
-const SURFACE_ELEVATED = '#1E1E2E';
 const BORDER = '#252535';
+const TEXT_PRIMARY = '#F0F0FA';
+
+const queryClient = new QueryClient();
 
 // ---------------------------------------------------------------------------
 // PreviewSection — coordinates playerRef between PreviewPanel and PlaybackControls
@@ -84,27 +85,71 @@ function RightSidebar(): React.ReactElement | null {
  * Root application shell. Provides the QueryClient context and renders the
  * two-column editor layout: asset browser sidebar (left) and preview area (right).
  * A conditional right inspector panel is shown when a caption clip is selected.
+ * The version history panel is toggled from the top bar.
+ * The top bar includes the save status indicator via `useAutosave`.
  */
 export function App(): React.ReactElement {
+  const [isHistoryOpen, setIsHistoryOpen] = React.useState(false);
+  const [isExportOpen, setIsExportOpen] = React.useState(false);
+
+  const handleToggleHistory = (): void => {
+    setIsHistoryOpen((prev) => !prev);
+  };
+
+  const handleCloseHistory = (): void => {
+    setIsHistoryOpen(false);
+  };
+
+  const handleToggleExport = (): void => {
+    setIsExportOpen((prev) => !prev);
+  };
+
+  const handleCloseExport = (): void => {
+    setIsExportOpen(false);
+  };
+
+  const currentVersionId = getCurrentVersionId();
+
   return (
     <QueryClientProvider client={queryClient}>
       <div style={styles.shell}>
-        {/* Left column — asset browser (fixed width) */}
-        <aside style={styles.sidebar} aria-label="Asset browser">
-          <AssetBrowserPanel projectId={DEV_PROJECT_ID} />
-        </aside>
+        {/* Top bar — spans full width above the main columns */}
+        <TopBar
+          isHistoryOpen={isHistoryOpen}
+          onToggleHistory={handleToggleHistory}
+          isExportOpen={isExportOpen}
+          onToggleExport={handleToggleExport}
+          canExport={currentVersionId !== null}
+        />
 
-        {/* Vertical divider */}
-        <div style={styles.verticalDivider} aria-hidden="true" />
+        {/* Main editor row */}
+        <div style={styles.editorRow}>
+          {/* Left column — asset browser (fixed width) */}
+          <aside style={styles.sidebar} aria-label="Asset browser">
+            <AssetBrowserPanel projectId={DEV_PROJECT_ID} />
+          </aside>
 
-        {/* Center column — preview + playback controls */}
-        <main style={styles.center}>
-          <PreviewSection />
-        </main>
+          {/* Vertical divider */}
+          <div style={styles.verticalDivider} aria-hidden="true" />
 
-        {/* Right column — conditional inspector panel */}
-        <RightSidebar />
+          {/* Center column — preview + playback controls */}
+          <main style={styles.center}>
+            <PreviewSection />
+          </main>
+
+          {/* Right column — conditional inspector or version history panel */}
+          {isHistoryOpen ? (
+            <VersionHistoryPanel onClose={handleCloseHistory} />
+          ) : (
+            <RightSidebar />
+          )}
+        </div>
       </div>
+
+      {/* Export modal — rendered as a portal-like overlay above the editor */}
+      {isExportOpen && currentVersionId !== null && (
+        <ExportModal versionId={currentVersionId} onClose={handleCloseExport} />
+      )}
     </QueryClientProvider>
   );
 }
@@ -116,11 +161,18 @@ export function App(): React.ReactElement {
 const styles = {
   shell: {
     display: 'flex',
+    flexDirection: 'column' as const,
     height: '100vh',
     overflow: 'hidden',
     background: SURFACE,
-    color: '#F0F0FA',
+    color: TEXT_PRIMARY,
     fontFamily: 'Inter, sans-serif',
+  } as React.CSSProperties,
+
+  editorRow: {
+    flex: 1,
+    display: 'flex',
+    overflow: 'hidden',
   } as React.CSSProperties,
 
   sidebar: {
@@ -172,4 +224,5 @@ const styles = {
     flexShrink: 0,
     background: BORDER,
   } as React.CSSProperties,
+
 } as const;
