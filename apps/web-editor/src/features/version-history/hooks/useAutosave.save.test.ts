@@ -21,9 +21,6 @@ vi.mock('@/features/version-history/api', () => ({
   saveVersion: vi.fn(),
 }));
 
-vi.mock('@/lib/constants', () => ({
-  DEV_PROJECT_ID: 'test-project-001',
-}));
 
 import * as projectStoreModule from '@/store/project-store';
 import * as historyStoreModule from '@/store/history-store';
@@ -72,7 +69,7 @@ describe('useAutosave — save', () => {
       return () => undefined;
     });
 
-    const { result } = await act(async () => renderHook(() => useAutosave()));
+    const { result } = await act(async () => renderHook(() => useAutosave('test-project-001')));
 
     act(() => { capturedCallback?.(); });
 
@@ -95,7 +92,7 @@ describe('useAutosave — save', () => {
       return () => undefined;
     });
 
-    await act(async () => { renderHook(() => useAutosave()); });
+    await act(async () => { renderHook(() => useAutosave('test-project-001')); });
     act(() => { capturedCallback?.(); });
 
     await act(async () => {
@@ -119,7 +116,7 @@ describe('useAutosave — save', () => {
       return () => undefined;
     });
 
-    await act(async () => { renderHook(() => useAutosave()); });
+    await act(async () => { renderHook(() => useAutosave('test-project-001')); });
 
     // Start first save (still in flight)
     act(() => { capturedCallback?.(); });

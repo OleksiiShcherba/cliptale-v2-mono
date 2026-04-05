@@ -30,6 +30,10 @@ vi.mock('@/features/asset-manager/api.js', () => ({
   getAsset: vi.fn(),
 }));
 
+vi.mock('@/lib/config.js', () => ({
+  config: { apiBaseUrl: 'http://localhost:3001' },
+}));
+
 import { useQueries } from '@tanstack/react-query';
 
 const mockUseQueries = vi.mocked(useQueries);
@@ -201,7 +205,7 @@ describe('useRemotionPlayer', () => {
       expect(callArgs?.queries).toHaveLength(0);
     });
 
-    it('builds assetUrls map from resolved query data', () => {
+    it('builds assetUrls map using the API stream URL (never a raw s3:// URI)', () => {
       const doc = makeProjectDoc({
         clips: [
           { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
@@ -210,7 +214,7 @@ describe('useRemotionPlayer', () => {
       mockGetProjectSnapshot.mockReturnValue(doc);
       mockUseQueries.mockReturnValue([
         {
-          data: { id: 'asset-a', storageUri: 's3://bucket/video.mp4', status: 'ready' },
+          data: { id: 'asset-a', downloadUrl: 'https://example.com/presigned/video.mp4', status: 'ready' },
           isLoading: false,
           isError: false,
         },
@@ -218,7 +222,51 @@ describe('useRemotionPlayer', () => {
 
       const { result } = renderHook(() => useRemotionPlayer());
 
-      expect(result.current.assetUrls).toEqual({ 'asset-a': 's3://bucket/video.mp4' });
+      expect(result.current.assetUrls).toEqual({
+        'asset-a': 'http://localhost:3001/assets/asset-a/stream',
+      });
+    });
+
+    it('stream URL uses the configured apiBaseUrl', () => {
+      const doc = makeProjectDoc({
+        clips: [
+          { id: 'c1', type: 'video', assetId: 'asset-xyz', trackId: 't1', startFrame: 0, durationFrames: 30 },
+        ] as ProjectDoc['clips'],
+      });
+      mockGetProjectSnapshot.mockReturnValue(doc);
+      mockUseQueries.mockReturnValue([
+        {
+          data: { id: 'asset-xyz', downloadUrl: 'https://example.com/presigned/any-key.mp4', status: 'ready' },
+          isLoading: false,
+          isError: false,
+        },
+      ] as ReturnType<typeof useQueries>);
+
+      const { result } = renderHook(() => useRemotionPlayer());
+
+      expect(result.current.assetUrls['asset-xyz']).toBe('http://localhost:3001/assets/asset-xyz/stream');
+    });
+
+    it('stream URL does not contain s3:// scheme', () => {
+      const doc = makeProjectDoc({
+        clips: [
+          { id: 'c1', type: 'video', assetId: 'asset-b', trackId: 't1', startFrame: 0, durationFrames: 30 },
+        ] as ProjectDoc['clips'],
+      });
+      mockGetProjectSnapshot.mockReturnValue(doc);
+      mockUseQueries.mockReturnValue([
+        {
+          data: { id: 'asset-b', downloadUrl: 'https://example.com/presigned/video.mp4', status: 'ready' },
+          isLoading: false,
+          isError: false,
+        },
+      ] as ReturnType<typeof useQueries>);
+
+      const { result } = renderHook(() => useRemotionPlayer());
+
+      const url = result.current.assetUrls['asset-b'] ?? '';
+      expect(url).not.toContain('s3://');
+      expect(url.startsWith('http')).toBe(true);
     });
 
     it('omits assets whose query is still loading', () => {

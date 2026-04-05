@@ -13,6 +13,7 @@ import { exportModalStyles as styles, TEXT_PRIMARY, TEXT_SECONDARY } from './Exp
 export interface ExportModalProps {
   /** Version ID to render — must be the current locked version. */
   versionId: number;
+  projectId: string;
   onClose: () => void;
 }
 
@@ -29,8 +30,8 @@ export interface ExportModalProps {
  * 3. Complete — download button + close.
  * 4. Failed — error message + retry button.
  */
-export function ExportModal({ versionId, onClose }: ExportModalProps): React.ReactElement {
-  const { startRender, isSubmitting, activeJob, error, reset } = useExportRender(versionId);
+export function ExportModal({ versionId, projectId, onClose }: ExportModalProps): React.ReactElement {
+  const { startRender, isSubmitting, activeJob, error, reset } = useExportRender(versionId, projectId);
   const [selectedPreset, setSelectedPreset] = React.useState<RenderPresetKey | null>(null);
   const [isHoveringClose, setIsHoveringClose] = React.useState(false);
 

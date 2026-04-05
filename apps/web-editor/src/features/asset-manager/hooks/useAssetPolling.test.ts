@@ -15,7 +15,7 @@ function makeAsset(status: Asset['status']): Asset {
     projectId: 'project-1',
     filename: 'video.mp4',
     contentType: 'video/mp4',
-    storageUri: 's3://bucket/key',
+    downloadUrl: 'https://example.com/presigned/key',
     status,
     durationSeconds: null,
     width: null,

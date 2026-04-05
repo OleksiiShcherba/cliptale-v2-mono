@@ -20,7 +20,7 @@ function makeAsset(overrides: Partial<Asset> = {}): Asset {
     projectId: 'proj-001',
     filename: 'clip.mp4',
     contentType: 'video/mp4',
-    storageUri: 's3://bucket/clip.mp4',
+    downloadUrl: 'https://example.com/presigned/clip.mp4',
     status: 'ready',
     durationSeconds: 10,
     width: 1920,
@@ -93,6 +93,45 @@ describe('AssetCard', () => {
         <AssetCard asset={makeAsset({ thumbnailUri: null })} isSelected={false} onSelect={onSelect} />,
       );
       expect(container.querySelector('img')).toBeNull();
+    });
+
+    it('renders a video type icon for video content when thumbnailUri is null', () => {
+      render(
+        <AssetCard asset={makeAsset({ contentType: 'video/mp4', thumbnailUri: null })} isSelected={false} onSelect={onSelect} />,
+      );
+      expect(screen.getByTestId('type-icon-video')).toBeDefined();
+    });
+
+    it('renders an audio type icon for audio content when thumbnailUri is null', () => {
+      render(
+        <AssetCard asset={makeAsset({ contentType: 'audio/mpeg', thumbnailUri: null })} isSelected={false} onSelect={onSelect} />,
+      );
+      expect(screen.getByTestId('type-icon-audio')).toBeDefined();
+    });
+
+    it('renders an image type icon for image content when thumbnailUri is null', () => {
+      render(
+        <AssetCard asset={makeAsset({ contentType: 'image/png', thumbnailUri: null })} isSelected={false} onSelect={onSelect} />,
+      );
+      expect(screen.getByTestId('type-icon-image')).toBeDefined();
+    });
+
+    it('renders a file type icon for unknown content type when thumbnailUri is null', () => {
+      render(
+        <AssetCard asset={makeAsset({ contentType: 'application/pdf', thumbnailUri: null })} isSelected={false} onSelect={onSelect} />,
+      );
+      expect(screen.getByTestId('type-icon-file')).toBeDefined();
+    });
+
+    it('does not render a type icon when thumbnailUri is set', () => {
+      render(
+        <AssetCard
+          asset={makeAsset({ contentType: 'video/mp4', thumbnailUri: 'https://cdn.example.com/thumb.jpg' })}
+          isSelected={false}
+          onSelect={onSelect}
+        />,
+      );
+      expect(screen.queryByTestId('type-icon-video')).toBeNull();
     });
   });
 

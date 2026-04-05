@@ -1,76 +1,10 @@
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
-import { GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import type { S3Client } from '@aws-sdk/client-s3';
 
 import { config } from '@/config.js';
 import { s3Client } from '@/lib/s3.js';
 import * as assetService from '@/services/asset.service.js';
-import type { Asset as RepositoryAsset } from '@/repositories/asset.repository.js';
-
-/** Presigned GET URL validity — 1 hour is enough for a playback session. */
-const DOWNLOAD_URL_EXPIRY_SECONDS = 60 * 60;
-
-/** Parses a `s3://bucket/key` URI into bucket + key parts. */
-function parseS3Uri(s3Uri: string): { bucket: string; key: string } {
-  const withoutScheme = s3Uri.slice(5); // remove "s3://"
-  const slashIndex = withoutScheme.indexOf('/');
-  return {
-    bucket: withoutScheme.slice(0, slashIndex),
-    key: withoutScheme.slice(slashIndex + 1),
-  };
-}
-
-/**
- * Returns a presigned HTTPS GET URL for an s3:// URI.
- * Falls back to a plain public URL when signing fails (e.g. missing credentials in tests).
- */
-async function presignS3Uri(s3Uri: string, s3: S3Client): Promise<string> {
-  const { bucket, key } = parseS3Uri(s3Uri);
-  return getSignedUrl(
-    s3,
-    new GetObjectCommand({ Bucket: bucket, Key: key }),
-    { expiresIn: DOWNLOAD_URL_EXPIRY_SECONDS },
-  );
-}
-
-/** Converts an internal s3:// URI to a public HTTPS URL (for thumbnails served from public bucket). */
-function s3UriToHttps(s3Uri: string | null): string | null {
-  if (!s3Uri || !s3Uri.startsWith('s3://')) return s3Uri;
-  const { bucket, key } = parseS3Uri(s3Uri);
-  if (config.s3.endpoint) {
-    return `${config.s3.endpoint}/${bucket}/${key}`;
-  }
-  return `https://${bucket}.s3.${config.s3.region}.amazonaws.com/${key}`;
-}
-
-/**
- * Maps the internal repository Asset shape to the API response shape the frontend expects.
- * storageUri is replaced with a presigned GET URL so the browser can stream the file directly.
- */
-async function serializeAsset(asset: RepositoryAsset, s3: S3Client) {
-  const storageUri = await presignS3Uri(asset.storageUri, s3);
-  return {
-    id: asset.assetId,
-    projectId: asset.projectId,
-    filename: asset.filename,
-    contentType: asset.contentType,
-    storageUri,
-    status: asset.status,
-    durationSeconds:
-      asset.durationFrames != null && asset.fps != null
-        ? asset.durationFrames / asset.fps
-        : null,
-    width: asset.width,
-    height: asset.height,
-    fileSizeBytes: asset.fileSizeBytes,
-    thumbnailUri: s3UriToHttps(asset.thumbnailUri),
-    waveformPeaks: asset.waveformJson as number[] | null,
-    createdAt: asset.createdAt instanceof Date ? asset.createdAt.toISOString() : asset.createdAt,
-    updatedAt: asset.updatedAt instanceof Date ? asset.updatedAt.toISOString() : asset.updatedAt,
-  };
-}
+import * as assetResponseService from '@/services/asset.response.service.js';
 
 /** Zod schema for the POST /assets/upload-url request body. Exported for use in route middleware. */
 export const createUploadUrlSchema = z.object({
@@ -116,8 +50,8 @@ export async function getProjectAssets(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const assets = await assetService.getProjectAssets(req.params['id']!);
-    res.json(await Promise.all(assets.map((a) => serializeAsset(a, s3Client))));
+    const assets = await assetResponseService.getProjectAssetsResponse(req.params['id']!, s3Client);
+    res.json(assets);
   } catch (err) {
     next(err);
   }
@@ -130,8 +64,8 @@ export async function getAsset(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const asset = await assetService.getAsset(req.params['id']!);
-    res.json(await serializeAsset(asset, s3Client));
+    const asset = await assetResponseService.getAssetResponse(req.params['id']!, s3Client);
+    res.json(asset);
   } catch (err) {
     next(err);
   }
@@ -166,8 +100,46 @@ export async function finalizeAsset(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const asset = await assetService.finalizeAsset(req.params['id']!, s3Client);
-    res.json(await serializeAsset(asset, s3Client));
+    const asset = await assetResponseService.finalizeAssetResponse(req.params['id']!, s3Client);
+    res.json(asset);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /assets/:id/stream
+ * Proxies the S3 object binary to the browser. The raw s3:// URI is never
+ * exposed to the client. Forwards the browser's Range header to S3 so that
+ * video seeking (byte-range requests) works correctly.
+ */
+export async function streamAsset(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const rangeHeader = req.headers['range'];
+    const result = await assetResponseService.streamAsset(
+      req.params['id']!,
+      typeof rangeHeader === 'string' ? rangeHeader : undefined,
+      s3Client,
+    );
+
+    if (!result) {
+      res.status(204).end();
+      return;
+    }
+
+    if (result.contentType) res.setHeader('Content-Type', result.contentType);
+    if (result.contentLength !== undefined) res.setHeader('Content-Length', String(result.contentLength));
+    if (result.contentRange) res.setHeader('Content-Range', result.contentRange);
+    res.setHeader('Accept-Ranges', 'bytes');
+    // Required for browser video elements making no-cors cross-origin requests (e.g. Remotion player).
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+    res.status(result.isPartialContent ? 206 : 200);
+    result.body.pipe(res);
   } catch (err) {
     next(err);
   }

@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { listVersions, restoreVersion } from '@/features/version-history/api';
 import { setProject, setCurrentVersionId } from '@/store/project-store';
-import { DEV_PROJECT_ID } from '@/lib/constants';
 import type { VersionSummary } from '@/features/version-history/api';
 
 // ---------------------------------------------------------------------------
@@ -35,12 +34,12 @@ export type UseVersionHistoryResult = {
  * `restoreToVersion` callback that calls the restore endpoint, updates the
  * project store with the returned doc, and invalidates the version list.
  */
-export function useVersionHistory(): UseVersionHistoryResult {
+export function useVersionHistory(projectId: string): UseVersionHistoryResult {
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: versionHistoryKeys.list(DEV_PROJECT_ID),
-    queryFn: () => listVersions(DEV_PROJECT_ID),
+    queryKey: versionHistoryKeys.list(projectId),
+    queryFn: () => listVersions(projectId),
     staleTime: 30_000,
   });
 
@@ -50,17 +49,17 @@ export function useVersionHistory(): UseVersionHistoryResult {
     async (versionId: number): Promise<void> => {
       setIsRestoring(true);
       try {
-        const response = await restoreVersion(DEV_PROJECT_ID, versionId);
+        const response = await restoreVersion(projectId, versionId);
         setProject(response.docJson);
         setCurrentVersionId(versionId);
         await queryClient.invalidateQueries({
-          queryKey: versionHistoryKeys.list(DEV_PROJECT_ID),
+          queryKey: versionHistoryKeys.list(projectId),
         });
       } finally {
         setIsRestoring(false);
       }
     },
-    [queryClient],
+    [queryClient, projectId],
   );
 
   return {

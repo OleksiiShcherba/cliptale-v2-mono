@@ -21,6 +21,7 @@ import { TopBar } from './TopBar';
 // ---------------------------------------------------------------------------
 
 const defaultProps = {
+  projectId: 'test-project-001',
   isHistoryOpen: false,
   onToggleHistory: vi.fn(),
   isExportOpen: false,

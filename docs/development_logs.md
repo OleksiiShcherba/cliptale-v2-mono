@@ -179,3 +179,148 @@ checked by qa-reviewer - YES
 checked by design-reviewer - YES
 design-reviewer notes: Reviewed on 2026-04-05. All checks passed. All four previously flagged issues are confirmed fixed: TRACK_HEADER_WIDTH=64 in TrackHeader.tsx and TrackList.tsx (matches Figma node 13:69), TOOLBAR_HEIGHT=36 in TimelinePanel.styles.ts (matches Figma node 13:67), playhead needle width=2 in TimelinePanel.tsx (matches Figma nodes 13:79/88/97/106), and default clip opacity=0.75 in ClipBlock.tsx (matches Figma opacity-75 on all clip nodes). Code matches design guide and Figma spec.
 checked by playwright-reviewer: YES
+
+---
+
+## [2026-04-05]
+
+### Task: Fix S3 URL exposure in Remotion preview player
+**Subtask:** Replace raw s3:// URIs with API proxy streaming endpoint so the browser never receives S3 URLs
+
+**What was done:**
+- Added `GET /assets/:id/stream` route to `apps/api/src/routes/assets.routes.ts`
+- Added `streamAsset` controller to `apps/api/src/controllers/assets.controller.ts` — fetches the S3 object using `GetObjectCommand`, forwards the browser's `Range` header for video seeking, pipes the binary body to the Express response with correct `Content-Type`, `Content-Length`, `Content-Range`, and `Accept-Ranges` headers; returns 206 for partial content, 204 when S3 returns no body
+- Updated `apps/web-editor/src/features/preview/hooks/useRemotionPlayer.ts` — removed use of `result.data.storageUri` (which was an `s3://` URI); now constructs `${config.apiBaseUrl}/assets/${assetId}/stream` for each asset URL
+- Added `import { config } from '@/lib/config.js'` to `useRemotionPlayer.ts`
+- Updated `apps/web-editor/src/features/preview/hooks/useRemotionPlayer.test.ts` — added `vi.mock('@/lib/config.js', ...)`, renamed existing test to reflect new behavior, added three new tests verifying the API stream URL is used and `s3://` is never present
+- Created `apps/api/src/__tests__/integration/assets-stream-endpoint.test.ts` — 8 integration tests covering: 401 auth, 404 missing asset, 200 full-file stream, 206 byte-range, Range header forwarding to S3, `s3://` not present in response, 204 empty body
+
+**Notes:**
+- The `<video>` element in the Remotion Player browser context doesn't send cookies; in `NODE_ENV=development` the `authMiddleware` auto-authenticates all requests (hardcoded `DEV_USER`), so the stream endpoint works in the Docker dev environment without credentials. Production will need signed URL tokens or cookie-based auth on the video element.
+- `getAsset` is still called per assetId in `useRemotionPlayer` to confirm the asset exists in the DB before constructing the stream URL — this guards against showing media that hasn't been ingested yet.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: Fix S3 URL exposure in Remotion preview player</summary>
+
+Fix video render broken in Remotion preview player: replace direct s3:// URIs with API proxy URLs.
+Errors observed:
+- GET s3://... net::ERR_UNKNOWN_URL_SCHEME (browser can't handle s3:// scheme)
+- GET /assets/:id/captions 404 (expected — no captions yet, handled as null)
+Coverage: automated tests for stream endpoint and useRemotionPlayer hook.
+
+</details>
+
+checked by code-reviewer - OK
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-05. All checks passed. This change is backend/hook-only: a new Express streaming endpoint and a URL construction change in useRemotionPlayer.ts. No JSX, no CSS, no design tokens, and no layout were modified. No visual or design regressions introduced. Code matches design guide and Figma spec.
+checked by playwright-reviewer: YES
+---
+
+## [2026-04-05]
+
+### Task: Fix UI issues and project init flow
+**Subtask:** Resolve issue with video/image preview icon in AssetCard
+
+**What was done:**
+- Added `TypeIcon` component to `AssetCard.tsx` — returns a 24×24 SVG icon based on `contentType`: play triangle for video, music note for audio, mountain+sun for image, document for all other types
+- Icons use `#8A8AA0` (text-secondary token) and are rendered centered in the 48×48 thumbnail placeholder when `thumbnailUri` is null
+- When `thumbnailUri` is set, the existing `<img>` path is unchanged
+- Each icon SVG carries a `data-testid` attribute (`type-icon-video`, `type-icon-audio`, `type-icon-image`, `type-icon-file`) for test targeting
+- Added 5 new tests to `AssetCard.test.tsx` covering: video/audio/image/file icon rendering when thumbnailUri is null, and absence of icon when thumbnailUri is set
+
+**Files modified:**
+- `apps/web-editor/src/features/asset-manager/components/AssetCard.tsx` — added `TypeIcon` component, updated thumbnail placeholder
+- `apps/web-editor/src/features/asset-manager/components/AssetCard.test.tsx` — 5 new icon rendering tests (27 total, all pass)
+
+**Notes:**
+- All icons are inline SVG — no icon library dependency introduced
+- The `TypeIcon` component is file-private (not exported) per architecture §6 rules (single-use, keep inline)
+- Dark theme color `#8A8AA0` used per design guide Section 3
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: Resolve issue with video/image preview icon</summary>
+
+Resolve issue with video / image - preview icon in AssetCard thumbnail area.
+When thumbnailUri is null, show a type-appropriate SVG icon (video/audio/image/file) as placeholder.
+
+</details>
+
+checked by code-reviewer - OK
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-05. All checks passed. #8A8AA0 is the correct text-secondary token per design guide Section 3. Icon size 24×24px and container 48×48px are both on the 4px grid. Container background #16161F = surface-alt token, borderRadius 4px = radius-sm token. Icon centered via flexbox with no arbitrary offsets. Figma node 15:2 (Asset Browser/Desktop) shows THUMB blocks as schematic placeholders with no icon-state specification; the TypeIcon addition is a valid unspecified-state UX extension fully consistent with design tokens. No design violations found.
+checked by playwright-reviewer: YES
+---
+
+## [2026-04-05]
+
+### Task: Fix UI issues and project init flow
+**Subtask:** Move from hardcoded DEV_PROJECT_ID to dynamic temporary project creation on editor page open
+
+**What was done:**
+- **API — `POST /projects` endpoint:**
+  - Added `apps/api/src/repositories/project.repository.ts` — `createProject(projectId)` inserts a row into the `projects` table
+  - Added `apps/api/src/services/project.service.ts` — `createProject()` generates a UUID, calls repository, returns `{ projectId }`
+  - Added `apps/api/src/controllers/projects.controller.ts` — thin controller; parses nothing, calls service, returns 201
+  - Added `apps/api/src/routes/projects.routes.ts` — `POST /projects` behind `authMiddleware`
+  - Updated `apps/api/src/index.ts` — registers `projectsRouter`
+- **Frontend — `useProjectInit` hook:**
+  - Added `apps/web-editor/src/features/project/api.ts` — `createProject()` calls `POST /projects`
+  - Added `apps/web-editor/src/features/project/hooks/useProjectInit.ts` — discriminated-union hook: if `?projectId=` is in the URL, returns `status: ready` immediately; otherwise calls the API, writes the new UUID back to the URL via `history.replaceState`, then returns `status: ready`
+- **Removed `DEV_PROJECT_ID` from runtime code:**
+  - `useAutosave(projectId)`, `useVersionHistory(projectId)`, `useExportRender(versionId, projectId)` all now accept `projectId` as a parameter (removed `@/lib/constants` import from each)
+  - `TopBar` — added `projectId` prop, passes to `useAutosave`
+  - `VersionHistoryPanel` — added `projectId` prop, passes to `useVersionHistory`
+  - `ExportModal` — added `projectId` prop, passes to `useExportRender`
+  - `App.tsx` — calls `useProjectInit()`, renders loading/error states while the project is resolving, then passes dynamic `projectId` to all downstream components; removed `DEV_PROJECT_ID` import and re-export
+- **Tests written/updated:**
+  - `apps/web-editor/src/features/project/hooks/useProjectInit.test.ts` — 9 tests: URL read path, API-call path, error path, URL-update assertion, no-duplicate-call guarantee
+  - `apps/api/src/services/project.service.test.ts` — 4 tests: UUID v4 format, repository called with correct ID, distinct IDs per call, error propagation
+  - Updated `useAutosave.test.ts` + 3 variants, `useVersionHistory.test.ts`, `useExportRender.test.ts` — passed projectId as parameter
+  - Updated `TopBar.test.tsx`, `VersionHistoryPanel.test.tsx`, `ExportModal.test.tsx` — added `projectId` prop to render calls
+  - Updated `App.test.tsx` and `App.RightSidebar.test.tsx` — mocked `useProjectInit`, updated assertion to check dynamic projectId
+
+**Files created:**
+- `apps/api/src/repositories/project.repository.ts`
+- `apps/api/src/services/project.service.ts`
+- `apps/api/src/services/project.service.test.ts`
+- `apps/api/src/controllers/projects.controller.ts`
+- `apps/api/src/routes/projects.routes.ts`
+- `apps/web-editor/src/features/project/api.ts`
+- `apps/web-editor/src/features/project/hooks/useProjectInit.ts`
+- `apps/web-editor/src/features/project/hooks/useProjectInit.test.ts`
+
+**Files modified:**
+- `apps/api/src/index.ts`
+- `apps/web-editor/src/features/version-history/hooks/useAutosave.ts`
+- `apps/web-editor/src/features/version-history/hooks/useVersionHistory.ts`
+- `apps/web-editor/src/features/export/hooks/useExportRender.ts`
+- `apps/web-editor/src/TopBar.tsx`
+- `apps/web-editor/src/features/version-history/components/VersionHistoryPanel.tsx`
+- `apps/web-editor/src/features/export/components/ExportModal.tsx`
+- `apps/web-editor/src/App.tsx`
+- All associated test files
+
+**Notes:**
+- `DEV_PROJECT_ID` constant remains in `apps/web-editor/src/lib/constants.ts` but is no longer imported by any runtime code. Test files that previously mocked it still mock `@/lib/constants` but now the hooks no longer import it — those mocks became no-ops; left them in to avoid noise in the diff and because they do no harm
+- `history.replaceState` is called after creation so refreshing the page returns to the same project rather than creating another
+- The 2 pre-existing API integration test failures (`assets-endpoints.test.ts` and `assets-finalize-endpoint.test.ts`) are unrelated to this feature — they were failing before this change (documented in `apps/api/.claude/agent-memory/qa-engineer/pre-existing-failures.md`)
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: Move from default project id to dynamic project creation</summary>
+
+Move from DEV_PROJECT_ID hardcoded constant to logic that creates a new temporary project each time the editor page opens if no projectId is present in the URL.
+
+</details>
+
+checked by code-reviewer - COMMENTED
+> ❌ Dead code — 6 test files retain stale `vi.mock('@/lib/constants', ...)` whose mocked module is no longer imported by the hooks under test; violates §9 (no dead code/debug artifacts): `useExportRender.test.ts:20`, `useVersionHistory.test.ts:28`, `useAutosave.test.ts:26`, `useAutosave.save.test.ts:24`, `useAutosave.conflict.test.ts:24`, `useAutosave.timing.test.ts:24`
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-05. All checks passed. Loading state uses TEXT_PRIMARY (#F0F0FA = text-primary token) on SURFACE (#0D0D14 = surface token) background — both correct. Error state uses #EF4444 = error token — correct. Font family Inter, sans-serif matches design guide Section 3. Font size 14px matches the body token (14px / 400 Regular). Named token constants are used throughout, consistent with the inline-styles pattern of this file. No layout, spacing, or component structure violations. Code matches design guide spec.
+checked by playwright-reviewer: YES

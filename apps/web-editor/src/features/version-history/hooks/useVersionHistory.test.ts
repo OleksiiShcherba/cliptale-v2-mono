@@ -25,9 +25,6 @@ vi.mock('@/features/version-history/api', () => ({
   restoreVersion: (...args: unknown[]) => mockRestoreVersion(...args),
 }));
 
-vi.mock('@/lib/constants', () => ({
-  DEV_PROJECT_ID: 'test-project-001',
-}));
 
 import { useVersionHistory } from './useVersionHistory';
 
@@ -81,7 +78,7 @@ describe('useVersionHistory', () => {
   it('returns an empty versions array while loading', () => {
     mockListVersions.mockReturnValue(new Promise(() => {})); // never resolves
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useVersionHistory(), { wrapper: Wrapper });
+    const { result } = renderHook(() => useVersionHistory('test-project-001'), { wrapper: Wrapper });
 
     expect(result.current.isLoading).toBe(true);
     expect(result.current.versions).toEqual([]);
@@ -90,7 +87,7 @@ describe('useVersionHistory', () => {
   it('returns versions from the API after loading', async () => {
     mockListVersions.mockResolvedValue(VERSIONS);
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useVersionHistory(), { wrapper: Wrapper });
+    const { result } = renderHook(() => useVersionHistory('test-project-001'), { wrapper: Wrapper });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.versions).toEqual(VERSIONS);
@@ -99,7 +96,7 @@ describe('useVersionHistory', () => {
   it('sets isError when the API call fails', async () => {
     mockListVersions.mockRejectedValue(new Error('network error'));
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useVersionHistory(), { wrapper: Wrapper });
+    const { result } = renderHook(() => useVersionHistory('test-project-001'), { wrapper: Wrapper });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.versions).toEqual([]);
@@ -113,7 +110,7 @@ describe('useVersionHistory', () => {
     mockListVersions.mockResolvedValue(VERSIONS);
     mockRestoreVersion.mockResolvedValue({ docJson: RESTORED_DOC });
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useVersionHistory(), { wrapper: Wrapper });
+    const { result } = renderHook(() => useVersionHistory('test-project-001'), { wrapper: Wrapper });
 
     await act(async () => {
       await result.current.restoreToVersion(4);
@@ -127,7 +124,7 @@ describe('useVersionHistory', () => {
     mockListVersions.mockResolvedValue(VERSIONS);
     mockRestoreVersion.mockResolvedValue({ docJson: RESTORED_DOC });
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useVersionHistory(), { wrapper: Wrapper });
+    const { result } = renderHook(() => useVersionHistory('test-project-001'), { wrapper: Wrapper });
 
     await act(async () => {
       await result.current.restoreToVersion(4);
@@ -146,7 +143,7 @@ describe('useVersionHistory', () => {
     mockSetCurrentVersionId.mockImplementation(() => callOrder.push('setCurrentVersionId'));
 
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useVersionHistory(), { wrapper: Wrapper });
+    const { result } = renderHook(() => useVersionHistory('test-project-001'), { wrapper: Wrapper });
 
     await act(async () => {
       await result.current.restoreToVersion(5);
@@ -163,7 +160,7 @@ describe('useVersionHistory', () => {
     mockListVersions.mockResolvedValue(VERSIONS);
     mockRestoreVersion.mockResolvedValue({ docJson: RESTORED_DOC });
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useVersionHistory(), { wrapper: Wrapper });
+    const { result } = renderHook(() => useVersionHistory('test-project-001'), { wrapper: Wrapper });
 
     await act(async () => {
       await result.current.restoreToVersion(4);
@@ -180,7 +177,7 @@ describe('useVersionHistory', () => {
     mockListVersions.mockResolvedValue(VERSIONS);
     mockRestoreVersion.mockRejectedValue(new Error('restore failed'));
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useVersionHistory(), { wrapper: Wrapper });
+    const { result } = renderHook(() => useVersionHistory('test-project-001'), { wrapper: Wrapper });
 
     await act(async () => {
       await result.current.restoreToVersion(4).catch(() => {});
@@ -194,7 +191,7 @@ describe('useVersionHistory', () => {
     mockListVersions.mockResolvedValue(VERSIONS);
     mockRestoreVersion.mockRejectedValue(new Error('restore failed'));
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useVersionHistory(), { wrapper: Wrapper });
+    const { result } = renderHook(() => useVersionHistory('test-project-001'), { wrapper: Wrapper });
 
     await act(async () => {
       await result.current.restoreToVersion(4).catch(() => {});

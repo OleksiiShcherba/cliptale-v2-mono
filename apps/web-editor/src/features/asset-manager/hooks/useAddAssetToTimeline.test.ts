@@ -50,7 +50,7 @@ function makeAsset(overrides: Partial<Asset> = {}): Asset {
     projectId: 'proj-001',
     filename: 'test.mp4',
     contentType: 'video/mp4',
-    storageUri: 's3://bucket/test.mp4',
+    downloadUrl: 'https://example.com/presigned/test.mp4',
     status: 'ready',
     durationSeconds: 10,
     width: 1920,

@@ -23,9 +23,6 @@ vi.mock('@/features/version-history/api', () => ({
   saveVersion: vi.fn(),
 }));
 
-vi.mock('@/lib/constants', () => ({
-  DEV_PROJECT_ID: 'test-project-001',
-}));
 
 import * as projectStoreModule from '@/store/project-store';
 import * as historyStoreModule from '@/store/history-store';
@@ -64,14 +61,14 @@ describe('useAutosave', () => {
   // -------------------------------------------------------------------------
 
   it('starts with saveStatus "idle" and lastSavedAt null', async () => {
-    const { result } = await act(async () => renderHook(() => useAutosave()));
+    const { result } = await act(async () => renderHook(() => useAutosave('test-project-001')));
 
     expect(result.current.saveStatus).toBe('idle');
     expect(result.current.lastSavedAt).toBeNull();
   });
 
   it('starts with hasEverEdited false', async () => {
-    const { result } = await act(async () => renderHook(() => useAutosave()));
+    const { result } = await act(async () => renderHook(() => useAutosave('test-project-001')));
 
     expect(result.current.hasEverEdited).toBe(false);
   });
@@ -81,7 +78,7 @@ describe('useAutosave', () => {
   // -------------------------------------------------------------------------
 
   it('subscribes to the project store on mount', async () => {
-    await act(async () => { renderHook(() => useAutosave()); });
+    await act(async () => { renderHook(() => useAutosave('test-project-001')); });
 
     expect(mockSubscribeToProject).toHaveBeenCalledOnce();
   });
@@ -90,7 +87,7 @@ describe('useAutosave', () => {
     const unsubscribeMock = vi.fn();
     mockSubscribeToProject.mockReturnValue(unsubscribeMock);
 
-    const { unmount } = await act(async () => renderHook(() => useAutosave()));
+    const { unmount } = await act(async () => renderHook(() => useAutosave('test-project-001')));
     unmount();
 
     expect(unsubscribeMock).toHaveBeenCalledOnce();
@@ -107,7 +104,7 @@ describe('useAutosave', () => {
       return () => undefined;
     });
 
-    const { result } = await act(async () => renderHook(() => useAutosave()));
+    const { result } = await act(async () => renderHook(() => useAutosave('test-project-001')));
 
     expect(result.current.hasEverEdited).toBe(false);
 
@@ -123,7 +120,7 @@ describe('useAutosave', () => {
       return () => undefined;
     });
 
-    const { result } = await act(async () => renderHook(() => useAutosave()));
+    const { result } = await act(async () => renderHook(() => useAutosave('test-project-001')));
 
     act(() => { capturedCallback?.(); });
     act(() => { capturedCallback?.(); });

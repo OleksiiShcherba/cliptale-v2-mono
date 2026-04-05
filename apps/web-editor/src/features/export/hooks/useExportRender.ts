@@ -2,7 +2,6 @@ import { useState, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { createRender, getRenderStatus } from '@/features/export/api';
-import { DEV_PROJECT_ID } from '@/lib/constants';
 import type { RenderJob, RenderJobStatus, RenderPresetKey } from '@/features/export/types';
 
 // ---------------------------------------------------------------------------
@@ -49,7 +48,7 @@ export type UseExportRenderResult = {
  * 3. Stops polling when status reaches complete or failed.
  * 4. Exposes the active job data (including downloadUrl when complete).
  */
-export function useExportRender(versionId: number): UseExportRenderResult {
+export function useExportRender(versionId: number, projectId: string): UseExportRenderResult {
   const queryClient = useQueryClient();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -74,7 +73,7 @@ export function useExportRender(versionId: number): UseExportRenderResult {
       setIsSubmitting(true);
       setError(null);
       try {
-        const response = await createRender(DEV_PROJECT_ID, versionId, presetKey);
+        const response = await createRender(projectId, versionId, presetKey);
         setActiveJobId(response.jobId);
         // Seed the query cache with the initial queued state so the UI
         // shows progress immediately without waiting for the first poll.
@@ -85,7 +84,7 @@ export function useExportRender(versionId: number): UseExportRenderResult {
         setIsSubmitting(false);
       }
     },
-    [queryClient, versionId],
+    [queryClient, versionId, projectId],
   );
 
   const reset = useCallback((): void => {

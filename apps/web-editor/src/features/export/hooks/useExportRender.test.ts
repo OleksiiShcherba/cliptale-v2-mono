@@ -17,9 +17,6 @@ vi.mock('@/features/export/api', () => ({
   getRenderStatus: (...args: unknown[]) => mockGetRenderStatus(...args),
 }));
 
-vi.mock('@/lib/constants', () => ({
-  DEV_PROJECT_ID: 'test-project-001',
-}));
 
 import { useExportRender } from './useExportRender';
 import type { RenderJob } from '@/features/export/types';
@@ -84,7 +81,7 @@ describe('useExportRender', () => {
 
   it('returns initial state with null activeJobId and no error', () => {
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useExportRender(42), { wrapper: Wrapper });
+    const { result } = renderHook(() => useExportRender(42, 'test-project-001'), { wrapper: Wrapper });
 
     expect(result.current.activeJobId).toBeNull();
     expect(result.current.isSubmitting).toBe(false);
@@ -99,7 +96,7 @@ describe('useExportRender', () => {
     mockGetRenderStatus.mockResolvedValue(QUEUED_JOB);
 
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useExportRender(42), { wrapper: Wrapper });
+    const { result } = renderHook(() => useExportRender(42, 'test-project-001'), { wrapper: Wrapper });
 
     await act(async () => {
       await result.current.startRender('1080p');
@@ -115,7 +112,7 @@ describe('useExportRender', () => {
     mockGetRenderStatus.mockResolvedValue(QUEUED_JOB);
 
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useExportRender(42), { wrapper: Wrapper });
+    const { result } = renderHook(() => useExportRender(42, 'test-project-001'), { wrapper: Wrapper });
 
     await act(async () => {
       await result.current.startRender('720p');
@@ -132,7 +129,7 @@ describe('useExportRender', () => {
     mockCreateRender.mockReturnValueOnce(pending);
 
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useExportRender(42), { wrapper: Wrapper });
+    const { result } = renderHook(() => useExportRender(42, 'test-project-001'), { wrapper: Wrapper });
 
     act(() => {
       void result.current.startRender('1080p');
@@ -153,7 +150,7 @@ describe('useExportRender', () => {
     mockCreateRender.mockRejectedValueOnce(new Error('Server error'));
 
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useExportRender(42), { wrapper: Wrapper });
+    const { result } = renderHook(() => useExportRender(42, 'test-project-001'), { wrapper: Wrapper });
 
     await act(async () => {
       await result.current.startRender('1080p');
@@ -172,7 +169,7 @@ describe('useExportRender', () => {
     mockGetRenderStatus.mockResolvedValue(QUEUED_JOB);
 
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useExportRender(42), { wrapper: Wrapper });
+    const { result } = renderHook(() => useExportRender(42, 'test-project-001'), { wrapper: Wrapper });
 
     await act(async () => {
       await result.current.startRender('1080p');
@@ -188,7 +185,7 @@ describe('useExportRender', () => {
     mockGetRenderStatus.mockResolvedValue(COMPLETE_JOB);
 
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useExportRender(42), { wrapper: Wrapper });
+    const { result } = renderHook(() => useExportRender(42, 'test-project-001'), { wrapper: Wrapper });
 
     await act(async () => {
       await result.current.startRender('1080p');
@@ -205,7 +202,7 @@ describe('useExportRender', () => {
     mockGetRenderStatus.mockResolvedValue(QUEUED_JOB);
 
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useExportRender(42), { wrapper: Wrapper });
+    const { result } = renderHook(() => useExportRender(42, 'test-project-001'), { wrapper: Wrapper });
 
     await act(async () => {
       await result.current.startRender('1080p');
@@ -226,7 +223,7 @@ describe('useExportRender', () => {
     mockCreateRender.mockRejectedValueOnce(new Error('quota exceeded'));
 
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useExportRender(42), { wrapper: Wrapper });
+    const { result } = renderHook(() => useExportRender(42, 'test-project-001'), { wrapper: Wrapper });
 
     await act(async () => {
       await result.current.startRender('1080p');
@@ -248,7 +245,7 @@ describe('useExportRender', () => {
     mockGetRenderStatus.mockResolvedValue(FAILED_JOB);
 
     const { Wrapper } = createWrapper();
-    const { result } = renderHook(() => useExportRender(42), { wrapper: Wrapper });
+    const { result } = renderHook(() => useExportRender(42, 'test-project-001'), { wrapper: Wrapper });
 
     await act(async () => {
       await result.current.startRender('1080p');

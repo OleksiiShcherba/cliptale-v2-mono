@@ -100,37 +100,37 @@ describe('VersionHistoryPanel', () => {
   // -------------------------------------------------------------------------
 
   it('renders the panel heading', () => {
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     expect(screen.getByText('Version History')).toBeTruthy();
   });
 
   it('renders all version entries', () => {
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     const rows = screen.getAllByTestId('version-entry-row');
     expect(rows).toHaveLength(3);
   });
 
   it('renders version labels with v prefix', () => {
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     expect(screen.getByText('v12')).toBeTruthy();
     expect(screen.getByText('v11')).toBeTruthy();
     expect(screen.getByText('v10')).toBeTruthy();
   });
 
   it('shows relative timestamp for each entry', () => {
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     const timestamps = screen.getAllByText('2m ago');
     expect(timestamps.length).toBeGreaterThan(0);
   });
 
   it('shows durationFrames as diff summary when present', () => {
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     expect(screen.getByText('300 frames')).toBeTruthy();
     expect(screen.getByText('290 frames')).toBeTruthy();
   });
 
   it('does not show diff summary for versions with null durationFrames', () => {
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     const frameCells = screen.queryAllByText(/frames$/);
     expect(frameCells).toHaveLength(2);
   });
@@ -141,19 +141,19 @@ describe('VersionHistoryPanel', () => {
 
   it('shows "Current" badge for the current version', () => {
     mockGetCurrentVersionId.mockReturnValue(12);
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     expect(screen.getByText('Current')).toBeTruthy();
   });
 
   it('does not show "Current" badge when no version matches', () => {
     mockGetCurrentVersionId.mockReturnValue(99);
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     expect(screen.queryByText('Current')).toBeNull();
   });
 
   it('does not render Restore button for the current version', () => {
     mockGetCurrentVersionId.mockReturnValue(12);
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     const restoreButtons = screen.getAllByRole('button', { name: /Restore version/i });
     expect(restoreButtons).toHaveLength(2);
   });
@@ -168,7 +168,7 @@ describe('VersionHistoryPanel', () => {
       isLoading: true,
       versions: [],
     });
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     expect(screen.getByText(/Loading versions/i)).toBeTruthy();
   });
 
@@ -179,7 +179,7 @@ describe('VersionHistoryPanel', () => {
       isLoading: false,
       versions: [],
     });
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     expect(screen.getByText(/Failed to load versions/i)).toBeTruthy();
   });
 
@@ -188,7 +188,7 @@ describe('VersionHistoryPanel', () => {
       ...defaultHistoryState(),
       versions: [],
     });
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     expect(screen.getByText(/No saved versions yet/i)).toBeTruthy();
   });
 
@@ -208,19 +208,19 @@ describe('VersionHistoryPanel', () => {
   // -------------------------------------------------------------------------
 
   it('does not show RestoreModal initially', () => {
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     expect(screen.queryByTestId('restore-modal')).toBeNull();
   });
 
   it('opens RestoreModal when a Restore button is clicked', () => {
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     const restoreButtons = screen.getAllByRole('button', { name: /Restore version/i });
     fireEvent.click(restoreButtons[0]);
     expect(screen.getByTestId('restore-modal')).toBeTruthy();
   });
 
   it('passes the correct versionId to RestoreModal', () => {
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     const restoreButtons = screen.getAllByRole('button', { name: /Restore version 11/i });
     fireEvent.click(restoreButtons[0]);
     const modal = screen.getByTestId('restore-modal');
@@ -228,7 +228,7 @@ describe('VersionHistoryPanel', () => {
   });
 
   it('closes RestoreModal when Cancel is clicked', () => {
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     const restoreButtons = screen.getAllByRole('button', { name: /Restore version/i });
     fireEvent.click(restoreButtons[0]);
     expect(screen.getByTestId('restore-modal')).toBeTruthy();
@@ -238,7 +238,7 @@ describe('VersionHistoryPanel', () => {
 
   it('calls restoreToVersion and closes modal on confirm', async () => {
     mockRestoreToVersion.mockResolvedValue(undefined);
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
 
     const restoreButtons = screen.getAllByRole('button', { name: /Restore version/i });
     fireEvent.click(restoreButtons[0]);
@@ -254,12 +254,12 @@ describe('VersionHistoryPanel', () => {
   // -------------------------------------------------------------------------
 
   it('has aria-label on the aside element', () => {
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     expect(screen.getByRole('complementary', { name: 'Version history' })).toBeTruthy();
   });
 
   it('Restore buttons have descriptive aria-labels', () => {
-    render(<VersionHistoryPanel onClose={vi.fn()} />);
+    render(<VersionHistoryPanel projectId="test-project-001" onClose={vi.fn()} />);
     const label = screen.getByRole('button', { name: /Restore version 11 saved 2m ago/i });
     expect(label).toBeTruthy();
   });

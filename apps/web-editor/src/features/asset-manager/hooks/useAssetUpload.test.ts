@@ -47,7 +47,7 @@ function makeAsset(): Asset {
     projectId: 'project-1',
     filename: 'video.mp4',
     contentType: 'video/mp4',
-    storageUri: 's3://bucket/key',
+    downloadUrl: 'https://example.com/presigned/key',
     status: 'processing',
     durationSeconds: null,
     width: null,

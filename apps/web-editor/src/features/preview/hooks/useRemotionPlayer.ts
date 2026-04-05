@@ -7,6 +7,7 @@ import type { ProjectDoc } from '@ai-video-editor/project-schema';
 import { getSnapshot as getProjectSnapshot, subscribe as subscribeProject } from '@/store/project-store.js';
 import { getSnapshot as getEphemeralSnapshot, subscribe as subscribeEphemeral } from '@/store/ephemeral-store.js';
 import { getAsset } from '@/features/asset-manager/api.js';
+import { config } from '@/lib/config.js';
 
 type AssetUrls = Record<string, string>;
 
@@ -51,13 +52,12 @@ export function useRemotionPlayer(): UseRemotionPlayerResult {
 
   // Build the assetId → URL map from successfully-loaded assets.
   // Assets still loading are omitted — the layer will receive an empty src.
+  // The API stream endpoint is used so the browser never receives a raw s3:// URI.
   const assetUrls: AssetUrls = {};
   assetResults.forEach((result, index) => {
     const assetId = assetIds[index];
     if (result.data && assetId) {
-      // Use storage_uri as the URL. In dev the bucket is public; for prod,
-      // a presigned download URL endpoint will be added in a later epic.
-      assetUrls[assetId] = result.data.storageUri;
+      assetUrls[assetId] = `${config.apiBaseUrl}/assets/${assetId}/stream`;
     }
   });
 

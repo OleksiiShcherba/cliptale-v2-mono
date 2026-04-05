@@ -21,9 +21,6 @@ vi.mock('@/features/version-history/api', () => ({
   saveVersion: vi.fn(),
 }));
 
-vi.mock('@/lib/constants', () => ({
-  DEV_PROJECT_ID: 'test-project-001',
-}));
 
 import * as projectStoreModule from '@/store/project-store';
 import * as historyStoreModule from '@/store/history-store';
@@ -70,7 +67,7 @@ describe('useAutosave — conflict & error states', () => {
       return () => undefined;
     });
 
-    const { result } = await act(async () => renderHook(() => useAutosave()));
+    const { result } = await act(async () => renderHook(() => useAutosave('test-project-001')));
 
     act(() => { capturedCallback?.(); });
 
@@ -91,7 +88,7 @@ describe('useAutosave — conflict & error states', () => {
       return () => undefined;
     });
 
-    const { result } = await act(async () => renderHook(() => useAutosave()));
+    const { result } = await act(async () => renderHook(() => useAutosave('test-project-001')));
 
     // Trigger conflict
     act(() => { capturedCallback?.(); });
@@ -116,7 +113,7 @@ describe('useAutosave — conflict & error states', () => {
       return () => undefined;
     });
 
-    const { result } = await act(async () => renderHook(() => useAutosave()));
+    const { result } = await act(async () => renderHook(() => useAutosave('test-project-001')));
 
     act(() => { capturedCallback?.(); });
 
@@ -142,7 +139,7 @@ describe('useAutosave — beforeunload', () => {
   it('registers a beforeunload listener on mount', async () => {
     const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
 
-    await act(async () => { renderHook(() => useAutosave()); });
+    await act(async () => { renderHook(() => useAutosave('test-project-001')); });
 
     expect(addEventListenerSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function));
     addEventListenerSpy.mockRestore();
@@ -151,7 +148,7 @@ describe('useAutosave — beforeunload', () => {
   it('removes the beforeunload listener on unmount', async () => {
     const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener');
 
-    const { unmount } = await act(async () => renderHook(() => useAutosave()));
+    const { unmount } = await act(async () => renderHook(() => useAutosave('test-project-001')));
     unmount();
 
     expect(removeEventListenerSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function));
@@ -161,7 +158,7 @@ describe('useAutosave — beforeunload', () => {
   it('calls saveVersion when beforeunload fires and there are pending patches', async () => {
     mockSaveVersion.mockResolvedValue({ versionId: 1, createdAt: new Date().toISOString() });
 
-    await act(async () => { renderHook(() => useAutosave()); });
+    await act(async () => { renderHook(() => useAutosave('test-project-001')); });
 
     await act(async () => {
       window.dispatchEvent(new Event('beforeunload'));
@@ -174,7 +171,7 @@ describe('useAutosave — beforeunload', () => {
   it('does NOT call saveVersion on beforeunload when there are no pending patches', async () => {
     mockHasPendingPatches.mockReturnValue(false);
 
-    await act(async () => { renderHook(() => useAutosave()); });
+    await act(async () => { renderHook(() => useAutosave('test-project-001')); });
 
     await act(async () => {
       window.dispatchEvent(new Event('beforeunload'));

@@ -24,6 +24,7 @@ const ERROR = '#EF4444';
 // ---------------------------------------------------------------------------
 
 export interface VersionHistoryPanelProps {
+  projectId: string;
   onClose: () => void;
 }
 
@@ -108,8 +109,8 @@ function VersionEntryRow({
  * - On confirmed restore: calls `restoreToVersion`, updates project store,
  *   invalidates the version list query.
  */
-export function VersionHistoryPanel({ onClose }: VersionHistoryPanelProps): React.ReactElement {
-  const { versions, isLoading, isError, restoreToVersion, isRestoring } = useVersionHistory();
+export function VersionHistoryPanel({ projectId, onClose }: VersionHistoryPanelProps): React.ReactElement {
+  const { versions, isLoading, isError, restoreToVersion, isRestoring } = useVersionHistory(projectId);
   const [pendingVersion, setPendingVersion] = React.useState<VersionSummary | null>(null);
   const currentVersionId = getCurrentVersionId();
 

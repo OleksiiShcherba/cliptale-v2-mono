@@ -10,7 +10,8 @@ export type Asset = {
   projectId: string;
   filename: string;
   contentType: string;
-  storageUri: string;
+  /** Presigned HTTPS GET URL — never a raw s3:// URI. */
+  downloadUrl: string;
   status: AssetStatus;
   durationSeconds: number | null;
   width: number | null;

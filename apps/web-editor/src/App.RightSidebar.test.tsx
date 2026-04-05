@@ -69,6 +69,10 @@ vi.mock('@/features/timeline/components/TimelinePanel', () => ({
   TimelinePanel: () => React.createElement('div', { 'data-testid': 'timeline-panel' }),
 }));
 
+vi.mock('@/features/project/hooks/useProjectInit', () => ({
+  useProjectInit: vi.fn().mockReturnValue({ status: 'ready', projectId: 'test-project-001' }),
+}));
+
 import * as ephemeralStoreModule from '@/store/ephemeral-store';
 import * as projectStoreModule from '@/store/project-store';
 import { App } from './App.js';

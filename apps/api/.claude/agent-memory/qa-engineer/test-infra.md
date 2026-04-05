@@ -8,7 +8,7 @@ The monorepo root installs the `vitest` binary at `/home/oleksii/Work/ClipTale/c
 
 **Package test entry points:**
 - `apps/web-editor` — `vite.config.ts` contains `test:` block (jsdom environment). Run: `cd apps/web-editor && <root>/node_modules/.bin/vitest run`. 131 tests, 11 files as of 2026-04-02 (confirmed passing).
-- `apps/api` — has its own `vitest.setup.ts`. Unit-only run: `<root>/node_modules/.bin/vitest run src/middleware/ src/services/`. DB integration tests under `src/__tests__/integration/` require a live MySQL instance (ER_ACCESS_DENIED_ERROR in CI) — exclude them unless DB creds are available. 43 unit tests as of 2026-04-02.
+- `apps/api` — has its own `vitest.setup.ts`. Unit-only run: `<root>/node_modules/.bin/vitest run src/middleware/ src/services/`. DB integration tests under `src/__tests__/integration/` require a live MySQL instance (ER_ACCESS_DENIED_ERROR in CI) — exclude them unless DB creds are available. 274 tests (250 unit + 24 integration stream) as of 2026-04-05.
 - `packages/remotion-comps` — has `vitest.config.ts`. Run: `cd packages/remotion-comps && <root>/node_modules/.bin/vitest run`. 22 tests as of 2026-04-02.
 
 **Known non-blocking warnings:**

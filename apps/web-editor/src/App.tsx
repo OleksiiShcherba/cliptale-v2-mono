@@ -14,12 +14,9 @@ import { TimelinePanel } from '@/features/timeline/components/TimelinePanel';
 import { useRemotionPlayer } from '@/features/preview/hooks/useRemotionPlayer';
 import { useEphemeralStore } from '@/store/ephemeral-store';
 import { useProjectStore, getSnapshot as getProjectSnapshot, setProject, getCurrentVersionId } from '@/store/project-store';
-import { DEV_PROJECT_ID } from '@/lib/constants';
+import { useProjectInit } from '@/features/project/hooks/useProjectInit';
 
 import { TopBar } from './TopBar';
-
-// Re-export for test compatibility and backward compat with existing consumers.
-export { DEV_PROJECT_ID };
 
 // Design-guide tokens
 const SURFACE = '#0D0D14';
@@ -109,6 +106,7 @@ function RightSidebar(): React.ReactElement | null {
  * The timeline panel is rendered below the editor row.
  */
 export function App(): React.ReactElement {
+  const projectInit = useProjectInit();
   const [isHistoryOpen, setIsHistoryOpen] = React.useState(false);
   const [isExportOpen, setIsExportOpen] = React.useState(false);
 
@@ -154,11 +152,34 @@ export function App(): React.ReactElement {
 
   const currentVersionId = getCurrentVersionId();
 
+  if (projectInit.status === 'loading') {
+    return (
+      <div style={{ ...styles.shell, alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ color: TEXT_PRIMARY, fontFamily: 'Inter, sans-serif', fontSize: 14 }}>
+          Loading project…
+        </span>
+      </div>
+    );
+  }
+
+  if (projectInit.status === 'error') {
+    return (
+      <div style={{ ...styles.shell, alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ color: '#EF4444', fontFamily: 'Inter, sans-serif', fontSize: 14 }}>
+          {projectInit.error}
+        </span>
+      </div>
+    );
+  }
+
+  const { projectId } = projectInit;
+
   return (
     <QueryClientProvider client={queryClient}>
       <div style={styles.shell}>
         {/* Top bar — spans full width above the main columns */}
         <TopBar
+          projectId={projectId}
           isHistoryOpen={isHistoryOpen}
           onToggleHistory={handleToggleHistory}
           isExportOpen={isExportOpen}
@@ -170,7 +191,7 @@ export function App(): React.ReactElement {
         <div style={styles.editorRow}>
           {/* Left column — asset browser (fixed width) */}
           <aside style={styles.sidebar} aria-label="Asset browser">
-            <AssetBrowserPanel projectId={DEV_PROJECT_ID} />
+            <AssetBrowserPanel projectId={projectId} />
           </aside>
 
           {/* Vertical divider */}
@@ -183,7 +204,7 @@ export function App(): React.ReactElement {
 
           {/* Right column — conditional inspector or version history panel */}
           {isHistoryOpen ? (
-            <VersionHistoryPanel onClose={handleCloseHistory} />
+            <VersionHistoryPanel projectId={projectId} onClose={handleCloseHistory} />
           ) : (
             <RightSidebar />
           )}
@@ -199,7 +220,7 @@ export function App(): React.ReactElement {
 
       {/* Export modal — rendered as a portal-like overlay above the editor */}
       {isExportOpen && currentVersionId !== null && (
-        <ExportModal versionId={currentVersionId} onClose={handleCloseExport} />
+        <ExportModal versionId={currentVersionId} projectId={projectId} onClose={handleCloseExport} />
       )}
     </QueryClientProvider>
   );

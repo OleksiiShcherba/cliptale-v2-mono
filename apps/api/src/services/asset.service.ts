@@ -166,7 +166,7 @@ export async function deleteAsset(assetId: string, userId: string): Promise<void
 }
 
 /** Parses bucket name and object key from a `s3://bucket/key` URI. */
-function parseStorageUri(storageUri: string): { bucket: string; key: string } {
+export function parseStorageUri(storageUri: string): { bucket: string; key: string } {
   const withoutScheme = storageUri.replace(/^s3:\/\//, '');
   const slashIndex = withoutScheme.indexOf('/');
   return {
@@ -220,3 +220,4 @@ export async function finalizeAsset(assetId: string, s3: S3Client): Promise<Asse
 
   return { ...asset, status: 'processing' };
 }
+

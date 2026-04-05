@@ -21,9 +21,6 @@ vi.mock('@/features/version-history/api', () => ({
   saveVersion: vi.fn(),
 }));
 
-vi.mock('@/lib/constants', () => ({
-  DEV_PROJECT_ID: 'test-project-001',
-}));
 
 import * as projectStoreModule from '@/store/project-store';
 import * as historyStoreModule from '@/store/history-store';
@@ -68,7 +65,7 @@ describe('useAutosave — debounce timing', () => {
       return () => undefined;
     });
 
-    await act(async () => { renderHook(() => useAutosave()); });
+    await act(async () => { renderHook(() => useAutosave('test-project-001')); });
 
     act(() => { capturedCallback?.(); });
 
@@ -88,7 +85,7 @@ describe('useAutosave — debounce timing', () => {
       return () => undefined;
     });
 
-    await act(async () => { renderHook(() => useAutosave()); });
+    await act(async () => { renderHook(() => useAutosave('test-project-001')); });
 
     act(() => { capturedCallback?.(); });
 
@@ -115,7 +112,7 @@ describe('useAutosave — debounce timing', () => {
       return () => undefined;
     });
 
-    await act(async () => { renderHook(() => useAutosave()); });
+    await act(async () => { renderHook(() => useAutosave('test-project-001')); });
 
     act(() => { capturedCallback?.(); });
     await act(async () => { await vi.advanceTimersByTimeAsync(500); });

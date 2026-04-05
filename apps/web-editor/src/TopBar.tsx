@@ -18,6 +18,7 @@ const SURFACE_DISABLED = '#252535';
 // ---------------------------------------------------------------------------
 
 export interface TopBarProps {
+  projectId: string;
   isHistoryOpen: boolean;
   onToggleHistory: () => void;
   isExportOpen: boolean;
@@ -34,13 +35,14 @@ export interface TopBarProps {
  * Editor top bar: project title, save status badge, and version history toggle.
  */
 export function TopBar({
+  projectId,
   isHistoryOpen,
   onToggleHistory,
   isExportOpen,
   onToggleExport,
   canExport,
 }: TopBarProps): React.ReactElement {
-  const { saveStatus, lastSavedAt, hasEverEdited } = useAutosave();
+  const { saveStatus, lastSavedAt, hasEverEdited } = useAutosave(projectId);
 
   const exportButtonStyle = !canExport
     ? styles.exportButtonDisabled

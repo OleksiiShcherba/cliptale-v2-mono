@@ -73,17 +73,25 @@ vi.mock('@/features/timeline/components/TimelinePanel', () => ({
   TimelinePanel: () => React.createElement('div', { 'data-testid': 'timeline-panel' }),
 }));
 
+vi.mock('@/features/project/hooks/useProjectInit', () => ({
+  useProjectInit: vi.fn(),
+}));
+
 import * as ephemeralStoreModule from '@/store/ephemeral-store';
 import * as projectStoreModule from '@/store/project-store';
 import * as autosaveModule from '@/features/version-history/hooks/useAutosave';
 import * as useRemotionPlayerModule from '@/features/preview/hooks/useRemotionPlayer';
-import { App, PreviewSection, DEV_PROJECT_ID } from './App.js';
+import * as useProjectInitModule from '@/features/project/hooks/useProjectInit';
+import { App, PreviewSection } from './App.js';
 import { makeProjectDoc } from './App.fixtures';
+
+const TEST_PROJECT_ID = 'test-project-app-001';
 
 const mockUseEphemeralStore = vi.mocked(ephemeralStoreModule.useEphemeralStore);
 const mockUseProjectStore = vi.mocked(projectStoreModule.useProjectStore);
 const mockUseAutosave = vi.mocked(autosaveModule.useAutosave);
 const mockUseRemotionPlayer = vi.mocked(useRemotionPlayerModule.useRemotionPlayer);
+const mockUseProjectInit = vi.mocked(useProjectInitModule.useProjectInit);
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -92,6 +100,7 @@ const mockUseRemotionPlayer = vi.mocked(useRemotionPlayerModule.useRemotionPlaye
 describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseProjectInit.mockReturnValue({ status: 'ready', projectId: TEST_PROJECT_ID });
     mockUseEphemeralStore.mockReturnValue({
       selectedClipIds: [],
       playheadFrame: 0,
@@ -117,10 +126,22 @@ describe('App', () => {
       expect(sidebar.querySelector('[data-testid="asset-browser-panel"]')).toBeTruthy();
     });
 
-    it('passes DEV_PROJECT_ID to AssetBrowserPanel', () => {
+    it('passes the projectId from useProjectInit to AssetBrowserPanel', () => {
       render(<App />);
       const panel = screen.getByTestId('asset-browser-panel');
-      expect(panel.getAttribute('data-project-id')).toBe(DEV_PROJECT_ID);
+      expect(panel.getAttribute('data-project-id')).toBe(TEST_PROJECT_ID);
+    });
+
+    it('renders a loading state when useProjectInit returns status loading', () => {
+      mockUseProjectInit.mockReturnValue({ status: 'loading', projectId: null });
+      render(<App />);
+      expect(screen.getByText('Loading project…')).toBeTruthy();
+    });
+
+    it('renders an error state when useProjectInit returns status error', () => {
+      mockUseProjectInit.mockReturnValue({ status: 'error', projectId: null, error: 'Could not create project' });
+      render(<App />);
+      expect(screen.getByText('Could not create project')).toBeTruthy();
     });
 
     it('renders PreviewPanel in the main content area', () => {

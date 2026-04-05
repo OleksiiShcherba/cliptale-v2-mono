@@ -39,4 +39,9 @@ router.post(
   assetsController.finalizeAsset,
 );
 
+// GET /assets/:id/stream
+// Proxies the S3 object to the browser so the raw s3:// URI is never exposed.
+// Forwards Range headers for video byte-range seeking.
+router.get('/assets/:id/stream', authMiddleware, assetsController.streamAsset);
+
 export { router as assetsRouter };

@@ -8,7 +8,6 @@ import {
 } from '@/store/project-store';
 import { drainPatches, hasPendingPatches } from '@/store/history-store';
 import { saveVersion } from '@/features/version-history/api';
-import { DEV_PROJECT_ID } from '@/lib/constants';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,7 +42,7 @@ const DEBOUNCE_MS = 2000;
  * - Adds a `beforeunload` listener to attempt an immediate flush on tab close.
  * - Exposes `saveStatus` and `lastSavedAt` for the header indicator.
  */
-export function useAutosave(): UseAutosaveResult {
+export function useAutosave(projectId: string): UseAutosaveResult {
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [hasEverEdited, setHasEverEdited] = useState(false);
@@ -74,7 +73,7 @@ export function useAutosave(): UseAutosaveResult {
     const parentVersionId = getCurrentVersionId();
 
     try {
-      const result = await saveVersion(DEV_PROJECT_ID, {
+      const result = await saveVersion(projectId, {
         docJson: doc,
         docSchemaVersion: doc.schemaVersion,
         patches,
@@ -96,7 +95,7 @@ export function useAutosave(): UseAutosaveResult {
     } finally {
       isSavingRef.current = false;
     }
-  }, []);
+  }, [projectId]);
 
   // ---------------------------------------------------------------------------
   // Project-store subscription + debounce
