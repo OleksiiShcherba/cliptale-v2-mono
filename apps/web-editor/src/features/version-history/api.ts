@@ -7,7 +7,8 @@ import type { Patch } from 'immer';
 // ---------------------------------------------------------------------------
 
 export type SaveVersionRequest = {
-  doc_json: ProjectDoc;
+  docJson: ProjectDoc;
+  docSchemaVersion: number;
   patches: Patch[];
   inversePatches: Patch[];
   parentVersionId: number | null;

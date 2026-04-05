@@ -422,6 +422,95 @@ describe('useClipTrim', () => {
     });
   });
 
+  // ---------------------------------------------------------------------------
+  // Math.round() — float frame values must be integers when patchClip is called
+  // ---------------------------------------------------------------------------
+
+  describe('Math.round() — patchClip payload must contain integer frame values', () => {
+    it('sends integer durationFrames to patchClip even when pxPerFrame produces a fractional delta', async () => {
+      // pxPerFrame=3 means 1px = 0.333... frames; moving 1px produces a float delta.
+      vi.spyOn(ephemeralStore, 'getSnapshot').mockReturnValue({
+        playheadFrame: 0,
+        selectedClipIds: [],
+        zoom: 1,
+        pxPerFrame: 3,
+        scrollOffsetX: 0,
+      });
+
+      const clip = makeClip('clip-001', 0, 30); // clipWidth = 30*3 = 90px
+      vi.spyOn(projectStore, 'getSnapshot').mockReturnValue(makeProject([clip]));
+      vi.spyOn(projectStore, 'setProject');
+      const mockPatch = vi.spyOn(timelineApi, 'patchClip').mockResolvedValue(undefined);
+      const { result } = renderHook(() => useClipTrim('project-001'));
+
+      act(() => {
+        // Start at right edge of 90px clip; clientX=89, offsetX=88 (near right edge)
+        result.current.onTrimPointerDown(
+          makeReactPointerEvent(89, 88),
+          'clip-001',
+          90,
+          false,
+        );
+      });
+
+      await act(async () => {
+        // Move right by 1px → delta = 1/3 frames — fractional
+        dispatchPointerEvent('pointermove', 90);
+        dispatchPointerEvent('pointerup', 90);
+        await Promise.resolve();
+      });
+
+      expect(mockPatch).toHaveBeenCalled();
+      const payload = mockPatch.mock.calls[0]![2];
+      // durationFrames must be an integer (Math.round applied)
+      if (payload.durationFrames !== undefined) {
+        expect(Number.isInteger(payload.durationFrames)).toBe(true);
+      }
+    });
+
+    it('sends integer startFrame to patchClip on left-edge trim with fractional pxPerFrame', async () => {
+      vi.spyOn(ephemeralStore, 'getSnapshot').mockReturnValue({
+        playheadFrame: 0,
+        selectedClipIds: [],
+        zoom: 1,
+        pxPerFrame: 3,
+        scrollOffsetX: 0,
+      });
+
+      const clip = makeClip('clip-001', 10, 30);
+      vi.spyOn(projectStore, 'getSnapshot').mockReturnValue(makeProject([clip]));
+      vi.spyOn(projectStore, 'setProject');
+      const mockPatch = vi.spyOn(timelineApi, 'patchClip').mockResolvedValue(undefined);
+      const { result } = renderHook(() => useClipTrim('project-001'));
+
+      act(() => {
+        // Start at left edge; clientX=31, offsetX=1 (near left edge of 90px clip)
+        result.current.onTrimPointerDown(
+          makeReactPointerEvent(31, 1),
+          'clip-001',
+          90,
+          false,
+        );
+      });
+
+      await act(async () => {
+        // Move right by 1px → fractional frame shift
+        dispatchPointerEvent('pointermove', 32);
+        dispatchPointerEvent('pointerup', 32);
+        await Promise.resolve();
+      });
+
+      expect(mockPatch).toHaveBeenCalled();
+      const payload = mockPatch.mock.calls[0]![2];
+      if (payload.startFrame !== undefined) {
+        expect(Number.isInteger(payload.startFrame)).toBe(true);
+      }
+      if (payload.durationFrames !== undefined) {
+        expect(Number.isInteger(payload.durationFrames)).toBe(true);
+      }
+    });
+  });
+
   describe('Escape cancellation', () => {
     it('cancels trim on Escape key without calling setProject', () => {
       const clip = makeClip('clip-001', 10, 60);

@@ -695,6 +695,276 @@ Week 7–8:   [Epic 5 FE] Export modal + progress UI
 Week 9+:    Epic 6 Phase 2 (advanced timeline)
             Epic: Team workspaces
             Epic: Text-to-video generation
+
+Week 10+:   [Epic 7] Edit page integration consolidation
 ```
+
+---
+---
+
+### EPIC 7 — Edit Page Integration: Consolidate Features into One Working Flow
+
+> All core features exist individually (asset upload, timeline drag/trim, captions) but do not connect to each other. This epic wires them into a single, usable Edit page. The primary outcome: a user can upload media, place it on the timeline, navigate the timeline comfortably, and optionally add captions — all without leaving the page or hitting dead ends.
+
+**Investigation Summary**
+
+| Area | Status | Notes |
+|---|---|---|
+| Asset upload (UploadDropzone + useAssetUpload) | ✅ Works | |
+| Asset browser with filter tabs + search | ✅ Works | |
+| Clip drag on timeline (useClipDrag) | ✅ Works | |
+| Clip trim on timeline (useClipTrim) | ✅ Works | |
+| Right-click context menu: delete, duplicate, split | ✅ Works | Wired in ClipLane |
+| Timeline ruler click-to-seek | ✅ Works | Already implemented |
+| Timeline zoom (+ / − buttons) | ✅ Works | |
+| Caption editor panel for selected text-overlay clip | ✅ Works | |
+| useAddCaptionsToTimeline hook | ✅ Works | But unreachable from UI |
+| **Add asset → timeline** | ❌ Missing | No "Add to Timeline" button or drag; AssetDetailPanel has disabled stubs |
+| **Image clip type** | ❌ Missing | Schema has `video`, `audio`, `text-overlay` — no `image` type; images can't go on timeline |
+| **Caption transcription flow** | ❌ Stranded | `TranscribeButton` exists but is not mounted anywhere in the running app |
+| **Timeline horizontal scrollbar** | ❌ Missing | Wheel scroll works, no visible scrollbar |
+| **Delete key shortcut for clips** | ❌ Missing | Only reachable via right-click context menu |
+| **Asset delete (AssetDetailPanel)** | ❌ Disabled | Button exists as a stub |
+| **Playhead auto-scroll during playback** | ❌ Missing | Timeline doesn't follow playhead |
+
+**Pages / Surfaces:**
+- Edit Page (`App.tsx` shell) — the single editor surface; all features rendered here but disconnected
+- Asset Browser Panel (left sidebar) — upload, browse, filter; no way to push assets to timeline
+- Timeline Panel (bottom) — tracks, clips, drag/trim; no way to receive assets, no scrollbar
+- Right Sidebar / Inspector — shows `CaptionEditorPanel` on clip select; transcription flow stranded here
+
+---
+
+**[DB/Schema] Add `image` clip type to project-schema**
+
+**Description:** `packages/project-schema/src/schemas/clip.schema.ts` only defines `video`, `audio`, and `text-overlay`. Images can be uploaded as assets (`image/*`) but cannot be placed on the timeline — there is no `ImageClip` type. This is a zero-dependency schema change that unblocks all downstream image-related FE work.
+
+**Acceptance Criteria:**
+- [ ] `imageClipSchema` added to `packages/project-schema/src/schemas/clip.schema.ts` with fields: `id`, `type: 'image'`, `assetId`, `trackId`, `startFrame`, `durationFrames`, `opacity` (0–1, default 1)
+- [ ] `imageClipSchema` added to the `clipSchema` discriminated union
+- [ ] `ImageClip` TypeScript type exported from `packages/project-schema/src/types/index.ts`
+- [ ] Existing Zod tests pass; a new test covers the `image` variant
+- [ ] `CLIP_COLORS` in `ClipBlock.tsx` updated to include `image: '#0EA5E9'` (no visual regression on existing types)
+
+**Dependencies:** None
+**Effort:** XS
+
+---
+
+**[FE] Add `image` clip rendering to `packages/remotion-comps` (ImageLayer)**
+
+**Description:** `packages/remotion-comps/src/layers/ImageLayer.tsx` already exists per the architecture. `VideoComposition.tsx` must be updated to render `ImageClip` instances using it so the browser preview and SSR render both work for image clips.
+
+**Acceptance Criteria:**
+- [ ] `VideoComposition.tsx` maps `ImageClip` entries to `<ImageLayer>` using the asset `src` URL
+- [ ] `ImageLayer.tsx` renders a Remotion `<Img>` primitive with `opacity` applied
+- [ ] Image clip appears in the browser `<Player>` preview at correct start/duration
+- [ ] No existing composition snapshot tests break
+
+**Dependencies:** Add `image` clip type to project-schema
+**Effort:** S
+
+---
+
+**[BE] Implement `DELETE /assets/:id` endpoint**
+
+**Description:** `AssetDetailPanel` has a disabled "Delete Asset" button. The API has no route to delete an asset. This endpoint should soft-delete the asset record (set `deleted_at`) rather than hard-delete so object storage cleanup can be handled separately.
+
+**Acceptance Criteria:**
+- [ ] `DELETE /assets/:id` route registered in `apps/api/src/routes/assets.routes.ts`
+- [ ] Controller calls `asset.service.ts`; service calls `asset.repository.ts` — no business logic in controller
+- [ ] Returns `204 No Content` on success
+- [ ] Returns `404` if asset not found for this user
+- [ ] Returns `409` if asset is referenced by any existing clip in a project (guard against orphaning clips)
+- [ ] Validated with auth middleware — only asset owner can delete
+- [ ] Integration test covers happy path, 404, and 409
+
+**Dependencies:** None
+**Effort:** S
+
+---
+
+**[FE] Add "Add to Timeline" action to AssetDetailPanel**
+
+**Description:** The biggest integration gap. Assets sit in the browser but there is no way to create a clip from them. Add a prominent "Add to Timeline" button to `AssetDetailPanel`. Logic lives in a new `useAddAssetToTimeline` hook in `features/asset-manager/hooks/`. The hook finds or creates an appropriate track, creates a clip of the matching type (`VideoClip`, `AudioClip`, `ImageClip`), and writes to the project store via `setProject`.
+
+⚠️ _Requires creating a track + clip atomically in the project store; must handle the case where no compatible track exists._
+
+**Acceptance Criteria:**
+- [ ] "Add to Timeline" button visible in `AssetDetailPanel` for assets with `status === 'ready'`
+- [ ] Button is disabled and shows tooltip "Processing…" when `status !== 'ready'`
+- [ ] Clicking creates the correct clip type: `video/*` → `VideoClip`, `audio/*` → `AudioClip`, `image/*` → `ImageClip`
+- [ ] If no track of the correct type exists, a new track is created with a default name (e.g. "Video 1")
+- [ ] `durationFrames` is derived from `asset.durationSeconds * fps`; falls back to `project.fps * 5` if `durationSeconds` is null (images)
+- [ ] Clip is placed immediately after the last clip on the chosen track (no overlap)
+- [ ] `useAddAssetToTimeline` hook lives in `features/asset-manager/hooks/useAddAssetToTimeline.ts` with unit tests
+- [ ] `AssetDetailPanel` does not contain business logic — it only calls the hook
+
+**Dependencies:** Add `image` clip type to project-schema (for images)
+**Effort:** M
+
+---
+
+**[FE] Enable drag-and-drop from AssetCard to TrackList**
+
+**Description:** Users expect to drag an asset card from the left panel and drop it onto a track lane to create a clip at the drop position — the natural video editor workflow. `AssetCard` gets `draggable={true}` and `onDragStart` storing `assetId` in `dataTransfer`. `ClipLane` gets `onDragOver` + `onDrop` handlers that calculate `startFrame` from the drop X position using `pxPerFrame` and `scrollOffsetX`. Reuses `useAddAssetToTimeline` for clip creation logic.
+
+⚠️ _Cross-component drag uses HTML5 DnD; drop target must identify the track from context and account for scrollOffsetX in the frame calculation._
+
+**Acceptance Criteria:**
+- [ ] Dragging an `AssetCard` shows a drag ghost (browser default is acceptable)
+- [ ] Hovering over a `ClipLane` highlights it with a drop affordance (border or background tint)
+- [ ] Dropping creates the correct clip type at the pointer's frame position on the target track
+- [ ] If dropped on the wrong track type (e.g. audio asset on video track), drop is rejected and user sees feedback
+- [ ] Clip is not created if `asset.status !== 'ready'`
+- [ ] `scrollOffsetX` is correctly accounted for in the frame calculation
+- [ ] Existing drag (move) interactions via `useClipDrag` are unaffected
+
+**Dependencies:** Add "Add to Timeline" action (`useAddAssetToTimeline` hook reused), Add `image` clip type to project-schema
+**Effort:** M
+
+---
+
+**[FE] Surface caption transcription flow in AssetDetailPanel**
+
+**Description:** `TranscribeButton` and `useAddCaptionsToTimeline` exist and work but are mounted nowhere in the running app — the caption workflow is completely inaccessible. Mount `TranscribeButton` inside `AssetDetailPanel` (visible only for `video/*` and `audio/*` assets). On transcription completion, show an "Add Captions to Timeline" button that calls `useAddCaptionsToTimeline`. No changes to existing hooks required — this is wiring only.
+
+**Acceptance Criteria:**
+- [ ] `TranscribeButton` rendered in `AssetDetailPanel` for video/audio assets only
+- [ ] Button disabled when `asset.status !== 'ready'`
+- [ ] `useTranscriptionStatus` polling starts after transcribe is triggered; UI reflects idle → processing → done/error states
+- [ ] Once transcription is `done`, an "Add Captions to Timeline" button appears
+- [ ] Clicking it calls `useAddCaptionsToTimeline` and the caption track appears in the timeline
+- [ ] If a "Captions" track already exists (idempotency guard in hook), button shows "Captions already added" and is disabled
+- [ ] No changes to `TranscribeButton`, `useTranscriptionStatus`, or `useAddCaptionsToTimeline`
+
+**Dependencies:** None (all backend logic already exists)
+**Effort:** S
+
+---
+
+**[FE] Add horizontal scrollbar to timeline panel**
+
+**Description:** The only timeline scroll mechanism is the mouse wheel — there is no visible scrollbar for click-drag navigation. This is the "comfortable and natural way to scroll" the user described. Add a custom horizontal scrollbar strip below the clip lanes in `TimelinePanel`. The thumb width represents the visible viewport relative to total content width (`durationFrames * pxPerFrame`). Scrolling updates `scrollOffsetX` in the ephemeral store.
+
+**Acceptance Criteria:**
+- [ ] A horizontal scrollbar is visible at the bottom of the timeline panel
+- [ ] Scrollbar thumb width correctly reflects the ratio of visible width to total content width
+- [ ] Dragging the thumb updates `scrollOffsetX` in real time (no jank)
+- [ ] Scrollbar position updates when `scrollOffsetX` changes from wheel scroll
+- [ ] Scrollbar is hidden/inactive when all content fits in the visible area
+- [ ] Works at all zoom levels (1–100 px/frame)
+- [ ] Scrollbar rendered as an additional strip — does not reduce clip lane height
+
+**Dependencies:** None
+**Effort:** S
+
+---
+
+**[FE] Add `Delete` key shortcut to remove selected clips**
+
+**Description:** Clips can only be deleted via the right-click context menu. The standard `Delete` / `Backspace` keyboard shortcut is missing, making the timeline feel unpolished. Add a `keydown` listener scoped to when the timeline panel is focused. Deletes all `selectedClipIds` from the project store, skipping locked clips. Must not fire when focus is inside an `<input>`, `<textarea>`, or `<select>`.
+
+**Acceptance Criteria:**
+- [ ] Pressing `Delete` or `Backspace` when clips are selected removes them from the project store
+- [ ] Deleted clips are removed from `selectedClipIds` in the ephemeral store
+- [ ] Locked clips in the selection are skipped (not deleted)
+- [ ] No deletion when focus is inside an `<input>`, `<textarea>`, or `<select>`
+- [ ] Listener is added/removed correctly (no stale closures or memory leaks)
+- [ ] Unit test covers the happy path and the input-focused guard
+
+**Dependencies:** None
+**Effort:** XS
+
+---
+
+**[FE] Enable "Delete Asset" button in AssetDetailPanel**
+
+**Description:** The "Delete Asset" button is permanently `disabled` in `AssetDetailPanel`. Wire it to `DELETE /assets/:id` using a React Query mutation. Show a confirmation dialog before proceeding. On success, invalidate the asset list cache and close the detail panel. On `409` (asset in use by a clip), show an actionable error message.
+
+**Acceptance Criteria:**
+- [ ] Clicking "Delete Asset" shows a confirmation dialog before proceeding
+- [ ] On confirm, calls `DELETE /assets/:id` and shows a loading spinner on the button
+- [ ] On success, invalidates `['assets', projectId]` query and sets `selectedAssetId` to `null`
+- [ ] On `409` (asset in use), shows: "This asset is used by a clip on the timeline. Remove the clip first."
+- [ ] On generic error, shows an error toast
+- [ ] Button never enabled when `asset.status === 'processing'`
+
+**Dependencies:** Implement `DELETE /assets/:id` BE ticket
+**Effort:** S
+
+---
+
+**[FE] Auto-scroll timeline to follow playhead during playback**
+
+**Description:** When the project plays, the playhead moves across the timeline but `scrollOffsetX` stays fixed. After a few seconds the playhead exits the visible area and the user loses context. Add logic in `TimelinePanel` to update `scrollOffsetX` to keep the playhead visible. Only activate when the playhead exits the visible window; respect manual scrolling by disabling auto-follow until playback restarts.
+
+**Acceptance Criteria:**
+- [ ] During playback, `scrollOffsetX` updates to keep the playhead within the visible clip lane
+- [ ] Auto-follow only triggers when the playhead exits the visible window — not on every frame
+- [ ] Manual scrolling during playback disables auto-follow until play is restarted
+- [ ] Auto-follow is inactive when paused (ruler scrubbing does not trigger it)
+- [ ] Scroll updates batched with `requestAnimationFrame` — no jank
+
+**Dependencies:** None
+**Effort:** S
+
+---
+
+**[FE] Auto-derive project duration from timeline content**
+
+**Description:** `projectDoc.durationFrames` is hardcoded to `300` (10 seconds at 30 fps) and never updates as clips are added or moved. Both the Remotion `<Player>` (`PreviewPanel.tsx:43 durationInFrames={projectDoc.durationFrames}`) and the timeline ruler width read this field directly, so the playable range and ruler are always 10 seconds regardless of content. The project duration should automatically equal the end frame of the last clip on the timeline, with a configurable minimum floor.
+
+The computation logic — `max(clip.startFrame + clip.durationFrames)` over all clips, clamped to a minimum — belongs in `packages/editor-core/` as a pure function. It must be called inside `setProject()` in `apps/web-editor/src/store/project-store.ts` so that every store mutation (drag, trim, add clip, delete clip) automatically keeps `durationFrames` in sync without any component knowing about it.
+
+**Acceptance Criteria:**
+- [ ] A pure function `computeProjectDuration(clips: Clip[], fps: number, minSeconds?: number): number` is added to `packages/editor-core/` with unit tests; it returns `max(clip.startFrame + clip.durationFrames)` across all clips, floored at `fps * minSeconds` (default minimum: 5 seconds)
+- [ ] `setProject()` in `project-store.ts` calls `computeProjectDuration` and writes the result back to `projectDoc.durationFrames` before notifying listeners
+- [ ] Remotion `<Player>` (`durationInFrames`) updates immediately when a clip is added that extends beyond the current duration
+- [ ] Timeline ruler width grows automatically when clips are placed beyond the current ruler end
+- [ ] Adding a clip, dragging a clip to a new position, trimming, and deleting a clip all correctly update `durationFrames`
+- [ ] When all clips are deleted, duration falls back to the minimum floor (not 0 — a zero-frame Remotion composition crashes)
+- [ ] Unit tests cover: empty clips (returns floor), single clip, multi-clip (takes max), clip deletion shrinks duration
+
+**Dependencies:** None
+**Effort:** S
+
+---
+
+**[FE] Manual project duration control in timeline toolbar**
+
+**Description:** Even with auto-derived duration, users need the ability to manually extend the timeline (e.g. to add a black tail after the last clip, or to set a fixed output length). The timeline toolbar already has zoom +/− buttons; add a duration input control to it. The control should display the current duration in seconds (derived from `projectDoc.durationFrames / fps`) and allow the user to type or scrub a new value. Writing a manual value overrides auto-derive for that session; adding a clip that extends beyond the manual value should expand it again (auto-derive always wins upward, manual only extends downward).
+
+**Acceptance Criteria:**
+- [ ] Timeline toolbar shows current duration as a number input (seconds, 1 decimal place, e.g. `10.0 s`)
+- [ ] User can type a new duration value; on blur or Enter the project store is updated with `Math.round(value * fps)` frames
+- [ ] Manual value is clamped: minimum = `fps * 1` (1 second floor), maximum = `fps * 3600` (1 hour cap)
+- [ ] If a clip is later placed beyond the manually-set duration, `setProject()` auto-derives upward (the existing `computeProjectDuration` guard in the store handles this)
+- [ ] The input reflects changes from auto-derive (reactive to store updates)
+- [ ] Input styled consistently with the existing toolbar (dark background, `#F0F0FA` text, `Inter` font, same height as zoom buttons)
+
+**Dependencies:** Auto-derive project duration from timeline content
+**Effort:** XS
+
+---
+
+**Summary — Epic 7**
+
+| Ticket | Area | Effort | Depends On |
+|---|---|---|---|
+| Add `image` clip type to project-schema | Schema | XS | None |
+| Add `image` clip rendering (ImageLayer) | FE/Remotion | S | image clip schema |
+| Implement `DELETE /assets/:id` | BE | S | None |
+| Add horizontal scrollbar to timeline | FE | S | None |
+| Add `Delete` key shortcut for clips | FE | XS | None |
+| Auto-derive project duration from clips | FE | S | None |
+| Manual project duration control in toolbar | FE | XS | Auto-derive ticket |
+| Add "Add to Timeline" to AssetDetailPanel | FE | M | image clip schema |
+| Surface caption transcription in AssetDetailPanel | FE | S | None |
+| Drag-and-drop AssetCard to TrackList | FE | M | "Add to Timeline" hook |
+| Enable "Delete Asset" button | FE | S | DELETE /assets/:id BE |
+| Auto-scroll timeline during playback | FE | S | None |
+
+**Build order:** Start with the two zero-dependency unblocking items in parallel: the **`image` clip schema** (XS) and **`DELETE /assets/:id`** (S). Immediately also ship **auto-derive project duration** (S, pure FE) — this is a silent but critical fix that makes every other timeline feature behave correctly. While those land, a frontend developer can simultaneously ship **horizontal scrollbar**, **Delete key shortcut**, **caption transcription wiring**, **manual duration control**, and **auto-scroll** — all pure FE. The **"Add to Timeline" button** is the single most impactful user-facing ticket; once it ships the page is usable end-to-end. **Drag-and-drop** is Phase 2 polish — build last, reusing `useAddAssetToTimeline`.
 
 The fastest path to a demo-able product is: **upload asset → auto-caption → export**. That's Epics 1 + 3 + 5, and can be shown without a full timeline editor. The timeline (Epic 6) is the most complex surface and runs in parallel without blocking the initial value loop.

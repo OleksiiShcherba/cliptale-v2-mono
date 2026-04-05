@@ -84,6 +84,95 @@ afterAll(async () => {
   await conn.end();
 });
 
+describe('POST /projects/:id/clips', () => {
+  const NEW_CLIP_ID = '10000000-0000-0000-0000-000000000001';
+  const NEW_TRACK_ID = '20000000-0000-0000-0000-000000000001';
+
+  afterAll(async () => {
+    // Clean up any clips inserted by POST tests.
+    await conn.execute(
+      'DELETE FROM project_clips_current WHERE clip_id = ?',
+      [NEW_CLIP_ID],
+    );
+  });
+
+  it('returns 201 with clipId on valid insert', async () => {
+    const res = await request(app)
+      .post(`/projects/${PROJECT_ID}/clips`)
+      .set('Authorization', `Bearer ${validToken()}`)
+      .send({
+        clipId: NEW_CLIP_ID,
+        trackId: NEW_TRACK_ID,
+        type: 'video',
+        startFrame: 0,
+        durationFrames: 30,
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ clipId: NEW_CLIP_ID });
+    insertedClipIds.push(NEW_CLIP_ID);
+  });
+
+  it('returns 400 when durationFrames is zero', async () => {
+    const res = await request(app)
+      .post(`/projects/${PROJECT_ID}/clips`)
+      .set('Authorization', `Bearer ${validToken()}`)
+      .send({
+        clipId: crypto.randomUUID(),
+        trackId: NEW_TRACK_ID,
+        type: 'video',
+        startFrame: 0,
+        durationFrames: 0,
+      });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when type is invalid', async () => {
+    const res = await request(app)
+      .post(`/projects/${PROJECT_ID}/clips`)
+      .set('Authorization', `Bearer ${validToken()}`)
+      .send({
+        clipId: crypto.randomUUID(),
+        trackId: NEW_TRACK_ID,
+        type: 'invalid-type',
+        startFrame: 0,
+        durationFrames: 10,
+      });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when clipId is not a valid UUID', async () => {
+    const res = await request(app)
+      .post(`/projects/${PROJECT_ID}/clips`)
+      .set('Authorization', `Bearer ${validToken()}`)
+      .send({
+        clipId: 'not-a-uuid',
+        trackId: NEW_TRACK_ID,
+        type: 'video',
+        startFrame: 0,
+        durationFrames: 10,
+      });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 401 when no auth token is provided', async () => {
+    const res = await request(app)
+      .post(`/projects/${PROJECT_ID}/clips`)
+      .send({
+        clipId: crypto.randomUUID(),
+        trackId: NEW_TRACK_ID,
+        type: 'video',
+        startFrame: 0,
+        durationFrames: 10,
+      });
+
+    expect(res.status).toBe(401);
+  });
+});
+
 describe('PATCH /projects/:id/clips/:clipId', () => {
   it('returns 200 with updated clip fields on valid partial update', async () => {
     const res = await request(app)

@@ -4,6 +4,54 @@ import { z } from 'zod';
 import * as clipService from '@/services/clip.service.js';
 
 /**
+ * Zod schema for POST /projects/:id/clips request body.
+ */
+export const createClipSchema = z.object({
+  clipId: z.string().uuid(),
+  trackId: z.string().uuid(),
+  type: z.enum(['video', 'audio', 'text-overlay']),
+  assetId: z.string().uuid().nullable().optional(),
+  startFrame: z.number().int().nonnegative(),
+  durationFrames: z.number().int().positive(),
+  trimInFrames: z.number().int().nonnegative().optional(),
+  trimOutFrames: z.number().int().nonnegative().nullable().optional(),
+  layer: z.number().int().nonnegative().optional(),
+});
+
+type CreateClipBody = z.infer<typeof createClipSchema>;
+
+/**
+ * POST /projects/:id/clips
+ *
+ * Inserts a new clip into project_clips_current.
+ * Returns 201 on success.
+ */
+export async function createClip(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const body = req.body as CreateClipBody;
+    await clipService.createClip({
+      clipId: body.clipId,
+      projectId: req.params['id']!,
+      trackId: body.trackId,
+      type: body.type,
+      assetId: body.assetId ?? null,
+      startFrame: body.startFrame,
+      durationFrames: body.durationFrames,
+      trimInFrames: body.trimInFrames,
+      trimOutFrames: body.trimOutFrames,
+      layer: body.layer,
+    });
+    res.status(201).json({ clipId: body.clipId });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * Zod schema for PATCH /projects/:id/clips/:clipId request body.
  * All fields are optional — at least one must be present (enforced by `.refine`).
  */

@@ -1,6 +1,9 @@
 import React from 'react';
 
+import { TranscribeButton } from '@/features/captions/components/TranscribeButton';
 import type { Asset } from '@/features/asset-manager/types';
+import { useAddAssetToTimeline } from '@/features/asset-manager/hooks/useAddAssetToTimeline';
+import { formatDuration, formatFileSize, getTypeLabel } from '@/features/asset-manager/utils';
 
 const STATUS_BG: Record<string, string> = {
   ready: '#10B981',
@@ -8,30 +11,6 @@ const STATUS_BG: Record<string, string> = {
   error: '#EF4444',
   pending: '#8A8AA0',
 };
-
-/** Formats bytes to a human-readable string (B / KB / MB / GB). */
-function formatFileSize(bytes: number | null): string {
-  if (bytes === null) return '—';
-  if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} GB`;
-  if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${bytes} B`;
-}
-
-/** Formats duration in seconds to M:SS. */
-function formatDuration(seconds: number | null): string {
-  if (seconds === null) return '—';
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
-function getTypeLabel(contentType: string): string {
-  if (contentType.startsWith('video/')) return 'Video';
-  if (contentType.startsWith('audio/')) return 'Audio';
-  if (contentType.startsWith('image/')) return 'Image';
-  return 'File';
-}
 
 export interface AssetDetailPanelProps {
   asset: Asset;
@@ -44,7 +23,10 @@ export interface AssetDetailPanelProps {
  * Visible only when an asset is selected in AssetBrowserPanel.
  */
 export function AssetDetailPanel({ asset, onDelete }: AssetDetailPanelProps): React.ReactElement {
+  const addAssetToTimeline = useAddAssetToTimeline();
   const badgeBg = STATUS_BG[asset.status] ?? '#8A8AA0';
+  const isReady = asset.status === 'ready';
+  const isAV = asset.contentType.startsWith('video/') || asset.contentType.startsWith('audio/');
 
   return (
     <div
@@ -111,7 +93,7 @@ export function AssetDetailPanel({ asset, onDelete }: AssetDetailPanelProps): Re
       >
         <span
           style={{
-            fontSize: 13,
+            fontSize: 14,
             color: '#F0F0FA',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
@@ -152,6 +134,9 @@ export function AssetDetailPanel({ asset, onDelete }: AssetDetailPanelProps): Re
         )}
       </div>
 
+      {/* Transcribe button — video and audio assets only */}
+      {isAV && <TranscribeButton assetId={asset.id} />}
+
       {/* Status badge */}
       <div
         aria-label={`Status: ${asset.status}`}
@@ -176,6 +161,29 @@ export function AssetDetailPanel({ asset, onDelete }: AssetDetailPanelProps): Re
       {/* Spacer pushes action buttons to bottom of the 620px panel */}
       <div style={{ flex: 1 }} />
 
+      {/* Add to Timeline — enabled only when the asset is ready */}
+      <button
+        disabled={!isReady}
+        title={isReady ? undefined : 'Processing…'}
+        aria-label={`Add ${asset.filename} to timeline`}
+        onClick={() => addAssetToTimeline(asset)}
+        style={{
+          width: 248,
+          height: 36,
+          borderRadius: 8,
+          border: 'none',
+          backgroundColor: isReady ? '#7C3AED' : '#4C1D95',
+          color: isReady ? '#F0F0FA' : '#8A8AA0',
+          fontSize: 14,
+          fontWeight: 500,
+          cursor: isReady ? 'pointer' : 'not-allowed',
+          fontFamily: 'Inter, sans-serif',
+          flexShrink: 0,
+        }}
+      >
+        Add to Timeline
+      </button>
+
       <button
         disabled
         style={{
@@ -184,8 +192,8 @@ export function AssetDetailPanel({ asset, onDelete }: AssetDetailPanelProps): Re
           borderRadius: 8,
           border: '1px solid #252535',
           backgroundColor: 'transparent',
-          color: '#555560',
-          fontSize: 13,
+          color: '#8A8AA0',
+          fontSize: 12,
           cursor: 'not-allowed',
           fontFamily: 'Inter, sans-serif',
           flexShrink: 0,
@@ -204,8 +212,8 @@ export function AssetDetailPanel({ asset, onDelete }: AssetDetailPanelProps): Re
           borderRadius: 8,
           border: '1px solid #252535',
           backgroundColor: 'transparent',
-          color: '#555560',
-          fontSize: 13,
+          color: '#8A8AA0',
+          fontSize: 12,
           cursor: 'not-allowed',
           fontFamily: 'Inter, sans-serif',
           flexShrink: 0,

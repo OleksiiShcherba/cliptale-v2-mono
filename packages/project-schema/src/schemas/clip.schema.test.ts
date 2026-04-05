@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { clipSchema, videoClipSchema, audioClipSchema, textOverlayClipSchema } from './clip.schema.js';
+import { clipSchema, videoClipSchema, audioClipSchema, textOverlayClipSchema, imageClipSchema } from './clip.schema.js';
 
 const baseVideoClip = {
   id: '00000000-0000-0000-0000-000000000001',
@@ -149,6 +149,44 @@ describe('textOverlayClipSchema', () => {
   });
 });
 
+const baseImageClip = {
+  id: '00000000-0000-0000-0000-000000000001',
+  type: 'image' as const,
+  assetId: '00000000-0000-0000-0000-000000000002',
+  trackId: '00000000-0000-0000-0000-000000000003',
+  startFrame: 0,
+  durationFrames: 150,
+};
+
+describe('imageClipSchema', () => {
+  it('should parse a valid image clip', () => {
+    expect(imageClipSchema.safeParse(baseImageClip).success).toBe(true);
+  });
+
+  it('should default opacity to 1', () => {
+    const result = imageClipSchema.safeParse(baseImageClip);
+    expect(result.success && result.data.opacity).toBe(1);
+  });
+
+  it('should accept explicit opacity values between 0 and 1', () => {
+    expect(imageClipSchema.safeParse({ ...baseImageClip, opacity: 0.5 }).success).toBe(true);
+    expect(imageClipSchema.safeParse({ ...baseImageClip, opacity: 0 }).success).toBe(true);
+  });
+
+  it('should reject opacity outside 0–1 range', () => {
+    expect(imageClipSchema.safeParse({ ...baseImageClip, opacity: 1.5 }).success).toBe(false);
+    expect(imageClipSchema.safeParse({ ...baseImageClip, opacity: -0.1 }).success).toBe(false);
+  });
+
+  it('should reject non-positive durationFrames', () => {
+    expect(imageClipSchema.safeParse({ ...baseImageClip, durationFrames: 0 }).success).toBe(false);
+  });
+
+  it('should reject negative startFrame', () => {
+    expect(imageClipSchema.safeParse({ ...baseImageClip, startFrame: -1 }).success).toBe(false);
+  });
+});
+
 describe('clipSchema (discriminated union)', () => {
   it('should route video type to videoClipSchema', () => {
     expect(clipSchema.safeParse(baseVideoClip).success).toBe(true);
@@ -162,7 +200,11 @@ describe('clipSchema (discriminated union)', () => {
     expect(clipSchema.safeParse(baseTextClip).success).toBe(true);
   });
 
+  it('should route image type to imageClipSchema', () => {
+    expect(clipSchema.safeParse(baseImageClip).success).toBe(true);
+  });
+
   it('should reject an unknown clip type', () => {
-    expect(clipSchema.safeParse({ ...baseVideoClip, type: 'image' }).success).toBe(false);
+    expect(clipSchema.safeParse({ ...baseVideoClip, type: 'unknown' }).success).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { enablePatches, produceWithPatches } from 'immer';
 import type { ProjectDoc } from '@ai-video-editor/project-schema';
+import { computeProjectDuration } from '@ai-video-editor/editor-core';
 
 import { pushPatches } from './history-store.js';
 
@@ -12,9 +13,6 @@ enablePatches();
 // Includes a TextOverlayClip so the preview canvas shows visible content
 // instead of a black rectangle when the editor is opened.
 // ---------------------------------------------------------------------------
-const DEV_TRACK_ID = '00000000-0000-0000-0000-000000000010';
-const DEV_CLIP_ID = '00000000-0000-0000-0000-000000000020';
-
 const DEV_PROJECT: ProjectDoc = {
   schemaVersion: 1,
   id: '00000000-0000-0000-0000-000000000001',
@@ -23,28 +21,8 @@ const DEV_PROJECT: ProjectDoc = {
   durationFrames: 300,
   width: 1920,
   height: 1080,
-  tracks: [
-    {
-      id: DEV_TRACK_ID,
-      type: 'overlay',
-      name: 'Text Overlay',
-      muted: false,
-      locked: false,
-    },
-  ],
-  clips: [
-    {
-      id: DEV_CLIP_ID,
-      type: 'text-overlay',
-      trackId: DEV_TRACK_ID,
-      startFrame: 0,
-      durationFrames: 300,
-      text: 'ClipTale',
-      fontSize: 64,
-      color: '#F0F0FA',
-      position: 'center',
-    },
-  ],
+  tracks: [],
+  clips: [],
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 } as unknown as ProjectDoc;
@@ -87,11 +65,18 @@ export function subscribe(listener: () => void): () => void {
  * The public signature is unchanged — callers still pass a full `ProjectDoc`.
  */
 export function setProject(doc: ProjectDoc): void {
+  const derived: ProjectDoc = {
+    ...doc,
+    durationFrames: computeProjectDuration(doc.clips, doc.fps),
+  };
+  // Returning a value from the Immer recipe replaces the draft wholesale.
+  // This produces a structural-diff patch (only changed fields) while letting
+  // us pass a plain object rather than mutating the draft imperatively.
   const [, patches, inversePatches] = produceWithPatches(
     snapshot,
-    () => doc,
+    () => derived,
   );
-  snapshot = doc;
+  snapshot = derived;
   pushPatches(patches, inversePatches);
   notifyListeners();
 }

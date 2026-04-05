@@ -23,10 +23,12 @@ const NO_CLIPS: Clip[] = [];
 const NO_SELECTION = new Set<string>();
 
 const defaultProps = {
+  projectId: '00000000-0000-0000-0000-000000000001',
   clips: NO_CLIPS,
   pxPerFrame: 4,
   selectedClipIds: NO_SELECTION,
   laneWidth: 800,
+  scrollOffsetX: 0,
   height: 400,
   dragInfo: null,
   onClipPointerDown: vi.fn(),

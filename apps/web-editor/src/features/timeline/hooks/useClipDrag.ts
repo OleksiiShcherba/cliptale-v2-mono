@@ -26,7 +26,7 @@ import { useSnapping } from './useSnapping';
 // ---------------------------------------------------------------------------
 
 /** Snapshot of one clip's state at drag-start. */
-interface ClipDragOrigin {
+type ClipDragOrigin = {
   clipId: string;
   originalStartFrame: number;
   /** Offset from the anchor clip's start to this clip's start (for multi-drag). */
@@ -34,7 +34,7 @@ interface ClipDragOrigin {
 }
 
 /** Runtime drag state held in a ref (not state — avoids extra renders). */
-interface DragState {
+type DragState = {
   /** Clip ID that received the initial pointerdown. */
   anchorClipId: string;
   /** All clips being moved (includes anchor). */
@@ -46,7 +46,7 @@ interface DragState {
 }
 
 /** Publicly returned drag state for rendering ghost clips. */
-export interface ClipDragInfo {
+export type ClipDragInfo = {
   /** IDs of clips currently being dragged. */
   draggingClipIds: Set<string>;
   /** Map from clipId → projected new startFrame during drag. */
@@ -57,7 +57,7 @@ export interface ClipDragInfo {
   snapIndicatorPx: number | null;
 }
 
-export interface UseClipDragReturn {
+export type UseClipDragReturn = {
   /** Current drag info for rendering. Null when no drag is in progress. */
   dragInfo: ClipDragInfo | null;
   /**
@@ -102,7 +102,7 @@ export function useClipDrag(projectId: string): UseClipDragReturn {
 
       const positions = new Map<string, number>();
       for (const origin of ds.origins) {
-        positions.set(origin.clipId, Math.max(0, origin.originalStartFrame + delta));
+        positions.set(origin.clipId, Math.round(Math.max(0, origin.originalStartFrame + delta)));
       }
 
       return { positions, snapResult };

@@ -6,7 +6,7 @@ import sanitize from 'sanitize-html';
 
 import type { Asset } from '@/repositories/asset.repository.js';
 import * as assetRepository from '@/repositories/asset.repository.js';
-import { NotFoundError, ValidationError } from '@/lib/errors.js';
+import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors.js';
 import { enqueueIngestJob } from '@/queues/jobs/enqueue-ingest.js';
 
 /** Presigned URL expiry — 15 minutes per §11 security rules. */
@@ -140,6 +140,29 @@ export async function getAsset(assetId: string): Promise<Asset> {
     throw new NotFoundError(`Asset "${assetId}" not found`);
   }
   return asset;
+}
+
+/**
+ * Deletes an asset after verifying ownership and that no clip references it.
+ *
+ * Throws NotFoundError (404) if the asset does not exist or belongs to another user.
+ * Throws ConflictError (409) if the asset is referenced by at least one clip — the
+ * referential integrity rule prevents deleting assets that are in use on a timeline.
+ */
+export async function deleteAsset(assetId: string, userId: string): Promise<void> {
+  const asset = await assetRepository.getAssetById(assetId);
+  if (!asset || asset.userId !== userId) {
+    throw new NotFoundError(`Asset "${assetId}" not found`);
+  }
+
+  const inUse = await assetRepository.isAssetReferencedByClip(assetId);
+  if (inUse) {
+    throw new ConflictError(
+      `Asset "${assetId}" is referenced by one or more clips and cannot be deleted`,
+    );
+  }
+
+  await assetRepository.deleteAssetById(assetId);
 }
 
 /** Parses bucket name and object key from a `s3://bucket/key` URI. */

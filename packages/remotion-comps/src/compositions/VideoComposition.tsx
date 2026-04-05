@@ -35,6 +35,7 @@ export function VideoComposition({ projectDoc, assetUrls }: VideoCompositionProp
       {clips.map((clip) => {
         if (clip.type === 'video') {
           const src = assetUrls[clip.assetId] ?? '';
+          if (!src) return null;
           return (
             <Sequence key={clip.id} from={clip.startFrame} durationInFrames={clip.durationFrames}>
               <VideoLayer
@@ -49,6 +50,7 @@ export function VideoComposition({ projectDoc, assetUrls }: VideoCompositionProp
 
         if (clip.type === 'audio') {
           const src = assetUrls[clip.assetId] ?? '';
+          if (!src) return null;
           return (
             <Sequence key={clip.id} from={clip.startFrame} durationInFrames={clip.durationFrames}>
               <AudioLayer

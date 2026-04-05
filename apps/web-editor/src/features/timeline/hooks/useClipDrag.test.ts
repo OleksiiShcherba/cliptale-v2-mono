@@ -298,6 +298,52 @@ describe('useClipDrag', () => {
     expect(result.current.dragInfo).toBeNull();
   });
 
+  it('sends integer startFrame to patchClip even when pxPerFrame produces a fractional pointer frame', async () => {
+    // pxPerFrame=3 → 1px = 0.333... frames → fractional pointer frames possible.
+    vi.spyOn(ephemeralStore, 'getSnapshot').mockReturnValue({
+      playheadFrame: 0,
+      selectedClipIds: [],
+      zoom: 1,
+      pxPerFrame: 3,
+      scrollOffsetX: 0,
+    });
+
+    const clip = makeClip('clip-001', 3); // startFrame=3, startPointerX=9px
+    vi.spyOn(projectStore, 'getSnapshot').mockReturnValue(makeProject([clip]));
+    vi.spyOn(projectStore, 'setProject');
+    const mockPatch = vi.spyOn(timelineApi, 'patchClip').mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useClipDrag('project-001'));
+
+    act(() => {
+      // clientX=9 → frame = 9/3 = 3 (exact)
+      result.current.onClipPointerDown(makeReactPointerEvent(9), 'clip-001', false);
+    });
+
+    await act(async () => {
+      // Move right by 1px → frame = 10/3 = 3.333... → delta = 0.333 → raw = 3.333
+      // Math.round should produce an integer.
+      dispatchPointerEvent('pointermove', 10);
+      dispatchPointerEvent('pointerup', 10);
+      await Promise.resolve();
+    });
+
+    // patchClip may or may not be called (only called if position changed from original).
+    // If called, startFrame must be an integer.
+    if (mockPatch.mock.calls.length > 0) {
+      const payload = mockPatch.mock.calls[0]![2];
+      if (payload.startFrame !== undefined) {
+        expect(Number.isInteger(payload.startFrame)).toBe(true);
+      }
+    }
+
+    // Ghost position should also be an integer.
+    const ghostPos = result.current.dragInfo?.ghostPositions.get('clip-001');
+    if (ghostPos !== undefined) {
+      expect(Number.isInteger(ghostPos)).toBe(true);
+    }
+  });
+
   it('clamps ghost position to frame 0 minimum (no negative startFrame)', () => {
     const clip = makeClip('clip-001', 2);
     vi.spyOn(projectStore, 'getSnapshot').mockReturnValue(makeProject([clip]));

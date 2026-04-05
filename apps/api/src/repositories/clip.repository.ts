@@ -58,6 +58,45 @@ function mapRow(row: ClipDbRow): ClipRow {
   };
 }
 
+/** Fields required to insert a new clip row. */
+export type ClipInsert = {
+  clipId: string;
+  projectId: string;
+  trackId: string;
+  type: 'video' | 'audio' | 'text-overlay';
+  assetId?: string | null;
+  startFrame: number;
+  durationFrames: number;
+  trimInFrames?: number;
+  trimOutFrames?: number | null;
+  layer?: number;
+};
+
+/**
+ * Inserts a new clip row into project_clips_current.
+ * Throws on duplicate clip_id (callers must use a fresh UUID).
+ */
+export async function insertClip(clip: ClipInsert): Promise<void> {
+  await pool.execute<ResultSetHeader>(
+    `INSERT INTO project_clips_current
+       (clip_id, project_id, track_id, type, asset_id,
+        start_frame, duration_frames, trim_in_frames, trim_out_frames, layer)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      clip.clipId,
+      clip.projectId,
+      clip.trackId,
+      clip.type,
+      clip.assetId ?? null,
+      clip.startFrame,
+      clip.durationFrames,
+      clip.trimInFrames ?? 0,
+      clip.trimOutFrames ?? null,
+      clip.layer ?? 0,
+    ],
+  );
+}
+
 /**
  * Returns a single clip row for ownership validation.
  * Returns null when the clipId does not exist in project_clips_current.
@@ -87,7 +126,7 @@ export async function patchClip(
   patch: ClipPatch,
 ): Promise<ClipRow> {
   const setClauses: string[] = [];
-  const values: unknown[] = [];
+  const values: (string | number | null)[] = [];
 
   if (patch.startFrame !== undefined) {
     setClauses.push('start_frame = ?');

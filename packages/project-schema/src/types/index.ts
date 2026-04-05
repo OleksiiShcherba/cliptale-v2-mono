@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { projectDocSchema } from '../schemas/project-doc.schema.js';
 import { trackSchema } from '../schemas/track.schema.js';
-import { clipSchema, videoClipSchema, audioClipSchema, textOverlayClipSchema } from '../schemas/clip.schema.js';
+import { clipSchema, videoClipSchema, audioClipSchema, textOverlayClipSchema, imageClipSchema } from '../schemas/clip.schema.js';
 
 /** The root project document stored in the database and exchanged between client and server. */
 export type ProjectDoc = z.infer<typeof projectDocSchema>;
@@ -21,3 +21,6 @@ export type AudioClip = z.infer<typeof audioClipSchema>;
 
 /** A text overlay clip rendered on top of the video composition. */
 export type TextOverlayClip = z.infer<typeof textOverlayClipSchema>;
+
+/** An image clip referencing an uploaded image asset. */
+export type ImageClip = z.infer<typeof imageClipSchema>;

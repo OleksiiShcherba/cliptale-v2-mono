@@ -98,7 +98,8 @@ describe('useAutosave — debounce timing', () => {
 
     expect(mockSaveVersion).toHaveBeenCalledOnce();
     expect(mockSaveVersion).toHaveBeenCalledWith('test-project-001', {
-      doc_json: FAKE_DOC,
+      docJson: FAKE_DOC,
+      docSchemaVersion: FAKE_DOC.schemaVersion,
       patches: FAKE_PATCHES,
       inversePatches: FAKE_INVERSE,
       parentVersionId: null,

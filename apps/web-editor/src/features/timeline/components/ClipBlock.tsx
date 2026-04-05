@@ -2,11 +2,14 @@ import React, { useCallback, useRef } from 'react';
 
 import type { Clip } from '@ai-video-editor/project-schema';
 
+import { WaveformSvg } from './WaveformSvg.js';
+
 // Design tokens
 const CLIP_COLORS: Record<Clip['type'], string> = {
   video:          '#7C3AED',
   audio:          '#4C1D95',
   'text-overlay': '#10B981',
+  image:          '#0EA5E9',
 };
 
 const CLIP_SELECTED_BORDER_COLOR = '#F0F0FA';
@@ -36,6 +39,12 @@ interface ClipBlockProps {
   assetData?: ClipAssetData;
   /** Height of the clip lane in pixels. */
   laneHeight: number;
+  /**
+   * Horizontal scroll offset of the clip lane in pixels.
+   * Subtracted from the computed left position so clip blocks scroll
+   * in sync with the ruler.
+   */
+  scrollOffsetX: number;
   /** Called when the clip is clicked (adds to selection). */
   onClick: (clipId: string, shiftKey: boolean) => void;
   /**
@@ -52,6 +61,7 @@ interface ClipBlockProps {
   /**
    * Override the left position (pixels) during a drag or trim operation.
    * When set, this is used instead of `clip.startFrame * pxPerFrame`.
+   * The scroll offset is still subtracted from this value.
    */
   ghostLeft?: number;
   /**
@@ -99,6 +109,7 @@ export function ClipBlock({
   isLocked,
   assetData,
   laneHeight,
+  scrollOffsetX,
   onClick,
   onPointerDown,
   onContextMenu,
@@ -107,7 +118,7 @@ export function ClipBlock({
   isDragging = false,
   getTrimCursor,
 }: ClipBlockProps): React.ReactElement {
-  const left = ghostLeft !== undefined ? ghostLeft : clip.startFrame * pxPerFrame;
+  const left = (ghostLeft !== undefined ? ghostLeft : clip.startFrame * pxPerFrame) - scrollOffsetX;
   const width = ghostWidth !== undefined ? ghostWidth : Math.max(2, clip.durationFrames * pxPerFrame);
   const layer = clip.layer ?? 0;
 
@@ -180,8 +191,8 @@ export function ClipBlock({
 
   const bgColor = CLIP_COLORS[clip.type] ?? '#7C3AED';
 
-  // Compute effective opacity: locked > dragging > normal.
-  let opacity = 1;
+  // Compute effective opacity: locked > dragging > normal (0.75 per design spec).
+  let opacity = 0.75;
   if (isLocked) opacity = CLIP_LOCKED_OPACITY;
   else if (isDragging) opacity = CLIP_DRAGGING_OPACITY;
 
@@ -234,50 +245,6 @@ export function ClipBlock({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Waveform SVG
-// ---------------------------------------------------------------------------
-
-interface WaveformSvgProps {
-  peaks: number[];
-  width: number;
-  height: number;
-}
-
-/**
- * Renders a simplified bar-chart waveform from peak amplitude values.
- * Each peak value is expected in range [0, 1].
- */
-function WaveformSvg({ peaks, width, height }: WaveformSvgProps): React.ReactElement {
-  const barWidth = Math.max(1, width / peaks.length);
-  const mid = height / 2;
-
-  return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      width={width}
-      height={height}
-      preserveAspectRatio="none"
-      aria-hidden="true"
-      style={styles.waveform}
-    >
-      {peaks.map((peak, i) => {
-        const barHeight = Math.max(1, peak * mid);
-        return (
-          <rect
-            key={i}
-            x={i * barWidth}
-            y={mid - barHeight}
-            width={barWidth - 0.5}
-            height={barHeight * 2}
-            fill="rgba(255,255,255,0.4)"
-          />
-        );
-      })}
-    </svg>
-  );
-}
-
 const styles: Record<string, React.CSSProperties> = {
   block: {
     position: 'absolute',
@@ -297,12 +264,6 @@ const styles: Record<string, React.CSSProperties> = {
     height: '100%',
     objectFit: 'cover',
     opacity: 0.5,
-    pointerEvents: 'none',
-  },
-  waveform: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
     pointerEvents: 'none',
   },
   label: {

@@ -66,14 +66,16 @@ describe('TranscribeButton', () => {
   });
 
   describe('always passes assetId to hook on mount', () => {
-    it('passes assetId (not null) to useTranscriptionStatus on initial render', () => {
+    it('passes assetId and pollingEnabled=false to useTranscriptionStatus on initial render', () => {
       render(<TranscribeButton assetId="asset-001" />);
-      expect(mockUseTranscriptionStatus).toHaveBeenCalledWith('asset-001');
+      expect(mockUseTranscriptionStatus).toHaveBeenCalledWith('asset-001', false);
     });
 
-    it('does NOT pass null to useTranscriptionStatus before user clicks', () => {
+    it('does NOT pass null as assetId to useTranscriptionStatus before user clicks', () => {
       render(<TranscribeButton assetId="asset-001" />);
-      expect(mockUseTranscriptionStatus).not.toHaveBeenCalledWith(null);
+      // First argument should always be the assetId string, never null.
+      const calls = mockUseTranscriptionStatus.mock.calls;
+      expect(calls.every(([assetId]) => assetId === 'asset-001')).toBe(true);
     });
   });
 
@@ -278,6 +280,28 @@ describe('TranscribeButton', () => {
     });
   });
 
+  describe('pollingEnabled flag threading', () => {
+    it('passes pollingEnabled=true to useTranscriptionStatus after user triggers transcription', async () => {
+      render(<TranscribeButton assetId="asset-001" />);
+      const button = screen.getByRole('button', { name: 'Transcribe' });
+      fireEvent.click(button);
+
+      await waitFor(() => {
+        // After a successful trigger, hasPendingTranscription becomes true.
+        // The hook should be called with pollingEnabled=true on the next render.
+        const calls = mockUseTranscriptionStatus.mock.calls;
+        const hasPollingCall = calls.some(([, pollingEnabled]) => pollingEnabled === true);
+        expect(hasPollingCall).toBe(true);
+      });
+    });
+
+    it('passes pollingEnabled=false to useTranscriptionStatus before user triggers transcription', () => {
+      render(<TranscribeButton assetId="asset-001" />);
+      // Only one render on mount — pollingEnabled must be false.
+      expect(mockUseTranscriptionStatus).toHaveBeenLastCalledWith('asset-001', false);
+    });
+  });
+
   describe('trigger failure', () => {
     it('stays in idle state when triggerTranscription throws', async () => {
       mockTriggerTranscription.mockRejectedValueOnce(new Error('Network error'));
@@ -289,8 +313,8 @@ describe('TranscribeButton', () => {
         expect(screen.getByRole('button', { name: 'Transcribe' })).toBeDefined();
       });
 
-      // Verify polling was not gated — assetId is always passed (not null).
-      expect(mockUseTranscriptionStatus).toHaveBeenCalledWith('asset-001');
+      // Verify assetId is always passed (mount fetch still happens).
+      expect(mockUseTranscriptionStatus).toHaveBeenCalledWith('asset-001', false);
     });
   });
 });

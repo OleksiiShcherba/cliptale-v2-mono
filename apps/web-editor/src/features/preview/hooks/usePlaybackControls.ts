@@ -3,6 +3,7 @@ import type { PlayerRef } from '@remotion/player';
 
 import { getSnapshot as getProjectSnapshot } from '@/store/project-store.js';
 import { setPlayheadFrame } from '@/store/ephemeral-store.js';
+import { updateTimelinePlayheadFrame } from '@/store/timeline-refs.js';
 import { formatTimecode } from '@/shared/utils/formatTimecode.js';
 
 // ---------------------------------------------------------------------------
@@ -90,8 +91,11 @@ export function usePlaybackControls(
       // Drive the frame counter, timecode, and scrub slider via React state.
       setCurrentFrameState(frame);
 
+      // We mutate the CSS property directly to avoid re-rendering the full
+      // React tree at 60fps — architecture §7.
+      updateTimelinePlayheadFrame(frame);
+
       // Also check if playback ended (player paused itself at last frame).
-      // @ts-expect-error — isPlaying() is available on PlayerRef but not typed in all versions.
       const stillPlaying: boolean = typeof player.isPlaying === 'function' ? player.isPlaying() : true;
       if (!stillPlaying) {
         const finalFrame = player.getCurrentFrame();

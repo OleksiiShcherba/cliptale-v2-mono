@@ -1,31 +1,18 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { Clip, Track } from '@ai-video-editor/project-schema';
 
 import { useEphemeralStore, setPxPerFrame, setScrollOffsetX } from '@/store/ephemeral-store';
 import { useProjectStore } from '@/store/project-store';
+import { registerTimelinePlayheadUpdater, unregisterTimelinePlayheadUpdater } from '@/store/timeline-refs';
 
+import { ScrollbarStrip } from './ScrollbarStrip';
 import { TimelineRuler } from './TimelineRuler';
 import { TrackList, TRACK_HEADER_WIDTH } from './TrackList';
+import { useClipDeleteShortcut } from '../hooks/useClipDeleteShortcut';
 import { useClipDrag } from '../hooks/useClipDrag';
 import { useClipTrim } from '../hooks/useClipTrim';
-
-// Design tokens
-const SURFACE_ALT = '#16161F';
-const BORDER = '#252535';
-const TEXT_SECONDARY = '#8A8AA0';
-
-/** Fixed height of the entire timeline panel in pixels. */
-const TIMELINE_PANEL_HEIGHT = 232;
-
-/** Height of the ruler strip. */
-const RULER_HEIGHT = 28;
-
-/** Height of the toolbar strip above the ruler. */
-const TOOLBAR_HEIGHT = 32;
-
-/** Height available for the scrollable track list. */
-const TRACK_LIST_HEIGHT = TIMELINE_PANEL_HEIGHT - TOOLBAR_HEIGHT - RULER_HEIGHT;
+import { PLAYHEAD_COLOR, TRACK_LIST_HEIGHT, styles } from './timelinePanelStyles';
 
 interface TimelinePanelProps {
   /** Called when a track name is edited. */
@@ -37,13 +24,13 @@ interface TimelinePanelProps {
 }
 
 /**
- * Full-width timeline panel rendered at the bottom of the editor.
- * Composes `TimelineRuler` and `TrackList` and synchronises their
- * horizontal scroll position so they scroll as one unit.
+ * Full-width timeline panel at the bottom of the editor.
+ * Composes `TimelineRuler`, `TrackList`, and `ScrollbarStrip`, synchronising
+ * their horizontal position via the ephemeral store's `scrollOffsetX`.
  *
- * Zoom is read from and written to the ephemeral store via `pxPerFrame`.
- * Clip drag is managed by `useClipDrag` and trim by `useClipTrim`;
- * both are passed through to `TrackList`.
+ * Renders a 1px playhead needle overlaid on the track lane area, positioned
+ * at `playheadFrame * pxPerFrame - scrollOffsetX` from the left of the lanes.
+ * The needle is hidden when it scrolls outside the visible lane bounds.
  */
 export function TimelinePanel({
   onRenameTrack,
@@ -51,9 +38,11 @@ export function TimelinePanel({
   onToggleLock,
 }: TimelinePanelProps): React.ReactElement {
   const panelRef = useRef<HTMLDivElement>(null);
+  const rulerWrapperRef = useRef<HTMLDivElement>(null);
+  const trackListWrapperRef = useRef<HTMLDivElement>(null);
   const [panelWidth, setPanelWidth] = useState(800);
 
-  const { pxPerFrame, scrollOffsetX, selectedClipIds } = useEphemeralStore();
+  const { pxPerFrame, scrollOffsetX, selectedClipIds, playheadFrame } = useEphemeralStore();
   const project = useProjectStore();
 
   const tracks: Track[] = project.tracks ?? [];
@@ -62,17 +51,14 @@ export function TimelinePanel({
   const durationFrames: number = project.durationFrames ?? 300;
   const projectId: string = project.id;
 
-  // Convert selectedClipIds array to a Set for O(1) lookup in ClipBlock.
   const selectedClipIdSet = useMemo(
     () => new Set(selectedClipIds),
     [selectedClipIds],
   );
 
-  // Clip drag hook — manages ghost positions and fires PATCH on drop.
   const { dragInfo, onClipPointerDown } = useClipDrag(projectId);
-
-  // Clip trim hook — manages edge resize and fires PATCH on drop.
   const { trimInfo, getTrimCursor, onTrimPointerDown } = useClipTrim(projectId);
+  useClipDeleteShortcut();
 
   // Observe panel width changes so ruler and track list stay in sync.
   useLayoutEffect(() => {
@@ -91,18 +77,63 @@ export function TimelinePanel({
   }, []);
 
   const laneWidth = Math.max(0, panelWidth - TRACK_HEADER_WIDTH);
+  const totalContentWidth = durationFrames * pxPerFrame;
 
   const handleZoomIn = useCallback(() => setPxPerFrame(pxPerFrame * 1.25), [pxPerFrame]);
   const handleZoomOut = useCallback(() => setPxPerFrame(pxPerFrame / 1.25), [pxPerFrame]);
 
-  /** Horizontal scroll wheel on the track lane area. */
-  const handleLaneWheel = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
+  // Refs to allow the wheel handler closure and rAF bridge to read current
+  // layout values without stale captures.
+  const scrollOffsetXRef = useRef(scrollOffsetX);
+  scrollOffsetXRef.current = scrollOffsetX;
+  const laneWidthRef = useRef(laneWidth);
+  laneWidthRef.current = laneWidth;
+  const totalContentWidthRef = useRef(totalContentWidth);
+  totalContentWidthRef.current = totalContentWidth;
+  const pxPerFrameRef = useRef(pxPerFrame);
+  pxPerFrameRef.current = pxPerFrame;
+
+  // Ref to the playhead needle DOM element — mutated directly by the rAF loop
+  // to avoid triggering React re-renders at 60fps (architecture §7).
+  const needleRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    registerTimelinePlayheadUpdater((frame) => {
+      const el = needleRef.current;
+      if (!el) return;
+      const px = frame * pxPerFrameRef.current - scrollOffsetXRef.current + TRACK_HEADER_WIDTH;
+      const laneW = laneWidthRef.current;
+      el.style.left = `${px}px`;
+      el.style.display = px >= TRACK_HEADER_WIDTH && px <= TRACK_HEADER_WIDTH + laneW ? 'block' : 'none';
+    });
+    return () => unregisterTimelinePlayheadUpdater();
+  }, []);
+
+  // Attach wheel listeners as non-passive so preventDefault() is allowed.
+  // React's synthetic onWheel is passive by default and blocks preventDefault.
+  useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
-      setScrollOffsetX(scrollOffsetX + e.deltaX + e.deltaY);
-    },
-    [scrollOffsetX],
-  );
+      const newOffset = scrollOffsetXRef.current + e.deltaX + e.deltaY;
+      const maxOffset = Math.max(0, totalContentWidthRef.current - laneWidthRef.current);
+      setScrollOffsetX(Math.max(0, Math.min(newOffset, maxOffset)));
+    };
+
+    const ruler = rulerWrapperRef.current;
+    const trackList = trackListWrapperRef.current;
+    ruler?.addEventListener('wheel', handleWheel, { passive: false });
+    trackList?.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      ruler?.removeEventListener('wheel', handleWheel);
+      trackList?.removeEventListener('wheel', handleWheel);
+    };
+  }, []);
+
+  // Compute playhead needle position within the track list wrapper.
+  // The needle left is relative to the wrapper, which starts at the left edge
+  // of the header column. Add TRACK_HEADER_WIDTH so needle sits in the lane area.
+  const playheadPx = playheadFrame * pxPerFrame - scrollOffsetX + TRACK_HEADER_WIDTH;
+  const playheadVisible = playheadPx >= TRACK_HEADER_WIDTH && playheadPx <= TRACK_HEADER_WIDTH + laneWidth;
 
   return (
     <div ref={panelRef} style={styles.panel} aria-label="Timeline">
@@ -135,7 +166,7 @@ export function TimelinePanel({
       {/* Ruler row — offset by header width so it aligns with the clip lane */}
       <div style={styles.rulerRow}>
         <div style={{ width: TRACK_HEADER_WIDTH, flexShrink: 0 }} aria-hidden="true" />
-        <div style={styles.rulerWrapper} onWheel={handleLaneWheel}>
+        <div ref={rulerWrapperRef} style={styles.rulerWrapper}>
           <TimelineRuler
             durationFrames={durationFrames}
             pxPerFrame={pxPerFrame}
@@ -146,14 +177,16 @@ export function TimelinePanel({
         </div>
       </div>
 
-      {/* Track list */}
-      <div style={styles.trackListWrapper} onWheel={handleLaneWheel}>
+      {/* Track list with absolute-positioned playhead overlay */}
+      <div ref={trackListWrapperRef} style={styles.trackListWrapper}>
         <TrackList
+          projectId={projectId}
           tracks={tracks}
           clips={clips}
           pxPerFrame={pxPerFrame}
           selectedClipIds={selectedClipIdSet}
           laneWidth={laneWidth}
+          scrollOffsetX={scrollOffsetX}
           height={TRACK_LIST_HEIGHT}
           dragInfo={dragInfo}
           onClipPointerDown={onClipPointerDown}
@@ -164,72 +197,34 @@ export function TimelinePanel({
           onToggleMute={onToggleMute}
           onToggleLock={onToggleLock}
         />
+        {/* Playhead needle — always mounted; rAF bridge mutates left/display directly.
+            React-controlled left/display remain correct after pause and on re-renders. */}
+        <div
+          ref={needleRef}
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: playheadPx,
+            width: 2,
+            height: '100%',
+            background: PLAYHEAD_COLOR,
+            pointerEvents: 'none',
+            zIndex: 20,
+            display: playheadVisible ? 'block' : 'none',
+          }}
+        />
       </div>
+
+      {/* Horizontal scrollbar strip */}
+      <ScrollbarStrip
+        scrollOffsetX={scrollOffsetX}
+        laneWidth={laneWidth}
+        totalContentWidth={totalContentWidth}
+        scrollOffsetXRef={scrollOffsetXRef}
+        headerWidth={TRACK_HEADER_WIDTH}
+      />
     </div>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  panel: {
-    height: TIMELINE_PANEL_HEIGHT,
-    flexShrink: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    background: '#0D0D14',
-    borderTop: `1px solid ${BORDER}`,
-    overflow: 'hidden',
-  },
-  toolbar: {
-    height: TOOLBAR_HEIGHT,
-    background: SURFACE_ALT,
-    borderBottom: `1px solid ${BORDER}`,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 4,
-    padding: '0 8px',
-    flexShrink: 0,
-  },
-  toolbarButton: {
-    width: 24,
-    height: 24,
-    background: 'transparent',
-    border: `1px solid ${BORDER}`,
-    borderRadius: 4,
-    color: '#F0F0FA',
-    fontSize: 14,
-    fontFamily: 'Inter, sans-serif',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 0,
-    flexShrink: 0,
-  },
-  zoomLabel: {
-    color: TEXT_SECONDARY,
-    fontSize: 11,
-    fontFamily: 'Inter, sans-serif',
-    minWidth: 48,
-    textAlign: 'center',
-  },
-  trackCount: {
-    marginLeft: 'auto',
-    color: TEXT_SECONDARY,
-    fontSize: 11,
-    fontFamily: 'Inter, sans-serif',
-  },
-  rulerRow: {
-    display: 'flex',
-    flexShrink: 0,
-    background: '#0D0D14',
-    borderBottom: `1px solid ${BORDER}`,
-  },
-  rulerWrapper: {
-    flex: 1,
-    overflow: 'hidden',
-  },
-  trackListWrapper: {
-    flex: 1,
-    overflow: 'hidden',
-  },
-};

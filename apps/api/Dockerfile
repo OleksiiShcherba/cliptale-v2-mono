@@ -12,6 +12,7 @@ RUN npm install --workspace=apps/api --workspace=packages/project-schema
 COPY packages/project-schema ./packages/project-schema
 COPY apps/api ./apps/api
 
+RUN npm run build --workspace=packages/project-schema
 RUN npm run build --workspace=apps/api
 
 EXPOSE 3001

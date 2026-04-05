@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import type { ProjectDoc } from '@ai-video-editor/project-schema';
+import type { Clip, ProjectDoc } from '@ai-video-editor/project-schema';
 
 import {
   getSnapshot,
@@ -51,10 +51,39 @@ describe('project-store', () => {
       expect(getSnapshot().title).toBe('My Project');
     });
 
-    it('snapshot after setProject equals the provided document', () => {
-      const doc = makeDoc();
+    it('snapshot after setProject carries through all non-derived fields', () => {
+      const doc = makeDoc({ title: 'Checked Fields' });
       setProject(doc);
-      expect(getSnapshot()).toEqual(doc);
+      const snap = getSnapshot();
+      expect(snap.id).toBe(doc.id);
+      expect(snap.title).toBe(doc.title);
+      expect(snap.fps).toBe(doc.fps);
+      expect(snap.width).toBe(doc.width);
+      expect(snap.height).toBe(doc.height);
+    });
+
+    it('derives durationFrames from clips rather than using the value passed by caller', () => {
+      // makeDoc uses durationFrames: 300 and clips: [], so durationFrames is derived as fps*5=150
+      const doc = makeDoc({ durationFrames: 300 });
+      setProject(doc);
+      expect(getSnapshot().durationFrames).toBe(150);
+    });
+
+    it('derives durationFrames from non-empty clips correctly', () => {
+      const clip: Clip = {
+        id: '00000000-0000-0000-0000-000000000099',
+        type: 'video',
+        assetId: '00000000-0000-0000-0000-000000000098',
+        trackId: '00000000-0000-0000-0000-000000000097',
+        startFrame: 0,
+        durationFrames: 600,
+        trimInFrame: 0,
+        opacity: 1,
+        volume: 1,
+      };
+      setProject(makeDoc({ clips: [clip], durationFrames: 999 }));
+      // clip ends at frame 600; 600 > fps*5 (150), so result is 600
+      expect(getSnapshot().durationFrames).toBe(600);
     });
 
     it('notifies subscribers when the project changes', () => {

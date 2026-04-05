@@ -37,8 +37,20 @@ export const textOverlayClipSchema = z.object({
   position: z.enum(['top', 'center', 'bottom']).default('bottom'),
 });
 
+/** A static image clip referencing an uploaded image asset. No trim or volume fields — images are not trimmed or silent. */
+export const imageClipSchema = z.object({
+  id: z.string().uuid(),
+  type: z.literal('image'),
+  assetId: z.string().uuid(),
+  trackId: z.string().uuid(),
+  startFrame: z.number().int().nonnegative(),
+  durationFrames: z.number().int().positive(),
+  opacity: z.number().min(0).max(1).default(1),
+});
+
 export const clipSchema = z.discriminatedUnion('type', [
   videoClipSchema,
   audioClipSchema,
   textOverlayClipSchema,
+  imageClipSchema,
 ]);

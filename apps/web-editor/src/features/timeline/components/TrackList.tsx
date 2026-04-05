@@ -13,14 +13,17 @@ import type { TrimDragInfo } from '../hooks/useClipTrim';
 const BORDER = '#252535';
 
 /** Width of the track header column in pixels (matches TrackHeader). */
-export const TRACK_HEADER_WIDTH = 160;
+export const TRACK_HEADER_WIDTH = 64;
 
-interface TrackRowData {
+type TrackRowData = {
+  projectId: string;
   tracks: Track[];
   clips: ReadonlyArray<Clip & { layer?: number }>;
   pxPerFrame: number;
   selectedClipIds: ReadonlySet<string>;
   laneWidth: number;
+  /** Horizontal scroll offset forwarded to each ClipLane. */
+  scrollOffsetX: number;
   assetDataMap: Readonly<Record<string, ClipAssetData>>;
   dragInfo: ClipDragInfo | null;
   onClipPointerDown: (e: React.PointerEvent, clipId: string, isLocked: boolean) => void;
@@ -68,11 +71,13 @@ function TrackRow({ index, style, data }: TrackRowProps): React.ReactElement {
         onToggleLock={data.onToggleLock}
       />
       <ClipLane
+        projectId={data.projectId}
         track={track}
         clips={trackClips}
         pxPerFrame={data.pxPerFrame}
         selectedClipIds={data.selectedClipIds}
         width={data.laneWidth}
+        scrollOffsetX={data.scrollOffsetX}
         assetDataMap={data.assetDataMap}
         dragInfo={data.dragInfo}
         onClipPointerDown={data.onClipPointerDown}
@@ -85,6 +90,7 @@ function TrackRow({ index, style, data }: TrackRowProps): React.ReactElement {
 }
 
 interface TrackListProps {
+  projectId: string;
   tracks: Track[];
   /** All project clips (filtered per-track inside TrackRow). */
   clips: ReadonlyArray<Clip & { layer?: number }>;
@@ -94,6 +100,8 @@ interface TrackListProps {
   selectedClipIds: ReadonlySet<string>;
   /** Width available for the clip lane area (total width minus header width). */
   laneWidth: number;
+  /** Horizontal scroll offset of the clip lane in pixels. Forwarded to ClipLane. */
+  scrollOffsetX: number;
   /** Height of the visible list viewport in pixels. */
   height: number;
   /** Optional asset lookup map for thumbnail/waveform. */
@@ -135,11 +143,13 @@ interface TrackListProps {
  * scrollable content area with absolutely-positioned `ClipBlock`s).
  */
 export function TrackList({
+  projectId,
   tracks,
   clips,
   pxPerFrame,
   selectedClipIds,
   laneWidth,
+  scrollOffsetX,
   height,
   assetDataMap = {},
   dragInfo,
@@ -154,11 +164,13 @@ export function TrackList({
   const totalWidth = TRACK_HEADER_WIDTH + laneWidth;
 
   const itemData: TrackRowData = {
+    projectId,
     tracks,
     clips,
     pxPerFrame,
     selectedClipIds,
     laneWidth,
+    scrollOffsetX,
     assetDataMap,
     dragInfo,
     onClipPointerDown,

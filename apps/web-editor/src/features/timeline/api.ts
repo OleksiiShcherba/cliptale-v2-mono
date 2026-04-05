@@ -1,11 +1,40 @@
 import { apiClient } from '@/lib/api-client';
+import type { Clip } from '@ai-video-editor/project-schema';
 
 /** Fields that can be partially updated on a clip via PATCH. */
-export interface ClipPatchPayload {
+export type ClipPatchPayload = {
   startFrame?: number;
   durationFrames?: number;
   trimInFrames?: number;
   trimOutFrames?: number;
+}
+
+/**
+ * POSTs a new clip row to project_clips_current.
+ * Called after split/duplicate to ensure the new clip ID exists in the DB
+ * before any subsequent PATCH operations are attempted.
+ */
+export async function createClip(projectId: string, clip: Clip): Promise<void> {
+  const assetId = 'assetId' in clip ? (clip as { assetId: string }).assetId : undefined;
+  const trimInFrame = 'trimInFrame' in clip ? (clip as { trimInFrame?: number }).trimInFrame : undefined;
+  const trimOutFrame = 'trimOutFrame' in clip ? (clip as { trimOutFrame?: number }).trimOutFrame : undefined;
+  const layer = 'layer' in clip ? (clip as { layer?: number }).layer : undefined;
+
+  const res = await apiClient.post(`/projects/${projectId}/clips`, {
+    clipId: clip.id,
+    trackId: clip.trackId,
+    type: clip.type,
+    assetId: assetId ?? null,
+    startFrame: clip.startFrame,
+    durationFrames: clip.durationFrames,
+    trimInFrames: trimInFrame ?? 0,
+    trimOutFrames: trimOutFrame ?? null,
+    layer: layer ?? 0,
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to create clip ${clip.id}: ${res.status}`);
+  }
 }
 
 /**

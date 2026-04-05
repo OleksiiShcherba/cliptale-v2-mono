@@ -3,18 +3,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundError, ForbiddenError } from '@/lib/errors.js';
 
 // ── Hoist shared mock objects ─────────────────────────────────────────────────
-const { mockGetClip, mockPatchClip } = vi.hoisted(() => ({
+const { mockGetClip, mockPatchClip, mockInsertClip } = vi.hoisted(() => ({
   mockGetClip: vi.fn(),
   mockPatchClip: vi.fn(),
+  mockInsertClip: vi.fn(),
 }));
 
 vi.mock('@/repositories/clip.repository.js', () => ({
   getClipByIdAndProject: mockGetClip,
   patchClip: mockPatchClip,
+  insertClip: mockInsertClip,
 }));
 
 // ── Import SUT after mocks are registered ────────────────────────────────────
-import { patchClip } from './clip.service.js';
+import { patchClip, createClip } from './clip.service.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -44,6 +46,46 @@ beforeEach(() => {
 });
 
 describe('clip.service', () => {
+  describe('createClip', () => {
+    const baseInsert = {
+      clipId: 'new-clip-uuid-001',
+      projectId: 'proj-uuid-001',
+      trackId: 'track-uuid-001',
+      type: 'video' as const,
+      startFrame: 0,
+      durationFrames: 30,
+    };
+
+    it('calls insertClip with the provided params on success', async () => {
+      mockInsertClip.mockResolvedValue(undefined);
+
+      await createClip(baseInsert);
+
+      expect(mockInsertClip).toHaveBeenCalledWith(baseInsert);
+    });
+
+    it('propagates errors thrown by insertClip (e.g. duplicate clipId)', async () => {
+      mockInsertClip.mockRejectedValue(new Error('Duplicate entry'));
+
+      await expect(createClip(baseInsert)).rejects.toThrow('Duplicate entry');
+    });
+
+    it('passes optional fields (assetId, trimInFrames, layer) through to insertClip', async () => {
+      mockInsertClip.mockResolvedValue(undefined);
+      const params = {
+        ...baseInsert,
+        assetId: 'asset-uuid-001',
+        trimInFrames: 5,
+        trimOutFrames: null,
+        layer: 2,
+      };
+
+      await createClip(params);
+
+      expect(mockInsertClip).toHaveBeenCalledWith(params);
+    });
+  });
+
   describe('patchClip', () => {
     it('returns updated clip when clip exists and patch is valid', async () => {
       const updated = { ...baseClip, startFrame: 10 };

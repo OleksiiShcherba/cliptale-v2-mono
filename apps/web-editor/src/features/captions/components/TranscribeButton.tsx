@@ -44,17 +44,20 @@ const STATUS_COLOR: Record<ButtonState, string> = {
  * - added      → user added captions to timeline; button disabled with confirmation
  * - error      → non-404 error from server; shows retry
  *
- * On mount, `assetId` is always passed to `useTranscriptionStatus` so that assets
- * with existing captions show the correct state without requiring the user to click
- * "Transcribe" first.
+ * `useTranscriptionStatus` is enabled only after the user clicks "Transcribe" —
+ * no caption polling happens on mount.
  */
 export function TranscribeButton({ assetId }: TranscribeButtonProps): React.ReactElement {
   const [isTriggering, setIsTriggering] = useState(false);
   const [hasPendingTranscription, setHasPendingTranscription] = useState(false);
   const [captionsAdded, setCaptionsAdded] = useState(false);
 
-  // Always pass assetId so the hook fetches on mount and detects existing captions.
-  const { status: queryStatus, segments, isFetching } = useTranscriptionStatus(assetId);
+  // Always fetch once on mount to detect existing captions.
+  // Polling (3 s interval) only activates after the user triggers transcription.
+  const { status: queryStatus, segments, isFetching } = useTranscriptionStatus(
+    assetId,
+    hasPendingTranscription,
+  );
   const { addCaptionsToTimeline } = useAddCaptionsToTimeline();
 
   // Derive the effective button state.

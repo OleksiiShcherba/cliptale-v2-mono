@@ -12,7 +12,7 @@ const WARNING = '#F59E0B';
 const SURFACE_ELEVATED = '#1E1E2E';
 
 /** Width of the track header column in pixels. */
-export const TRACK_HEADER_WIDTH = 160;
+export const TRACK_HEADER_WIDTH = 64;
 
 /** Height of each track row in pixels (shared with ClipLane). */
 export const TRACK_ROW_HEIGHT = 48;

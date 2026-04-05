@@ -1,5 +1,8 @@
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { PlayerRef } from '@remotion/player';
+
+import type { TextOverlayClip } from '@ai-video-editor/project-schema';
 
 import { AssetBrowserPanel } from '@/features/asset-manager/components/AssetBrowserPanel';
 import { PreviewPanel } from '@/features/preview/components/PreviewPanel';
@@ -11,9 +14,9 @@ import { TimelinePanel } from '@/features/timeline/components/TimelinePanel';
 import { useRemotionPlayer } from '@/features/preview/hooks/useRemotionPlayer';
 import { useEphemeralStore } from '@/store/ephemeral-store';
 import { useProjectStore, getSnapshot as getProjectSnapshot, setProject, getCurrentVersionId } from '@/store/project-store';
-import { TopBar } from './TopBar';
 import { DEV_PROJECT_ID } from '@/lib/constants';
-import type { TextOverlayClip } from '@ai-video-editor/project-schema';
+
+import { TopBar } from './TopBar';
 
 // Re-export for test compatibility and backward compat with existing consumers.
 export { DEV_PROJECT_ID };
@@ -33,9 +36,24 @@ const queryClient = new QueryClient();
 /**
  * Owns the Remotion playerRef and passes it to both PreviewPanel and
  * PlaybackControls so they share the same Player instance.
+ *
+ * Also subscribes to `playheadFrame` from the ephemeral store and calls
+ * `playerRef.current.seekTo()` whenever it changes while the player is not
+ * playing. This ensures that ruler clicks, keyboard shortcuts, and any other
+ * `setPlayheadFrame` callers automatically drive the Remotion player.
  */
 export function PreviewSection(): React.ReactElement {
   const { playerRef } = useRemotionPlayer();
+  const { playheadFrame } = useEphemeralStore();
+
+  React.useEffect(() => {
+    const player = playerRef.current as (PlayerRef & { isPlaying?: () => boolean }) | null;
+    if (!player) return;
+    const playing = typeof player.isPlaying === 'function' ? player.isPlaying() : false;
+    if (!playing) {
+      player.seekTo(playheadFrame);
+    }
+  }, [playheadFrame, playerRef]);
 
   return (
     <div style={styles.previewSection}>
@@ -209,12 +227,10 @@ const styles = {
   } as React.CSSProperties,
 
   sidebar: {
-    width: '320px',
     flexShrink: 0,
     background: SURFACE_ALT,
     display: 'flex',
     flexDirection: 'column' as const,
-    overflow: 'hidden',
   } as React.CSSProperties,
 
   verticalDivider: {

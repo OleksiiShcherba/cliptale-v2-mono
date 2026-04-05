@@ -75,7 +75,8 @@ export function useAutosave(): UseAutosaveResult {
 
     try {
       const result = await saveVersion(DEV_PROJECT_ID, {
-        doc_json: doc,
+        docJson: doc,
+        docSchemaVersion: doc.schemaVersion,
         patches,
         inversePatches,
         parentVersionId,

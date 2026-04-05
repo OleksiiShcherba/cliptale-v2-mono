@@ -26,7 +26,7 @@ vi.mock('@/features/preview/components/PlaybackControls', () => ({
 }));
 
 vi.mock('@/features/preview/hooks/useRemotionPlayer', () => ({
-  useRemotionPlayer: () => ({ playerRef: { current: null } }),
+  useRemotionPlayer: vi.fn(() => ({ playerRef: { current: null } })),
 }));
 
 vi.mock('@/features/captions/components/CaptionEditorPanel', () => ({
@@ -76,12 +76,14 @@ vi.mock('@/features/timeline/components/TimelinePanel', () => ({
 import * as ephemeralStoreModule from '@/store/ephemeral-store';
 import * as projectStoreModule from '@/store/project-store';
 import * as autosaveModule from '@/features/version-history/hooks/useAutosave';
+import * as useRemotionPlayerModule from '@/features/preview/hooks/useRemotionPlayer';
 import { App, PreviewSection, DEV_PROJECT_ID } from './App.js';
 import { makeProjectDoc } from './App.fixtures';
 
 const mockUseEphemeralStore = vi.mocked(ephemeralStoreModule.useEphemeralStore);
 const mockUseProjectStore = vi.mocked(projectStoreModule.useProjectStore);
 const mockUseAutosave = vi.mocked(autosaveModule.useAutosave);
+const mockUseRemotionPlayer = vi.mocked(useRemotionPlayerModule.useRemotionPlayer);
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -262,6 +264,20 @@ describe('App', () => {
 });
 
 describe('PreviewSection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Restore default useRemotionPlayer return value so Bug 3 tests don't
+    // pollute the simple render assertions above.
+    mockUseRemotionPlayer.mockReturnValue({ playerRef: { current: null } });
+    mockUseEphemeralStore.mockReturnValue({
+      selectedClipIds: [],
+      playheadFrame: 0,
+      zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
+    });
+  });
+
   it('renders PreviewPanel', () => {
     render(<PreviewSection />);
     expect(screen.getByTestId('preview-panel')).toBeTruthy();
@@ -278,6 +294,97 @@ describe('PreviewSection', () => {
     const children = Array.from(section.children);
     expect(children[0]?.querySelector('[data-testid="preview-panel"]')).toBeTruthy();
     expect(children[1]?.getAttribute('data-testid')).toBe('playback-controls');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Bug 3 — ruler click seeks Remotion player (useEffect on playheadFrame)
+  // ---------------------------------------------------------------------------
+
+  it('calls player.seekTo with playheadFrame when playheadFrame changes and player is not playing (Bug 3)', () => {
+    const seekTo = vi.fn();
+    const mockPlayer = { seekTo, isPlaying: () => false };
+
+    mockUseRemotionPlayer.mockReturnValue({
+      playerRef: { current: mockPlayer } as unknown as React.RefObject<import('@remotion/player').PlayerRef | null>,
+    });
+    mockUseEphemeralStore.mockReturnValue({
+      selectedClipIds: [],
+      playheadFrame: 0,
+      zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
+    });
+
+    const { rerender } = render(<PreviewSection />);
+    seekTo.mockClear();
+
+    // Simulate a playheadFrame change (e.g. ruler click) while not playing.
+    mockUseEphemeralStore.mockReturnValue({
+      selectedClipIds: [],
+      playheadFrame: 45,
+      zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
+    });
+    rerender(<PreviewSection />);
+
+    expect(seekTo).toHaveBeenCalledWith(45);
+  });
+
+  it('does NOT call player.seekTo when player is currently playing (Bug 3)', () => {
+    const seekTo = vi.fn();
+    const mockPlayer = { seekTo, isPlaying: () => true };
+
+    mockUseRemotionPlayer.mockReturnValue({
+      playerRef: { current: mockPlayer } as unknown as React.RefObject<import('@remotion/player').PlayerRef | null>,
+    });
+    mockUseEphemeralStore.mockReturnValue({
+      selectedClipIds: [],
+      playheadFrame: 0,
+      zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
+    });
+
+    const { rerender } = render(<PreviewSection />);
+    seekTo.mockClear();
+
+    // Change playheadFrame but player is still playing — seekTo must NOT be called.
+    mockUseEphemeralStore.mockReturnValue({
+      selectedClipIds: [],
+      playheadFrame: 90,
+      zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
+    });
+    rerender(<PreviewSection />);
+
+    expect(seekTo).not.toHaveBeenCalled();
+  });
+
+  it('does not throw when playerRef.current is null and playheadFrame changes (Bug 3)', () => {
+    mockUseRemotionPlayer.mockReturnValue({
+      playerRef: { current: null },
+    });
+    mockUseEphemeralStore.mockReturnValue({
+      selectedClipIds: [],
+      playheadFrame: 0,
+      zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
+    });
+
+    const { rerender } = render(<PreviewSection />);
+
+    mockUseEphemeralStore.mockReturnValue({
+      selectedClipIds: [],
+      playheadFrame: 30,
+      zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
+    });
+
+    expect(() => rerender(<PreviewSection />)).not.toThrow();
   });
 });
 

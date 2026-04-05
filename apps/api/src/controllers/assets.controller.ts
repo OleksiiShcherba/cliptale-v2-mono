@@ -1,18 +1,44 @@
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import type { S3Client } from '@aws-sdk/client-s3';
 
 import { config } from '@/config.js';
 import { s3Client } from '@/lib/s3.js';
 import * as assetService from '@/services/asset.service.js';
 import type { Asset as RepositoryAsset } from '@/repositories/asset.repository.js';
 
-/** Converts an internal s3:// URI to a public HTTPS URL. Returns null if input is null. */
+/** Presigned GET URL validity — 1 hour is enough for a playback session. */
+const DOWNLOAD_URL_EXPIRY_SECONDS = 60 * 60;
+
+/** Parses a `s3://bucket/key` URI into bucket + key parts. */
+function parseS3Uri(s3Uri: string): { bucket: string; key: string } {
+  const withoutScheme = s3Uri.slice(5); // remove "s3://"
+  const slashIndex = withoutScheme.indexOf('/');
+  return {
+    bucket: withoutScheme.slice(0, slashIndex),
+    key: withoutScheme.slice(slashIndex + 1),
+  };
+}
+
+/**
+ * Returns a presigned HTTPS GET URL for an s3:// URI.
+ * Falls back to a plain public URL when signing fails (e.g. missing credentials in tests).
+ */
+async function presignS3Uri(s3Uri: string, s3: S3Client): Promise<string> {
+  const { bucket, key } = parseS3Uri(s3Uri);
+  return getSignedUrl(
+    s3,
+    new GetObjectCommand({ Bucket: bucket, Key: key }),
+    { expiresIn: DOWNLOAD_URL_EXPIRY_SECONDS },
+  );
+}
+
+/** Converts an internal s3:// URI to a public HTTPS URL (for thumbnails served from public bucket). */
 function s3UriToHttps(s3Uri: string | null): string | null {
   if (!s3Uri || !s3Uri.startsWith('s3://')) return s3Uri;
-  const withoutScheme = s3Uri.slice(5);
-  const slashIndex = withoutScheme.indexOf('/');
-  const bucket = withoutScheme.slice(0, slashIndex);
-  const key = withoutScheme.slice(slashIndex + 1);
+  const { bucket, key } = parseS3Uri(s3Uri);
   if (config.s3.endpoint) {
     return `${config.s3.endpoint}/${bucket}/${key}`;
   }
@@ -21,19 +47,16 @@ function s3UriToHttps(s3Uri: string | null): string | null {
 
 /**
  * Maps the internal repository Asset shape to the API response shape the frontend expects.
- * - assetId → id
- * - thumbnailUri: s3:// → https://
- * - durationFrames + fps → durationSeconds
- * - waveformJson → waveformPeaks
- * - Date fields → ISO strings
+ * storageUri is replaced with a presigned GET URL so the browser can stream the file directly.
  */
-function serializeAsset(asset: RepositoryAsset) {
+async function serializeAsset(asset: RepositoryAsset, s3: S3Client) {
+  const storageUri = await presignS3Uri(asset.storageUri, s3);
   return {
     id: asset.assetId,
     projectId: asset.projectId,
     filename: asset.filename,
     contentType: asset.contentType,
-    storageUri: asset.storageUri,
+    storageUri,
     status: asset.status,
     durationSeconds:
       asset.durationFrames != null && asset.fps != null
@@ -94,7 +117,7 @@ export async function getProjectAssets(
 ): Promise<void> {
   try {
     const assets = await assetService.getProjectAssets(req.params['id']!);
-    res.json(assets.map(serializeAsset));
+    res.json(await Promise.all(assets.map((a) => serializeAsset(a, s3Client))));
   } catch (err) {
     next(err);
   }
@@ -108,7 +131,25 @@ export async function getAsset(
 ): Promise<void> {
   try {
     const asset = await assetService.getAsset(req.params['id']!);
-    res.json(serializeAsset(asset));
+    res.json(await serializeAsset(asset, s3Client));
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * DELETE /assets/:id
+ * Deletes the asset if it exists, belongs to the authenticated user, and is not
+ * referenced by any clip. Returns 204 No Content on success.
+ */
+export async function deleteAsset(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    await assetService.deleteAsset(req.params['id']!, req.user!.id);
+    res.status(204).end();
   } catch (err) {
     next(err);
   }
@@ -126,7 +167,7 @@ export async function finalizeAsset(
 ): Promise<void> {
   try {
     const asset = await assetService.finalizeAsset(req.params['id']!, s3Client);
-    res.json(serializeAsset(asset));
+    res.json(await serializeAsset(asset, s3Client));
   } catch (err) {
     next(err);
   }

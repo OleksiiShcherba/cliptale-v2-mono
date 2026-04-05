@@ -23,6 +23,18 @@ const clipPatchRateLimit = rateLimit({
   message: { error: 'Too many clip updates — please slow down' },
 });
 
+// POST /projects/:id/clips
+// Creates a new clip row in project_clips_current.
+// Called after split/duplicate to persist newly-generated clip IDs.
+// Returns 201 { clipId } on success.
+router.post(
+  '/projects/:id/clips',
+  authMiddleware,
+  aclMiddleware('editor'),
+  validateBody(clipsController.createClipSchema),
+  clipsController.createClip,
+);
+
 // PATCH /projects/:id/clips/:clipId
 // Partially updates mutable timeline fields of a single clip without creating
 // a version snapshot. Intended for high-frequency drag/trim events (≤60 req/s).

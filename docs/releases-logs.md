@@ -2602,3 +2602,783 @@ checked by design-reviewer - YES
 - Assets stay in `processing` until media-worker is running
 - Pre-existing TypeScript errors in `PlaybackControls.tsx`, `PreviewPanel.tsx`, `usePlaybackControls.ts`, `config.ts`
 - Two pre-existing integration test failures in `assets-endpoints.test.ts`, `assets-finalize-endpoint.test.ts`
+
+---
+## Release Snapshot — 2026-04-05 13:46 UTC
+
+# Development Log (compacted — 2026-03-29 to 2026-04-04)
+
+## Monorepo Scaffold (Epic 1)
+- added: `package.json`, `turbo.json` — npm workspaces, Turborepo pipeline
+- added: root `tsconfig.json`, `.env.example`, `.gitignore`, `docker-compose.yml` (MySQL 8 + Redis 7)
+- added: `apps/api/` — Express + helmet + cors + rate-limit; BullMQ queue stubs
+- added: `apps/web-editor/` — React 18 + Vite; `apps/media-worker/`, `apps/render-worker/` — BullMQ stubs
+- added: `packages/project-schema/` — Zod schemas: `ProjectDoc`, `Track`, `Clip` union
+- added: `packages/remotion-comps/` — `VideoComposition` + layer components
+- tested: `clip.schema.test.ts` (14), `project-doc.schema.test.ts` (7)
+- fixed: `APP_` env prefix; Zod startup validation; `VITE_PUBLIC_API_BASE_URL`; `workspace:*` → `file:` paths
+
+## DB Migrations
+- added: `001_project_assets_current.sql` — `project_assets_current` table; tested `migration-001.test.ts`
+- added: `002_caption_tracks.sql` — `caption_tracks` table; tested `migration-002.test.ts`
+- added: `003_project_versions.sql` — `projects`, `project_versions`, `project_version_patches`, `project_audit_log`; tested `migration-003.test.ts` + `migration-003.patches-audit.test.ts`
+- added: `004_render_jobs.sql` — `render_jobs` table (job_id, project_id, version_id, status ENUM, progress_pct, preset_json, output_uri); 4 indexes; tested `migration-004.test.ts` (13)
+
+## Redis + BullMQ Infrastructure (Epic 1)
+- updated: `docker-compose.yml` Redis healthcheck; `bullmq.ts` error handlers
+- updated: media-worker + render-worker — error handlers, graceful shutdown, concurrency settings
+- fixed: `@/` alias + `tsc-alias` in api tsconfig
+
+## Asset Upload Pipeline (Epic 1)
+- added: `errors.ts` — `ValidationError`, `NotFoundError`, `ForbiddenError`, `UnauthorizedError`, `ConflictError`, `OptimisticLockError`
+- added: `s3.ts`, `validate.middleware.ts`, `auth.middleware.ts`, `acl.middleware.ts`
+- added: `asset.repository.ts`, `asset.service.ts`, `assets.controller.ts`, `assets.routes.ts`
+- added: `POST /projects/:id/assets/upload-url`, `GET /assets/:id`, `GET /projects/:id/assets`
+- added: `enqueue-ingest.ts` — idempotency, 3 retries, exponential backoff
+- added: `POST /assets/:id/finalize` with `aclMiddleware('editor')`
+- tested: `asset.service.test.ts` (13), `assets-endpoints.test.ts`, `asset.finalize.service.test.ts` (7), `assets-finalize-endpoint.test.ts` (6)
+
+## Media Worker — Ingest Job (Epic 1)
+- added: `MediaIngestJobPayload` in `job-payloads.ts`
+- added: `media-worker/src/jobs/ingest.job.ts` — S3 download → FFprobe → thumbnail → waveform → S3 upload → DB ready
+- added: `media-worker/Dockerfile` — node:20-alpine + ffmpeg; updated `docker-compose.yml`
+- tested: `ingest.job.test.ts` (11)
+
+## Asset Browser Panel + Upload UI (Epic 1)
+- added: `features/asset-manager/` — `types.ts`, `api.ts`, `useAssetUpload.ts`, `useAssetPolling.ts`, `AssetCard.tsx`, `AssetDetailPanel.tsx`, `UploadDropzone.tsx`, `UploadProgressList.tsx`, `AssetBrowserPanel.tsx`
+- tested: `useAssetUpload.test.ts` (7), `useAssetPolling.test.ts` (6)
+
+## VideoComposition + Storybook (Epic 2)
+- updated: `VideoComposition.tsx` — z-order sort, muted filtering, `trimInFrame`→`startFrom`/`trimOutFrame`→`endAt`
+- extracted: `VideoComposition.utils.ts` (`prepareClipsForComposition`)
+- added: Storybook config + `VideoComposition.stories.tsx` (5 stories)
+- tested: `VideoComposition.test.tsx` (15), `VideoComposition.utils.test.ts` (7)
+
+## Stores (Epic 2)
+- added: `project-store.ts` — `useSyncExternalStore` singleton; `getSnapshot`, `subscribe`, `setProject`; dev fixture
+- added: `ephemeral-store.ts` — `playheadFrame`, `selectedClipIds`, `zoom`; no-op skip on unchanged
+- tested: `project-store.test.ts` (9), `ephemeral-store.test.ts` (14)
+
+## PreviewPanel + PlaybackControls (Epic 2)
+- added: `useRemotionPlayer.ts`, `PreviewPanel.tsx`, `usePlaybackControls.ts`, `PlaybackControls.tsx`, `formatTimecode.ts`
+- fixed: rAF tick missing `setCurrentFrameState` — frame counter frozen during playback
+- tested: `useRemotionPlayer.test.ts` (11), `PlaybackControls.test.tsx` (18), `usePlaybackControls.test.ts` (44)
+
+## Dev Auth Bypass + App Shell (Epic 2)
+- updated: `auth.middleware.ts`, `acl.middleware.ts` — `NODE_ENV=development` early-return with `DEV_USER`
+- added: `App.tsx` — two-column shell: `AssetBrowserPanel` + `PreviewSection` + conditional `RightSidebar`
+- tested: `App.test.tsx` (10)
+- fixed: `docker-compose.yml` tsx watch order; `NODE_ENV: development` missing; `serializeAsset()` mapping
+
+## Playwright E2E (Epic 2)
+- added: `@playwright/test` (^1.59.1); `e2e/app-shell.spec.ts` (3), `e2e/preview.spec.ts` (6), `e2e/asset-manager.spec.ts` (10)
+
+## Captions / Transcription (Epic 3)
+- added: `TranscriptionJobPayload`; `enqueue-transcription.ts`; `caption.repository.ts`, `caption.service.ts`, `captions.controller.ts`, `captions.routes.ts`
+- added: `POST /assets/:id/transcribe` (202), `GET /assets/:id/captions` (200/404)
+- added: `openai ^4.0.0`; `transcribe.job.ts` — S3 → Whisper → DB
+- added: FE `features/captions/` — `TranscribeButton.tsx`, `useAddCaptionsToTimeline.ts`, `CaptionEditorPanel.tsx`, `useCaptionEditor.ts`
+- tested: `caption.service.test.ts` (8), `captions-endpoints.test.ts`, `transcribe.job.test.ts` (12), `useTranscriptionStatus.test.ts` (7), `TranscribeButton.test.tsx`, `CaptionEditorPanel.test.tsx` (20)
+
+## Version History & Rollback — BE (Epic 4)
+- added: `version.repository.ts` — `insertVersionTransaction`, `getLatestVersionId`, `getVersionById`, `listVersions`, `restoreVersionTransaction`, `getConnection`
+- added: `version.service.ts` — schema version validation (422), optimistic lock (409), transaction lifecycle
+- added: `versions.controller.ts`, `versions.routes.ts` — `POST /projects/:id/versions`, `GET /projects/:id/versions`, `POST .../restore`
+- updated: `errors.ts` — added `UnprocessableEntityError` (422)
+- tested: `version.service.test.ts` (21), `versions-persist-endpoint.test.ts` (10), `versions-list-restore-endpoint.test.ts` (14)
+
+## Version History & Rollback — FE (Epic 4)
+- updated: `project-store.ts` — `enablePatches()`, `produceWithPatches`, `getCurrentVersionId`/`setCurrentVersionId`
+- added: `history-store.ts` — `pushPatches`, `undo`, `redo`, `drainPatches`, `hasPendingPatches`
+- added: `useAutosave.ts` — debounce 2s, drainPatches, POST to API, `beforeunload` flush, `saveStatus`, `hasEverEdited`
+- added: `useVersionHistory.ts` — React Query list; `restoreToVersion` → setProject + setCurrentVersionId + invalidate
+- added: `VersionHistoryPanel.tsx`, `RestoreModal.tsx`, `TopBar.tsx`, `SaveStatusBadge.tsx`
+- updated: `App.tsx` — column layout, TopBar, history toggle, `isHistoryOpen` state
+- tested: `history-store.test.ts` (29), `useAutosave.test.ts` (18), `useVersionHistory.test.ts` (9), `VersionHistoryPanel.test.tsx` (22), `RestoreModal.test.tsx` (20)
+
+## Client Feedback Fixes (Epic 5)
+- updated: `TopBar.tsx` — `canExport` prop; disabled style (`aria-disabled`, tooltip) when `currentVersionId` is null
+- updated: `App.tsx` — passes `canExport={currentVersionId !== null}`
+- updated: `features/export/api.ts` — 409 → `CONCURRENT_RENDER_LIMIT_MESSAGE` user-friendly error; raw backend string never surfaced
+- tested: `TopBar.test.tsx` (14), `App.test.tsx` (+4 export tests), `features/export/api.test.ts` (10)
+
+## Background Render Pipeline — BE (Epic 5)
+- added: `RenderPresetKey`, `RenderPreset`, `RenderVideoJobPayload` types in `job-payloads.ts`
+- added: `render.repository.ts` — `insertRenderJob`, `getRenderJobById`, `listRenderJobsByProject`, `updateRenderProgress`, `completeRenderJob`, `failRenderJob`, `countActiveJobsByUser`
+- added: `render.service.ts` — `createRender` (preset validation, version ownership, per-user 2-concurrent limit), `getRenderStatus` (presigned URL), `listProjectRenders`
+- added: `enqueue-render.ts` — idempotent, 3 retries, exponential backoff
+- added: `renders.controller.ts`, `renders.routes.ts` — `POST /projects/:id/renders` (202), `GET /renders/:jobId`, `GET /projects/:id/renders`; fire-and-forget audit log
+- tested: `render.service.test.ts` (12), `render.service.presets.test.ts` (7), `job-payloads.test.ts` (+3), `renders-endpoint.test.ts` (12)
+
+## Background Render Pipeline — Render Worker (Epic 5)
+- added: `render-worker/src/lib/db.ts`, `s3.ts`, `remotion-renderer.ts` — mysql2 pool, S3Client, Remotion `bundle`+`renderMedia` wrapper
+- added: `render-worker/src/jobs/render.job.ts` — set processing → fetch doc_json → Remotion render → S3 upload → mark complete; 5% progress throttle
+- updated: `render-worker/package.json` — `@remotion/bundler`, `mysql2`; `render-worker/tsconfig.json` — `@/*` alias
+- tested: `render.job.test.ts` (10)
+
+## Background Render Pipeline — FE (Epic 5)
+- added: `features/export/types.ts` — `RenderPresetKey`, `RenderPresetOption`, `RenderJob`, `RENDER_PRESET_OPTIONS` (6 presets)
+- added: `features/export/api.ts` — `createRender`, `getRenderStatus`, `listRenders`
+- added: `useExportRender.ts` — `startRender`, polling 3s via React Query, `reset`
+- added: `RenderProgressBar.tsx` — 8px track, ARIA progressbar
+- added: `ExportModal.tsx` — 560×700px, 4 phases: preset selection, rendering, complete (download), failed (retry)
+- added: `ExportModal.styles.ts`, `ExportModal.fixtures.ts`
+- updated: `TopBar.tsx` — Export button props; `App.tsx` — `isExportOpen` state, `ExportModal` rendering
+- tested: `RenderProgressBar.test.tsx` (14), `ExportModal.test.tsx` (18), `ExportModal.phases.test.tsx` (12), `useExportRender.test.ts` (10)
+
+## Known Issues / TODOs
+- ACL middleware is a stub — real project ownership check deferred to projects CRUD epic
+- `packages/api-contracts/` is a stub — deferred until OpenAPI spec exists
+- Presigned download URL (`GET /assets/:id/download-url`) deferred
+- Timeline ruler bi-directional sync deferred to Timeline Editor epic
+- S3 CORS policy must be configured on bucket for browser-direct PUT
+- Assets stay in `processing` until media-worker is running
+- Pre-existing TypeScript errors in `PlaybackControls.tsx`, `PreviewPanel.tsx`, `usePlaybackControls.ts`, `config.ts`
+- Two pre-existing integration test failures in `assets-endpoints.test.ts`, `assets-finalize-endpoint.test.ts`
+
+---
+
+## [2026-04-04]
+
+### Task: Epic 6 — Timeline Editor (Multi-track)
+**Subtask:** [BE] Clip Partial Update Endpoint
+
+**What was done:**
+- Added `apps/api/src/db/migrations/005_project_clips_current.sql` — creates `project_clips_current` table with `clip_id`, `project_id`, `track_id`, `type`, `start_frame`, `duration_frames`, `trim_in_frames`, `trim_out_frames`, `transform_json`, `layer`; 3 indexes
+- Added `apps/api/src/repositories/clip.repository.ts` — `getClipByIdAndProject`, `patchClip` (dynamic SET builder); JSON column safe-parse for mysql2 dual-mode return
+- Added `apps/api/src/services/clip.service.ts` — `patchClip` with `NotFoundError` (404) and `ForbiddenError` (403); does NOT write to `project_versions`
+- Added `apps/api/src/controllers/clips.controller.ts` — `patchClipSchema` (Zod, at-least-one refinement), `patchClip` handler
+- Added `apps/api/src/routes/clips.routes.ts` — `PATCH /projects/:id/clips/:clipId`; per-project rate limit 60 req/s keyed by project ID; `authMiddleware` + `aclMiddleware('editor')`
+- Updated `apps/api/src/index.ts` — registered `clipsRouter`
+- Added `packages/api-contracts/src/openapi.ts` — OpenAPI 3.1 spec for `PATCH /projects/{projectId}/clips/{clipId}`
+- Updated `packages/api-contracts/src/index.ts` — exports `openApiSpec`
+- Added `apps/api/src/services/clip.service.test.ts` — 7 unit tests (happy path, NotFoundError, ForbiddenError, dev bypass, null fields)
+- Added `apps/api/src/__tests__/integration/clip-patch-endpoint.test.ts` — 12 integration tests (happy paths, validation errors, 404, 401, no version snapshot created)
+
+**Notes:**
+- mysql2 can return JSON columns as already-parsed objects or as strings depending on context; `mapRow` handles both cases
+- Rate limiter is keyed by `req.params.id` (project ID) so the 60 req/s limit is per-project, not per-IP
+- `projectOwnerId` is passed as `null` from the controller because no projects table yet — ACL middleware provides the ownership guard until projects CRUD is built
+- Migration must be run manually (`docker compose exec db mysql ...`) before integration tests
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: [BE] Clip Partial Update Endpoint</summary>
+
+Build `PATCH /projects/:id/clips/:clipId` in `apps/api/`. This endpoint updates a single clip's mutable timeline fields (`startFrame`, `durationFrames`, `trimInFrames`, `trimOutFrames`, `transform`) directly in `project_clips_current` without creating a full `project_versions` snapshot. Intended for high-frequency drag/trim events — up to 60 req/s per project.
+
+Acceptance Criteria:
+- [x] Updates `project_clips_current` row for the given clip ID
+- [x] Does NOT insert a row into `project_versions`
+- [x] Validates clip belongs to the requesting user's project (return 403 otherwise)
+- [x] Validates body with Zod: only allows `startFrame`, `durationFrames`, `trimInFrames`, `trimOutFrames`, `transform` fields
+- [x] Returns `200` with the updated clip fields on success
+- [x] Returns `404` if clipId not found in `project_clips_current`
+- [x] Rate-limited to 60 req/s per project (express-rate-limit, keyed by project ID)
+- [x] Route added to OpenAPI spec in `packages/api-contracts/`
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-04]
+
+### Task: Epic 6 — Timeline Editor (Multi-track)
+**Subtask:** [FE] Timeline Ruler + Virtualized Track List
+
+**What was done:**
+- Extended `apps/web-editor/src/store/ephemeral-store.ts` — added `pxPerFrame` (range 1-100, clamped) and `scrollOffsetX` (≥0, clamped) to `EphemeralState`; added `setPxPerFrame` and `setScrollOffsetX` setters
+- Added `apps/web-editor/src/features/timeline/types.ts` — feature-local `TrackColor` type
+- Added `apps/web-editor/src/features/timeline/components/TimelineRuler.tsx` — canvas-based ruler; major/minor tick algorithm adapts to `pxPerFrame`; click-to-seek; wheel-to-zoom; ARIA attributes
+- Added `apps/web-editor/src/features/timeline/components/TrackHeader.tsx` — track name (click-to-edit, Enter/Escape/blur), mute (M) and lock (L) buttons with ARIA pressed states
+- Added `apps/web-editor/src/features/timeline/components/ClipLane.tsx` — empty placeholder with track-type color left border; opacity reflects mute state
+- Added `apps/web-editor/src/features/timeline/components/TrackList.tsx` — `react-window FixedSizeList` (v1.8.10) with `overscanCount={5}`; empty state; ARIA roles
+- Added `apps/web-editor/src/features/timeline/components/TimelinePanel.tsx` — full 232px panel; toolbar (zoom in/out, px/frame label, track count); ruler row; track list; `ResizeObserver` for panel width
+- Updated `apps/web-editor/src/App.tsx` — imported `TimelinePanel`; added `onRenameTrack`/`onToggleMute`/`onToggleLock` handlers; mounted `<TimelinePanel>` below editor row
+- Updated `apps/web-editor/src/App.test.tsx` — mocked `TimelinePanel`; added `pxPerFrame`/`scrollOffsetX` to ephemeral store mock; updated shell children count assertion
+- Updated `apps/web-editor/src/App.RightSidebar.test.tsx` — mocked `TimelinePanel`; added `pxPerFrame`/`scrollOffsetX` to all ephemeral store mocks
+- Added `apps/web-editor/package.json` — `react-window` v1.8.10 (downgraded from v2 — task requires `FixedSizeList` which is v1 API)
+- Added `apps/web-editor/src/store/ephemeral-store.test.ts` — 9 new tests for `setPxPerFrame` and `setScrollOffsetX` (clamp, notify, no-op)
+- Added `apps/web-editor/src/features/timeline/components/TimelineRuler.test.tsx` — 8 tests (render, ARIA, seek, zoom, min/max zoom)
+- Added `apps/web-editor/src/features/timeline/components/TrackHeader.test.tsx` — 12 tests (render, mute/lock toggles, inline rename, Enter/Escape/blur, empty string fallback)
+- Added `apps/web-editor/src/features/timeline/components/TrackList.test.tsx` — 8 tests (empty state, single track, multiple tracks, 100 tracks, accessibility)
+
+**Notes:**
+- react-window v2 (installed by default) does NOT have `FixedSizeList` — downgraded to v1.8.10 per task spec
+- `pxPerFrame` default is 4 (not 1) so the timeline is usable at launch; spec allows any valid range value
+- `TimelinePanel` uses `ResizeObserver` for responsive ruler/lane width — `jsdom` does not support ResizeObserver, so `TimelinePanel` itself is mocked in `App.test.tsx` and `App.RightSidebar.test.tsx`
+- Track mute/lock/rename mutations go through `setProject()` which generates Immer patches for undo/redo autosave
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: [FE] Timeline Ruler + Virtualized Track List</summary>
+
+Build the foundational timeline layout in `apps/web-editor/src/features/timeline/`. Includes `TimelineRuler` (frame/timecode ticks, zoom, seek) and virtualized `TrackList` using `react-window FixedSizeList`. Zoom and scroll offset stored in ephemeral store.
+
+Acceptance Criteria:
+- [x] `TimelineRuler` renders tick marks at correct frame/timecode intervals for current `pxPerFrame` zoom level
+- [x] Ruler re-renders correctly at min zoom (1 px/frame) and max zoom (100 px/frame)
+- [x] Clicking the ruler sets the playhead to that frame (dispatch to ephemeral store)
+- [x] `TrackList` uses `react-window FixedSizeList` with `overscanCount={5}`
+- [x] 100 tracks render without throwing (verified via test)
+- [x] Each track row renders a `TrackHeader` (name, mute toggle, lock toggle) and an empty `ClipLane` placeholder
+- [x] Track name is editable inline (click-to-edit, `Enter`/blur to confirm)
+- [x] Mute and lock toggle state is stored in the project doc via `setProject`
+- [x] Horizontal scroll wheel on ruler zooms the timeline (wheel delta → update `pxPerFrame`)
+- [x] TypeScript types for `Track` come from `packages/project-schema/`
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-04]
+
+### Task: Epic 6 — Timeline Editor (Multi-track)
+**Subtask:** [FE] Clip Rendering on Timeline
+
+**What was done:**
+- Added `apps/web-editor/src/features/timeline/components/ClipBlock.tsx` — absolutely-positioned clip block; `left = startFrame * pxPerFrame`, `width = Math.max(2, durationFrames * pxPerFrame)`, vertical offset = `(layer ?? 0) * 4px`; selected border = 2px solid `#F0F0FA`; locked clips show `not-allowed` cursor and block onClick; video clips render thumbnail `<img>` if `assetData.thumbnailUrl`; audio clips render `<WaveformSvg>` bars from `assetData.waveformPeaks`; `e.stopPropagation()` to prevent lane click from firing; exports `ClipAssetData` type
+- Rewrote `apps/web-editor/src/features/timeline/components/ClipLane.tsx` — renders `ClipBlock` for each clip in the track; lane background click → `setSelectedClips([])`; clip click (single) → `setSelectedClips([clipId])`; shift+click → toggle add/remove; track muted → `opacity: 0.5`
+- Updated `apps/web-editor/src/features/timeline/components/TrackList.tsx` — `TrackRowData` now includes `clips`, `pxPerFrame`, `selectedClipIds` (Set), `assetDataMap`; `TrackRow` filters clips by `trackId`; `TrackListProps` extended accordingly
+- Updated `apps/web-editor/src/features/timeline/components/TimelinePanel.tsx` — reads `selectedClipIds` from `useEphemeralStore()`; converts to `Set<string>` via `useMemo`; passes `clips` and `selectedClipIdSet` to `TrackList`
+- Updated `apps/web-editor/src/features/timeline/components/TrackList.test.tsx` — added required new props: `clips`, `pxPerFrame`, `selectedClipIds`
+- Added `apps/web-editor/src/features/timeline/components/ClipBlock.test.tsx` — 14 tests: positioning (left/width from startFrame/durationFrames), selection border, locked cursor + blocked click, thumbnail img, waveform SVG, layer offset, minimum width
+- Added `apps/web-editor/src/features/timeline/components/ClipLane.test.tsx` — 9 tests: ARIA, render clips, empty state, lane click clears selection, single-select, shift+click add/remove, locked track (stopPropagation prevents both lane and clip callbacks), muted opacity
+
+**Notes:**
+- jsdom converts hex colors to rgb; border selected-state check uses `'solid'` + `not 'transparent'` instead of hex value
+- `stopPropagation` in ClipBlock means clicking a locked clip does NOT fire the lane's onClick — both are suppressed (0 calls), not 1
+- WaveformSvg bars are evenly distributed across the clip width using peaks from assetData
+- `ClipAssetData` type is defined in ClipBlock and imported by ClipLane and TrackList to keep the feature collocated
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: [FE] Clip Rendering on Timeline</summary>
+
+Render clips as absolutely-positioned blocks inside each `ClipLane`. Clicking a clip block selects it (or shift-adds to selection). Locked tracks prevent selection. Video clips show a thumbnail; audio clips show a waveform.
+
+Acceptance Criteria:
+- [x] Each clip rendered as an absolutely-positioned block: `left = startFrame * pxPerFrame`, `width = max(2, durationFrames * pxPerFrame)`
+- [x] Selected clip shows a visible border; unselected clips show a transparent border
+- [x] Clicking a clip block calls `setSelectedClips([clipId])` (single select)
+- [x] Shift+clicking a clip toggles it in/out of the selection without clearing others
+- [x] Clicking the lane background clears the selection
+- [x] Locked track: clip click is swallowed (no selection change)
+- [x] Video clip with `thumbnailUrl` renders an `<img>` tag
+- [x] Audio clip with `waveformPeaks` renders an SVG waveform
+- [x] Minimum clip block width is 2px
+- [x] Muted track renders at 50% opacity
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-04]
+
+### Task: Epic 6 — Timeline Editor (Multi-track)
+**Subtask:** [FE] Clip Drag (Move) Interaction
+
+**What was done:**
+- Added `apps/web-editor/src/features/timeline/api.ts` — `patchClip(projectId, clipId, payload)` thin API wrapper; calls `apiClient.patch`; throws on non-ok response
+- Added `apps/web-editor/src/features/timeline/hooks/useSnapping.ts` — `useSnapping` hook computing snap targets (frame 0, playhead, clip edges of non-dragging clips); `snap(rawFrame)` returns snapped frame, `isSnapping` flag, `snapPx` pixel position for indicator; threshold = 5px scaled by `pxPerFrame`
+- Added `apps/web-editor/src/features/timeline/hooks/useClipDrag.ts` — `useClipDrag(projectId)` hook; `onClipPointerDown` initiates drag with `setPointerCapture`; `pointermove` updates ghost positions via `useSnapping`; `pointerup` commits Immer mutation + fires `patchClip` for each moved clip; `Escape` keydown cancels drag without committing; locked clips skip drag; multi-clip drag maintains relative `startFrame` offsets; ghost positions clamped to ≥ 0
+- Updated `apps/web-editor/src/features/timeline/components/ClipBlock.tsx` — added `onPointerDown`, `ghostLeft`, `isDragging` props; `ghostLeft` overrides `left` when set; `isDragging=true` sets opacity to 50%; cursor changed from `pointer` to `grab` (default) / `not-allowed` (locked)
+- Updated `apps/web-editor/src/features/timeline/components/ClipLane.tsx` — added `dragInfo` and `onClipPointerDown` props; renders dimmed original + ghost blocks during drag; renders snap indicator `<div>` (red `#EF4444`) when snapping is active
+- Updated `apps/web-editor/src/features/timeline/components/TrackList.tsx` — threads `dragInfo` and `onClipPointerDown` through `TrackRowData` and `TrackListProps`
+- Updated `apps/web-editor/src/features/timeline/components/TimelinePanel.tsx` — instantiates `useClipDrag(projectId)` and passes `dragInfo` + `onClipPointerDown` to `TrackList`
+- Added `apps/web-editor/src/features/timeline/hooks/useSnapping.test.ts` — 9 tests: no snap when far, snap to frame 0, snap to playhead, snap to clip left/right edges, exclude dragging clips, nearest target wins, threshold scaling, just outside threshold
+- Added `apps/web-editor/src/features/timeline/hooks/useClipDrag.test.ts` — 11 tests: initial null state, drag starts, locked prevents drag, non-left button skipped, pointermove updates ghost, pointerup commits + PATCH called, Escape cancels, multi-clip offsets preserved, clip not found skipped, clamp to frame 0
+- Updated `apps/web-editor/src/features/timeline/components/ClipBlock.test.tsx` — added 5 new tests: ghostLeft overrides position, isDragging=true sets 50% opacity, isDragging=false full opacity, onPointerDown called, grab cursor default
+- Updated `apps/web-editor/src/features/timeline/components/ClipLane.test.tsx` — added required props; 3 new tests: ghost clip renders, snap indicator renders, snap indicator absent when not snapping
+- Updated `apps/web-editor/src/features/timeline/components/TrackList.test.tsx` — added required `dragInfo`/`onClipPointerDown` props
+
+**Notes:**
+- `PointerEvent` is not available in jsdom; polyfill added inline in `useClipDrag.test.ts` using a `MouseEvent` subclass
+- PATCH calls are fire-and-forget (`Promise.allSettled`) — failures are silent; production hardening deferred
+- `useSnapping` reads current state via `getSnapshot()` snapshots at move/up time — correct for drag use case
+- 532 tests total, all passing
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: [FE] Clip Drag (Move) Interaction</summary>
+
+Implement pointer-event-based clip dragging in `apps/web-editor/src/features/timeline/hooks/useClipDrag.ts`. On pointerdown on a ClipBlock, capture the pointer and track delta. Render a ghost ClipBlock at the projected new position. On pointerup, dispatch an Immer mutation to update clip.startFrame in the project doc and fire PATCH /projects/:id/clips/:clipId. Snapping logic extracted to useSnapping hook.
+
+Acceptance Criteria:
+- [x] Drag updates clip.startFrame in project doc on pointerup
+- [x] Ghost clip rendered at projected position during drag; original clip is dimmed (50% opacity)
+- [x] Snapping: ghost snaps to clip edges, playhead position, and frame 0 within a 5 px threshold
+- [x] Visible snap indicator line shown when snapping is active
+- [x] Pressing Escape during drag cancels the operation and restores original position
+- [x] Dragging a locked clip is prevented; cursor shows not-allowed
+- [x] Multi-clip drag: all selectedClipIds move together maintaining relative startFrame offsets
+- [x] PATCH /projects/:id/clips/:clipId called for each moved clip on drop
+- [x] useClipDrag uses setPointerCapture / releasePointerCapture to prevent losing drag on fast mouse moves
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-04]
+
+### Task: Epic 6 — Timeline Editor (Multi-track)
+**Subtask:** [FE] Clip Split + Context Menu
+
+**What was done:**
+- Added `apps/web-editor/src/features/timeline/components/ClipContextMenu.tsx` — lightweight `<div>` context menu (no external lib); 3 items: Split at Playhead, Delete Clip, Duplicate Clip; `canSplit` prop disables/greys-out split item with `aria-disabled`; keyboard-accessible (ArrowUp/Down navigation, Enter to activate, Escape to close); click-outside closes via `mousedown` listener; `position: fixed` to escape `overflow: hidden` clip lane
+- Updated `apps/web-editor/src/features/timeline/components/ClipBlock.tsx` — added `onContextMenu` prop; `handleContextMenu` calls `e.preventDefault()` + `e.stopPropagation()` then invokes the callback with `(e, clipId)`
+- Updated `apps/web-editor/src/features/timeline/components/ClipLane.tsx` — added `useState<ContextMenuState | null>` for open menu; `handleClipContextMenu` sets menu state; `handleContextMenuAction` dispatches split/delete/duplicate via `setProject()`; split logic uses Immer (via `setProject`) to produce inverse patches for undo; `isPlayheadOverlapping` checks if `playheadFrame ∈ [startFrame, startFrame + durationFrames)`; `canSplit` computed at render time from current project + ephemeral snapshot
+- Added `apps/web-editor/src/features/timeline/components/ClipContextMenu.test.tsx` — 13 tests: renders 3 items; role=menu; all items role=menuitem; split click when canSplit=true; split blocked when canSplit=false; aria-disabled on split; delete; duplicate; Escape closes; click outside closes; ArrowDown navigation; ArrowUp navigation; Enter activates; position coordinates
+- Updated `apps/web-editor/src/features/timeline/components/ClipBlock.test.tsx` — 2 new tests: onContextMenu called with clipId, no-throw without onContextMenu
+- Updated `apps/web-editor/src/features/timeline/components/ClipLane.test.tsx` — 4 new tests: context menu opens on right-click; closes on Escape; delete removes clip; duplicate inserts copy; split produces two clips with correct frame ranges and same assetId
+
+**Notes:**
+- Context menu uses `position: fixed` (not absolute) so it escapes the `overflow: hidden` clip lane container — correctly renders at screen coordinates
+- Split Immer mutation: `setProject` triggers `produceWithPatches` which pushes inverse patches to history-store — Ctrl+Z via existing undo infrastructure merges back
+- `crypto.randomUUID()` used for duplicate/split clip IDs — available in modern browsers and jsdom
+- `text-overlay` clips have no `assetId` and no trim fields; split/duplicate handles this with type guards
+- Split uses `flatMap` to atomically replace one clip with two in the clips array
+- 573 tests total, all passing
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: [FE] Clip Split + Context Menu</summary>
+
+Add a right-click context menu on ClipBlock. Menu shows "Split at Playhead", "Delete Clip", "Duplicate Clip". Split at Playhead: if playhead overlaps the clip, split into two new clips. Mutation dispatched via Immer; undo reverses via inverse patch.
+
+Acceptance Criteria:
+- [x] Right-click on ClipBlock opens context menu; click outside closes it
+- [x] "Split at Playhead" is disabled (greyed out) if playhead does not overlap the clip
+- [x] Split produces exactly two clips covering the original range with correct trimInFrames/trimOutFrames
+- [x] Both resulting clips reference the same assetId
+- [x] Undo (Ctrl+Z) merges the two clips back to one (inverse Immer patch via history-store)
+- [x] "Delete Clip" removes clip from project doc and closes menu
+- [x] "Duplicate Clip" inserts a copy starting 0 frames after the original end
+- [x] Context menu is keyboard-accessible (arrow keys, Enter, Escape)
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-04]
+
+### Task: Epic 6 — Timeline Editor (Multi-track)
+**Subtask:** [FE] Clip Trim Interaction
+
+**What was done:**
+- Added `apps/web-editor/src/features/timeline/hooks/useClipTrim.ts` — `useClipTrim(projectId)` hook; `TRIM_HANDLE_PX=8` constant exported; `getTrimCursor` returns `'ew-resize'` within 8px of left/right edge, `null` otherwise; `onTrimPointerDown` starts trim if edge detected, returns `false` if pointer is in the middle or clip not found; left-edge drag adjusts `startFrame` + `trimInFrame` simultaneously; right-edge drag adjusts `durationFrames` + `trimOutFrame`; duration clamped to minimum 1 frame; asset boundary cap when `assetDurationFrames` provided; Escape cancels trim; PATCH called only on pointerup; uses `setPointerCapture` / `releasePointerCapture`
+- Updated `apps/web-editor/src/features/timeline/components/ClipBlock.tsx` — added `ghostWidth` prop (overrides width during trim); `getTrimCursor` prop threads cursor detection; `onMouseMove` updates cursor inline via direct DOM mutation (avoids React re-render per pixel); `onMouseLeave` resets cursor to grab; `useRef<cursor>` tracks active cursor value without state
+- Updated `apps/web-editor/src/features/timeline/components/ClipLane.tsx` — added `trimInfo`, `getTrimCursor`, `onTrimPointerDown` props; `handleClipPointerDown` checks trim first (trim takes priority over drag); trimmed clip renders at ghost dimensions during trim; snap indicator shown from either dragInfo or trimInfo
+- Updated `apps/web-editor/src/features/timeline/components/TrackList.tsx` — threads `trimInfo`, `getTrimCursor`, `onTrimPointerDown` through `TrackRowData` and `TrackListProps`
+- Updated `apps/web-editor/src/features/timeline/components/TimelinePanel.tsx` — instantiates `useClipTrim(projectId)` and passes trim props to `TrackList`
+- Added `apps/web-editor/src/features/timeline/hooks/useClipTrim.test.ts` — 17 tests: initial null state; TRIM_HANDLE_PX=8; getTrimCursor (left edge, right edge, middle, locked); onTrimPointerDown (middle no-start, locked no-start, left-edge start, right-edge start, not found); right-edge drag updates duration; pointerup commits + patchClip called; left-edge drag updates startFrame+duration; duration clamp to 1 (left-edge, right-edge); Escape cancels
+- Updated `apps/web-editor/src/features/timeline/components/ClipLane.test.tsx` — added `trimInfo`/`getTrimCursor`/`onTrimPointerDown` props; 3 new tests: trim renders ghost width, snap indicator from trimInfo, trim takes priority over drag on pointerdown
+- Updated `apps/web-editor/src/features/timeline/components/TrackList.test.tsx` — added required trim props
+
+**Notes:**
+- `trimInFrame`/`trimOutFrame` are the actual project schema field names (not `trimInFrames`/`trimOutFrames` as in the task description which describes behavior)
+- `text-overlay` clips have no trim fields; the hook handles this with a type guard (`clip.type !== 'text-overlay'`)
+- Cursor is updated via direct DOM mutation in `onMouseMove` (not React state) to avoid a React re-render on every pixel during mouse movement
+- PATCH payload uses `trimInFrames`/`trimOutFrames` (BE field names from ticket 1) not the schema field names
+- 552 tests total, all passing
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: [FE] Clip Trim Interaction</summary>
+
+Implement trim handles on ClipBlock edges in useClipTrim.ts. Hovering within 8px of a clip's left or right edge changes cursor to ew-resize. Dragging the left edge adjusts startFrame + trimInFrame simultaneously; dragging the right edge adjusts trimOutFrame / durationFrames. Same snapping logic as drag.
+
+Acceptance Criteria:
+- [x] Left-edge drag: startFrame and trimInFrames update simultaneously
+- [x] Right-edge drag: trimOutFrames and durationFrames update
+- [x] Trim cannot reduce clip duration below 1 frame
+- [x] Snapping applies during trim using same snap targets as move
+- [x] Immer patch generated and PATCH called on pointerup (not during drag)
+- [x] Cursor changes to ew-resize only within 8px of clip edge; outside that, cursor is default
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+
+---
+
+## [2026-04-04]
+
+### Bug-fix Session — Build Errors, Runtime Errors, UX Fixes
+
+**What was done:**
+
+#### 1. Docker build failure — `project-schema` types missing from dist
+- Fixed `apps/api/Dockerfile` — added `RUN npm run build --workspace=packages/project-schema` before `RUN npm run build --workspace=apps/api`; old Dockerfile copied source but never rebuilt dist, so `RenderVideoJobPayload`, `RenderPreset`, `RenderPresetKey` were absent from `dist/index.d.ts`
+- Fixed `apps/api/src/repositories/clip.repository.ts` — changed `values: unknown[]` to `values: (string | number | null)[]` to satisfy mysql2's `ExecuteValues` type
+
+#### 2. Multiple Remotion versions (4.0.443 + 4.0.441)
+- Ran `npm install` at monorepo root to apply the existing `overrides` block in root `package.json`; removed stale `apps/web-editor/node_modules/remotion@4.0.441` so all workspaces resolve to the single root copy at `4.0.443`
+
+#### 3. Version autosave POST 400
+- Fixed `apps/web-editor/src/lib/constants.ts` — changed `DEV_PROJECT_ID` from `'dev-project-001'` to `'00000000-0000-0000-0000-000000000001'` (matches UUID in project-store fixture)
+- Fixed `apps/web-editor/src/features/version-history/api.ts` — renamed request field `doc_json` → `docJson`, added missing `docSchemaVersion: number` to `SaveVersionRequest`
+- Fixed `apps/web-editor/src/features/version-history/hooks/useAutosave.ts` — updated `saveVersion` call to pass `docJson: doc` and `docSchemaVersion: doc.schemaVersion`
+
+#### 4. Unable to preventDefault inside passive event listener (timeline scroll)
+- Fixed `apps/web-editor/src/features/timeline/components/TimelinePanel.tsx` — replaced React synthetic `onWheel` (passive by default since React 17) with native `addEventListener('wheel', handler, { passive: false })` via `useEffect`; used a ref to track current `scrollOffsetX`; added `rulerWrapperRef` and `trackListWrapperRef`
+
+#### 5. PATCH clip 400 — float frame values
+- Fixed `apps/web-editor/src/features/timeline/hooks/useClipTrim.ts` — added `Math.round()` to all frame values returned from `resolveTrimedFrames` (both left-edge and right-edge branches); pixel division by `pxPerFrame` produces floats rejected by the API
+- Fixed `apps/web-editor/src/features/timeline/hooks/useClipDrag.ts` — added `Math.round()` to each resolved `startFrame` in `resolvePositions`
+
+#### 6. Captions polling before transcription started
+- Fixed `apps/web-editor/src/features/captions/hooks/useTranscriptionStatus.ts` — added `pollingEnabled = false` parameter; query always enabled for one-shot mount check, but `refetchInterval` only returns `POLL_INTERVAL_MS` when `pollingEnabled` is true
+- Fixed `apps/web-editor/src/features/captions/components/TranscribeButton.tsx` — always passes `assetId` (detects pre-existing captions on mount), passes `hasPendingTranscription` as `pollingEnabled` so continuous polling only starts after the user triggers transcription
+
+#### 7. Split at Playhead — `durationInFrames must be positive, got 0`
+- Fixed `apps/web-editor/src/features/timeline/components/ClipLane.tsx` — changed `isPlayheadOverlapping` from `playheadFrame >= clip.startFrame` to `playheadFrame > clip.startFrame`; playhead at exact start produced `splitOffset = 0` → 0-duration first clip → Remotion error
+
+#### 8. Split at Playhead — PATCH 404 for split clips (no DB row)
+- Added `apps/api/src/repositories/clip.repository.ts` — `insertClip(ClipInsert)` with `INSERT INTO project_clips_current`
+- Added `apps/api/src/services/clip.service.ts` — `createClip(params)` wrapper
+- Added `apps/api/src/controllers/clips.controller.ts` — `createClipSchema` (Zod) + `createClip` handler returning 201
+- Added `apps/api/src/routes/clips.routes.ts` — `POST /projects/:id/clips` with `authMiddleware` + `aclMiddleware('editor')` + `validateBody`
+- Added `apps/web-editor/src/features/timeline/api.ts` — `createClip(projectId, clip)` function
+- Updated `apps/web-editor/src/features/timeline/components/ClipLane.tsx` — added `projectId` prop; split action calls `createClip` for both halves via `Promise.allSettled`
+- Updated `apps/web-editor/src/features/timeline/components/TrackList.tsx` — threaded `projectId` through `TrackListProps` → `TrackRowData` → `ClipLane`
+- Updated `apps/web-editor/src/features/timeline/components/TimelinePanel.tsx` — passes `projectId` to `TrackList`
+
+#### 9. Dev project — removed default "ClipTale" text overlay
+- Updated `apps/web-editor/src/store/project-store.ts` — removed `DEV_TRACK_ID`, `DEV_CLIP_ID`, and default `text-overlay` clip; project starts with `tracks: []` and `clips: []`
+- Updated `apps/api/src/db/migrations/006_seed_dev.sql` — cleared seed INSERT for the removed clip
+
+**Notes:**
+- `POST /projects/:id/clips` follows the same middleware chain as the PATCH endpoint
+- Split fires `createClip` via `Promise.allSettled` (fire-and-forget)
+- Captions one-shot mount fetch detects existing captions without user action; 3 s poll only activates after transcription is triggered
+
+checked by code-reviewer - YES (violations fixed 2026-04-04)
+> All 9 action items resolved:
+> - `ClipLane.tsx` reduced to 278 lines — context menu action logic extracted to `clipContextMenuActions.ts`
+> - `useClipTrim.ts` reduced to 256 lines — trim math + TrimState extracted to `clipTrimMath.ts`
+> - `ClipPatchPayload`, `TrimState`, `TrimDragInfo`, `UseClipTrimReturn`, `ClipDragOrigin`, `DragState`, `ClipDragInfo`, `UseClipDragReturn`, `TrackRowData`, `ContextMenuState` all converted from `interface` to `type`
+> - `clip.service.test.ts` already had `createClip` tests (3 cases)
+> - `duplicate` action now calls `createClip` (fixed in `clipContextMenuActions.ts`)
+> - `TrackList.test.tsx` updated to pass `projectId` prop
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-04. All checks passed. The new `loading` ButtonState ("Checking…") in `TranscribeButton.tsx` uses `#8A8AA0` (text-secondary token) — consistent with the existing `pending`, `processing`, and `added` states which all use the same neutral gray. The disabled flag and `aria-busy` attribute are correctly applied. Font family (Inter), font weight (500 Medium), and text color (#F0F0FA / text-primary) all match the design guide. No unapproved tokens or hardcoded values introduced. `ClipLane.tsx` and `TimelinePanel.tsx` confirmed as code-only refactors with no visual output changes.
+
+## [2026-04-04]
+
+### Task: EPIC 7 — Phase 1: Edit Page Core Integration
+**Subtask:** 1. Add `ImageClip` to project-schema
+
+**What was done:**
+- Added `imageClipSchema` to `packages/project-schema/src/schemas/clip.schema.ts` — fields: `id`, `type: 'image'`, `assetId`, `trackId`, `startFrame`, `durationFrames`, `opacity` (default 1)
+- Extended `clipSchema` discriminated union to include `imageClipSchema`
+- Exported `ImageClip` type and `imageClipSchema` from `packages/project-schema/src/types/index.ts` and `packages/project-schema/src/index.ts`
+- Added `image: '#0EA5E9'` to `CLIP_COLORS` in `apps/web-editor/src/features/timeline/components/ClipBlock.tsx`
+- Updated `packages/project-schema/src/schemas/clip.schema.test.ts` — added 6 `imageClipSchema` tests, updated discriminated union tests (replaced stale "image rejects" test with "image routes to imageClipSchema" test, added "unknown type rejects")
+
+**Notes:**
+- `imageClipSchema` omits `trimInFrame`/`trimOutFrame` (no trimming for static images) and `volume` (no audio)
+- The `VideoComposition.tsx` component naturally falls through to `return null` for `clip.type === 'image'` in this phase — no rendering change needed per task notes
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 1. Add `ImageClip` to project-schema</summary>
+
+- [ ] **1. Add `ImageClip` to project-schema**
+  - What: Define `imageClipSchema` in `clip.schema.ts`, add it to the discriminated union, export `ImageClip` from `types/index.ts`, and add `image: '#0EA5E9'` to `CLIP_COLORS` in `ClipBlock.tsx`.
+  - Where: `packages/project-schema/src/schemas/clip.schema.ts`, `packages/project-schema/src/types/index.ts`, `apps/web-editor/src/features/timeline/components/ClipBlock.tsx`
+  - Why: `image/*` assets can be uploaded but cannot produce a clip — no `ImageClip` type exists. This unblocks subtask 4 and all future image rendering work.
+  - Depends on: none
+
+</details>
+
+checked by code-reviewer - COMMENTED
+> ⚠️ `packages/project-schema/src/schemas/clip.schema.ts` line 40: `imageClipSchema` is exported with no JSDoc comment — §9 requires JSDoc on all exported functions and types
+> ⚠️ `apps/web-editor/src/features/timeline/components/ClipBlock.tsx`: file is 324 lines, exceeding the 300-line hard limit (§9); this subtask added a line to an already-over-limit file without extracting anything
+checked by code-reviewer - OK (re-review 2026-04-04 after fixes)
+> Both issues resolved: JSDoc added to `imageClipSchema` (clip.schema.ts line 40); `WaveformSvg` extracted to `WaveformSvg.tsx` reducing `ClipBlock.tsx` to 276 lines; import `./WaveformSvg.js` is correct same-folder relative import; `WaveformSvgProps` uses `interface` with correct Props suffix; `WaveformSvg` exported function has JSDoc. No new violations introduced.
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-04. Re-review after fix. Token `info: '#0EA5E9'` confirmed present in design-guide.md Section 3 Colors table with usage "Image clip blocks on the timeline". Hex value in ClipBlock.tsx line 12 (`image: '#0EA5E9'`) matches the token exactly. Previous comment resolved. All design checks pass.
+
+## [2026-04-04]
+
+### Task: EPIC 7 — Phase 1: Edit Page Core Integration
+**Subtask:** 2. Add `computeProjectDuration` to `packages/editor-core` and wire into `setProject`
+
+**What was done:**
+- Implemented `computeProjectDuration(clips, fps, minSeconds?)` in `packages/editor-core/src/index.ts` — returns `max(clip.startFrame + clip.durationFrames)` across all clips, floored at `fps * minSeconds` (default 5 s); handles empty clips array by returning the floor
+- Imported `computeProjectDuration` and `@ai-video-editor/editor-core` in `apps/web-editor/src/store/project-store.ts`; updated `setProject()` to derive `durationFrames` before committing snapshot — callers no longer need to set this field manually
+- Created `packages/editor-core/src/index.test.ts` with 10 unit tests covering: empty clips (returns floor), custom minSeconds, single clip above/below minimum, multi-clip max, startFrame offset, mixed clip types, exact-minimum boundary, mid-timeline clip
+- Rebuilt `packages/project-schema` dist files to include `imageClipSchema` (required for TypeScript to resolve `Clip` union in editor-core tests)
+
+**Notes:**
+- `setProject()` now derives `durationFrames` silently — every future mutation (drag, trim, delete, add clip) automatically gets correct duration without extra code
+- DEV_PROJECT fixture still initialises with `durationFrames: 300`; the first `setProject()` call will overwrite it correctly
+- `packages/editor-core` had no test file previously — this adds the first one
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 2. Add `computeProjectDuration` to `packages/editor-core` and wire into `setProject`</summary>
+
+- [ ] **2. Add `computeProjectDuration` to `packages/editor-core` and wire into `setProject`**
+  - What: Create a pure exported function `computeProjectDuration(clips: Clip[], fps: number, minSeconds?: number): number` in `packages/editor-core/src/index.ts`. It returns `max(clip.startFrame + clip.durationFrames)` across all clips, floored at `fps * minSeconds` (default 5 seconds). Then call it inside `setProject()` in `project-store.ts` to overwrite `doc.durationFrames` before committing the snapshot. Add unit tests for the function.
+  - Where: `packages/editor-core/src/index.ts`, `apps/web-editor/src/store/project-store.ts`
+  - Why: The Remotion `<Player>` and timeline ruler both read `projectDoc.durationFrames` directly. It is hardcoded to `300` and never updates. Fixing it in `setProject()` silently fixes both consumers and every future mutation (drag, trim, delete) without touching individual feature code.
+  - Depends on: subtask 1 (so `Clip` union includes `ImageClip`)
+
+</details>
+
+checked by code-reviewer - COMMENTED
+> ❌ `apps/web-editor/src/store/project-store.test.ts` line 54–58: `expect(getSnapshot()).toEqual(doc)` now fails — `setProject` derives `durationFrames` from clips, so a doc with `clips: []` and `durationFrames: 300` produces a snapshot with `durationFrames: 150` (fps 30 × minSeconds 5). The test was not updated to reflect the new derived behaviour (§10 — tests must cover implemented logic accurately).
+> ⚠️ `apps/web-editor/src/store/project-store.ts` lines 72–75: `produceWithPatches(snapshot, () => derived)` returns a new object from the recipe instead of mutating the draft. This is valid Immer usage but unconventional — the draft is never touched; the patches reflect a full-document replacement rather than a structural diff. Not a rule violation, but worth documenting in an inline comment per §9.
+checked by code-reviewer - OK (re-review 2026-04-04 after fixes)
+> Both issues resolved: `toEqual(doc)` assertion replaced — non-derived fields checked via individual `toBe` assertions (lines 54–63); derivation tested in two new dedicated tests (lines 65–70 empty clips → 150, lines 72–87 non-empty clip → 600). Three-line inline comment added to `project-store.ts` lines 72–74 explaining why `produceWithPatches` recipe returns a value rather than mutating the draft. No new violations introduced.
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-04. All checks passed. No UI tokens, colors, typography, spacing, or component structure introduced. This subtask is purely business logic — a pure computation function, its unit tests, and a store integration call. No design compliance issues to report.
+
+## [2026-04-04]
+
+### Task: EPIC 7 — Phase 1: Edit Page Core Integration
+**Subtask:** 3. Implement `DELETE /assets/:id` endpoint (BE)
+
+**What was done:**
+- Added `isAssetReferencedByClip(assetId)` to `apps/api/src/repositories/asset.repository.ts` — queries `project_clips_current` by `asset_id` (existing relational column, no JSON query needed)
+- Added `deleteAssetById(assetId)` to `apps/api/src/repositories/asset.repository.ts`
+- Added `deleteAsset(assetId, userId)` to `apps/api/src/services/asset.service.ts` — 404s if asset not found or wrong owner, 409 if clip reference exists, then hard-deletes
+- Added `deleteAsset` controller to `apps/api/src/controllers/assets.controller.ts` — returns 204 No Content
+- Registered `DELETE /assets/:id` with `authMiddleware` in `apps/api/src/routes/assets.routes.ts`
+- Created `apps/api/src/__tests__/integration/assets-delete-endpoint.test.ts` with 7 tests: 401 (no token), 401 (bad JWT), 404 (not found), 404 (wrong owner), 409 (clip in use), 204 (happy path + DB row removed), 404 (second delete idempotency)
+
+**Notes:**
+- Used `project_clips_current.asset_id` column for the reference check (cleaner and indexed vs JSON querying `project_versions.doc_json`)
+- 404 is returned for wrong-owner instead of 403 to avoid leaking asset existence to other users (standard security practice)
+- Integration tests must be run from `apps/api/` directory (not repo root) so the `@` path alias resolves via `apps/api/vitest.config.ts`
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 3. Implement `DELETE /assets/:id` endpoint (BE)</summary>
+
+- [ ] **3. Implement `DELETE /assets/:id` endpoint (BE)**
+  - What: Add `isAssetReferencedByClip(assetId)` and `deleteAssetById(assetId)` to `asset.repository.ts`. Add `deleteAsset(assetId, userId)` to `asset.service.ts`. Add `deleteAsset` controller function to `assets.controller.ts`. Register `DELETE /assets/:id` in `assets.routes.ts` with `authMiddleware`. Write integration tests for 204, 404, and 409 cases.
+  - Where: `apps/api/src/repositories/asset.repository.ts`, `apps/api/src/services/asset.service.ts`, `apps/api/src/controllers/assets.controller.ts`, `apps/api/src/routes/assets.routes.ts`
+  - Why: The "Delete Asset" button in `AssetDetailPanel` is a disabled stub. This endpoint is required before the FE button can be wired in Phase 2. It also enforces the referential integrity rule (can't delete an asset that's in use by a clip).
+  - Depends on: none
+
+</details>
+
+checked by code-reviewer - YES
+> ❌ `apps/api/src/services/asset.service.test.ts`: `deleteAsset` is not tested in the unit test file — §10 requires service functions to have unit tests; only integration tests cover the new function
+> ⚠️ `apps/api/src/repositories/asset.repository.ts` line 134: `deleteAssetById` JSDoc does not document the no-op behaviour when the asset ID does not exist — §9 requires exported function JSDoc to fully describe the contract
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-04. All checks passed. This subtask is purely backend — repository queries, service logic, controller handler, route registration, and integration tests. No UI components, color tokens, typography, spacing values, or any visual properties were introduced. No design compliance issues to report.
+
+## [2026-04-04]
+
+### Task: EPIC 7 — Phase 1: Edit Page Core Integration
+**Subtask:** 4. Create `useAddAssetToTimeline` hook
+
+**What was done:**
+- Created `apps/web-editor/src/features/asset-manager/hooks/useAddAssetToTimeline.ts` — hook returns an `addAssetToTimeline(asset)` callback that maps `contentType` → clip type, finds or creates the matching track ("Video 1", "Audio 1", "Image 1"), computes `startFrame` and `durationFrames`, then calls `setProject()`
+- Image assets go on a `video`-type track named "Image 1" (separate from "Video 1") because the track schema has no `image` type
+- `durationFrames` falls back to `fps * 5` when `asset.durationSeconds` is null or 0
+- Created `apps/web-editor/src/features/asset-manager/hooks/useAddAssetToTimeline.test.ts` with 10 unit tests covering: video/audio/image clip types, track reuse, startFrame from existing clips, durationFrames derivation, fps-agnostic calculation, null/zero duration fallback, unsupported content type no-op, image track separation from video track
+
+**Notes:**
+- Tests must be run from `apps/web-editor/` (not repo root) so the `@` path alias resolves
+- `crypto.randomUUID()` is the pattern used across the codebase for client-side UUID generation
+- `useCallback` wraps the returned function with an empty dep array — the function reads store state via `getSnapshot()` at call time, not at hook mount time, so no deps are needed
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 4. Create `useAddAssetToTimeline` hook</summary>
+
+- [ ] **4. Create `useAddAssetToTimeline` hook**
+  - What: Create `apps/web-editor/src/features/asset-manager/hooks/useAddAssetToTimeline.ts`. The hook returns an `addAssetToTimeline(asset: Asset)` function.
+  - Where: `apps/web-editor/src/features/asset-manager/hooks/useAddAssetToTimeline.ts` (new file)
+  - Why: This is the core "bridge" that converts an asset into a timeline clip.
+  - Depends on: subtask 1 (ImageClip type), subtask 2 (so setProject auto-derives duration after the clip is added)
+
+</details>
+
+checked by code-reviewer - YES
+> ❌ `apps/web-editor/src/features/asset-manager/hooks/useAddAssetToTimeline.ts` line 4: `import type { Asset } from '../types.js'` crosses a directory boundary — §9 forbids relative imports outside the current folder; must use `@/features/asset-manager/types`
+> ❌ `apps/web-editor/src/features/asset-manager/hooks/useAddAssetToTimeline.ts` lines 4–5: import group ordering violation — relative import (group 5) appears before `@/` absolute import (group 4) with no blank line separator; §9 requires group 4 before group 5, each group separated by a blank line
+> ❌ `apps/web-editor/src/features/asset-manager/hooks/useAddAssetToTimeline.test.ts` line 23: `import type { Asset } from '../types'` crosses a directory boundary — §9 forbids relative imports outside the current folder; must use `@/features/asset-manager/types`
+> ⚠️ `apps/web-editor/src/features/asset-manager/hooks/useAddAssetToTimeline.test.ts` lines 21–23: post-mock imports are in group order 4, 3, 5 — §9 requires 3 before 4; minor because `vi.mock` hoisting forces the split, but the `@ai-video-editor/project-schema` import (group 3) should precede the `@/store/project-store` import (group 4)
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-04. All checks passed. This subtask is purely a logic hook — no UI components, no JSX, no CSS, no style properties. No color tokens, typography values, spacing values, border radii, or any visual design tokens were introduced in either `useAddAssetToTimeline.ts` or its test file. No design compliance issues to report.
+
+## [2026-04-04]
+
+### Task: EPIC 7 — Phase 1: Edit Page Core Integration
+**Subtask:** 5. Add "Add to Timeline" button and `TranscribeButton` to `AssetDetailPanel`
+
+**What was done:**
+- Updated `apps/web-editor/src/features/asset-manager/components/AssetDetailPanel.tsx`: imported `useAddAssetToTimeline` and `TranscribeButton`; added `isReady` and `isAV` locals; mounted `<TranscribeButton assetId={asset.id} />` below the metadata row for video/audio only; added "Add to Timeline" button above Replace/Delete with `#7C3AED` background, enabled only when `status === 'ready'`, disabled with `title="Processing…"` otherwise
+- Created `apps/web-editor/src/features/asset-manager/components/AssetDetailPanel.test.tsx` with 14 tests covering: button render, enabled/disabled state for ready/processing/pending, tooltip presence, click handler invocation, no-call when disabled, TranscribeButton render for video/audio, not rendered for image, correct assetId passed, filename and status badge render
+- Used native vitest matchers (`toBeDefined`, `btn.disabled`, `getAttribute`) — jest-dom is not configured in this project's vitest setup
+
+**Notes:**
+- Component calls hooks only — no logic added per architecture rule
+- `isAV` guards prevent `TranscribeButton` from mounting for image assets
+- Disabled state uses `cursor: not-allowed` + dimmed colours (`#3A2A6A` bg, `#8A8AA0` text) consistent with existing disabled buttons
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 5. Add "Add to Timeline" button and TranscribeButton to AssetDetailPanel</summary>
+
+- [ ] **5. Add "Add to Timeline" button and `TranscribeButton` to `AssetDetailPanel`**
+  - What: Import `useAddAssetToTimeline`; add "Add to Timeline" button; mount `TranscribeButton` for video/audio assets only.
+  - Where: `apps/web-editor/src/features/asset-manager/components/AssetDetailPanel.tsx`
+  - Why: Primary user-facing integration — path from "upload complete" to "clip on timeline".
+  - Depends on: subtask 4
+
+</details>
+
+checked by code-reviewer - YES
+> Re-reviewed on 2026-04-05. All three previous ❌ violations confirmed resolved:
+> ✓ Moved `formatFileSize`, `formatDuration`, `getTypeLabel` out of `AssetDetailPanel.tsx` into `apps/web-editor/src/features/asset-manager/utils.ts` and imported from `@/features/asset-manager/utils`
+> ✓ Blank line correctly present between import group 1 (React) and group 4 (`@/` imports) in `AssetDetailPanel.tsx`
+> ✓ Import group ordering in `AssetDetailPanel.test.tsx` is correct: group 4 (`@/`) on line 5 before group 5 (relative) on line 7, each separated by a blank line
+> All 648 tests pass. APPROVED — no violations found.
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-05. Re-review after fixes. All three previously-flagged issues confirmed resolved: (1) Replace File and Delete Asset stub buttons now use `color: '#8A8AA0'` (text-secondary token) — `#555560` is gone; (2) filename span now uses `fontSize: 14` (body scale) — `fontSize: 13` is gone; (3) stub buttons now use `fontSize: 12` (body-sm/label scale) — `fontSize: 13` is gone. Full sweep of all color literals and font sizes confirms every value maps to a registered design-guide.md token and every font size is on the defined scale (11/12/14). No new violations introduced.
+
+---
+
+## 2026-04-05
+
+### Task: EPIC 7 — Phase 1: Edit Page Core Integration
+**Subtask:** 6. Add horizontal scrollbar to TimelinePanel
+
+**What was done:**
+- Added `SCROLLBAR_HEIGHT = 8` constant and subtracted it from `TRACK_LIST_HEIGHT` so track lanes are not resized
+- Added `laneWidthRef` and `totalContentWidthRef` refs (updated on every render) so pointer event handlers always read the latest geometry — same pattern as the existing `scrollOffsetXRef`
+- Added scrollbar strip row below the track list in `TimelinePanel.tsx`: 8px tall, aligned with the clip lane (offset by `TRACK_HEADER_WIDTH`), with a thumb div whose width and left position are derived from `(laneWidth / totalContentWidth) * laneWidth` and `(scrollOffsetX / totalContentWidth) * laneWidth` respectively; clamped to `[0, laneWidth - thumbWidth]`; minimum thumb width of 16px
+- When `totalContentWidth <= laneWidth` the thumb fills the full lane and `pointerEvents: 'none'` disables interaction
+- Thumb drag uses `setPointerCapture` (same pattern as `useClipDrag`) for smooth tracking when pointer leaves the thumb; drag ratio `totalContentWidth / laneWidth` converts pixel delta to scroll offset units
+- Removed `aria-hidden` from the scrollbar row so `role="scrollbar"` is discoverable in the accessibility tree
+- Created `apps/web-editor/src/features/timeline/components/TimelinePanel.scrollbar.test.tsx` with 11 tests
+
+**Tests written:**
+- Strip renders with `role="scrollbar"`
+- Overflow case: thumb width proportional to `laneWidth / totalContentWidth`
+- Overflow case: thumb left = 0 when `scrollOffsetX = 0`
+- Overflow case: thumb left shifts right as `scrollOffsetX` increases
+- Overflow case: `pointerEvents` enabled on thumb
+- No-overflow case: thumb fills full lane width
+- No-overflow case: `pointerEvents` disabled
+- Drag: `setScrollOffsetX` called with correct value on `pointermove` after `pointerdown`
+- Drag: offset clamped to 0 when dragging left past start
+- Drag: no update on `pointermove` without prior `pointerdown`
+- Drag: no update after `pointerup`
+
+**Notes:**
+- Used `MouseEvent` (not `PointerEvent`) when constructing test events via `dispatchEvent` — JSDOM's `PointerEvent` does not forward `clientX` from its init dict regardless of polyfill, while `MouseEvent` does; React's event delegation dispatches `onPointerDown`/`onPointerMove` for both event types
+- ResizeObserver is stubbed to fire a 800px width callback asynchronously via `act()` after `observe()` is called, so `setPanelWidth(el.clientWidth) = 0` from the layout effect is then overridden by the 800px value
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 6. Add horizontal scrollbar to TimelinePanel</summary>
+
+- [ ] **6. Add horizontal scrollbar to `TimelinePanel`**
+  - What: Add a scrollbar strip below the track list in `TimelinePanel`. The strip contains a single absolutely-positioned thumb div. Thumb width = `(laneWidth / totalContentWidth) * laneWidth` where `totalContentWidth = durationFrames * pxPerFrame`. Thumb left position = `(scrollOffsetX / totalContentWidth) * laneWidth`. Pointer-down on the thumb initiates a drag that updates `setScrollOffsetX` in real time. When `totalContentWidth <= laneWidth` the thumb fills the strip and pointer events are disabled. The strip height should be 8px and must not reduce the height of the clip lanes (TIMELINE_PANEL_HEIGHT should increase by 8, or the strip is an overflow-hidden addition).
+  - Where: `apps/web-editor/src/features/timeline/components/TimelinePanel.tsx`
+  - Why: The only way to navigate the timeline horizontally is with the mouse wheel. There is no visual affordance. This is the "comfortable and natural" navigation experience the user described.
+  - Depends on: subtask 2 (so `durationFrames` is accurate and the scrollbar thumb correctly represents real content width)
+
+</details>
+
+checked by code-reviewer - COMMENTED
+> ❌ File length violation (§9): `apps/web-editor/src/features/timeline/components/TimelinePanel.tsx` is 351 lines — exceeds the 300-line hard limit. The scrollbar geometry constants, refs, and handlers added in this subtask pushed the file over the limit. The next logical extraction unit is the scrollbar thumb pointer handlers (handleThumbPointerDown/handleThumbPointerMove/handleThumbPointerUp + thumbDragRef + ThumbDragState type) — these should be extracted to a new hook `features/timeline/hooks/useScrollbarThumbDrag.ts`.
+checked by code-reviewer - COMMENTED (re-review 2026-04-05 after file-length fix)
+> ✅ File lengths resolved: TimelinePanel.tsx 253 lines, ScrollbarStrip.tsx 116 lines, useScrollbarThumbDrag.ts 84 lines — all within 300-line limit
+> ❌ Cross-directory relative import violation (§9): `apps/web-editor/src/features/timeline/components/ScrollbarStrip.tsx` line 14 — `import { useScrollbarThumbDrag } from '../hooks/useScrollbarThumbDrag'` crosses a directory boundary; must use `@/features/timeline/hooks/useScrollbarThumbDrag`
+> ❌ Missing hook unit test (§10): `apps/web-editor/src/features/timeline/hooks/useScrollbarThumbDrag.ts` has no co-located test file; §10 requires unit tests for custom hooks in `features/*/hooks/`; end-to-end coverage in `TimelinePanel.scrollbar.test.tsx` does not satisfy the co-location requirement
+checked by qa-reviewer - YES (pending code-reviewer re-review at this point; final QA approval at line below after all code-reviewer rounds closed)
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-05. All checks passed. (1) SCROLLBAR_HEIGHT = 8 confirmed at line 28. (2) Scrollbar strip is offset by TRACK_HEADER_WIDTH = 160 via a spacer div, identical alignment pattern to the ruler row. (3) Strip background '#0D0D14' matches the surface token. (4) Scrollbar track background '#1E1E2E' matches the surface-elevated token. (5) Thumb backgroundColor resolves to BORDER = '#252535' which matches the border token. (6) All three color values are present in the design-guide.md Section 3 color table — no unapproved hardcoded hex values. (7) Thumb borderRadius: 4 matches radius-sm token. (8) TRACK_LIST_HEIGHT correctly accounts for SCROLLBAR_HEIGHT at line 31, preserving track lane height. (9) TIMELINE_PANEL_HEIGHT = 232 is unchanged at line 19. Additional: scrollbarTrack also has borderRadius: 4 applied — consistent use of radius-sm, no new tokens introduced.
+checked by code-reviewer - COMMENTED (re-review 2026-04-05 after two fixes applied)
+> ❌ Import ordering violation (§9): `apps/web-editor/src/features/timeline/hooks/useScrollbarThumbDrag.test.ts` lines 15–16 — `import { useScrollbarThumbDrag } from './useScrollbarThumbDrag'` (group 5 relative) appears before `import * as ephemeralStore from '@/store/ephemeral-store'` (group 4 `@/`) with no blank line separator; §9 requires group 4 before group 5, each separated by a blank line
+checked by code-reviewer - YES (re-review 2026-04-05 after import ordering fix in useScrollbarThumbDrag.test.ts — all violations resolved)
+checked by qa-reviewer - YES (approved in round 1, 2026-04-05; initial NOT marker at first code-reviewer pass was superseded by this final YES after all code-reviewer rounds completed)
+
+---
+
+## 2026-04-05
+
+### Task: EPIC 7 — Phase 1: Edit Page Core Integration
+**Subtask:** 7. Add Delete / Backspace key shortcut for selected clips
+
+**What was done:**
+- Created `apps/web-editor/src/features/timeline/hooks/useClipDeleteShortcut.ts` (76 lines): `useEffect`-based hook that registers a document-level `keydown` listener; on Delete/Backspace it reads `selectedClipIds` from the ephemeral store snapshot, cross-references project snapshot tracks to exclude locked clips, removes surviving clips via `setProject()`, and clears selection via `setSelectedClips([])`; guards skip firing when focus is inside `<input>`, `<textarea>`, `<select>`, or a `contenteditable` element
+- Updated `apps/web-editor/src/features/timeline/components/TimelinePanel.tsx` to call `useClipDeleteShortcut()` — no logic added to the component body; 255 lines (within limit)
+- Created `apps/web-editor/src/features/timeline/hooks/useClipDeleteShortcut.test.ts` with 11 tests
+
+**Tests written:**
+- Happy path Delete: selected unlocked clip is removed, selection cleared
+- Happy path Backspace: identical behaviour to Delete
+- Locked track guard: clip on locked track is NOT deleted
+- Mixed selection: unlocked clip deleted, locked clip preserved
+- Input-focused no-op: Delete inside `<input>` does nothing
+- Textarea-focused no-op: Delete inside `<textarea>` does nothing
+- Select-focused no-op: Delete inside `<select>` does nothing
+- Contenteditable no-op: Delete inside `contenteditable` element does nothing
+- Empty selection no-op: no store calls when nothing selected
+- Non-Delete key no-op: Escape / x / ArrowLeft are ignored
+- Unmount cleanup: listener removed on unmount, subsequent Delete is ignored
+
+**Notes:**
+- Logic extracted to a hook (not in the component body) per §5
+- `useEffect([], [])` deps array is empty because the handler reads current state via `getSnapshot()` functions rather than closing over stale React state — same pattern as the wheel-handler in TimelinePanel
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 7. Add Delete / Backspace key shortcut for selected clips</summary>
+
+- [ ] **7. Add `Delete` / `Backspace` key shortcut for selected clips**
+  - What: In `TimelinePanel.tsx`, add a `useEffect` that attaches a `keydown` listener to `document`. On `Delete` or `Backspace`: (a) check `document.activeElement` — if it is an `<input>`, `<textarea>`, or `<select>`, do nothing; (b) read `selectedClipIds` from `getSnapshot()` (ephemeral store); (c) filter out locked clips by cross-referencing `getProjectSnapshot().tracks`; (d) remove the remaining clip IDs from `project.clips` via `setProject()`; (e) clear `selectedClipIds` via `setSelectedClips([])`. Remove the listener on unmount. Write unit tests covering the happy path, locked clip guard, and the input-focused no-op.
+  - Where: `apps/web-editor/src/features/timeline/components/TimelinePanel.tsx`
+  - Why: Clips can only be deleted via the right-click context menu. The keyboard shortcut is the expected interaction in any timeline editor. Without it the timeline feels broken.
+  - Depends on: none
+
+</details>
+
+checked by code-reviewer - COMMENTED
+> ❌ File length violation (§9): `apps/web-editor/src/features/timeline/hooks/useClipDeleteShortcut.test.ts` is 335 lines, exceeding the 300-line limit; split into `useClipDeleteShortcut.test.ts` (core happy-path tests) and a second file (e.g. `useClipDeleteShortcut.guards.test.ts`) per the split-test naming convention in §9
+> ❌ Import ordering violation (§9): `apps/web-editor/src/features/timeline/hooks/useClipDeleteShortcut.test.ts` line 23 — monorepo package import (`@ai-video-editor/project-schema`, group 3) appears after app-internal absolute imports (group 4, lines 21–22); must be reordered: group 3 before group 4
+checked by code-reviewer - YES (2026-04-05 — all issues resolved)
+> ✅ File length resolved: test split into `.test.ts` (191 lines), `.guards.test.ts` (138 lines), `.fixtures.ts` (50 lines) — all within 300-line limit
+> ✅ Import ordering resolved: monorepo import (`@ai-video-editor/project-schema`) moved into `fixtures.ts` only (Group 3); both test files now correctly order Group 2 → Group 4 → Group 5 with blank-line separators
+> ✅ JSDoc on exported functions resolved: `makeTrack`, `makeClip`, `makeProjectDoc`, `dispatchKey` each have a one-line JSDoc comment as required by §9
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-05. All checks passed. This subtask is a pure keyboard behavior change with zero visual output. `useClipDeleteShortcut.ts` contains no JSX, no CSS, no style objects, no color literals, no font sizes, no spacing values, and no border radii — only TypeScript logic and store calls. In `TimelinePanel.tsx`, the only additions are the import on line 11 and the hook call on line 72; no JSX was altered and no new style properties were introduced. All pre-existing color constants (`SURFACE_ALT`, `BORDER`, `TEXT_SECONDARY`) remain unchanged and continue to map to registered design-guide.md tokens (surface-alt `#16161F`, border `#252535`, text-secondary `#8A8AA0`). No design compliance issues to report.

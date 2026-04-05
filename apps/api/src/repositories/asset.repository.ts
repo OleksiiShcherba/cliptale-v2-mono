@@ -119,6 +119,29 @@ export async function getAssetsByProjectId(projectId: string): Promise<Asset[]> 
   return rows.map(mapRowToAsset);
 }
 
+/**
+ * Returns true when at least one clip in `project_clips_current` references the given asset.
+ * Used to enforce the referential-integrity rule before deletion.
+ */
+export async function isAssetReferencedByClip(assetId: string): Promise<boolean> {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    'SELECT 1 FROM project_clips_current WHERE asset_id = ? LIMIT 1',
+    [assetId],
+  );
+  return rows.length > 0;
+}
+
+/**
+ * Hard-deletes an asset row from `project_assets_current`.
+ * Silent no-op when no row matches the given `assetId` — does not throw.
+ */
+export async function deleteAssetById(assetId: string): Promise<void> {
+  await pool.execute(
+    'DELETE FROM project_assets_current WHERE asset_id = ?',
+    [assetId],
+  );
+}
+
 /** Updates the status (and optional error message) of an asset in-place. */
 export async function updateAssetStatus(
   assetId: string,

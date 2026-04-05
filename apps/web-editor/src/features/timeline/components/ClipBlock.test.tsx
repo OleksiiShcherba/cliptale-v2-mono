@@ -33,6 +33,7 @@ const defaultProps = {
   isSelected: false,
   isLocked: false,
   laneHeight: 48,
+  scrollOffsetX: 0,
   onClick: vi.fn(),
 };
 
@@ -44,11 +45,18 @@ describe('ClipBlock', () => {
     expect(button.getAttribute('aria-label')).toContain('Clip: video');
   });
 
-  it('positions correctly using startFrame * pxPerFrame', () => {
-    const { container } = render(<ClipBlock clip={videoClip} {...defaultProps} />);
+  it('positions correctly using startFrame * pxPerFrame when scrollOffsetX is 0', () => {
+    const { container } = render(<ClipBlock clip={videoClip} {...defaultProps} scrollOffsetX={0} />);
     const block = container.firstChild as HTMLElement;
-    // left = 10 * 4 = 40px
+    // left = 10 * 4 - 0 = 40px
     expect(block.style.left).toBe('40px');
+  });
+
+  it('shifts left position by scrollOffsetX', () => {
+    const { container } = render(<ClipBlock clip={videoClip} {...defaultProps} scrollOffsetX={20} />);
+    const block = container.firstChild as HTMLElement;
+    // left = 10 * 4 - 20 = 20px
+    expect(block.style.left).toBe('20px');
   });
 
   it('sizes correctly using durationFrames * pxPerFrame', () => {
@@ -178,11 +186,20 @@ describe('ClipBlock', () => {
 
   it('uses ghostLeft for position when provided instead of startFrame * pxPerFrame', () => {
     const { container } = render(
-      <ClipBlock clip={videoClip} {...defaultProps} ghostLeft={200} />,
+      <ClipBlock clip={videoClip} {...defaultProps} ghostLeft={200} scrollOffsetX={0} />,
     );
     const block = container.firstChild as HTMLElement;
-    // ghostLeft = 200 overrides startFrame (10) * pxPerFrame (4) = 40
+    // left = ghostLeft (200) - scrollOffsetX (0) = 200px
     expect(block.style.left).toBe('200px');
+  });
+
+  it('subtracts scrollOffsetX from ghostLeft position', () => {
+    const { container } = render(
+      <ClipBlock clip={videoClip} {...defaultProps} ghostLeft={200} scrollOffsetX={50} />,
+    );
+    const block = container.firstChild as HTMLElement;
+    // left = ghostLeft (200) - scrollOffsetX (50) = 150px
+    expect(block.style.left).toBe('150px');
   });
 
   it('renders at 50% opacity when isDragging is true', () => {
@@ -193,10 +210,10 @@ describe('ClipBlock', () => {
     expect(block.style.opacity).toBe('0.5');
   });
 
-  it('renders at full opacity when isDragging is false (default)', () => {
+  it('renders at 75% opacity when isDragging is false (default normal state per design spec)', () => {
     const { container } = render(<ClipBlock clip={videoClip} {...defaultProps} />);
     const block = container.firstChild as HTMLElement;
-    expect(block.style.opacity).toBe('1');
+    expect(block.style.opacity).toBe('0.75');
   });
 
   it('calls onPointerDown when pointerdown fires and onPointerDown is provided', () => {

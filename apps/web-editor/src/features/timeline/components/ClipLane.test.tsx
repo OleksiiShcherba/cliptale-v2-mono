@@ -5,9 +5,15 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { ClipLane } from './ClipLane';
 import * as ephemeralStore from '@/store/ephemeral-store';
 import * as projectStore from '@/store/project-store';
+import * as timelineApi from '../api';
 import type { Clip, Track, ProjectDoc } from '@ai-video-editor/project-schema';
 import type { ClipDragInfo } from '../hooks/useClipDrag';
 import type { TrimDragInfo } from '../hooks/useClipTrim';
+
+vi.mock('../api', () => ({
+  createClip: vi.fn().mockResolvedValue(undefined),
+  patchClip: vi.fn().mockResolvedValue(undefined),
+}));
 
 const videoTrack: Track = {
   id: 'track-001',
@@ -42,11 +48,13 @@ const clip2: Clip = {
 };
 
 const defaultProps = {
+  projectId: 'project-001',
   track: videoTrack,
   clips: [clip1, clip2] as ReadonlyArray<Clip & { layer?: number }>,
   pxPerFrame: 4,
   selectedClipIds: new Set<string>(),
   width: 800,
+  scrollOffsetX: 0,
   dragInfo: null as ClipDragInfo | null,
   onClipPointerDown: vi.fn(),
   trimInfo: null as TrimDragInfo | null,
@@ -389,5 +397,173 @@ describe('ClipLane', () => {
     expect(sorted[0]?.type !== 'text-overlay' && (sorted[0] as { assetId: string })?.assetId).toBe('asset-001');
     expect(sorted[1]?.type !== 'text-overlay' && (sorted[1] as { assetId: string })?.assetId).toBe('asset-001');
     mockSetProject.mockRestore();
+  });
+
+  // ---------------------------------------------------------------------------
+  // createClip API called after split
+  // ---------------------------------------------------------------------------
+
+  it('calls createClip for both halves when Split at Playhead succeeds', async () => {
+    const mockCreateClip = vi.mocked(timelineApi.createClip);
+    vi.spyOn(projectStore, 'getSnapshot').mockReturnValue({
+      schemaVersion: 1,
+      id: 'project-001',
+      title: 'Test',
+      fps: 30,
+      durationFrames: 300,
+      width: 1920,
+      height: 1080,
+      tracks: [],
+      clips: [clip1],
+      createdAt: '',
+      updatedAt: '',
+    } as unknown as ProjectDoc);
+    vi.spyOn(projectStore, 'setProject');
+    vi.spyOn(ephemeralStore, 'getSnapshot').mockReturnValue({
+      playheadFrame: 10,
+      selectedClipIds: [],
+      zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
+    });
+
+    render(<ClipLane {...defaultProps} clips={[clip1] as ReadonlyArray<Clip & { layer?: number }>} />);
+    const buttons = screen.getAllByRole('button');
+    fireEvent.contextMenu(buttons[0]!);
+    fireEvent.click(screen.getByText('Split at Playhead'));
+
+    // createClip is fire-and-forget (Promise.allSettled) — flush microtasks.
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockCreateClip).toHaveBeenCalledTimes(2);
+    // Both calls must use the project ID from props.
+    expect(mockCreateClip.mock.calls[0]![0]).toBe('project-001');
+    expect(mockCreateClip.mock.calls[1]![0]).toBe('project-001');
+  });
+
+  it('does NOT call createClip when split is skipped because playhead is not overlapping', async () => {
+    const mockCreateClip = vi.mocked(timelineApi.createClip);
+    vi.spyOn(projectStore, 'getSnapshot').mockReturnValue({
+      schemaVersion: 1,
+      id: 'project-001',
+      title: 'Test',
+      fps: 30,
+      durationFrames: 300,
+      width: 1920,
+      height: 1080,
+      tracks: [],
+      clips: [clip1],
+      createdAt: '',
+      updatedAt: '',
+    } as unknown as ProjectDoc);
+    vi.spyOn(projectStore, 'setProject');
+    // Playhead at exact startFrame (frame 0) — must NOT produce a split.
+    vi.spyOn(ephemeralStore, 'getSnapshot').mockReturnValue({
+      playheadFrame: 0,
+      selectedClipIds: [],
+      zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
+    });
+
+    render(<ClipLane {...defaultProps} clips={[clip1] as ReadonlyArray<Clip & { layer?: number }>} />);
+    const buttons = screen.getAllByRole('button');
+    fireEvent.contextMenu(buttons[0]!);
+    fireEvent.click(screen.getByText('Split at Playhead'));
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(mockCreateClip).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // isPlayheadOverlapping boundary: playhead at exact startFrame must be rejected
+  // ---------------------------------------------------------------------------
+
+  it('Split at Playhead is disabled (canSplit=false) when playhead is at exact clip startFrame', () => {
+    vi.spyOn(projectStore, 'getSnapshot').mockReturnValue({
+      schemaVersion: 1,
+      id: 'project-001',
+      title: 'Test',
+      fps: 30,
+      durationFrames: 300,
+      width: 1920,
+      height: 1080,
+      tracks: [],
+      clips: [clip1],
+      createdAt: '',
+      updatedAt: '',
+    } as unknown as ProjectDoc);
+    // Playhead exactly at clip startFrame (0) — the `>` check means this is NOT overlapping.
+    vi.spyOn(ephemeralStore, 'getSnapshot').mockReturnValue({
+      playheadFrame: 0,
+      selectedClipIds: [],
+      zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
+    });
+
+    render(<ClipLane {...defaultProps} clips={[clip1] as ReadonlyArray<Clip & { layer?: number }>} />);
+    const buttons = screen.getAllByRole('button');
+    fireEvent.contextMenu(buttons[0]!);
+
+    // The "Split at Playhead" menu item must be aria-disabled (canSplit=false).
+    const splitItem = screen.getByText('Split at Playhead').closest('[role="menuitem"]');
+    expect(splitItem?.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  // ---------------------------------------------------------------------------
+  // scrollOffsetX tests
+  // ---------------------------------------------------------------------------
+
+  it('shifts clip positions left when scrollOffsetX is applied', () => {
+    const { container } = render(
+      <ClipLane {...defaultProps} scrollOffsetX={40} clips={[clip1] as ReadonlyArray<Clip & { layer?: number }>} />,
+    );
+    const block = container.querySelector('[data-clip-id="clip-001"]') as HTMLElement | null;
+    expect(block).not.toBeNull();
+    // clip1.startFrame=0 * pxPerFrame=4 - scrollOffsetX=40 = -40px
+    expect(block?.style.left).toBe('-40px');
+  });
+
+  it('renders clip at correct left when scrollOffsetX is 0', () => {
+    const { container } = render(
+      <ClipLane {...defaultProps} scrollOffsetX={0} clips={[clip2] as ReadonlyArray<Clip & { layer?: number }>} />,
+    );
+    const block = container.querySelector('[data-clip-id="clip-002"]') as HTMLElement | null;
+    expect(block).not.toBeNull();
+    // clip2.startFrame=50 * pxPerFrame=4 - 0 = 200px
+    expect(block?.style.left).toBe('200px');
+  });
+
+  it('Split at Playhead is disabled when playhead is exactly at clip end (startFrame + durationFrames)', () => {
+    vi.spyOn(projectStore, 'getSnapshot').mockReturnValue({
+      schemaVersion: 1,
+      id: 'project-001',
+      title: 'Test',
+      fps: 30,
+      durationFrames: 300,
+      width: 1920,
+      height: 1080,
+      tracks: [],
+      clips: [clip1],
+      createdAt: '',
+      updatedAt: '',
+    } as unknown as ProjectDoc);
+    // clip1: startFrame=0, durationFrames=30 → end = 30; playhead at 30 is outside.
+    vi.spyOn(ephemeralStore, 'getSnapshot').mockReturnValue({
+      playheadFrame: 30,
+      selectedClipIds: [],
+      zoom: 1,
+      pxPerFrame: 4,
+      scrollOffsetX: 0,
+    });
+
+    render(<ClipLane {...defaultProps} clips={[clip1] as ReadonlyArray<Clip & { layer?: number }>} />);
+    const buttons = screen.getAllByRole('button');
+    fireEvent.contextMenu(buttons[0]!);
+
+    const splitItem = screen.getByText('Split at Playhead').closest('[role="menuitem"]');
+    expect(splitItem?.getAttribute('aria-disabled')).toBe('true');
   });
 });

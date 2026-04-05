@@ -17,27 +17,29 @@ export type UseTranscriptionStatusResult = {
 };
 
 /**
- * Polls GET /assets/:id/captions every 3 seconds until the caption track is
- * available (`ready`) or an unexpected error occurs.
+ * Fetches GET /assets/:id/captions once on mount to detect existing captions,
+ * then polls every 3 seconds only when `pollingEnabled` is true (i.e. after
+ * the user has triggered transcription).
  *
  * Status derivation:
  * - `ready`  — API returned 200 with segments.
  * - `error`  — API returned a non-404 error.
- * - `idle`   — API returned 404 (not yet transcribed).
- *   Consumers that have called `triggerTranscription` should track their own
- *   `pending`/`processing` state on top of `idle`.
+ * - `idle`   — API returned 404 (no captions yet).
  *
- * Pass `null` for `assetId` to disable polling entirely.
+ * Pass `null` for `assetId` to disable the query entirely.
+ * Pass `pollingEnabled = true` to start the 3-second poll loop.
  */
 export function useTranscriptionStatus(
   assetId: string | null,
+  pollingEnabled = false,
 ): UseTranscriptionStatusResult {
   const { data, isError, isFetching } = useQuery({
     queryKey: ['captions', assetId],
     queryFn: () => getCaptions(assetId!),
     enabled: assetId !== null,
-    // Stop polling once we have segments (ready) or encounter a hard error.
+    // Poll only when the caller has started transcription; otherwise one-shot.
     refetchInterval: (query) => {
+      if (!pollingEnabled) return false;
       if (query.state.data != null) return false;
       if (query.state.error) return false;
       return POLL_INTERVAL_MS;

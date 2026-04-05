@@ -134,4 +134,60 @@ describe('useTranscriptionStatus', () => {
 
     expect(result.current.isFetching).toBe(true);
   });
+
+  // ---------------------------------------------------------------------------
+  // pollingEnabled parameter
+  // ---------------------------------------------------------------------------
+
+  it('always performs an initial fetch regardless of pollingEnabled=false', async () => {
+    mockGetCaptions.mockResolvedValue(null);
+    const { Wrapper } = createWrapper();
+
+    renderHook(
+      () => useTranscriptionStatus('asset-001', false),
+      { wrapper: Wrapper },
+    );
+
+    await waitFor(() => expect(mockGetCaptions).toHaveBeenCalledWith('asset-001'));
+  });
+
+  it('also performs an initial fetch when pollingEnabled=true', async () => {
+    mockGetCaptions.mockResolvedValue(null);
+    const { Wrapper } = createWrapper();
+
+    renderHook(
+      () => useTranscriptionStatus('asset-001', true),
+      { wrapper: Wrapper },
+    );
+
+    await waitFor(() => expect(mockGetCaptions).toHaveBeenCalledWith('asset-001'));
+  });
+
+  it('transitions through idle when pollingEnabled=false (no continuous poll)', async () => {
+    // When pollingEnabled is false and data is null, status stays idle (no retry loop).
+    mockGetCaptions.mockResolvedValue(null);
+    const { Wrapper } = createWrapper();
+
+    const { result } = renderHook(
+      () => useTranscriptionStatus('asset-001', false),
+      { wrapper: Wrapper },
+    );
+
+    await waitFor(() => expect(result.current.status).toBe('idle'));
+    // Only one call — no polling interval fired.
+    expect(mockGetCaptions).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns ready immediately when pollingEnabled=true and captions already exist', async () => {
+    mockGetCaptions.mockResolvedValue({ segments: TEST_SEGMENTS });
+    const { Wrapper } = createWrapper();
+
+    const { result } = renderHook(
+      () => useTranscriptionStatus('asset-001', true),
+      { wrapper: Wrapper },
+    );
+
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(result.current.segments).toEqual(TEST_SEGMENTS);
+  });
 });

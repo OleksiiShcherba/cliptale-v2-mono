@@ -1,6 +1,6 @@
 import { NotFoundError, ForbiddenError } from '@/lib/errors.js';
 import * as clipRepository from '@/repositories/clip.repository.js';
-import type { ClipRow, ClipPatch } from '@/repositories/clip.repository.js';
+import type { ClipRow, ClipPatch, ClipInsert } from '@/repositories/clip.repository.js';
 
 /** Parameters for a partial clip update. */
 export type PatchClipParams = {
@@ -14,6 +14,17 @@ export type PatchClipParams = {
 
 /** Result returned to the controller on success. */
 export type PatchClipResult = ClipRow;
+
+/** Parameters for creating a new clip row. */
+export type CreateClipParams = ClipInsert;
+
+/**
+ * Inserts a new clip into project_clips_current.
+ * Called after split/duplicate operations that produce new clip IDs.
+ */
+export async function createClip(params: CreateClipParams): Promise<void> {
+  await clipRepository.insertClip(params);
+}
 
 /**
  * Applies a partial update to a clip's mutable timeline fields.

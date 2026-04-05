@@ -1,11 +1,8 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { usePlaybackControls } from './usePlaybackControls.js';
-import { makePlayerRef, makeProjectDoc } from './usePlaybackControls.fixtures.js';
-
 // ---------------------------------------------------------------------------
-// Mocks
+// Mocks — vi.mock() is hoisted before all imports by Vitest's transform.
 // ---------------------------------------------------------------------------
 
 vi.mock('@/store/project-store.js', () => ({
@@ -16,9 +13,20 @@ vi.mock('@/store/ephemeral-store.js', () => ({
   setPlayheadFrame: vi.fn(),
 }));
 
+vi.mock('@/store/timeline-refs.js', () => ({
+  updateTimelinePlayheadFrame: vi.fn(),
+}));
+
 import * as projectStore from '@/store/project-store.js';
+import * as ephemeralStore from '@/store/ephemeral-store.js';
+import * as timelineRefs from '@/store/timeline-refs.js';
+
+import { usePlaybackControls } from './usePlaybackControls.js';
+import { makePlayerRef, makeProjectDoc } from './usePlaybackControls.fixtures.js';
 
 const mockGetSnapshot = vi.mocked(projectStore.getSnapshot);
+const mockSetPlayheadFrame = vi.mocked(ephemeralStore.setPlayheadFrame);
+const mockUpdateTimelinePlayheadFrame = vi.mocked(timelineRefs.updateTimelinePlayheadFrame);
 
 // ---------------------------------------------------------------------------
 // usePlaybackControls — rAF loop tests
@@ -155,6 +163,68 @@ describe('usePlaybackControls', () => {
 
       expect(div.style.getPropertyValue('--playhead-frame')).toBe('60');
       expect(result.current.currentFrame).toBe(60);
+    });
+
+    it('calls updateTimelinePlayheadFrame with the current frame on each rAF tick (Bug 2)', () => {
+      // Asserts the Bug 2 fix: the rAF tick must call the timeline bridge instead of
+      // setPlayheadFrame to avoid 60fps React re-renders (architecture §7).
+      let capturedCallback: FrameRequestCallback | null = null;
+      vi.stubGlobal(
+        'requestAnimationFrame',
+        vi.fn((cb: FrameRequestCallback) => {
+          capturedCallback = cb;
+          return 1;
+        }),
+      );
+
+      const { ref, currentFrame: frameState, playing } = makePlayerRef();
+      playing.value = true;
+      frameState.value = 72;
+      const { result } = renderHook(() => usePlaybackControls(ref));
+
+      act(() => {
+        result.current.play();
+      });
+
+      mockUpdateTimelinePlayheadFrame.mockClear();
+
+      // Simulate one rAF tick.
+      act(() => {
+        if (capturedCallback) capturedCallback(0);
+      });
+
+      expect(mockUpdateTimelinePlayheadFrame).toHaveBeenCalledWith(72);
+    });
+
+    it('calls setPlayheadFrame with finalFrame when player stops itself at end (Bug 2)', () => {
+      let capturedCallback: FrameRequestCallback | null = null;
+      vi.stubGlobal(
+        'requestAnimationFrame',
+        vi.fn((cb: FrameRequestCallback) => {
+          capturedCallback = cb;
+          return 1;
+        }),
+      );
+
+      const { ref, player, currentFrame: frameState, playing } = makePlayerRef();
+      playing.value = true;
+      frameState.value = 299;
+      player.isPlaying.mockReturnValue(false);
+
+      const { result } = renderHook(() => usePlaybackControls(ref));
+
+      act(() => {
+        result.current.play();
+      });
+
+      mockSetPlayheadFrame.mockClear();
+
+      act(() => {
+        if (capturedCallback) capturedCallback(0);
+      });
+
+      // The tick should call setPlayheadFrame with the final frame when playback ends.
+      expect(mockSetPlayheadFrame).toHaveBeenCalledWith(299);
     });
   });
 });

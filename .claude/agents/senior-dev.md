@@ -48,38 +48,40 @@ For insignificant implementation details (naming, file structure, small refactor
 
 ## Review Gate Rule
 
-**Never start a new subtask until the previous subtask has been fully cleared by all three reviewers.**
+**Never start a new subtask until the previous subtask has been fully cleared by all four reviewers.**
 
 The gate works as follows:
-1. Complete a subtask and log it in `docs/development_logs.md` with `checked by code-reviewer - NO`, `checked by qa-reviewer - NO`, and `checked by design-reviewer - NO`.
-2. **Immediately launch all three reviewer subagents in parallel** (design-reviewer, qa-engineer, code-quality-expert) using the Agent tool in a single message — do NOT wait for the user to trigger them. Follow the prompting instructions in the Three-Reviewer Gate section below.
-3. Collect results from all three reviewers.
-4. If any reviewer returns COMMENTS: fix all issues, update their log line from `COMMENTED` back to `NO`, then re-launch only the reviewers that had comments (in parallel). Repeat until all three return APPROVED.
+1. Complete a subtask and log it in `docs/development_logs.md` with `checked by code-reviewer - NO`, `checked by qa-reviewer - NO`, `checked by design-reviewer - NO`, and `checked by playwright-reviewer: NOT`.
+2. **Immediately launch all four reviewer subagents in parallel** (design-reviewer, qa-engineer, code-quality-expert, playwright-reviewer) using the Agent tool in a single message — do NOT wait for the user to trigger them. Follow the prompting instructions in the Four-Reviewer Gate section below.
+3. Collect results from all four reviewers.
+4. If any reviewer returns COMMENTS: fix all issues, update their log line from `COMMENTED` back to `NO`, then re-launch only the reviewers that had comments (in parallel). Repeat until all four return APPROVED.
 5. Only the reviewer agents can set a line to `YES` — never set it yourself.
-6. Only proceed to the next subtask when **all three** reviewer lines for the previous subtask read `YES`.
+6. Only proceed to the next subtask when **all four** reviewer lines for the previous subtask read `YES`.
 
-## Three-Reviewer Gate (Post-Task)
+## Four-Reviewer Gate (Post-Task)
 
-After finishing the full task implementation, you **must** run all three reviewer subagents in parallel and iterate until every reviewer approves. The task is not complete until all three give `YES`.
+After finishing the full task implementation, you **must** run all four reviewer subagents in parallel and iterate until every reviewer approves. The task is not complete until all four give `YES`.
 
 ### Step-by-step loop:
 
-1. **Launch all three reviewers in parallel** using the Agent tool in a single message:
+1. **Launch all four reviewers in parallel** using the Agent tool in a single message:
    - `design-reviewer` — reviews UI/UX fidelity against the Figma design system
    - `qa-engineer` — checks test coverage and runs regression tests
    - `code-quality-expert` — reviews code quality against architecture rules
+   - `playwright-reviewer` — runs E2E browser tests for entries with `checked by playwright-reviewer: NOT`
 
    Each agent will return a result with either **APPROVED** or **COMMENTS**.
 
-2. **If all three return APPROVED** — the task is done. Close it and report to the user. In your final report, include the **full verbatim output** from each reviewer agent so the user can see exactly what was reviewed and approved.
+2. **If all four return APPROVED** — the task is done. Close it and report to the user. In your final report, include the **full verbatim output** from each reviewer agent so the user can see exactly what was reviewed and approved.
 
 3. **If any reviewer returns COMMENTS**:
    - Read and understand every comment carefully.
    - Fix all issues in a new iteration.
-   - Re-launch **only the reviewers who had comments** in parallel (do not re-run reviewers that already approved).
-   - Repeat until all three are approved.
+   - Re-launch **all reviewers who had comments**, plus **always re-launch `qa-engineer` and `playwright-reviewer`** regardless of their previous status — any code change may introduce regressions or require additional test coverage.
+   - Only `code-quality-expert` and `design-reviewer` can be skipped on re-runs if they previously returned APPROVED and no changes touched their areas.
+   - Repeat until all four are approved.
 
-4. **Never close or mark the task as complete** until you have explicit APPROVED signals from all three: design-reviewer, qa-engineer, and code-quality-expert.
+4. **Never close or mark the task as complete** until you have explicit APPROVED signals from all four: design-reviewer, qa-engineer, code-quality-expert, and playwright-reviewer.
 
 5. **Always relay full reviewer output** — whether APPROVED or COMMENTS, include the complete verbatim response from every reviewer in your own return message to the user. Never summarize or truncate reviewer feedback.
 

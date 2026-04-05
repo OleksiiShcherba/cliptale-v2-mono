@@ -25,6 +25,10 @@ router.get('/projects/:id/assets', authMiddleware, assetsController.getProjectAs
 // Returns the current state of an asset — used by the FE polling hook.
 router.get('/assets/:id', authMiddleware, assetsController.getAsset);
 
+// DELETE /assets/:id
+// Deletes the asset if it is not referenced by any clip. Returns 204 No Content.
+router.delete('/assets/:id', authMiddleware, assetsController.deleteAsset);
+
 // POST /assets/:id/finalize
 // Called by the client after the XHR PUT to S3 completes.
 // Verifies storage, transitions pending → processing, enqueues media-ingest job.

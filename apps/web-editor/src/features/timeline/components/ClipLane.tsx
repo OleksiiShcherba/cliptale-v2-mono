@@ -2,7 +2,7 @@ import React, { useCallback, useState } from 'react';
 
 import type { Clip, Track } from '@ai-video-editor/project-schema';
 import { setSelectedClips, getSnapshot as getEphemeralSnapshot } from '@/store/ephemeral-store';
-import { getSnapshot as getProjectSnapshot, setProject } from '@/store/project-store';
+import { getSnapshot as getProjectSnapshot } from '@/store/project-store';
 
 import { ClipBlock } from './ClipBlock';
 import type { ClipAssetData } from './ClipBlock';
@@ -10,6 +10,7 @@ import { TRACK_ROW_HEIGHT } from './TrackHeader';
 import { ClipContextMenu } from './ClipContextMenu';
 import type { ClipDragInfo } from '../hooks/useClipDrag';
 import type { TrimDragInfo } from '../hooks/useClipTrim';
+import { execClipContextMenuAction, isPlayheadInsideClip } from './clipContextMenuActions';
 
 // Design tokens mapped from track type
 const TRACK_TYPE_COLORS: Record<Track['type'], string> = {
@@ -25,13 +26,14 @@ const LANE_BG = '#0D0D14';
 const SNAP_INDICATOR_COLOR = '#EF4444';
 
 /** State for the open context menu. */
-interface ContextMenuState {
+type ContextMenuState = {
   clipId: string;
   x: number;
   y: number;
-}
+};
 
 interface ClipLaneProps {
+  projectId: string;
   track: Track;
   /** Clips that belong to this track. */
   clips: ReadonlyArray<Clip & { layer?: number }>;
@@ -41,6 +43,11 @@ interface ClipLaneProps {
   selectedClipIds: ReadonlySet<string>;
   /** Width of the scrollable lane area in pixels. */
   width: number;
+  /**
+   * Horizontal scroll offset of the clip lane in pixels.
+   * Forwarded to each `ClipBlock` so clip positions track the ruler.
+   */
+  scrollOffsetX: number;
   /** Optional asset lookup map: assetId → ClipAssetData. */
   assetDataMap?: Readonly<Record<string, ClipAssetData>>;
   /** Current drag state from `useClipDrag`. Null when no drag is in progress. */
@@ -72,11 +79,13 @@ interface ClipLaneProps {
  * Handles drag, trim, selection, and ghost rendering.
  */
 export function ClipLane({
+  projectId,
   track,
   clips,
   pxPerFrame,
   selectedClipIds,
   width,
+  scrollOffsetX,
   assetDataMap,
   dragInfo,
   onClipPointerDown,
@@ -108,9 +117,7 @@ export function ClipLane({
     [],
   );
 
-  /**
-   * Combined pointer-down handler: trim takes priority over drag.
-   */
+  /** Combined pointer-down handler: trim takes priority over drag. */
   const handleClipPointerDown = useCallback(
     (e: React.PointerEvent, clipId: string, isLocked: boolean) => {
       const clip = clips.find((c) => c.id === clipId);
@@ -133,83 +140,14 @@ export function ClipLane({
     [],
   );
 
-  /** Determines if the playhead is overlapping the given clip. */
-  const isPlayheadOverlapping = useCallback(
-    (clip: Clip): boolean => {
-      const { playheadFrame } = getEphemeralSnapshot();
-      return (
-        playheadFrame >= clip.startFrame &&
-        playheadFrame < clip.startFrame + clip.durationFrames
-      );
-    },
-    [],
-  );
-
   /** Handles context menu action dispatches. */
   const handleContextMenuAction = useCallback(
     (action: 'split' | 'delete' | 'duplicate') => {
       if (!contextMenu) return;
-      const { clipId } = contextMenu;
-
-      const project = getProjectSnapshot();
-      const clip = (project.clips ?? []).find((c) => c.id === clipId);
-      if (!clip) return;
-
-      if (action === 'delete') {
-        const updatedClips = (project.clips ?? []).filter((c) => c.id !== clipId);
-        setProject({ ...project, clips: updatedClips });
-        return;
-      }
-
-      if (action === 'duplicate') {
-        // Insert a copy starting immediately after the original.
-        const duplicateClip: Clip = {
-          ...clip,
-          id: crypto.randomUUID(),
-          startFrame: clip.startFrame + clip.durationFrames,
-        };
-        const updatedClips = [...(project.clips ?? []), duplicateClip];
-        setProject({ ...project, clips: updatedClips });
-        return;
-      }
-
-      if (action === 'split') {
-        const { playheadFrame } = getEphemeralSnapshot();
-        if (!isPlayheadOverlapping(clip)) return;
-
-        const splitOffset = playheadFrame - clip.startFrame;
-
-        // First clip: trim out at split point.
-        const firstClip: Clip = {
-          ...clip,
-          durationFrames: splitOffset,
-          ...(clip.type !== 'text-overlay'
-            ? { trimOutFrame: (clip.type === 'video' || clip.type === 'audio')
-                ? (clip.trimInFrame ?? 0) + splitOffset
-                : undefined }
-            : {}),
-        };
-
-        // Second clip: starts at playhead, trimInFrame at split offset.
-        const secondClip: Clip = {
-          ...clip,
-          id: crypto.randomUUID(),
-          startFrame: playheadFrame,
-          durationFrames: clip.durationFrames - splitOffset,
-          ...(clip.type !== 'text-overlay'
-            ? { trimInFrame: (clip.type === 'video' || clip.type === 'audio')
-                ? (clip.trimInFrame ?? 0) + splitOffset
-                : 0 }
-            : {}),
-        };
-
-        const updatedClips = (project.clips ?? []).flatMap((c) =>
-          c.id === clipId ? [firstClip, secondClip] : [c],
-        );
-        setProject({ ...project, clips: updatedClips });
-      }
+      execClipContextMenuAction(action, contextMenu.clipId, projectId);
+      setContextMenu(null);
     },
-    [contextMenu, isPlayheadOverlapping],
+    [contextMenu, projectId],
   );
 
   const handleContextMenuClose = useCallback(() => {
@@ -225,9 +163,8 @@ export function ClipLane({
   // Determine if canSplit for open context menu.
   const canSplit = contextMenu
     ? (() => {
-        const project = getProjectSnapshot();
-        const clip = (project.clips ?? []).find((c) => c.id === contextMenu.clipId);
-        return clip ? isPlayheadOverlapping(clip) : false;
+        const clip = (getProjectSnapshot().clips ?? []).find((c) => c.id === contextMenu.clipId);
+        return clip ? isPlayheadInsideClip(clip) : false;
       })()
     : false;
 
@@ -267,6 +204,7 @@ export function ClipLane({
             isLocked={track.locked}
             assetData={assetData}
             laneHeight={TRACK_ROW_HEIGHT}
+            scrollOffsetX={scrollOffsetX}
             onClick={handleClipClick}
             onPointerDown={handleClipPointerDown}
             onContextMenu={handleClipContextMenu}
@@ -296,6 +234,7 @@ export function ClipLane({
               isLocked={false}
               assetData={assetData}
               laneHeight={TRACK_ROW_HEIGHT}
+              scrollOffsetX={scrollOffsetX}
               onClick={() => {/* ghost is non-interactive */}}
               ghostLeft={ghostLeftPx * pxPerFrame}
             />

@@ -32,6 +32,30 @@ No Playwright or Cypress config exists in the repo as of 2026-04-02. E2E tests c
 
 **Impact:** Every future feature that touches `App.tsx` must update `App.test.tsx`. Check for this file before creating a new test file for any root-level App logic.
 
+## ClipLane.test.tsx — always supply projectId in defaultProps
+
+`ClipLane` now requires a `projectId` prop (added in the bug-fix session for the `createClip` API call after split). Any test that renders `<ClipLane>` without `projectId` will pass TypeScript (prop is typed as required) but silently call `createClip('undefined', clip)`. Always include `projectId: 'project-001'` in the `defaultProps` object and mock `../api` at the top of the test file.
+
+**Why:** Discovered during the 2026-04-04 bug-fix QA review — the original test file was written before `projectId` was added to `ClipLaneProps`.
+
+**Impact:** Every future test that renders `ClipLane` must supply `projectId`. The `../api` module must be mocked (`vi.mock('../api', () => ({ createClip: vi.fn(), patchClip: vi.fn() }))`) so split tests do not make real network calls.
+
+## useAutosave saveVersion payload field names changed
+
+The `saveVersion` API call in `useAutosave.ts` changed from `{ doc_json, patches, inversePatches, parentVersionId }` to `{ docJson, docSchemaVersion, patches, inversePatches, parentVersionId }` (bug-fix session 2026-04-04, item #3). The timing test in `useAutosave.timing.test.ts` was updated accordingly. Use camelCase field names in all future saveVersion assertions.
+
+**Why:** The API contract change caused a regression in `useAutosave.timing.test.ts` that was discovered and fixed during QA review.
+
+**Impact:** Any test that asserts on `saveVersion` call arguments must use `docJson` (not `doc_json`) and include `docSchemaVersion`.
+
+## useRemotionPlayer mock in App.test.tsx must use vi.fn()
+
+The `vi.mock('@/features/preview/hooks/useRemotionPlayer')` factory in `App.test.tsx` must use `vi.fn(() => ...)` (not a plain arrow function) so that `vi.mocked(useRemotionPlayerModule.useRemotionPlayer).mockReturnValue(...)` works in individual tests. A plain function cannot have `.mockReturnValue` called on it and causes `TypeError: mockUseRemotionPlayer.mockReturnValue is not a function`.
+
+**Why:** Discovered when writing Bug 3 (ruler click seek) tests — the original factory used a plain function, so `mockReturnValue` could not override the player instance per-test.
+
+**Impact:** Any test that needs to inject a real mock player into `PreviewSection` must have `vi.fn()` in the factory. When adding new tests to `App.test.tsx`, the `useRemotionPlayer` mock must stay as `vi.fn(...)`, and a `beforeEach` in the `PreviewSection` describe block must restore the default return value.
+
 ## Remotion Player mock must use forwardRef
 
 When testing `PreviewPanel` (or any component that passes a `ref` to Remotion `<Player>`), the `vi.mock('@remotion/player')` factory must use `React.forwardRef` to capture the ref. A plain functional mock component silently discards the ref, making `playerRef` forwarding behavior untestable.

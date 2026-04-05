@@ -43,6 +43,7 @@
 | `success` | `#10B981` | Asset ready status, confirmations |
 | `warning` | `#F59E0B` | Overlay track clips, alerts |
 | `error` | `#EF4444` | Errors, destructive actions |
+| `info` | `#0EA5E9` | Image clip blocks on the timeline |
 
 ### Figma Variable IDs
 

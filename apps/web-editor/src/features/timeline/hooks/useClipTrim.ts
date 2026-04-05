@@ -1,23 +1,7 @@
 /**
  * useClipTrim — Pointer-event-based clip trim interaction.
- *
- * Hovering within TRIM_HANDLE_PX (8px) of a clip's left or right edge shows
- * the `ew-resize` cursor. Dragging the:
- *
- * - Left edge: adjusts `startFrame` (timeline position) and `trimInFrame`
- *   simultaneously — the clip moves in the timeline but the in-point into the
- *   source asset changes.
- * - Right edge: adjusts `trimOutFrame` and `durationFrames` — the clip stays
- *   anchored at its start; only its duration and out-point change.
- *
- * Constraints:
- * - Duration cannot drop below 1 frame.
- * - trimInFrame cannot become negative (no trim before asset start).
- * - If asset duration is known (via `assetDurationFrames`), trim is capped at
- *   the asset boundary; otherwise only the 1-frame minimum is enforced.
- *
- * Snapping uses the same `useSnapping` hook as `useClipDrag`.
- * PATCH is called on `pointerup`, not during drag.
+ * Left-edge drag adjusts startFrame + trimInFrame; right-edge adjusts trimOutFrame + durationFrames.
+ * PATCH is called on pointerup. Escape cancels. Snap via useSnapping.
  */
 
 import { useCallback, useRef, useState } from 'react';
@@ -29,6 +13,8 @@ import { getSnapshot as getEphemeralSnapshot } from '@/store/ephemeral-store';
 
 import { patchClip } from '../api';
 import { useSnapping } from './useSnapping';
+import { resolveClipTrimFrames } from './clipTrimMath';
+import type { TrimState } from './clipTrimMath';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -41,33 +27,9 @@ export const TRIM_HANDLE_PX = 8;
 // Types
 // ---------------------------------------------------------------------------
 
-type TrimEdge = 'left' | 'right';
-
-interface TrimState {
+export type TrimDragInfo = {
   clipId: string;
-  edge: TrimEdge;
-  /** `startFrame` of the clip at trim-start. */
-  originalStartFrame: number;
-  /** `durationFrames` of the clip at trim-start. */
-  originalDurationFrames: number;
-  /** `trimInFrame` of the clip at trim-start. */
-  originalTrimInFrame: number;
-  /** `trimOutFrame` of the clip at trim-start (undefined if unset). */
-  originalTrimOutFrame: number | undefined;
-  /** Pointer X position at trim-start (in pixels). */
-  startPointerX: number;
-  /**
-   * Total frames available in the source asset.
-   * Used to cap trim-out so trim does not exceed the asset boundary.
-   * Optional — when absent only the 1-frame minimum is enforced.
-   */
-  assetDurationFrames?: number;
-  cancelled: boolean;
-}
-
-export interface TrimDragInfo {
-  clipId: string;
-  edge: TrimEdge;
+  edge: 'left' | 'right';
   /** Projected new startFrame during a left-edge trim. */
   ghostStartFrame: number;
   /** Projected new durationFrames during any trim. */
@@ -76,9 +38,9 @@ export interface TrimDragInfo {
   isSnapping: boolean;
   /** Pixel position of the snap indicator line (null when not snapping). */
   snapIndicatorPx: number | null;
-}
+};
 
-export interface UseClipTrimReturn {
+export type UseClipTrimReturn = {
   /** Current trim info for rendering. Null when no trim is in progress. */
   trimInfo: TrimDragInfo | null;
   /**
@@ -103,7 +65,7 @@ export interface UseClipTrimReturn {
     isLocked: boolean,
     assetDurationFrames?: number,
   ) => boolean;
-}
+};
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -120,83 +82,13 @@ export function useClipTrim(projectId: string): UseClipTrimReturn {
     pxPerFrame: getEphemeralSnapshot().pxPerFrame,
   });
 
-  /** Resolves the new startFrame and durationFrames for the current pointer position. */
-  const resolveTrimedFrames = useCallback(
-    (
-      ts: TrimState,
-      currentPointerX: number,
-    ): {
-      newStartFrame: number;
-      newDurationFrames: number;
-      newTrimInFrame: number;
-      newTrimOutFrame: number | undefined;
-      snapResult: ReturnType<typeof snap>;
-    } => {
-      const pxPerFrame = getEphemeralSnapshot().pxPerFrame;
-      const deltaFrames = (currentPointerX - ts.startPointerX) / pxPerFrame;
-
-      if (ts.edge === 'left') {
-        // Left-edge trim: startFrame shifts right (trim in) or left (trim out).
-        // The raw new left-edge frame (raw, before snapping).
-        const rawNewLeft = ts.originalStartFrame + deltaFrames;
-        const snapResult = snap(Math.max(0, rawNewLeft));
-        const snappedLeft = snapResult.frame;
-
-        const leftDelta = snappedLeft - ts.originalStartFrame;
-        const newTrimInFrame = Math.max(0, ts.originalTrimInFrame + leftDelta);
-        // Duration shrinks/grows as start moves right/left.
-        const newDurationFrames = Math.max(1, ts.originalDurationFrames - leftDelta);
-        // Clamp left edge to not exceed the right edge (keep at least 1 frame).
-        const clampedLeft = ts.originalStartFrame + ts.originalDurationFrames - newDurationFrames;
-
-        return {
-          newStartFrame: Math.max(0, clampedLeft),
-          newDurationFrames,
-          newTrimInFrame,
-          newTrimOutFrame: ts.originalTrimOutFrame,
-          snapResult,
-        };
-      } else {
-        // Right-edge trim: the right edge moves; startFrame stays fixed.
-        const originalRightEdge = ts.originalStartFrame + ts.originalDurationFrames;
-        const rawNewRight = originalRightEdge + deltaFrames;
-        const snapResult = snap(Math.max(ts.originalStartFrame + 1, rawNewRight));
-        const snappedRight = snapResult.frame;
-
-        const newDurationFrames = Math.max(1, snappedRight - ts.originalStartFrame);
-        // trimOutFrame = total source frames trimmed from the right.
-        const totalSourceFrames = ts.assetDurationFrames;
-        let newTrimOutFrame: number | undefined;
-        if (totalSourceFrames !== undefined) {
-          const rawTrimOut = ts.originalTrimInFrame + newDurationFrames;
-          // Cap at asset boundary
-          newTrimOutFrame = Math.min(totalSourceFrames, rawTrimOut);
-        } else {
-          newTrimOutFrame = ts.originalTrimOutFrame;
-        }
-
-        return {
-          newStartFrame: ts.originalStartFrame,
-          newDurationFrames,
-          newTrimInFrame: ts.originalTrimInFrame,
-          newTrimOutFrame,
-          snapResult,
-        };
-      }
-    },
-    [snap],
-  );
-
   const handlePointerMove = useCallback(
     (e: PointerEvent) => {
       const ts = trimStateRef.current;
       if (!ts || ts.cancelled) return;
 
-      const {
-        newStartFrame,
-        newDurationFrames,
-        snapResult,
-      } = resolveTrimedFrames(ts, e.clientX);
+      const { newStartFrame, newDurationFrames, snapResult } =
+        resolveClipTrimFrames(ts, e.clientX, snap);
 
       setTrimInfo({
         clipId: ts.clipId,
@@ -207,17 +99,13 @@ export function useClipTrim(projectId: string): UseClipTrimReturn {
         snapIndicatorPx: snapResult.snapPx,
       });
     },
-    [resolveTrimedFrames],
+    [snap],
   );
 
   const commitTrim = useCallback(
     async (ts: TrimState, pointerX: number) => {
-      const {
-        newStartFrame,
-        newDurationFrames,
-        newTrimInFrame,
-        newTrimOutFrame,
-      } = resolveTrimedFrames(ts, pointerX);
+      const { newStartFrame, newDurationFrames, newTrimInFrame, newTrimOutFrame } =
+        resolveClipTrimFrames(ts, pointerX, snap);
 
       const project = getProjectSnapshot();
       const updatedClips = (project.clips ?? []).map((clip) => {
@@ -232,8 +120,7 @@ export function useClipTrim(projectId: string): UseClipTrimReturn {
         };
       });
 
-      const updatedProject = { ...project, clips: updatedClips };
-      setProject(updatedProject);
+      setProject({ ...project, clips: updatedClips });
 
       await patchClip(projectId, ts.clipId, {
         startFrame: newStartFrame,
@@ -243,7 +130,7 @@ export function useClipTrim(projectId: string): UseClipTrimReturn {
           : { trimOutFrames: newTrimOutFrame }),
       });
     },
-    [projectId, resolveTrimedFrames],
+    [projectId, snap],
   );
 
   const handlePointerUp = useCallback(
@@ -285,10 +172,6 @@ export function useClipTrim(projectId: string): UseClipTrimReturn {
     [handlePointerMove, handlePointerUp],
   );
 
-  /**
-   * Detects whether the pointer is within `TRIM_HANDLE_PX` of a clip edge.
-   * Returns `'ew-resize'` if so, `null` otherwise.
-   */
   const getTrimCursor = useCallback(
     (
       e: React.MouseEvent,
@@ -309,10 +192,6 @@ export function useClipTrim(projectId: string): UseClipTrimReturn {
     [],
   );
 
-  /**
-   * Checks if pointer is on a trim handle and initiates trim if so.
-   * Returns `true` if trim was started (caller should not start a drag).
-   */
   const onTrimPointerDown = useCallback(
     (
       e: React.PointerEvent,
@@ -326,7 +205,7 @@ export function useClipTrim(projectId: string): UseClipTrimReturn {
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
       const offsetX = e.clientX - rect.left;
 
-      let edge: TrimEdge | null = null;
+      let edge: 'left' | 'right' | null = null;
       if (offsetX <= TRIM_HANDLE_PX) edge = 'left';
       else if (offsetX >= clipWidth - TRIM_HANDLE_PX) edge = 'right';
 
