@@ -2,18 +2,19 @@ import React from 'react';
 import { FixedSizeList } from 'react-window';
 
 import type { Clip, Track } from '@ai-video-editor/project-schema';
+import type { Asset } from '@/features/asset-manager/types';
 
-import { TrackHeader, TRACK_ROW_HEIGHT } from './TrackHeader';
+import { TrackHeader, TRACK_HEADER_WIDTH, TRACK_ROW_HEIGHT } from './TrackHeader';
 import { ClipLane } from './ClipLane';
 import type { ClipAssetData } from './ClipBlock';
 import type { ClipDragInfo } from '../hooks/useClipDrag';
 import type { TrimDragInfo } from '../hooks/useClipTrim';
 
+// Re-export so consumers (TimelinePanel) can import from a single entry point.
+export { TRACK_HEADER_WIDTH };
+
 // Design tokens
 const BORDER = '#252535';
-
-/** Width of the track header column in pixels (matches TrackHeader). */
-export const TRACK_HEADER_WIDTH = 64;
 
 type TrackRowData = {
   projectId: string;
@@ -44,6 +45,8 @@ type TrackRowData = {
   onRename: (trackId: string, newName: string) => void;
   onToggleMute: (trackId: string) => void;
   onToggleLock: (trackId: string) => void;
+  /** Called when an asset is dropped from the browser onto a specific track lane. */
+  onAssetDrop: (asset: Asset, trackId: string, startFrame: number) => void;
 }
 
 interface TrackRowProps {
@@ -84,6 +87,7 @@ function TrackRow({ index, style, data }: TrackRowProps): React.ReactElement {
         trimInfo={data.trimInfo}
         getTrimCursor={data.getTrimCursor}
         onTrimPointerDown={data.onTrimPointerDown}
+        onAssetDrop={(asset, startFrame) => data.onAssetDrop(asset, track.id, startFrame)}
       />
     </div>
   );
@@ -133,6 +137,8 @@ interface TrackListProps {
   onToggleMute: (trackId: string) => void;
   /** Called when the lock button is toggled. */
   onToggleLock: (trackId: string) => void;
+  /** Called when an asset is dropped from the browser onto a specific track lane. */
+  onAssetDrop: (asset: Asset, trackId: string, startFrame: number) => void;
 }
 
 /**
@@ -160,6 +166,7 @@ export function TrackList({
   onRename,
   onToggleMute,
   onToggleLock,
+  onAssetDrop,
 }: TrackListProps): React.ReactElement {
   const totalWidth = TRACK_HEADER_WIDTH + laneWidth;
 
@@ -180,6 +187,7 @@ export function TrackList({
     onRename,
     onToggleMute,
     onToggleLock,
+    onAssetDrop,
   };
 
   if (tracks.length === 0) {

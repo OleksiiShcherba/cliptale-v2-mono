@@ -1,72 +1,53 @@
 import { useCallback } from 'react';
 
-import type { AudioClip, ImageClip, Track, VideoClip } from '@ai-video-editor/project-schema';
+import type { Track } from '@ai-video-editor/project-schema';
 
 import type { Asset } from '@/features/asset-manager/types.js';
+import { buildClipForAsset, computeClipDurationFrames } from '@/features/asset-manager/utils.js';
 import { getSnapshot, setProject } from '@/store/project-store.js';
+import { createClip } from '@/features/timeline/api.js';
 
-/** Track name and type produced for each supported media category. */
-type TrackConfig = {
-  trackType: Track['type'];
-  trackName: string;
-};
-
-/** Maps a MIME type prefix to its corresponding track configuration. */
-function resolveTrackConfig(contentType: string): TrackConfig | null {
-  if (contentType.startsWith('video/')) return { trackType: 'video', trackName: 'Video 1' };
-  if (contentType.startsWith('audio/')) return { trackType: 'audio', trackName: 'Audio 1' };
-  if (contentType.startsWith('image/')) return { trackType: 'video', trackName: 'Image 1' };
+/** Maps a MIME type prefix to its corresponding track type. */
+function resolveTrackType(contentType: string): Track['type'] | null {
+  if (contentType.startsWith('video/')) return 'video';
+  if (contentType.startsWith('audio/')) return 'audio';
+  if (contentType.startsWith('image/')) return 'video'; // images use video tracks
   return null;
 }
 
-/**
- * Builds a typed clip object for the given media category.
- * Image clips default to `fps * 5` frames when the asset has no duration.
- */
-function buildClip(
-  contentType: string,
-  assetId: string,
-  trackId: string,
-  startFrame: number,
-  durationFrames: number,
-): VideoClip | AudioClip | ImageClip {
-  const id = crypto.randomUUID();
-  if (contentType.startsWith('video/')) {
-    return { id, type: 'video', assetId, trackId, startFrame, durationFrames, trimInFrame: 0, opacity: 1, volume: 1 };
-  }
-  if (contentType.startsWith('audio/')) {
-    return { id, type: 'audio', assetId, trackId, startFrame, durationFrames, trimInFrame: 0, volume: 1 };
-  }
-  // image/*
-  return { id, type: 'image', assetId, trackId, startFrame, durationFrames, opacity: 1 };
+/** Strips the file extension from a filename (e.g. "my-clip.mp4" → "my-clip"). */
+function stripExtension(filename: string): string {
+  return filename.replace(/\.[^.]+$/, '');
 }
 
 /**
  * Returns an `addAssetToTimeline(asset)` callback that:
- * 1. Maps the asset's `contentType` to a clip type and target track name.
+ * 1. Maps the asset's `contentType` to a track type; derives the track name from `asset.filename` (extension stripped).
  * 2. Reuses the first existing track with that name, or creates a new one.
  * 3. Appends the new clip at the end of all clips on that track.
  * 4. Calls `setProject()` — which auto-derives `durationFrames` via `computeProjectDuration`.
+ * 5. Calls `createClip()` to persist the new clip row to `project_clips_current`.
  *
  * Silently no-ops for unsupported content types (not video/*, audio/*, or image/*).
  */
-export function useAddAssetToTimeline(): (asset: Asset) => void {
+export function useAddAssetToTimeline(projectId: string): (asset: Asset) => void {
   return useCallback((asset: Asset) => {
-    const config = resolveTrackConfig(asset.contentType);
-    if (!config) return;
+    const trackType = resolveTrackType(asset.contentType);
+    if (!trackType) return;
 
     const project = getSnapshot();
+    const trackName = stripExtension(asset.filename);
 
     // Find existing track by name, or create a new one.
-    let track = project.tracks.find(t => t.name === config.trackName) ?? null;
+    let track = project.tracks.find(t => t.name === trackName) ?? null;
     const newTracks = track
       ? project.tracks
       : [
           ...project.tracks,
           (track = {
             id: crypto.randomUUID(),
-            type: config.trackType,
-            name: config.trackName,
+            type: trackType,
+            name: trackName,
             muted: false,
             locked: false,
           }),
@@ -80,18 +61,17 @@ export function useAddAssetToTimeline(): (asset: Asset) => void {
         return end > max ? end : max;
       }, 0);
 
-    // durationFrames: derive from asset duration; fall back to 5 s for images.
-    const durationFrames =
-      asset.durationSeconds != null && asset.durationSeconds > 0
-        ? Math.max(1, Math.round(asset.durationSeconds * project.fps))
-        : project.fps * 5;
-
-    const clip = buildClip(asset.contentType, asset.id, track.id, startFrame, durationFrames);
+    const durationFrames = computeClipDurationFrames(asset.durationSeconds, project.fps);
+    const clip = buildClipForAsset(asset.contentType, asset.id, track.id, startFrame, durationFrames);
+    if (!clip) return;
 
     setProject({
       ...project,
       tracks: newTracks,
       clips: [...project.clips, clip],
     });
-  }, []);
+
+    // Persist the new clip to project_clips_current in the database.
+    void createClip(projectId, clip);
+  }, [projectId]);
 }

@@ -1,0 +1,100 @@
+import { describe, it, expect } from 'vitest';
+
+import { buildClipForAsset, computeClipDurationFrames } from './utils';
+
+// ---------------------------------------------------------------------------
+// buildClipForAsset
+// ---------------------------------------------------------------------------
+
+describe('buildClipForAsset', () => {
+  const ASSET_ID = 'asset-001';
+  const TRACK_ID = 'track-001';
+  const START_FRAME = 10;
+  const DURATION_FRAMES = 90;
+
+  it('builds a VideoClip for video/* content type', () => {
+    const clip = buildClipForAsset('video/mp4', ASSET_ID, TRACK_ID, START_FRAME, DURATION_FRAMES);
+    expect(clip).not.toBeNull();
+    expect(clip!.type).toBe('video');
+    expect(clip!.assetId).toBe(ASSET_ID);
+    expect(clip!.trackId).toBe(TRACK_ID);
+    expect(clip!.startFrame).toBe(START_FRAME);
+    expect(clip!.durationFrames).toBe(DURATION_FRAMES);
+  });
+
+  it('sets trimInFrame=0 and volume=1 and opacity=1 on VideoClip', () => {
+    const clip = buildClipForAsset('video/mp4', ASSET_ID, TRACK_ID, 0, 30);
+    expect(clip).not.toBeNull();
+    expect((clip as { trimInFrame: number }).trimInFrame).toBe(0);
+    expect((clip as { volume: number }).volume).toBe(1);
+    expect((clip as { opacity: number }).opacity).toBe(1);
+  });
+
+  it('builds an AudioClip for audio/* content type', () => {
+    const clip = buildClipForAsset('audio/mpeg', ASSET_ID, TRACK_ID, START_FRAME, DURATION_FRAMES);
+    expect(clip).not.toBeNull();
+    expect(clip!.type).toBe('audio');
+    expect(clip!.assetId).toBe(ASSET_ID);
+    expect(clip!.trackId).toBe(TRACK_ID);
+    expect(clip!.startFrame).toBe(START_FRAME);
+    expect(clip!.durationFrames).toBe(DURATION_FRAMES);
+  });
+
+  it('builds an ImageClip for image/* content type', () => {
+    const clip = buildClipForAsset('image/png', ASSET_ID, TRACK_ID, START_FRAME, DURATION_FRAMES);
+    expect(clip).not.toBeNull();
+    expect(clip!.type).toBe('image');
+    expect(clip!.assetId).toBe(ASSET_ID);
+    expect(clip!.trackId).toBe(TRACK_ID);
+    expect(clip!.startFrame).toBe(START_FRAME);
+    expect(clip!.durationFrames).toBe(DURATION_FRAMES);
+  });
+
+  it('sets opacity=1 on ImageClip (no volume field)', () => {
+    const clip = buildClipForAsset('image/jpeg', ASSET_ID, TRACK_ID, 0, 30);
+    expect(clip).not.toBeNull();
+    expect((clip as { opacity: number }).opacity).toBe(1);
+    expect('volume' in clip!).toBe(false);
+  });
+
+  it('returns null for unsupported content types', () => {
+    expect(buildClipForAsset('application/pdf', ASSET_ID, TRACK_ID, 0, 30)).toBeNull();
+    expect(buildClipForAsset('text/plain', ASSET_ID, TRACK_ID, 0, 30)).toBeNull();
+    expect(buildClipForAsset('application/zip', ASSET_ID, TRACK_ID, 0, 30)).toBeNull();
+  });
+
+  it('generates a unique id on each call', () => {
+    const a = buildClipForAsset('video/mp4', ASSET_ID, TRACK_ID, 0, 30);
+    const b = buildClipForAsset('video/mp4', ASSET_ID, TRACK_ID, 0, 30);
+    expect(a!.id).not.toBe(b!.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// computeClipDurationFrames
+// ---------------------------------------------------------------------------
+
+describe('computeClipDurationFrames', () => {
+  it('converts durationSeconds to frames at 30fps', () => {
+    expect(computeClipDurationFrames(5, 30)).toBe(150);
+  });
+
+  it('rounds fractional seconds * fps to the nearest frame', () => {
+    // 1.5s * 30fps = 45 frames (exact)
+    expect(computeClipDurationFrames(1.5, 30)).toBe(45);
+  });
+
+  it('returns fps*5 when durationSeconds is null (image fallback)', () => {
+    expect(computeClipDurationFrames(null, 30)).toBe(150);
+    expect(computeClipDurationFrames(null, 24)).toBe(120);
+  });
+
+  it('returns fps*5 when durationSeconds is 0', () => {
+    expect(computeClipDurationFrames(0, 30)).toBe(150);
+  });
+
+  it('ensures minimum of 1 frame for very short clips', () => {
+    // 0.001s * 30fps = 0.03 → rounds to 0 → clamped to 1
+    expect(computeClipDurationFrames(0.001, 30)).toBeGreaterThanOrEqual(1);
+  });
+});

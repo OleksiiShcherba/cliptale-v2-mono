@@ -4,7 +4,7 @@ import type { Clip, Track } from '@ai-video-editor/project-schema';
 
 import { useEphemeralStore, setPxPerFrame, setScrollOffsetX } from '@/store/ephemeral-store';
 import { useProjectStore } from '@/store/project-store';
-import { registerTimelinePlayheadUpdater, unregisterTimelinePlayheadUpdater } from '@/store/timeline-refs';
+import { registerTimelinePlayheadUpdater, unregisterTimelinePlayheadUpdater, registerTrackListBounds } from '@/store/timeline-refs';
 
 import { ScrollbarStrip } from './ScrollbarStrip';
 import { TimelineRuler } from './TimelineRuler';
@@ -12,6 +12,7 @@ import { TrackList, TRACK_HEADER_WIDTH } from './TrackList';
 import { useClipDeleteShortcut } from '../hooks/useClipDeleteShortcut';
 import { useClipDrag } from '../hooks/useClipDrag';
 import { useClipTrim } from '../hooks/useClipTrim';
+import { useDropAssetToTimeline } from '../hooks/useDropAssetToTimeline';
 import { PLAYHEAD_COLOR, TRACK_LIST_HEIGHT, styles } from './timelinePanelStyles';
 
 interface TimelinePanelProps {
@@ -75,6 +76,16 @@ export function TimelinePanel({
 
     return () => observer.disconnect();
   }, []);
+
+  // Register track list bounds so useClipDrag can resolve target track from pointer Y.
+  useEffect(() => {
+    const el = trackListWrapperRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    registerTrackListBounds(rect.top, tracks.map(t => t.id));
+  }, [tracks]);
+
+  const handleAssetDrop = useDropAssetToTimeline(projectId);
 
   const laneWidth = Math.max(0, panelWidth - TRACK_HEADER_WIDTH);
   const totalContentWidth = durationFrames * pxPerFrame;
@@ -196,6 +207,7 @@ export function TimelinePanel({
           onRename={onRenameTrack}
           onToggleMute={onToggleMute}
           onToggleLock={onToggleLock}
+          onAssetDrop={handleAssetDrop}
         />
         {/* Playhead needle — always mounted; rAF bridge mutates left/display directly.
             React-controlled left/display remain correct after pause and on re-renders. */}

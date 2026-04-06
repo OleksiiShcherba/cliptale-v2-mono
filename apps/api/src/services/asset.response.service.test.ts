@@ -25,6 +25,7 @@ import {
   getProjectAssetsResponse,
   finalizeAssetResponse,
   streamAsset,
+  streamThumbnail,
 } from './asset.response.service.js';
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -95,7 +96,7 @@ describe('asset.service — getAssetResponse', () => {
   it('returns the asset mapped to AssetApiResponse shape with presigned storageUri', async () => {
     vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(makeAsset());
 
-    const result = await getAssetResponse('asset-resp-001', mockS3);
+    const result = await getAssetResponse('asset-resp-001', mockS3, 'http://localhost:3001');
 
     expect(result.id).toBe('asset-resp-001');
     expect(result.projectId).toBe('proj-123');
@@ -110,7 +111,7 @@ describe('asset.service — getAssetResponse', () => {
   it('maps id from assetId (the API key is "id", not "assetId")', async () => {
     vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(makeAsset());
 
-    const result = await getAssetResponse('asset-resp-001', mockS3);
+    const result = await getAssetResponse('asset-resp-001', mockS3, 'http://localhost:3001');
 
     expect(result.id).toBe('asset-resp-001');
     expect((result as Record<string, unknown>)['assetId']).toBeUndefined();
@@ -121,7 +122,7 @@ describe('asset.service — getAssetResponse', () => {
       makeAsset({ durationFrames: 300, fps: 30 }),
     );
 
-    const result = await getAssetResponse('asset-resp-001', mockS3);
+    const result = await getAssetResponse('asset-resp-001', mockS3, 'http://localhost:3001');
 
     expect(result.durationSeconds).toBe(10);
   });
@@ -131,24 +132,23 @@ describe('asset.service — getAssetResponse', () => {
       makeAsset({ durationFrames: null, fps: null }),
     );
 
-    const result = await getAssetResponse('asset-resp-001', mockS3);
+    const result = await getAssetResponse('asset-resp-001', mockS3, 'http://localhost:3001');
 
     expect(result.durationSeconds).toBeNull();
   });
 
-  it('converts thumbnailUri from s3:// to public HTTPS URL (no custom endpoint)', async () => {
+  it('returns the API thumbnail proxy URL when a thumbnail exists', async () => {
     vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(
       makeAsset({
-        thumbnailUri: 's3://test-bucket/projects/proj-123/thumb.jpg',
+        assetId: 'asset-resp-001',
+        thumbnailUri: 's3://test-bucket/projects/proj-123/assets/asset-resp-001/thumb.jpg',
       }),
     );
 
-    const result = await getAssetResponse('asset-resp-001', mockS3);
+    const result = await getAssetResponse('asset-resp-001', mockS3, 'http://localhost:3001');
 
-    // With no custom endpoint, uses the AWS virtual-hosted URL format.
-    expect(result.thumbnailUri).toBe(
-      'https://test-bucket.s3.us-east-1.amazonaws.com/projects/proj-123/thumb.jpg',
-    );
+    // thumbnailUri must be the API proxy endpoint, never a raw s3:// URI.
+    expect(result.thumbnailUri).toBe('http://localhost:3001/assets/asset-resp-001/thumbnail');
     expect(result.thumbnailUri).not.toContain('s3://');
   });
 
@@ -157,7 +157,7 @@ describe('asset.service — getAssetResponse', () => {
       makeAsset({ thumbnailUri: null }),
     );
 
-    const result = await getAssetResponse('asset-resp-001', mockS3);
+    const result = await getAssetResponse('asset-resp-001', mockS3, 'http://localhost:3001');
 
     expect(result.thumbnailUri).toBeNull();
   });
@@ -165,7 +165,7 @@ describe('asset.service — getAssetResponse', () => {
   it('serializes Date objects to ISO strings in createdAt / updatedAt', async () => {
     vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(makeAsset());
 
-    const result = await getAssetResponse('asset-resp-001', mockS3);
+    const result = await getAssetResponse('asset-resp-001', mockS3, 'http://localhost:3001');
 
     expect(result.createdAt).toBe('2026-01-01T00:00:00.000Z');
     expect(result.updatedAt).toBe('2026-01-02T00:00:00.000Z');
@@ -174,7 +174,7 @@ describe('asset.service — getAssetResponse', () => {
   it('throws NotFoundError when the asset does not exist', async () => {
     vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(null);
 
-    await expect(getAssetResponse('nonexistent', mockS3)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(getAssetResponse('nonexistent', mockS3, 'http://localhost:3001')).rejects.toBeInstanceOf(NotFoundError);
   });
 });
 
@@ -190,7 +190,7 @@ describe('asset.service — getProjectAssetsResponse', () => {
     const asset2 = makeAsset({ assetId: 'a2', filename: 'two.mp4' });
     vi.mocked(assetRepository.getAssetsByProjectId).mockResolvedValueOnce([asset1, asset2]);
 
-    const result = await getProjectAssetsResponse('proj-123', mockS3);
+    const result = await getProjectAssetsResponse('proj-123', mockS3, 'http://localhost:3001');
 
     expect(result).toHaveLength(2);
     expect(result[0]!.id).toBe('a1');
@@ -200,7 +200,7 @@ describe('asset.service — getProjectAssetsResponse', () => {
   it('returns an empty array when the project has no assets', async () => {
     vi.mocked(assetRepository.getAssetsByProjectId).mockResolvedValueOnce([]);
 
-    const result = await getProjectAssetsResponse('proj-empty', mockS3);
+    const result = await getProjectAssetsResponse('proj-empty', mockS3, 'http://localhost:3001');
 
     expect(result).toEqual([]);
   });
@@ -211,7 +211,7 @@ describe('asset.service — getProjectAssetsResponse', () => {
       makeAsset({ assetId: 'a2' }),
     ]);
 
-    const result = await getProjectAssetsResponse('proj-123', mockS3);
+    const result = await getProjectAssetsResponse('proj-123', mockS3, 'http://localhost:3001');
 
     for (const asset of result) {
       expect(asset.downloadUrl).toBe('https://s3.example.com/presigned-download-url');
@@ -234,7 +234,7 @@ describe('asset.service — finalizeAssetResponse', () => {
   it('returns AssetApiResponse with processing status after finalization', async () => {
     vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(pendingAsset);
 
-    const result = await finalizeAssetResponse('asset-resp-001', mockS3);
+    const result = await finalizeAssetResponse('asset-resp-001', mockS3, 'http://localhost:3001');
 
     expect(result.status).toBe('processing');
     expect(result.id).toBe('asset-resp-001');
@@ -246,7 +246,7 @@ describe('asset.service — finalizeAssetResponse', () => {
   it('throws NotFoundError when the asset does not exist', async () => {
     vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(null);
 
-    await expect(finalizeAssetResponse('nonexistent', mockS3)).rejects.toBeInstanceOf(
+    await expect(finalizeAssetResponse('nonexistent', mockS3, 'http://localhost:3001')).rejects.toBeInstanceOf(
       NotFoundError,
     );
   });
@@ -408,5 +408,60 @@ describe('asset.service — streamAsset', () => {
     mockS3Send.mockRejectedValueOnce(networkErr);
 
     await expect(streamAsset('asset-resp-001', undefined, mockS3)).rejects.toBe(networkErr);
+  });
+});
+
+// ── streamThumbnail ───────────────────────────────────────────────────────────
+
+describe('asset.service — streamThumbnail', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns body, contentType, and contentLength when thumbnail exists', async () => {
+    vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(
+      makeAsset({ thumbnailUri: 's3://test-bucket/projects/proj-123/assets/asset-resp-001/thumb.jpg' }),
+    );
+    const fakeBody = Readable.from(['fake-thumbnail-data']);
+    mockS3Send.mockResolvedValueOnce({
+      Body: fakeBody,
+      ContentType: 'image/jpeg',
+      ContentLength: 4096,
+    });
+
+    const result = await streamThumbnail('asset-resp-001', mockS3);
+
+    expect(result).not.toBeNull();
+    expect(result!.body).toBe(fakeBody);
+    expect(result!.contentType).toBe('image/jpeg');
+    expect(result!.contentLength).toBe(4096);
+  });
+
+  it('returns null when the asset has no thumbnailUri', async () => {
+    vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(
+      makeAsset({ thumbnailUri: null }),
+    );
+
+    const result = await streamThumbnail('asset-resp-001', mockS3);
+
+    expect(result).toBeNull();
+    expect(mockS3Send).not.toHaveBeenCalled();
+  });
+
+  it('returns null when S3 responds with no body', async () => {
+    vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(
+      makeAsset({ thumbnailUri: 's3://test-bucket/thumb.jpg' }),
+    );
+    mockS3Send.mockResolvedValueOnce({ Body: undefined });
+
+    const result = await streamThumbnail('asset-resp-001', mockS3);
+
+    expect(result).toBeNull();
+  });
+
+  it('throws NotFoundError when the asset does not exist in the DB', async () => {
+    vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(null);
+
+    await expect(streamThumbnail('nonexistent', mockS3)).rejects.toBeInstanceOf(NotFoundError);
   });
 });

@@ -42,16 +42,13 @@ async function presignDownloadUrl(storageUri: string, s3: S3Client): Promise<str
 }
 
 /**
- * Converts an `s3://` URI to a public HTTPS URL.
- * Used for thumbnails that are served from a publicly accessible bucket path.
+ * Returns the API-proxy thumbnail URL for an asset, or null if no thumbnail exists.
+ * The proxy endpoint (`/assets/:id/thumbnail`) streams the thumbnail from S3 so the
+ * raw S3 URI and bucket credentials are never exposed to the browser.
  */
-function storageUriToHttps(storageUri: string | null): string | null {
-  if (!storageUri || !storageUri.startsWith('s3://')) return storageUri;
-  const { bucket, key } = parseStorageUri(storageUri);
-  if (config.s3.endpoint) {
-    return `${config.s3.endpoint}/${bucket}/${key}`;
-  }
-  return `https://${bucket}.s3.${config.s3.region}.amazonaws.com/${key}`;
+function thumbnailProxyUrl(assetId: string, thumbnailUri: string | null, baseUrl: string): string | null {
+  if (!thumbnailUri) return null;
+  return `${baseUrl}/assets/${assetId}/thumbnail`;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +75,7 @@ export type AssetApiResponse = {
 };
 
 /** Maps a repository Asset to the `AssetApiResponse` the client receives. */
-async function toAssetApiResponse(asset: Asset, s3: S3Client): Promise<AssetApiResponse> {
+async function toAssetApiResponse(asset: Asset, s3: S3Client, baseUrl: string): Promise<AssetApiResponse> {
   return {
     id: asset.assetId,
     projectId: asset.projectId,
@@ -93,7 +90,7 @@ async function toAssetApiResponse(asset: Asset, s3: S3Client): Promise<AssetApiR
     width: asset.width,
     height: asset.height,
     fileSizeBytes: asset.fileSizeBytes,
-    thumbnailUri: storageUriToHttps(asset.thumbnailUri),
+    thumbnailUri: thumbnailProxyUrl(asset.assetId, asset.thumbnailUri, baseUrl),
     waveformPeaks: asset.waveformJson as number[] | null,
     createdAt: asset.createdAt instanceof Date ? asset.createdAt.toISOString() : asset.createdAt,
     updatedAt: asset.updatedAt instanceof Date ? asset.updatedAt.toISOString() : asset.updatedAt,
@@ -103,34 +100,39 @@ async function toAssetApiResponse(asset: Asset, s3: S3Client): Promise<AssetApiR
 /**
  * Returns a single asset serialized for the API response.
  * Throws NotFoundError if the asset does not exist.
+ * `baseUrl` is used to build the thumbnail proxy URL (e.g. `http://localhost:3001`).
  */
-export async function getAssetResponse(assetId: string, s3: S3Client): Promise<AssetApiResponse> {
+export async function getAssetResponse(assetId: string, s3: S3Client, baseUrl: string): Promise<AssetApiResponse> {
   const asset = await getAsset(assetId);
-  return toAssetApiResponse(asset, s3);
+  return toAssetApiResponse(asset, s3, baseUrl);
 }
 
 /**
  * Returns all assets for a project serialized for the API response.
  * Returns an empty array when the project has no assets.
+ * `baseUrl` is used to build the thumbnail proxy URL.
  */
 export async function getProjectAssetsResponse(
   projectId: string,
   s3: S3Client,
+  baseUrl: string,
 ): Promise<AssetApiResponse[]> {
   const assets = await getProjectAssets(projectId);
-  return Promise.all(assets.map((a) => toAssetApiResponse(a, s3)));
+  return Promise.all(assets.map((a) => toAssetApiResponse(a, s3, baseUrl)));
 }
 
 /**
  * Finalizes an asset upload and returns the asset serialized for the API response.
  * Delegates finalization logic to `finalizeAsset`.
+ * `baseUrl` is used to build the thumbnail proxy URL.
  */
 export async function finalizeAssetResponse(
   assetId: string,
   s3: S3Client,
+  baseUrl: string,
 ): Promise<AssetApiResponse> {
   const asset = await finalizeAsset(assetId, s3);
-  return toAssetApiResponse(asset, s3);
+  return toAssetApiResponse(asset, s3, baseUrl);
 }
 
 // ---------------------------------------------------------------------------
@@ -182,5 +184,30 @@ export async function streamAsset(
     contentLength: s3Response.ContentLength,
     contentRange: s3Response.ContentRange,
     isPartialContent: typeof rangeHeader === 'string',
+  };
+}
+
+/**
+ * Fetches the asset's thumbnail from S3 and returns the readable stream.
+ * Returns `null` if the asset has no thumbnail (caller should send 404).
+ *
+ * @param s3 - Caller-provided S3Client (allows injection in tests).
+ */
+export async function streamThumbnail(
+  assetId: string,
+  s3: S3Client,
+): Promise<Omit<AssetStreamResult, 'contentRange' | 'isPartialContent'> | null> {
+  const asset = await getAsset(assetId);
+  if (!asset.thumbnailUri) return null;
+
+  const { bucket, key } = parseStorageUri(asset.thumbnailUri);
+  const s3Response = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+
+  if (!s3Response.Body) return null;
+
+  return {
+    body: s3Response.Body as NodeJS.ReadableStream,
+    contentType: s3Response.ContentType,
+    contentLength: s3Response.ContentLength,
   };
 }

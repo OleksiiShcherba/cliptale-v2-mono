@@ -89,6 +89,7 @@ Analyze every screenshot you capture:
 
 **Never mark YES without a screenshot that confirms it.**
 
+
 ## Memory
 
 Maintain persistent memory at `.claude/agent-memory/playwright-reviewer/`. Use it to store:

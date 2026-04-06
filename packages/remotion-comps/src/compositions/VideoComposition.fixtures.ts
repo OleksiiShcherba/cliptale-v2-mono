@@ -77,6 +77,17 @@ export const CLIP_AUDIO = {
   volume: 0.8,
 };
 
+/** Fixture image clip placed at frame 0 on `TRACK_OVERLAY`. */
+export const CLIP_IMAGE = {
+  id: 'clip-image-001',
+  type: 'image' as const,
+  assetId: 'asset-img-001',
+  trackId: TRACK_OVERLAY.id,
+  startFrame: 0,
+  durationFrames: 60,
+  opacity: 0.9,
+};
+
 /** Fixture text-overlay clip placed at frame 10 on `TRACK_OVERLAY`. */
 export const CLIP_TEXT = {
   id: 'clip-text-001',

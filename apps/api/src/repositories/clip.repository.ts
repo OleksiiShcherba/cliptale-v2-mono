@@ -4,6 +4,7 @@ import { pool } from '@/db/connection.js';
 
 /** Mutable timeline fields that can be patched on a clip. */
 export type ClipPatch = {
+  trackId?: string;
   startFrame?: number;
   durationFrames?: number;
   trimInFrames?: number;
@@ -63,7 +64,7 @@ export type ClipInsert = {
   clipId: string;
   projectId: string;
   trackId: string;
-  type: 'video' | 'audio' | 'text-overlay';
+  type: 'video' | 'audio' | 'text-overlay' | 'image';
   assetId?: string | null;
   startFrame: number;
   durationFrames: number;
@@ -128,6 +129,10 @@ export async function patchClip(
   const setClauses: string[] = [];
   const values: (string | number | null)[] = [];
 
+  if (patch.trackId !== undefined) {
+    setClauses.push('track_id = ?');
+    values.push(patch.trackId);
+  }
   if (patch.startFrame !== undefined) {
     setClauses.push('start_frame = ?');
     values.push(patch.startFrame);

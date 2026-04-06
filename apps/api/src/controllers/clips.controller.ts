@@ -9,7 +9,7 @@ import * as clipService from '@/services/clip.service.js';
 export const createClipSchema = z.object({
   clipId: z.string().uuid(),
   trackId: z.string().uuid(),
-  type: z.enum(['video', 'audio', 'text-overlay']),
+  type: z.enum(['video', 'audio', 'text-overlay', 'image']),
   assetId: z.string().uuid().nullable().optional(),
   startFrame: z.number().int().nonnegative(),
   durationFrames: z.number().int().positive(),
@@ -57,6 +57,7 @@ export async function createClip(
  */
 export const patchClipSchema = z
   .object({
+    trackId: z.string().uuid().optional(),
     startFrame: z.number().int().nonnegative().optional(),
     durationFrames: z.number().int().positive().optional(),
     trimInFrames: z.number().int().nonnegative().optional(),
@@ -65,6 +66,7 @@ export const patchClipSchema = z
   })
   .refine(
     (body) =>
+      body.trackId !== undefined ||
       body.startFrame !== undefined ||
       body.durationFrames !== undefined ||
       body.trimInFrames !== undefined ||
@@ -96,6 +98,7 @@ export async function patchClip(
       // handles ownership. Pass null here so the service's defence check is skipped.
       projectOwnerId: null,
       patch: {
+        trackId: body.trackId,
         startFrame: body.startFrame,
         durationFrames: body.durationFrames,
         trimInFrames: body.trimInFrames,

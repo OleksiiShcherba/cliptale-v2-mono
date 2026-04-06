@@ -9,6 +9,11 @@
  *
  * Multi-clip drag: when multiple clips are selected, all selected clips move
  * together maintaining their relative `startFrame` offsets.
+ *
+ * Cross-track drag: moving the pointer vertically across track rows changes
+ * the target track. All dragged clips move to the new track on drop.
+ * The target track is resolved from pointer Y using the track list bounds
+ * registered in `timeline-refs.ts`.
  */
 
 import { useCallback, useRef, useState } from 'react';
@@ -20,42 +25,10 @@ import { getSnapshot as getEphemeralSnapshot } from '@/store/ephemeral-store';
 
 import { patchClip } from '../api';
 import { useSnapping } from './useSnapping';
+import type { ClipDragInfo, ClipDragOrigin, DragState } from './useClipDragHelpers';
+import { resolveTargetTrackId } from './useClipDragHelpers';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/** Snapshot of one clip's state at drag-start. */
-type ClipDragOrigin = {
-  clipId: string;
-  originalStartFrame: number;
-  /** Offset from the anchor clip's start to this clip's start (for multi-drag). */
-  relativeOffset: number;
-}
-
-/** Runtime drag state held in a ref (not state — avoids extra renders). */
-type DragState = {
-  /** Clip ID that received the initial pointerdown. */
-  anchorClipId: string;
-  /** All clips being moved (includes anchor). */
-  origins: ClipDragOrigin[];
-  /** Frame position of the pointer at drag-start. */
-  startPointerFrame: number;
-  /** Whether the drag has been cancelled via Escape. */
-  cancelled: boolean;
-}
-
-/** Publicly returned drag state for rendering ghost clips. */
-export type ClipDragInfo = {
-  /** IDs of clips currently being dragged. */
-  draggingClipIds: Set<string>;
-  /** Map from clipId → projected new startFrame during drag. */
-  ghostPositions: Map<string, number>;
-  /** Whether a snap is currently active. */
-  isSnapping: boolean;
-  /** Pixel position of the snap indicator line (null when not snapping). */
-  snapIndicatorPx: number | null;
-}
+export type { ClipDragInfo } from './useClipDragHelpers';
 
 export type UseClipDragReturn = {
   /** Current drag info for rendering. Null when no drag is in progress. */
@@ -66,10 +39,6 @@ export type UseClipDragReturn = {
    */
   onClipPointerDown: (e: React.PointerEvent, clipId: string, isLocked: boolean) => void;
 }
-
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
 
 export function useClipDrag(projectId: string): UseClipDragReturn {
   const dragStateRef = useRef<DragState | null>(null);
@@ -110,6 +79,45 @@ export function useClipDrag(projectId: string): UseClipDragReturn {
     [snap],
   );
 
+  const commitDrag = useCallback(
+    async (ds: DragState, positions: Map<string, number>, finalTargetTrackId: string | null) => {
+      const project = getProjectSnapshot();
+
+      const updatedClips = (project.clips ?? []).map((clip) => {
+        const newStart = positions.get(clip.id);
+        if (newStart !== undefined) {
+          const origin = ds.origins.find(o => o.clipId === clip.id)!;
+          const newTrackId = finalTargetTrackId ?? origin.originalTrackId;
+          return { ...clip, startFrame: newStart, trackId: newTrackId };
+        }
+        return clip;
+      });
+
+      setProject({ ...project, clips: updatedClips });
+
+      // Fire PATCH for each moved clip (do not await all — fire in parallel).
+      await Promise.allSettled(
+        ds.origins.map((origin) => {
+          const newStart = positions.get(origin.clipId);
+          if (newStart === undefined) return Promise.resolve();
+
+          const newTrackId = finalTargetTrackId ?? origin.originalTrackId;
+          const trackChanged = newTrackId !== origin.originalTrackId;
+          const frameChanged = newStart !== origin.originalStartFrame;
+
+          if (!trackChanged && !frameChanged) return Promise.resolve();
+
+          const payload: Parameters<typeof patchClip>[2] = {};
+          if (frameChanged) payload.startFrame = newStart;
+          if (trackChanged) payload.trackId = newTrackId;
+
+          return patchClip(projectId, origin.clipId, payload);
+        }),
+      );
+    },
+    [projectId],
+  );
+
   const handlePointerMove = useCallback(
     (e: PointerEvent) => {
       const ds = dragStateRef.current;
@@ -119,43 +127,22 @@ export function useClipDrag(projectId: string): UseClipDragReturn {
       const currentPointerFrame = e.clientX / pxPerFrame;
 
       const { positions, snapResult } = resolvePositions(ds, currentPointerFrame);
+      const targetTrackId = resolveTargetTrackId(e.clientY);
+
+      // Build snapshots of dragging clips for cross-track ghost rendering.
+      const allClips = (getProjectSnapshot().clips ?? []) as ReadonlyArray<Clip & { layer?: number }>;
+      const draggingClipSnapshots = allClips.filter(c => positions.has(c.id));
 
       setDragInfo({
         draggingClipIds: new Set(ds.origins.map((o) => o.clipId)),
         ghostPositions: positions,
         isSnapping: snapResult.isSnapping,
         snapIndicatorPx: snapResult.snapPx,
+        targetTrackId,
+        draggingClipSnapshots,
       });
     },
     [resolvePositions],
-  );
-
-  const commitDrag = useCallback(
-    async (ds: DragState, positions: Map<string, number>) => {
-      const project = getProjectSnapshot();
-      const updatedClips = (project.clips ?? []).map((clip) => {
-        const newStart = positions.get(clip.id);
-        if (newStart !== undefined) {
-          return { ...clip, startFrame: newStart };
-        }
-        return clip;
-      });
-
-      const updatedProject = { ...project, clips: updatedClips };
-      setProject(updatedProject);
-
-      // Fire PATCH for each moved clip (do not await all — fire in parallel).
-      await Promise.allSettled(
-        ds.origins.map((origin) => {
-          const newStart = positions.get(origin.clipId);
-          if (newStart !== undefined && newStart !== origin.originalStartFrame) {
-            return patchClip(projectId, origin.clipId, { startFrame: newStart });
-          }
-          return Promise.resolve();
-        }),
-      );
-    },
-    [projectId],
   );
 
   const handlePointerUp = useCallback(
@@ -172,7 +159,8 @@ export function useClipDrag(projectId: string): UseClipDragReturn {
         const pxPerFrame = getEphemeralSnapshot().pxPerFrame;
         const currentPointerFrame = e.clientX / pxPerFrame;
         const { positions } = resolvePositions(ds, currentPointerFrame);
-        void commitDrag(ds, positions);
+        const finalTargetTrackId = resolveTargetTrackId(e.clientY);
+        void commitDrag(ds, positions, finalTargetTrackId);
       }
 
       dragStateRef.current = null;
@@ -230,6 +218,7 @@ export function useClipDrag(projectId: string): UseClipDragReturn {
           return {
             clipId: id,
             originalStartFrame: c.startFrame,
+            originalTrackId: c.trackId,
             relativeOffset: c.startFrame - anchorClip.startFrame,
           };
         })
@@ -244,11 +233,15 @@ export function useClipDrag(projectId: string): UseClipDragReturn {
         cancelled: false,
       };
 
+      const draggingClipSnapshots = allClips.filter(c => clipIdsToMove.includes(c.id)) as ReadonlyArray<Clip & { layer?: number }>;
+
       setDragInfo({
         draggingClipIds: new Set(clipIdsToMove),
         ghostPositions: new Map(origins.map((o) => [o.clipId, o.originalStartFrame])),
         isSnapping: false,
         snapIndicatorPx: null,
+        targetTrackId: anchorClip.trackId,
+        draggingClipSnapshots,
       });
 
       // Capture pointer on the DOM element for reliable tracking.

@@ -47,6 +47,13 @@ updated: 2026-04-05
 - "Not yet saved" dot indicator, History button, Export button (disabled when no version)
 - Status: CONFIRMED WORKING
 
+### 8. Remotion preload (usePrefetchAssets)
+- Navigate to `/` — PreviewPanel mounts, calls usePrefetchAssets(streamUrls)
+- Expect: no JS errors, player container renders, play button clickable, frame counter advances on play
+- With no assets: streamUrls is empty, usePrefetchAssets returns empty map, player renders empty composition (black canvas)
+- With assets: stream URLs would be passed immediately; blob URLs replace them when prefetch resolves
+- Status: CONFIRMED WORKING (2026-04-06)
+
 ### 7. Project init flow (dynamic projectId)
 - Navigate to `/` with NO `?projectId=` param — app calls `POST /projects` API, gets a UUID, writes it to URL via `history.replaceState`, then renders editor normally
 - Navigate to `/?projectId=<uuid>` — app skips `POST /projects`, uses existing ID, editor renders normally

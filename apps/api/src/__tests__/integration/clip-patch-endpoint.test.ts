@@ -85,14 +85,15 @@ afterAll(async () => {
 });
 
 describe('POST /projects/:id/clips', () => {
-  const NEW_CLIP_ID = '10000000-0000-0000-0000-000000000001';
+  const NEW_CLIP_ID  = '10000000-0000-0000-0000-000000000001';
+  const IMAGE_CLIP_ID = '10000000-0000-0000-0000-000000000002';
   const NEW_TRACK_ID = '20000000-0000-0000-0000-000000000001';
 
   afterAll(async () => {
     // Clean up any clips inserted by POST tests.
     await conn.execute(
-      'DELETE FROM project_clips_current WHERE clip_id = ?',
-      [NEW_CLIP_ID],
+      'DELETE FROM project_clips_current WHERE clip_id IN (?, ?)',
+      [NEW_CLIP_ID, IMAGE_CLIP_ID],
     );
   });
 
@@ -141,6 +142,23 @@ describe('POST /projects/:id/clips', () => {
       });
 
     expect(res.status).toBe(400);
+  });
+
+  it('returns 201 when type is "image" (added in migration 007)', async () => {
+    const res = await request(app)
+      .post(`/projects/${PROJECT_ID}/clips`)
+      .set('Authorization', `Bearer ${validToken()}`)
+      .send({
+        clipId: IMAGE_CLIP_ID,
+        trackId: NEW_TRACK_ID,
+        type: 'image',
+        startFrame: 0,
+        durationFrames: 150,
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ clipId: IMAGE_CLIP_ID });
+    insertedClipIds.push(IMAGE_CLIP_ID);
   });
 
   it('returns 400 when clipId is not a valid UUID', async () => {

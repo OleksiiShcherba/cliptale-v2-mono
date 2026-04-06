@@ -1,0 +1,1 @@
+6. For each media file (audio, video) you should use the remotions preload functionality that should give possibility autoamitacally preload media files into memory to not cause delayes, since currently there are delays when starting a video due to the need to download it.

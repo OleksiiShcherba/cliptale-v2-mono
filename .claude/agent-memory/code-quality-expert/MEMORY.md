@@ -8,3 +8,4 @@
 - [Recurring violation: type keyword used for Props shapes](ruling_props_interface_not_type.md) — dev uses `export type FooProps` instead of `export interface FooProps`; always flag as ❌ per §9
 - [Ruling: styles object camelCase naming in component files](ruling_styles_object_naming.md) — `const styles` / `const style` in component files uses camelCase; treat as warning not violation; pattern established in ClipBlock.tsx and accepted in prior reviews
 - [setProject derives durationFrames — existing tests may break](ruling_setproject_durationframes_derivation.md) — toEqual(doc) assertions against getSnapshot() will fail if doc.durationFrames != computeProjectDuration result
+- [Ruling: components importing directly from feature api.ts](ruling_component_direct_api_import.md) — established pattern; do not flag unless component bypasses api.ts and calls fetch directly

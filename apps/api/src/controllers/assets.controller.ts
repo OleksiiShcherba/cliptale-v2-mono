@@ -50,7 +50,8 @@ export async function getProjectAssets(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const assets = await assetResponseService.getProjectAssetsResponse(req.params['id']!, s3Client);
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const assets = await assetResponseService.getProjectAssetsResponse(req.params['id']!, s3Client, baseUrl);
     res.json(assets);
   } catch (err) {
     next(err);
@@ -64,7 +65,8 @@ export async function getAsset(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const asset = await assetResponseService.getAssetResponse(req.params['id']!, s3Client);
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const asset = await assetResponseService.getAssetResponse(req.params['id']!, s3Client, baseUrl);
     res.json(asset);
   } catch (err) {
     next(err);
@@ -100,8 +102,39 @@ export async function finalizeAsset(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const asset = await assetResponseService.finalizeAssetResponse(req.params['id']!, s3Client);
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const asset = await assetResponseService.finalizeAssetResponse(req.params['id']!, s3Client, baseUrl);
     res.json(asset);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /assets/:id/thumbnail
+ * Proxies the asset's thumbnail image from S3 to the browser.
+ * Returns 404 when the asset has no thumbnail (not yet processed or an audio file).
+ */
+export async function thumbnailAsset(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const result = await assetResponseService.streamThumbnail(req.params['id']!, s3Client);
+
+    if (!result) {
+      res.status(404).end();
+      return;
+    }
+
+    if (result.contentType) res.setHeader('Content-Type', result.contentType);
+    if (result.contentLength !== undefined) res.setHeader('Content-Length', String(result.contentLength));
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    // Required for browser <img> elements making cross-origin requests (frontend :5173, API :3001).
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.status(200);
+    result.body.pipe(res);
   } catch (err) {
     next(err);
   }

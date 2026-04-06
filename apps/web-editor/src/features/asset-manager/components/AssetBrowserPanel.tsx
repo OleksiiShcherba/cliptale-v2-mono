@@ -225,6 +225,7 @@ export function AssetBrowserPanel({ projectId }: AssetBrowserPanelProps): React.
       {selectedAsset && (
         <AssetDetailPanel
           asset={selectedAsset}
+          projectId={projectId}
           onDelete={() => setSelectedAssetId(null)}
         />
       )}

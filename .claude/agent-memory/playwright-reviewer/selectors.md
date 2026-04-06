@@ -2,7 +2,7 @@
 name: Known Selectors and Flaky Patterns
 description: Selectors that work and those that fail in ClipTale Playwright tests
 type: feedback
-updated: 2026-04-05
+updated: 2026-04-06
 ---
 
 ## Working selectors
@@ -34,6 +34,21 @@ This dialog blocks the page and persists until dismissed. It contaminates subseq
 `getByRole('button', { name: 'Add to Timeline' })` fails silently.
 Use `page.locator('button:has-text("Add to Timeline")').first()` instead.
 The button appears in AssetDetailPanel only after clicking the asset card first.
+
+## Seeded project ID required for asset tests
+
+New project creation (`POST /projects`) on fresh load creates an empty project with no assets.
+The seeded asset `Oleksii_00002.mp4` exists only under project `00000000-0000-0000-0000-000000000001`.
+To test any asset-related workflow, always navigate to `/?projectId=00000000-0000-0000-0000-000000000001`.
+Do NOT rely on the dynamic projectId from the URL — it will have no assets.
+
+## HTML5 DnD lane selector
+
+ClipLane element: no data-testid. Find by: `height=48, width>500, top>700, overflow=hidden` in a DOM scan.
+Asset card selector for DnD: `[aria-label*="Oleksii_00002.mp4"]` — has draggable=true, cursor=grab.
+MIME type for asset drop: `'application/cliptale-asset'` (JSON-stringified Asset object).
+DROP_TARGET_OVERLAY color: `rgba(124, 58, 237, 0.15)` — appears in getComputedStyle after dragover.
+Clip block: no data-testid. Find by: `top>700, height≈48, backgroundColor includes '124' (rgb(124,58,237))`.
 
 ## Context menu
 

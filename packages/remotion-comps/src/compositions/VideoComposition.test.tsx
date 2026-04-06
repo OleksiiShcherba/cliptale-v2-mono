@@ -15,6 +15,8 @@ vi.mock('remotion', () => ({
   Audio: (props: Record<string, unknown>) =>
     React.createElement('audio', { 'data-testid': 'audio-layer', ...props }),
   getRemotionEnvironment: () => ({ isRendering: false }),
+  Img: (props: Record<string, unknown>) =>
+    React.createElement('img', { 'data-testid': 'image-layer', ...props }),
 }));
 
 // Mock project-schema package to avoid build artifact dependency in tests.
@@ -28,6 +30,7 @@ import {
   TRACK_OVERLAY,
   CLIP_VIDEO,
   CLIP_AUDIO,
+  CLIP_IMAGE,
   CLIP_TEXT,
 } from './VideoComposition.fixtures.js';
 
@@ -86,16 +89,50 @@ describe('VideoComposition', () => {
       expect(getAllByTestId('sequence')).toHaveLength(1);
     });
 
-    it('falls back to empty string src when assetId is not in assetUrls', () => {
+    it('renders a Sequence for an image clip', () => {
+      const doc = makeProjectDoc({
+        tracks: [TRACK_OVERLAY],
+        clips: [CLIP_IMAGE],
+      });
+      const { getAllByTestId } = render(
+        <VideoComposition projectDoc={doc} assetUrls={{ 'asset-img-001': 'https://example.com/image.png' }} />
+      );
+      expect(getAllByTestId('sequence')).toHaveLength(1);
+    });
+
+    it('skips image clip rendering when assetId is not in assetUrls', () => {
+      const doc = makeProjectDoc({
+        tracks: [TRACK_OVERLAY],
+        clips: [CLIP_IMAGE],
+      });
+      const { queryAllByTestId } = render(
+        <VideoComposition projectDoc={doc} assetUrls={{}} />
+      );
+      expect(queryAllByTestId('sequence')).toHaveLength(0);
+    });
+
+    it('passes opacity from image clip to ImageLayer', () => {
+      const doc = makeProjectDoc({
+        tracks: [TRACK_OVERLAY],
+        clips: [CLIP_IMAGE],
+      });
+      const { getByTestId } = render(
+        <VideoComposition projectDoc={doc} assetUrls={{ 'asset-img-001': 'https://example.com/image.png' }} />
+      );
+      const imgEl = getByTestId('image-layer');
+      expect((imgEl as HTMLImageElement).style.opacity).toBe('0.9');
+    });
+
+    it('omits a video clip when assetId is not in assetUrls (no broken playback)', () => {
       const doc = makeProjectDoc({
         tracks: [TRACK_VIDEO],
         clips: [CLIP_VIDEO],
       });
-      const { getAllByTestId } = render(
+      const { queryAllByTestId } = render(
         <VideoComposition projectDoc={doc} assetUrls={{}} />
       );
-      // Sequence is still rendered — empty src is a valid fallback.
-      expect(getAllByTestId('sequence')).toHaveLength(1);
+      // No src → clip is skipped to avoid a broken <video> element.
+      expect(queryAllByTestId('sequence')).toHaveLength(0);
     });
   });
 
@@ -241,12 +278,12 @@ describe('VideoComposition', () => {
         tracks: [],
         clips: [CLIP_VIDEO],
       });
-      // Track is missing — the clip has no trackId match.
-      // It should render but not crash (it won't match the muted set).
+      // Track is missing — the clip has no trackId match so it is not muted.
+      // However, an assetUrl must be provided for the clip to render.
       const { getAllByTestId } = render(
-        <VideoComposition projectDoc={doc} assetUrls={{}} />
+        <VideoComposition projectDoc={doc} assetUrls={{ 'asset-001': 'https://example.com/video.mp4' }} />
       );
-      // Clip is from an unknown track — not muted, so it still renders.
+      // Clip is from an unknown track — not muted, so it renders.
       expect(getAllByTestId('sequence')).toHaveLength(1);
     });
   });

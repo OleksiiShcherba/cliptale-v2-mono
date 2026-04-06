@@ -183,6 +183,29 @@ describe('useRemotionPlayer', () => {
       expect(callArgs?.queries).toHaveLength(1);
     });
 
+    it('includes image clips in asset queries', () => {
+      const doc = makeProjectDoc({
+        clips: [
+          {
+            id: 'c1',
+            type: 'image',
+            assetId: 'asset-img',
+            trackId: 't1',
+            startFrame: 0,
+            durationFrames: 30,
+          },
+        ] as ProjectDoc['clips'],
+      });
+      mockGetProjectSnapshot.mockReturnValue(doc);
+      mockUseQueries.mockReturnValue([]);
+
+      renderHook(() => useRemotionPlayer());
+
+      const callArgs = mockUseQueries.mock.calls[0]?.[0] as { queries: unknown[] } | undefined;
+      expect(callArgs?.queries).toHaveLength(1);
+      expect(callArgs?.queries[0]).toMatchObject({ queryKey: ['asset', 'asset-img'] });
+    });
+
     it('excludes text-overlay clips from asset queries', () => {
       const doc = makeProjectDoc({
         clips: [
@@ -269,6 +292,38 @@ describe('useRemotionPlayer', () => {
       expect(url.startsWith('http')).toBe(true);
     });
 
+    it('omits assets with status pending (not yet ready)', () => {
+      const doc = makeProjectDoc({
+        clips: [
+          { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+        ] as ProjectDoc['clips'],
+      });
+      mockGetProjectSnapshot.mockReturnValue(doc);
+      mockUseQueries.mockReturnValue([
+        { data: { id: 'asset-a', status: 'pending' }, isLoading: false, isError: false },
+      ] as ReturnType<typeof useQueries>);
+
+      const { result } = renderHook(() => useRemotionPlayer());
+
+      expect(result.current.assetUrls).toEqual({});
+    });
+
+    it('omits assets with status processing', () => {
+      const doc = makeProjectDoc({
+        clips: [
+          { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+        ] as ProjectDoc['clips'],
+      });
+      mockGetProjectSnapshot.mockReturnValue(doc);
+      mockUseQueries.mockReturnValue([
+        { data: { id: 'asset-a', status: 'processing' }, isLoading: false, isError: false },
+      ] as ReturnType<typeof useQueries>);
+
+      const { result } = renderHook(() => useRemotionPlayer());
+
+      expect(result.current.assetUrls).toEqual({});
+    });
+
     it('omits assets whose query is still loading', () => {
       const doc = makeProjectDoc({
         clips: [
@@ -283,6 +338,64 @@ describe('useRemotionPlayer', () => {
       const { result } = renderHook(() => useRemotionPlayer());
 
       expect(result.current.assetUrls).toEqual({});
+    });
+  });
+
+  describe('assetUrls reference stability', () => {
+    it('returns the same assetUrls reference when ready assets have not changed', () => {
+      // This tests the readyAssetIds memoization: unnecessary re-renders (e.g.
+      // when ephemeral store ticks while no assets change) must NOT give
+      // usePrefetchAssets a new object reference, which would trigger a
+      // redundant prefetch cycle.
+      const doc = makeProjectDoc({
+        clips: [
+          { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+        ] as ProjectDoc['clips'],
+      });
+      mockGetProjectSnapshot.mockReturnValue(doc);
+      mockUseQueries.mockReturnValue([
+        { data: { id: 'asset-a', status: 'ready' }, isLoading: false, isError: false },
+      ] as ReturnType<typeof useQueries>);
+
+      const { result, rerender } = renderHook(() => useRemotionPlayer());
+
+      const firstRef = result.current.assetUrls;
+
+      // Simulate an ephemeral store tick (e.g. playhead frame advance).
+      mockGetEphemeralSnapshot.mockReturnValue(makeEphemeralState({ playheadFrame: 5 }));
+      rerender();
+
+      expect(result.current.assetUrls).toBe(firstRef);
+    });
+
+    it('returns a new assetUrls reference when a new asset becomes ready', () => {
+      const doc = makeProjectDoc({
+        clips: [
+          { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+          { id: 'c2', type: 'video', assetId: 'asset-b', trackId: 't1', startFrame: 30, durationFrames: 30 },
+        ] as ProjectDoc['clips'],
+      });
+      mockGetProjectSnapshot.mockReturnValue(doc);
+
+      // Initially only asset-a is ready.
+      mockUseQueries.mockReturnValue([
+        { data: { id: 'asset-a', status: 'ready' }, isLoading: false, isError: false },
+        { data: { id: 'asset-b', status: 'processing' }, isLoading: false, isError: false },
+      ] as ReturnType<typeof useQueries>);
+
+      const { result, rerender } = renderHook(() => useRemotionPlayer());
+
+      const firstRef = result.current.assetUrls;
+
+      // Now asset-b finishes processing and becomes ready.
+      mockUseQueries.mockReturnValue([
+        { data: { id: 'asset-a', status: 'ready' }, isLoading: false, isError: false },
+        { data: { id: 'asset-b', status: 'ready' }, isLoading: false, isError: false },
+      ] as ReturnType<typeof useQueries>);
+      rerender();
+
+      expect(result.current.assetUrls).not.toBe(firstRef);
+      expect(result.current.assetUrls).toHaveProperty('asset-b');
     });
   });
 });

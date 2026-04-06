@@ -63,6 +63,19 @@ export function VideoComposition({ projectDoc, assetUrls }: VideoCompositionProp
           );
         }
 
+        if (clip.type === 'image') {
+          const src = assetUrls[clip.assetId] ?? '';
+          if (!src) return null;
+          return (
+            <Sequence key={clip.id} from={clip.startFrame} durationInFrames={clip.durationFrames}>
+              <ImageLayer
+                src={src}
+                style={{ width: '100%', height: '100%', objectFit: 'contain', opacity: clip.opacity }}
+              />
+            </Sequence>
+          );
+        }
+
         if (clip.type === 'text-overlay') {
           return (
             <Sequence key={clip.id} from={clip.startFrame} durationInFrames={clip.durationFrames}>

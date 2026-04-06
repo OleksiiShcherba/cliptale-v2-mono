@@ -9,13 +9,22 @@ import type { ProjectDoc } from '@ai-video-editor/project-schema';
 // ---------------------------------------------------------------------------
 
 // Capture Player call args and the ref forwarded to Player for assertions.
-const mockPlayerProps: Record<string, unknown>[] = [];
-let capturedRef: React.Ref<unknown> | null = null;
+// Must be declared via vi.hoisted() so they are available inside the vi.mock factory
+// (which is hoisted to the top of the file before any variable declarations).
+const { mockPlayerProps, getCapturedRef, setCapturedRef } = vi.hoisted(() => {
+  const mockPlayerProps: Record<string, unknown>[] = [];
+  let capturedRef: React.Ref<unknown> | null = null;
+  return {
+    mockPlayerProps,
+    getCapturedRef: () => capturedRef,
+    setCapturedRef: (ref: React.Ref<unknown> | null) => { capturedRef = ref; },
+  };
+});
 
 vi.mock('@remotion/player', () => ({
   Player: React.forwardRef((props: Record<string, unknown>, ref: React.Ref<unknown>) => {
     mockPlayerProps.push(props);
-    capturedRef = ref;
+    setCapturedRef(ref);
     return React.createElement('div', { 'data-testid': 'remotion-player' });
   }),
 }));
@@ -26,6 +35,11 @@ vi.mock('@ai-video-editor/remotion-comps', () => ({
 
 vi.mock('../hooks/useRemotionPlayer.js', () => ({
   useRemotionPlayer: vi.fn(),
+}));
+
+// Pass stream URLs through unchanged — prefetch behavior is tested separately.
+vi.mock('../hooks/usePrefetchAssets.js', () => ({
+  usePrefetchAssets: (urls: Record<string, string>) => urls,
 }));
 
 import { useRemotionPlayer } from '../hooks/useRemotionPlayer.js';
@@ -71,7 +85,7 @@ describe('PreviewPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockPlayerProps.length = 0;
-    capturedRef = null;
+    setCapturedRef(null);
     mockUseRemotionPlayer.mockReturnValue(makeHookResult() as ReturnType<typeof useRemotionPlayer>);
   });
 
@@ -173,7 +187,7 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel />);
 
       // capturedRef must be the same object reference as internalRef
-      expect(capturedRef).toBe(internalRef);
+      expect(getCapturedRef()).toBe(internalRef);
     });
 
     it('forwards the external playerRef to the Player when provided as a prop', () => {
@@ -188,8 +202,8 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel playerRef={externalRef} />);
 
       // capturedRef must be the external ref, not the internal one
-      expect(capturedRef).toBe(externalRef);
-      expect(capturedRef).not.toBe(internalRef);
+      expect(getCapturedRef()).toBe(externalRef);
+      expect(getCapturedRef()).not.toBe(internalRef);
     });
 
     it('does not call useRemotionPlayer with an external ref — it is provided directly', () => {
@@ -200,7 +214,7 @@ describe('PreviewPanel', () => {
 
       // The hook is still called (it always is — for projectDoc/assetUrls), but
       // the external ref wins over the internal one for the Player ref prop.
-      expect(capturedRef).toBe(externalRef);
+      expect(getCapturedRef()).toBe(externalRef);
     });
   });
 });

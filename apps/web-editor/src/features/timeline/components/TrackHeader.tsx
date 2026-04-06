@@ -11,8 +11,12 @@ const PRIMARY = '#7C3AED';
 const WARNING = '#F59E0B';
 const SURFACE_ELEVATED = '#1E1E2E';
 
-/** Width of the track header column in pixels. */
-export const TRACK_HEADER_WIDTH = 64;
+/**
+ * Width of the track header column in pixels.
+ * Wide enough to display at least 10 characters of a track name without truncation
+ * (Inter 12px ≈ 8px/char × 10 = 80px name area + 42px controls + 16px padding + 4px gap = 142px minimum).
+ */
+export const TRACK_HEADER_WIDTH = 160;
 
 /** Height of each track row in pixels (shared with ClipLane). */
 export const TRACK_ROW_HEIGHT = 48;

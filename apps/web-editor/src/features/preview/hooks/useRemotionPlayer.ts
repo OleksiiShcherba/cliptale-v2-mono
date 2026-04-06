@@ -1,4 +1,4 @@
-import { useRef, useSyncExternalStore } from 'react';
+import { useMemo, useRef, useSyncExternalStore } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import type { PlayerRef } from '@remotion/player';
 
@@ -32,11 +32,11 @@ export function useRemotionPlayer(): UseRemotionPlayerResult {
   const projectDoc = useSyncExternalStore(subscribeProject, getProjectSnapshot);
   const ephemeral = useSyncExternalStore(subscribeEphemeral, getEphemeralSnapshot);
 
-  // Collect unique assetIds from video and audio clips — text-overlay clips have none.
+  // Collect unique assetIds from media clips — text-overlay clips have no asset.
   const assetIds = Array.from(
     new Set(
       projectDoc.clips
-        .filter((clip) => clip.type === 'video' || clip.type === 'audio')
+        .filter((clip) => clip.type === 'video' || clip.type === 'audio' || clip.type === 'image')
         .map((clip) => (clip as { assetId: string }).assetId),
     ),
   );
@@ -50,16 +50,24 @@ export function useRemotionPlayer(): UseRemotionPlayerResult {
     })),
   });
 
+  // Stable key: changes only when the set of ready asset IDs changes.
+  // Prevents assetUrls from getting a new reference on every render,
+  // which would otherwise cause unnecessary prefetch re-runs downstream.
+  const readyAssetIds = assetResults
+    .map((r, i) => (r.data?.status === 'ready' ? assetIds[i] : null))
+    .filter((id): id is string => id !== null)
+    .join(',');
+
   // Build the assetId → URL map from successfully-loaded assets.
   // Assets still loading are omitted — the layer will receive an empty src.
   // The API stream endpoint is used so the browser never receives a raw s3:// URI.
-  const assetUrls: AssetUrls = {};
-  assetResults.forEach((result, index) => {
-    const assetId = assetIds[index];
-    if (result.data && assetId) {
-      assetUrls[assetId] = `${config.apiBaseUrl}/assets/${assetId}/stream`;
-    }
-  });
+  const assetUrls = useMemo(() => {
+    const urls: AssetUrls = {};
+    readyAssetIds.split(',').filter(Boolean).forEach((assetId) => {
+      urls[assetId] = `${config.apiBaseUrl}/assets/${assetId}/stream`;
+    });
+    return urls;
+  }, [readyAssetIds]);
 
   return {
     projectDoc,

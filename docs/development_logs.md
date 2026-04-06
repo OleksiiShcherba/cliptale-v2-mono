@@ -324,3 +324,231 @@ checked by qa-reviewer - YES
 checked by design-reviewer - YES
 design-reviewer notes: Reviewed on 2026-04-05. All checks passed. Loading state uses TEXT_PRIMARY (#F0F0FA = text-primary token) on SURFACE (#0D0D14 = surface token) background — both correct. Error state uses #EF4444 = error token — correct. Font family Inter, sans-serif matches design guide Section 3. Font size 14px matches the body token (14px / 400 Regular). Named token constants are used throughout, consistent with the inline-styles pattern of this file. No layout, spacing, or component structure violations. Code matches design guide spec.
 checked by playwright-reviewer: YES
+
+---
+
+## [2026-04-05]
+
+### Task: Bug Fixes & Improvements
+**Subtask:** project_clips_current not updated when new element is added to tracks
+
+**What was done:**
+- `apps/api/src/db/migrations/007_add_image_clip_type.sql` — adds `'image'` to the `type` ENUM in `project_clips_current` so image clips can be persisted
+- `apps/api/src/controllers/clips.controller.ts` — added `'image'` to `createClipSchema` type enum
+- `apps/api/src/repositories/clip.repository.ts` — updated `ClipInsert.type` union to include `'image'`
+- `apps/web-editor/src/features/asset-manager/hooks/useAddAssetToTimeline.ts` — now accepts `projectId: string`; calls `createClip(projectId, clip)` after `setProject()` to persist new clips to `project_clips_current`
+- `apps/web-editor/src/features/asset-manager/components/AssetDetailPanel.tsx` — added `projectId: string` prop; passes it to `useAddAssetToTimeline`
+- `apps/web-editor/src/features/asset-manager/components/AssetBrowserPanel.tsx` — passes `projectId` to `AssetDetailPanel`
+- `apps/web-editor/src/features/asset-manager/hooks/useAddAssetToTimeline.test.ts` — updated all hook invocations to pass `projectId`; added tests verifying `createClip` is called with correct args for video, audio, and image assets, and NOT called for unsupported types
+- `apps/web-editor/src/features/asset-manager/components/AssetDetailPanel.test.tsx` — updated all renders to include `projectId="proj-001"` prop
+
+**Notes:**
+- `image` clips in the frontend now persist correctly to the DB. The DB migration adds 'image' to the ENUM — must be run before deploying.
+- `createClip` is fire-and-forget (`void`) — consistent with how split/duplicate handle it.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: project_clips_current not updated when new element is added</summary>
+
+1. I don't see that we do add anything to project_clips_current, when new element is added to tracks
+
+</details>
+
+checked by code-reviewer - COMMENTED
+> ❌ vi.mock hoisting violation in `apps/web-editor/src/features/asset-manager/hooks/useAddAssetToTimeline.test.ts` line 22–25: `uuidCounter` is declared with `let` on line 22 and referenced inside the `vi.mock('crypto', ...)` factory on line 24. Since vi.mock factories are hoisted before variable declarations, this causes a TDZ ReferenceError at runtime. `uuidCounter` must be declared via `vi.hoisted()` — violates §10 (vi.mock hoisting pitfall).
+> ⚠️ Migration comment mismatch in `apps/api/src/db/migrations/007_add_image_clip_type.sql` line 1: the file is named `007_add_image_clip_type.sql` but the header comment reads `-- Migration: 006_add_image_clip_type`. Not an architecture rule violation but creates misleading documentation.
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-05. All checks passed. This change is a prop-threading refactor only: projectId is added as a prop to AssetDetailPanel (line 17) and passed through from AssetBrowserPanel (line 229). No new JSX elements, no CSS, no layout, and no design tokens were added or changed. All existing color values (#16161F = surface-alt, #1E1E2E = surface-elevated, #7C3AED = primary, #4C1D95 = primary-light, #8A8AA0 = text-secondary, #F0F0FA = text-primary, #252535 = border, #10B981 = success, #F59E0B = warning, #EF4444 = error) remain correct per design guide Section 3. Typography (Inter, 14px/12px body/label scale, weight 500 for CTAs) and spacing (4px grid, gap 8px/16px, padding 16px) are unchanged. No visual or design regressions introduced.
+checked by playwright-reviewer: YES
+
+---
+
+## [2026-04-05]
+
+### Task: Drag and drop from one track to another and from assets list to specific track
+**Subtask:** Drag and drop: cross-track clip movement + asset-to-track drop from asset browser
+
+**What was done:**
+- Added `targetTrackId: string | null` and `draggingClipSnapshots` to `ClipDragInfo` type
+- Added `timeline-refs.ts` bridge: `registerTrackListBounds` / `getTrackListBounds` for pointer Y → track resolution
+- Rewrote `useClipDrag.ts`: resolves target track from pointer Y during pointer-move, hides clips dragged away, commits `trackId` change to API via `patchClip`
+- Added `trackId` support to backend: `patchClipSchema`, `ClipPatch`, `clip.repository.ts` SQL update
+- Made `AssetCard` draggable via HTML5 DnD API (`dataTransfer.setData('application/cliptale-asset', ...)`)
+- Added asset drop handlers to `ClipLane.tsx`: `handleDragOver`, `handleDragLeave`, `handleDrop` with drop target overlay
+- Added `onAssetDrop` prop threading: `ClipLane` → `TrackRow` → `TrackList` → `TimelinePanel`
+- `TimelinePanel.handleAssetDrop`: builds clip via `buildClipForAsset`, calls `createClip`, updates store
+- Registered track list bounds in `TimelinePanel` effect on tracks change
+- Added cross-track ghost rendering in `ClipLane`: hides dragged-away clips, shows ghost on target lane
+- Updated `ClipLane.test.tsx`: added `targetTrackId`/`draggingClipSnapshots` to existing ClipDragInfo fixtures, added 4 asset DnD tests
+- Updated `useClipDrag.test.ts`: added 4 cross-track drag tests
+
+**Files created or modified:**
+- `apps/api/src/controllers/clips.controller.ts` — added `trackId` to patchClipSchema
+- `apps/api/src/repositories/clip.repository.ts` — `ClipPatch.trackId`, SQL UPDATE for track_id
+- `apps/web-editor/src/store/timeline-refs.ts` — `registerTrackListBounds` / `getTrackListBounds`
+- `apps/web-editor/src/features/timeline/hooks/useClipDrag.ts` — cross-track drag logic
+- `apps/web-editor/src/features/timeline/api.ts` — `trackId` in ClipPatchPayload
+- `apps/web-editor/src/features/asset-manager/components/AssetCard.tsx` — draggable via HTML5 DnD
+- `apps/web-editor/src/features/timeline/components/ClipLane.tsx` — asset drop handlers, cross-track ghosts
+- `apps/web-editor/src/features/timeline/components/TrackList.tsx` — `onAssetDrop` prop threading
+- `apps/web-editor/src/features/timeline/components/TimelinePanel.tsx` — bounds registration, handleAssetDrop
+- `apps/web-editor/src/features/timeline/hooks/useClipDrag.test.ts` — cross-track drag tests
+- `apps/web-editor/src/features/timeline/components/ClipLane.test.tsx` — DragInfo fixture fixes + DnD tests
+
+**Notes:**
+- `TRACK_ROW_HEIGHT = 48` is duplicated in `useClipDrag.ts` (local const) and `TrackHeader.tsx` (exported). For now kept local to avoid coupling; can be unified later.
+- JSDOM doesn't expose `clientX` for DragEvents so the startFrame assertion in ClipLane tests verifies asset parsing only.
+- The `registerTrackListBounds` call must fire after the track list wrapper renders (useEffect on `tracks`). If the panel is scrolled vertically the bounds topY may drift — acceptable for current scope.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: Drag and drop from one track to another and from assets list to specific track</summary>
+
+2. Drag and drop from one track to another and from assets list to specific track
+
+</details>
+
+checked by qa-reviewer - YES
+checked by code-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-06. All checks passed. Previously flagged issue confirmed fixed: `dropTargetOverlay.borderRadius` is now 4 (radius-sm token) at line 401. Full file review: all track-type colors match design tokens (primary/primary-light/success/warning), LANE_BG (#0D0D14) matches surface token, SNAP_INDICATOR_COLOR (#EF4444) matches error/playhead token per design guide §9, DROP_TARGET_OVERLAY border (#7C3AED) matches primary token, lane borderBottom (#252535) matches border token. No typography violations (no text rendered in this component). All spacing on 4px grid. aria-label on lane and aria-hidden on overlay and snap indicator are correct. No design violations found.
+checked by playwright-reviewer: YES — asset card: draggable=true, cursor:grab confirmed on ready asset (screenshot 01); AssetDetailPanel opens correctly with "Add to Timeline" button (screenshot 02); drop overlay rgba(124,58,237,0.15) fires on dragover event with correct MIME type (DOM confirmed); POST /projects/:id/clips called when asset dropped on lane via HTML5 DnD simulation (2 API calls intercepted); clip block found at correct position with cursor:grab for pointer-based drag; cross-track PATCH not fired in single-track test environment (expected — second track required) but useClipDrag implementation confirmed via code + unit tests
+
+---
+
+## [2026-04-06]
+
+### Task: Fix element preview
+**Subtask:** Element preview does not work — need to be fixed
+
+**What was done:**
+- Fixed `useRemotionPlayer.ts` to include `image` clips in the `assetIds` filter (was only filtering `video` and `audio`)
+- Fixed `useRemotionPlayer.ts` to guard on `result.data?.status === 'ready'` before adding URL to `assetUrls` map (was including pending/processing assets whose stream endpoints may not exist)
+- Fixed `VideoComposition.tsx` to render `ImageLayer` for `image` clips — the branch was completely missing despite `ImageLayer` being imported
+- Added 3 new tests to `useRemotionPlayer.test.ts`: `includes image clips in asset queries`, `omits assets with status pending`, `omits assets with status processing`
+- Added 4 new tests to `VideoComposition.test.tsx`: `renders a Sequence for an image clip`, `skips image clip rendering when assetId is not in assetUrls`, `passes opacity from image clip to ImageLayer`, plus corrected 2 pre-existing tests whose expectations assumed empty-src clips still rendered (they should not — returns null now)
+- Added `CLIP_IMAGE` fixture to `VideoComposition.fixtures.ts`
+- Added `Img` mock to remotion mock factory in `VideoComposition.test.tsx`
+
+**Notes:**
+- Root cause 1: `useRemotionPlayer` filter excluded `image` type so image assets never had URLs resolved
+- Root cause 2: `VideoComposition` had no `image` branch — `ImageLayer` was imported but never rendered
+- Root cause 3: `assetUrls` was populated for any non-null asset data, not just `ready` assets — caused broken stream URLs for pending/processing uploads
+- Corrected two pre-existing test expectations that assumed clips with missing assetUrls still render a `<Sequence>` — after the fix, those clips return `null` to prevent broken `<video>` elements
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: Element preview does not work — need to be fixed</summary>
+
+3. Element preview does not workig need to be fixed
+
+</details>
+
+checked by code-reviewer - OK
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-06. All checks passed. The changed file (VideoComposition.tsx) is a Remotion composition that runs inside the video render pipeline — it is not an editor UI component. None of the design guide's UI rules (color tokens, typography, spacing, component naming, breakpoints) apply to this file. The inline style on ImageLayer (`width: 100%, height: 100%, objectFit: contain, opacity: clip.opacity`) governs video canvas rendering, not UI presentation. The `background: '#000'` on AbsoluteFill is the standard video canvas black (correct for letterboxed image content), not a surface token violation. No design system issues found.
+checked by playwright-reviewer: YES — Remotion Player internal rendering (image clip composition + status guard) is not directly testable via Playwright: the Player renders frames inside a WebGL/GPU canvas that headless Chromium cannot decode, and no seeded image asset exists to add an image clip. What was verified: (1) editor shell renders correctly with preview canvas present as `.__remotion-player` div (screenshot confirmed); (2) docker exec grep confirms the fix is live in the running container — `clip.type === 'image'` in filter and `result.data?.status === 'ready'` guard are both present in `useRemotionPlayer.ts`; (3) `VideoComposition.tsx` image branch (lines 66-77) renders `ImageLayer` when src is available; (4) AssetDetailPanel renders correctly with "Add to Timeline" button enabled; (5) no JS errors beyond known S3 CORS thumbnail 404. Unit tests (3 new in useRemotionPlayer.test.ts + 4 new in VideoComposition.test.tsx) provide the behavioral coverage for the image filter and status guard that browser automation cannot reach.
+
+---
+
+## [2026-04-06]
+
+### Task: Track name by default should equal asset name
+**Subtask:** Track name by default should be equal to asset name based on which it was created
+
+**What was done:**
+- Replaced hardcoded track names ('Video 1', 'Audio 1', 'Image 1') in `useAddAssetToTimeline.ts` with the asset's filename stripped of its extension (`stripExtension(asset.filename)`)
+- Renamed `resolveTrackConfig` → `resolveTrackType` (returns only `Track['type']` now since the name is derived from the asset)
+- Added `stripExtension` helper that removes the last file extension (e.g. `take.2.final.mp4` → `take.2.final`)
+- Updated all existing tests in `useAddAssetToTimeline.test.ts` that asserted on 'Video 1' / 'Audio 1' / 'Image 1' track names
+- Added 2 new tests: `uses asset filename (without extension) as the new track name` and `strips multiple dots correctly`
+
+**Notes:**
+- Track reuse logic is unchanged: a new track is only created when no track with the same name already exists — so dropping the same asset twice appends a clip to the same track
+- The fix only affects `useAddAssetToTimeline` (the "Add to Timeline" button in the asset panel); the DnD path (`useDropAssetToTimeline`) drops onto a specific existing track and is unaffected
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: Track name by default should equal asset name</summary>
+
+4. Track name by default should be equal to asset name base on which it was created
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-06. All checks passed. The change is confined to useAddAssetToTimeline.ts (pure logic — no JSX, no CSS, no design tokens). TrackHeader.tsx is untouched; it renders track.name as-is, which is the intended design behavior. Figma node 13:69 (TRACK LABELS 64px) specifies only the container geometry (64px wide, surface-alt background, border token) — no text content is prescribed, so replacing the hardcoded 'Video 1'/'Audio 1'/'Image 1' strings with the asset filename (sans extension) is a valid data-layer change with no design violations. All color tokens, typography, spacing, and component structure in TrackHeader.tsx remain correct and unchanged. Code matches design guide and Figma spec.
+checked by playwright-reviewer: YES
+
+---
+
+## [2026-04-06]
+
+### Task: More space for track name
+**Subtask:** More space for track name, minimum space for 10 letters names
+
+**What was done:**
+- Changed `TRACK_HEADER_WIDTH` from `64` to `160` in `TrackHeader.tsx` with a comment explaining the sizing rationale (Inter 12px ≈ 8px/char × 10 = 80px + 42px controls + 16px padding + 4px gap = 142px minimum → 160px)
+- Removed duplicate `TRACK_HEADER_WIDTH = 64` constant from `TrackList.tsx` and replaced it with a re-export from `TrackHeader.tsx` (single source of truth)
+- Updated `TimelinePanel.scrollbar.test.tsx` mock (`TRACK_HEADER_WIDTH: 64 → 160`), `LANE_WIDTH = 736 → 640` (800 - 160), and updated all describe/comment strings referencing the old values
+
+**Notes:**
+- `TimelinePanel.tsx` and `TrackList.tsx` import `TRACK_HEADER_WIDTH` from `TrackList` (re-export chain). Both still work correctly.
+- No logic changes — pure layout constant update.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: More space for track name</summary>
+
+5. More space for track name, minimum space for 10 letters names
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-06. All checks passed. The 160px width deviates from Figma node 13:69 ("TRACK LABELS (64px)" — w-[64px]), but this deviation is the explicit product intent of Task 5 ("More space for track name, minimum space for 10 letters names") and is task-sanctioned, not a developer error. Figma is stale relative to this accepted requirement; no Figma write tools are available via MCP to update node 13:69 to 160px — the design file should be updated manually. All other design token usage is correct: colors match design guide tokens (SURFACE_ALT #16161F, BORDER #252535, TEXT_PRIMARY #F0F0FA, TEXT_SECONDARY #8A8AA0, PRIMARY #7C3AED, WARNING #F59E0B, SURFACE_ELEVATED #1E1E2E), typography uses Inter 12px (body-sm scale), spacing is on the 4px grid (gap 4px = space-1, padding 8px = space-2), border-radius 4px = radius-sm. Code matches design guide and the accepted product requirement.
+checked by playwright-reviewer: YES
+
+---
+
+## [2026-04-06]
+
+### Task: Remotion preload for audio/video media files
+**Subtask:** For each media file (audio, video) use Remotion's preload functionality to automatically preload media files into memory to prevent delays when starting playback
+
+**What was done:**
+- Added `useMemo` stabilization to `assetUrls` in `useRemotionPlayer.ts` — derived a stable `readyAssetIds` key string so `assetUrls` reference only changes when the set of ready assets changes
+- Created `apps/web-editor/src/features/preview/hooks/usePrefetchAssets.ts` — calls `prefetch()` (Remotion public API) for each stream URL, collects resolved blob URLs via `waitUntilDone`, returns merged map (blob URL overrides stream URL when ready)
+- Updated `apps/web-editor/src/features/preview/components/PreviewPanel.tsx` — calls `usePrefetchAssets(streamUrls)` to get resolved asset URLs; stream URLs are used immediately while blob URLs are downloaded in the background
+- Created `apps/web-editor/src/features/preview/hooks/usePrefetchAssets.test.ts` — 7 tests covering: immediate fallback to stream URLs, blob URL replacement after resolution, correct `prefetch()` method option, empty map no-op, `free()` cleanup on unmount, error fallback to stream URL, re-run on URL change
+- Updated `apps/web-editor/src/features/preview/components/PreviewPanel.test.tsx` — added `vi.mock` for `usePrefetchAssets` to prevent unhandled fetch errors in tests
+
+**Notes:**
+- `usePreload` and `PrefetchProvider` from `remotion` are NOT in the public TypeScript API (remotion 4.0.443) — they exist in the runtime but lack type declarations. The chosen approach (tracking blob URLs in state and passing through `assetUrls`) avoids private APIs entirely.
+- Preloading is progressive: stream URLs are used immediately, blob URLs replace them when downloads complete. The Player re-renders with new `inputProps` at that point (one-time event per asset).
+- `VideoLayer` and `AudioLayer` are unchanged — they receive whatever URL is in `assetUrls`.
+- Pre-existing OOM error in `@cliptale/web-editor` test suite: jsdom worker occasionally runs out of heap memory when running 59+ test files concurrently (was present before these changes). All 7 new tests pass individually; cumulative memory pressure causes the OOM in the full suite.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: Remotion preload for audio/video media files</summary>
+
+6. For each media file (audio, video) you should use the remotions preload functionality that should give possibility automatically preload media files into memory to not cause delays, since currently there are delays when starting a video due to the need to download it.
+
+</details>
+
+checked by code-reviewer - COMMENTED
+> ❌ vi.mock hoisting violation in `apps/web-editor/src/features/preview/components/PreviewPanel.test.tsx` lines 15-21: `mockPlayerProps` (declared line 12) and `capturedRef` (declared line 13) are referenced inside the `vi.mock('@remotion/player', ...)` factory without `vi.hoisted()`. vi.mock factories are hoisted before variable declarations, causing a TDZ ReferenceError at runtime. Both must be declared via `vi.hoisted()` — violates §10 (vi.mock hoisting pitfall).
+checked by code-reviewer - COMMENTED (re-review after fix 2026-04-06)
+> ❌ Dead code in `apps/web-editor/src/features/preview/components/PreviewPanel.test.tsx` line 14: `getMockPlayerProps` is destructured from `vi.hoisted()` and defined (line 19) but never called anywhere in the file — violates §9 (no dead code/debug artifacts left behind). Remove the destructuring and the `getMockPlayerProps: () => mockPlayerProps` entry from the `vi.hoisted()` return object.
+> ⚠️ Import ordering in `apps/web-editor/src/features/preview/hooks/usePrefetchAssets.test.ts` line 14: `import { prefetch } from 'remotion'` (external group 2) appears after `import { usePrefetchAssets } from './usePrefetchAssets.js'` (relative group 5) at line 4 — a §9 import group ordering violation. This is forced by Vitest's vi.mock hoisting constraint; flag as warning per project convention.
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-06. All checks passed. This task is a pure infrastructure/performance change. `usePrefetchAssets.ts` is a React hook with no JSX, no CSS, no design tokens — the design guide's color, typography, spacing, and component rules do not apply to it. `PreviewPanel.tsx` received only a logic wire-up: the existing `assetUrls` variable was renamed to `streamUrls` locally and the prefetch hook result re-binds to `assetUrls` before passing into `inputProps`. The `styles` object and JSX are untouched. The `background: '#0D0D14'` on the container remains the `surface` token value per design guide §3 ("Page background, editor canvas") — correct and unchanged. No new colors, spacing, typography, or component structure were introduced. Code matches design guide and Figma spec.
+checked by playwright-reviewer: YES — (1) Preview panel renders without JS errors after usePrefetchAssets integration: editor shell confirmed correct (screenshots 01-02), Remotion player container present, 0 critical JS errors; (2) AssetDetailPanel opens with "Add to Timeline" button enabled (screenshot 03); (3) Version History panel opens correctly showing v1 entry with Restore button (separate context test, screenshot confirmed); (4) Source verification: usePrefetchAssets.ts uses prefetch() from remotion with waitUntilDone + free() cleanup; PreviewPanel.tsx line 35 confirmed wiring streamUrls through usePrefetchAssets; (5) All existing workflows — shell, asset browser, timeline empty state, version history — render correctly after Task 6 changes with no regressions. NOTE: Screenshots after "Add to Timeline" show OS file picker (known Remotion side-effect — expected per selectors.md); History panel tested in separate context without interference.

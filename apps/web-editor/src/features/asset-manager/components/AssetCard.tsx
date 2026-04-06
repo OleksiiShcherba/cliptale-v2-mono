@@ -121,6 +121,12 @@ const isTranscribable = (contentType: string) =>
 
 export function AssetCard({ asset, isSelected, onSelect }: AssetCardProps): React.ReactElement {
   const badgeBg = STATUS_BG[asset.status] ?? '#8A8AA0';
+  const isDraggable = asset.status === 'ready';
+
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('application/cliptale-asset', JSON.stringify(asset));
+  };
 
   return (
     <div
@@ -128,6 +134,8 @@ export function AssetCard({ asset, isSelected, onSelect }: AssetCardProps): Reac
       tabIndex={0}
       aria-pressed={isSelected}
       aria-label={`Asset: ${asset.filename}, status: ${asset.status}`}
+      draggable={isDraggable}
+      onDragStart={isDraggable ? handleDragStart : undefined}
       onClick={() => onSelect(asset.id)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onSelect(asset.id);
@@ -140,7 +148,7 @@ export function AssetCard({ asset, isSelected, onSelect }: AssetCardProps): Reac
         padding: 8,
         borderRadius: 8,
         backgroundColor: isSelected ? '#4C1D95' : '#1E1E2E',
-        cursor: 'pointer',
+        cursor: isDraggable ? 'grab' : 'pointer',
         boxSizing: 'border-box',
         outline: 'none',
         flexShrink: 0,

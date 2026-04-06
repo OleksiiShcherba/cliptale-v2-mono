@@ -12,4 +12,4 @@ Architecture rules §10 ("vi.mock hoisting pitfall") explicitly require `vi.hois
 
 **Why:** This is a recurring pattern (appeared multiple times in prior test files too). Always flag it as a ❌ violation when reviewing new test files.
 
-**How to apply:** When reviewing any test file, check if `vi.mock()` factory closures reference variables declared with `const`/`let` in the module body. If they do and no `vi.hoisted()` wrapper is used, flag as a violation citing §10.
+**How to apply:** When reviewing any test file, check if `vi.mock()` factory closures reference variables declared with `const`/`let` in the module body. If they do and no `vi.hoisted()` wrapper is used, flag as a violation citing §10. The violation also applies to mutable `let` counters (e.g. `let uuidCounter = 0`) referenced inside a `vi.mock` factory closure — seen in `useAddAssetToTimeline.test.ts` line 22–25 (2026-04-05 review).

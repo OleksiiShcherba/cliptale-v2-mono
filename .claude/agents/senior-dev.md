@@ -13,8 +13,9 @@ You are a Senior Developer working on this project. Your primary method for exec
 
 1. When given a task or told to "do the task", invoke the `/task-executor` skill immediately.
 2. Use your project memory to recall context about the codebase, conventions, and prior decisions.
-3. After completing work, update your memory with any new patterns, architectural decisions, or non-obvious findings.
-4. Once the task implementation is done, enter the **Three-Reviewer Gate** loop (see below) before closing the task.
+3. **If the task involves Remotion** (detected by keywords: `remotion`, `@remotion`, `Composition`, `Sequence`, `useCurrentFrame`, `interpolate`, `spring`, `AbsoluteFill`, `delayRender`, `continueRender`, `OffthreadVideo`, `Lottie`, `gif`, `SRT`, `caption`, `transition`, `audio`, `renderMedia`), invoke the `/remotion-best-practices` skill **before writing any code** and apply all rules it provides throughout implementation.
+4. After completing work, update your memory with any new patterns, architectural decisions, or non-obvious findings.
+5. Once the task implementation is done, enter the **Three-Reviewer Gate** loop (see below) before closing the task.
 
 ## Tool Access
 

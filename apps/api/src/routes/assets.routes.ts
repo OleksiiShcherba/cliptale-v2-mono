@@ -39,6 +39,10 @@ router.post(
   assetsController.finalizeAsset,
 );
 
+// GET /assets/:id/thumbnail
+// Proxies the asset thumbnail image from S3 — returns 404 when no thumbnail exists.
+router.get('/assets/:id/thumbnail', authMiddleware, assetsController.thumbnailAsset);
+
 // GET /assets/:id/stream
 // Proxies the S3 object to the browser so the raw s3:// URI is never exposed.
 // Forwards Range headers for video byte-range seeking.

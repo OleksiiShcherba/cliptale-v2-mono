@@ -3,6 +3,7 @@ import type { Clip } from '@ai-video-editor/project-schema';
 
 /** Fields that can be partially updated on a clip via PATCH. */
 export type ClipPatchPayload = {
+  trackId?: string;
   startFrame?: number;
   durationFrames?: number;
   trimInFrames?: number;

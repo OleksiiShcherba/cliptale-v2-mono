@@ -1,16 +1,18 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback } from 'react';
 
 import type { Clip, Track } from '@ai-video-editor/project-schema';
+import type { Asset } from '@/features/asset-manager/types';
 import { setSelectedClips, getSnapshot as getEphemeralSnapshot } from '@/store/ephemeral-store';
-import { getSnapshot as getProjectSnapshot } from '@/store/project-store';
 
 import { ClipBlock } from './ClipBlock';
 import type { ClipAssetData } from './ClipBlock';
 import { TRACK_ROW_HEIGHT } from './TrackHeader';
 import { ClipContextMenu } from './ClipContextMenu';
+import { ClipLaneGhosts } from './ClipLaneGhosts';
 import type { ClipDragInfo } from '../hooks/useClipDrag';
 import type { TrimDragInfo } from '../hooks/useClipTrim';
-import { execClipContextMenuAction, isPlayheadInsideClip } from './clipContextMenuActions';
+import { useAssetDrop } from '../hooks/useAssetDrop';
+import { useClipContextMenu } from '../hooks/useClipContextMenu';
 
 // Design tokens mapped from track type
 const TRACK_TYPE_COLORS: Record<Track['type'], string> = {
@@ -21,16 +23,8 @@ const TRACK_TYPE_COLORS: Record<Track['type'], string> = {
 };
 
 const LANE_BG = '#0D0D14';
-
-/** Color of the snap indicator line. */
 const SNAP_INDICATOR_COLOR = '#EF4444';
-
-/** State for the open context menu. */
-type ContextMenuState = {
-  clipId: string;
-  x: number;
-  y: number;
-};
+const DROP_TARGET_OVERLAY = 'rgba(124,58,237,0.15)';
 
 interface ClipLaneProps {
   projectId: string;
@@ -71,12 +65,18 @@ interface ClipLaneProps {
     isLocked: boolean,
     assetDurationFrames?: number,
   ) => boolean;
+  /**
+   * Called when an asset is dropped from the asset browser onto this lane.
+   * Receives the dragged asset and the computed startFrame based on drop X position.
+   */
+  onAssetDrop?: (asset: Asset, startFrame: number) => void;
 }
 
 /**
  * Renders the clip lane for a single track.
  * Manages context menu state (right-click → split/delete/duplicate).
  * Handles drag, trim, selection, and ghost rendering.
+ * Accepts asset drops from the asset browser to create new clips on this track.
  */
 export function ClipLane({
   projectId,
@@ -92,10 +92,15 @@ export function ClipLane({
   trimInfo,
   getTrimCursor,
   onTrimPointerDown,
+  onAssetDrop,
 }: ClipLaneProps): React.ReactElement {
   const trackColor = TRACK_TYPE_COLORS[track.type];
 
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const { contextMenu, canSplit, handleClipContextMenu, handleContextMenuAction, handleContextMenuClose } =
+    useClipContextMenu(projectId);
+
+  const { isAssetDragOver, handleDragOver, handleDragLeave, handleDrop } =
+    useAssetDrop(onAssetDrop, scrollOffsetX, pxPerFrame);
 
   /** Click on empty lane area clears selection. */
   const handleLaneClick = useCallback(() => {
@@ -132,41 +137,19 @@ export function ClipLane({
     [clips, pxPerFrame, onTrimPointerDown, onClipPointerDown],
   );
 
-  /** Opens the context menu at the pointer position. */
-  const handleClipContextMenu = useCallback(
-    (e: React.MouseEvent, clipId: string) => {
-      setContextMenu({ clipId, x: e.clientX, y: e.clientY });
-    },
-    [],
-  );
-
-  /** Handles context menu action dispatches. */
-  const handleContextMenuAction = useCallback(
-    (action: 'split' | 'delete' | 'duplicate') => {
-      if (!contextMenu) return;
-      execClipContextMenuAction(action, contextMenu.clipId, projectId);
-      setContextMenu(null);
-    },
-    [contextMenu, projectId],
-  );
-
-  const handleContextMenuClose = useCallback(() => {
-    setContextMenu(null);
-  }, []);
-
-  // Determine active snap indicator from either drag or trim.
   const activeSnap: { isSnapping: boolean; snapIndicatorPx: number | null } | null =
     dragInfo?.isSnapping ? dragInfo :
     trimInfo?.isSnapping ? trimInfo :
     null;
 
-  // Determine if canSplit for open context menu.
-  const canSplit = contextMenu
-    ? (() => {
-        const clip = (getProjectSnapshot().clips ?? []).find((c) => c.id === contextMenu.clipId);
-        return clip ? isPlayheadInsideClip(clip) : false;
-      })()
-    : false;
+  /**
+   * Whether this lane is the target for a cross-track clip drag.
+   * True when `dragInfo.targetTrackId === track.id` AND at least one dragged clip
+   * originates from a different track.
+   */
+  const isClipDragTarget = dragInfo !== null &&
+    dragInfo.targetTrackId === track.id &&
+    dragInfo.draggingClipSnapshots.some(c => c.trackId !== track.id);
 
   return (
     <div
@@ -180,20 +163,32 @@ export function ClipLane({
       data-track-id={track.id}
       data-track-type={track.type}
       onClick={handleLaneClick}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
+      {/* Drop target overlay — shows when an asset or cross-track clip is dragged over */}
+      {(isAssetDragOver || isClipDragTarget) && (
+        <div aria-hidden="true" style={styles.dropTargetOverlay} />
+      )}
+
       {clips.map((clip) => {
         const assetId = 'assetId' in clip ? (clip as { assetId: string }).assetId : undefined;
         const assetData = assetId && assetDataMap ? assetDataMap[assetId] : undefined;
         const isDragging = dragInfo?.draggingClipIds.has(clip.id) ?? false;
 
+        // Hide the original clip when it's being dragged to a different track.
+        const isDraggedAway = isDragging &&
+          dragInfo !== null &&
+          dragInfo.targetTrackId !== null &&
+          dragInfo.targetTrackId !== track.id;
+
         // During trim: render the trimmed clip at its ghost dimensions.
         const isTrimming = trimInfo?.clipId === clip.id;
-        const ghostLeft = isTrimming
-          ? trimInfo!.ghostStartFrame * pxPerFrame
-          : undefined;
-        const ghostWidth = isTrimming
-          ? Math.max(2, trimInfo!.ghostDurationFrames * pxPerFrame)
-          : undefined;
+        const ghostLeft = isTrimming ? trimInfo!.ghostStartFrame * pxPerFrame : undefined;
+        const ghostWidth = isTrimming ? Math.max(2, trimInfo!.ghostDurationFrames * pxPerFrame) : undefined;
+
+        if (isDraggedAway) return null;
 
         return (
           <ClipBlock
@@ -216,30 +211,17 @@ export function ClipLane({
         );
       })}
 
-      {/* Ghost blocks during drag — rendered at projected positions */}
-      {dragInfo &&
-        clips.map((clip) => {
-          const ghostLeftPx = dragInfo.ghostPositions.get(clip.id);
-          if (ghostLeftPx === undefined) return null;
-
-          const assetId = 'assetId' in clip ? (clip as { assetId: string }).assetId : undefined;
-          const assetData = assetId && assetDataMap ? assetDataMap[assetId] : undefined;
-
-          return (
-            <ClipBlock
-              key={`ghost-${clip.id}`}
-              clip={clip}
-              pxPerFrame={pxPerFrame}
-              isSelected={false}
-              isLocked={false}
-              assetData={assetData}
-              laneHeight={TRACK_ROW_HEIGHT}
-              scrollOffsetX={scrollOffsetX}
-              onClick={() => {/* ghost is non-interactive */}}
-              ghostLeft={ghostLeftPx * pxPerFrame}
-            />
-          );
-        })}
+      {/* Ghost blocks (same-track + cross-track) during drag */}
+      {dragInfo && (
+        <ClipLaneGhosts
+          trackId={track.id}
+          clips={clips}
+          pxPerFrame={pxPerFrame}
+          scrollOffsetX={scrollOffsetX}
+          dragInfo={dragInfo}
+          assetDataMap={assetDataMap}
+        />
+      )}
 
       {/* Snap indicator line */}
       {activeSnap?.isSnapping && activeSnap.snapIndicatorPx !== null && (
@@ -273,6 +255,15 @@ const styles = {
     position: 'relative' as const,
     overflow: 'hidden',
     borderBottom: '1px solid #252535',
+  } as React.CSSProperties,
+  dropTargetOverlay: {
+    position: 'absolute' as const,
+    inset: 0,
+    background: DROP_TARGET_OVERLAY,
+    border: '1px dashed #7C3AED',
+    pointerEvents: 'none' as const,
+    zIndex: 5,
+    borderRadius: 4,
   } as React.CSSProperties,
   snapIndicator: {
     position: 'absolute' as const,

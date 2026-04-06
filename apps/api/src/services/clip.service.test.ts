@@ -186,5 +186,42 @@ describe('clip.service', () => {
         { transform: null },
       );
     });
+
+    it('passes trackId to the repository for cross-track clip movement', async () => {
+      const newTrackId = 'track-uuid-002';
+      const updated = { ...baseClip, trackId: newTrackId };
+      mockGetClip.mockResolvedValue(baseClip);
+      mockPatchClip.mockResolvedValue(updated);
+
+      const result = await patchClip({
+        ...baseParams,
+        patch: { trackId: newTrackId },
+      });
+
+      expect(mockPatchClip).toHaveBeenCalledWith(
+        'clip-uuid-001',
+        'proj-uuid-001',
+        { trackId: newTrackId },
+      );
+      expect(result.trackId).toBe(newTrackId);
+    });
+
+    it('passes both trackId and startFrame together when clip moves track and position', async () => {
+      const newTrackId = 'track-uuid-002';
+      const updated = { ...baseClip, trackId: newTrackId, startFrame: 25 };
+      mockGetClip.mockResolvedValue(baseClip);
+      mockPatchClip.mockResolvedValue(updated);
+
+      await patchClip({
+        ...baseParams,
+        patch: { trackId: newTrackId, startFrame: 25 },
+      });
+
+      expect(mockPatchClip).toHaveBeenCalledWith(
+        'clip-uuid-001',
+        'proj-uuid-001',
+        { trackId: newTrackId, startFrame: 25 },
+      );
+    });
   });
 });

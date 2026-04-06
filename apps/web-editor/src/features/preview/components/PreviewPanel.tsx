@@ -5,6 +5,7 @@ import type { PlayerRef } from '@remotion/player';
 import { VideoComposition } from '@ai-video-editor/remotion-comps';
 
 import { useRemotionPlayer } from '@/features/preview/hooks/useRemotionPlayer.js';
+import { usePrefetchAssets } from '@/features/preview/hooks/usePrefetchAssets.js';
 
 interface PreviewPanelProps {
   /**
@@ -24,9 +25,14 @@ interface PreviewPanelProps {
  * the composition does not re-mount during scrubbing (Remotion requirement).
  */
 export function PreviewPanel({ playerRef: externalPlayerRef }: PreviewPanelProps = {}): React.ReactElement {
-  const { projectDoc, assetUrls, playerRef: internalPlayerRef } = useRemotionPlayer();
+  const { projectDoc, assetUrls: streamUrls, playerRef: internalPlayerRef } = useRemotionPlayer();
 
   const playerRef = externalPlayerRef ?? internalPlayerRef;
+
+  // Prefetch all ready asset stream URLs into blob:// URLs.
+  // While downloading: streamUrls are passed so the Player can start buffering.
+  // Once resolved: blob URLs replace stream URLs, eliminating re-download delays.
+  const assetUrls = usePrefetchAssets(streamUrls);
 
   const inputProps = useMemo(
     () => ({ projectDoc, assetUrls }),

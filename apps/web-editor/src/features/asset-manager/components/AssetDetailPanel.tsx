@@ -14,6 +14,7 @@ const STATUS_BG: Record<string, string> = {
 
 export interface AssetDetailPanelProps {
   asset: Asset;
+  projectId: string;
   onDelete?: (id: string) => void;
 }
 
@@ -22,8 +23,8 @@ export interface AssetDetailPanelProps {
  * status badge, and Replace/Delete action buttons.
  * Visible only when an asset is selected in AssetBrowserPanel.
  */
-export function AssetDetailPanel({ asset, onDelete }: AssetDetailPanelProps): React.ReactElement {
-  const addAssetToTimeline = useAddAssetToTimeline();
+export function AssetDetailPanel({ asset, projectId, onDelete }: AssetDetailPanelProps): React.ReactElement {
+  const addAssetToTimeline = useAddAssetToTimeline(projectId);
   const badgeBg = STATUS_BG[asset.status] ?? '#8A8AA0';
   const isReady = asset.status === 'ready';
   const isAV = asset.contentType.startsWith('video/') || asset.contentType.startsWith('audio/');

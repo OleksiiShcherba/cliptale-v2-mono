@@ -77,7 +77,7 @@ vi.mock('./TimelineRuler', () => ({
 
 vi.mock('./TrackList', () => ({
   TrackList: () => React.createElement('div', { 'data-testid': 'track-list' }),
-  TRACK_HEADER_WIDTH: 64,
+  TRACK_HEADER_WIDTH: 160,
 }));
 
 // ── Stub ResizeObserver ───────────────────────────────────────────────────────
@@ -115,8 +115,8 @@ afterEach(() => {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** TRACK_HEADER_WIDTH=64, panelWidth=800 → laneWidth=736 */
-const LANE_WIDTH = 736;
+/** TRACK_HEADER_WIDTH=160, panelWidth=800 → laneWidth=640 */
+const LANE_WIDTH = 640;
 
 function makeEphemeralState(overrides: {
   pxPerFrame?: number;
@@ -164,7 +164,7 @@ function renderPanel(opts: {
 
   const result = render(<TimelinePanel {...defaultProps} />);
 
-  // Fire ResizeObserver with panelWidth=800 so laneWidth=736 is applied.
+  // Fire ResizeObserver with panelWidth=800 so laneWidth=640 is applied.
   triggerResize!(800);
 
   return result;
@@ -178,7 +178,7 @@ describe('TimelinePanel — scrollbar strip', () => {
     expect(screen.getByRole('scrollbar')).toBeDefined();
   });
 
-  describe('overflow — totalContentWidth (300 * 4 = 1200) > laneWidth (736)', () => {
+  describe('overflow — totalContentWidth (300 * 4 = 1200) > laneWidth (640)', () => {
     it('thumb width is proportional to laneWidth / totalContentWidth', () => {
       renderPanel({ pxPerFrame: 4, durationFrames: 300 });
       const thumb = screen.getByRole('scrollbar');
@@ -208,7 +208,7 @@ describe('TimelinePanel — scrollbar strip', () => {
     });
   });
 
-  describe('no overflow — totalContentWidth (50 * 4 = 200) <= laneWidth (736)', () => {
+  describe('no overflow — totalContentWidth (50 * 4 = 200) <= laneWidth (640)', () => {
     it('thumb fills the full lane width', () => {
       renderPanel({ pxPerFrame: 4, durationFrames: 50 });
       const thumb = screen.getByRole('scrollbar');
@@ -250,7 +250,7 @@ describe('TimelinePanel — scrollbar strip', () => {
       act(() => { dispatchPointer(thumb, 'pointerdown', 200); });
       act(() => { dispatchPointer(thumb, 'pointermove', 300); });
 
-      // ratio = totalContentWidth / laneWidth = 1200 / 736 ≈ 1.630
+      // ratio = totalContentWidth / laneWidth = 1200 / 640 = 1.875
       // newOffset = 0 + 100 * 1.630 = 163.0
       const ratio = 1200 / LANE_WIDTH;
       const expectedOffset = Math.max(0, 0 + 100 * ratio);
