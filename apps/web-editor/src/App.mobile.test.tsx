@@ -49,6 +49,7 @@ vi.mock('@/store/project-store', () => ({
   setProject: vi.fn(),
   setProjectSilent: vi.fn(),
   getCurrentVersionId: vi.fn().mockReturnValue(7),
+  useCurrentVersionId: vi.fn().mockReturnValue(7),
   setCurrentVersionId: vi.fn(),
 }));
 
@@ -213,14 +214,14 @@ describe('App mobile layout', () => {
   });
 
   it('MobileBottomBar receives canExport=false when currentVersionId is null', () => {
-    vi.mocked(projectStoreModule.getCurrentVersionId).mockReturnValue(null);
+    vi.mocked(projectStoreModule.useCurrentVersionId).mockReturnValue(null);
     render(<App />);
     const bar = screen.getByTestId('mobile-bottom-bar');
     expect(bar.getAttribute('data-can-export')).toBe('false');
   });
 
   it('MobileBottomBar receives canExport=true when currentVersionId is non-null', () => {
-    vi.mocked(projectStoreModule.getCurrentVersionId).mockReturnValue(5);
+    vi.mocked(projectStoreModule.useCurrentVersionId).mockReturnValue(5);
     render(<App />);
     const bar = screen.getByTestId('mobile-bottom-bar');
     expect(bar.getAttribute('data-can-export')).toBe('true');

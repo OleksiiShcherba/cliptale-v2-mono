@@ -8,7 +8,7 @@ import { useListRenders } from '@/features/export/hooks/useListRenders';
 import { TimelinePanel } from '@/features/timeline/components/TimelinePanel';
 import { MobileInspectorTabs } from '@/features/preview/components/MobileInspectorTabs';
 import { MobileBottomBar } from '@/features/preview/components/MobileBottomBar';
-import { setProject, getSnapshot as getProjectSnapshot, getCurrentVersionId } from '@/store/project-store';
+import { setProject, getSnapshot as getProjectSnapshot, useCurrentVersionId } from '@/store/project-store';
 import { useProjectInit } from '@/features/project/hooks/useProjectInit';
 import { useUndoRedo } from '@/features/version-history/hooks/useUndoRedo';
 import { useKeyboardShortcuts } from '@/features/version-history/hooks/useKeyboardShortcuts';
@@ -97,7 +97,7 @@ export function App(): React.ReactElement {
     });
   }, []);
 
-  const currentVersionId = getCurrentVersionId();
+  const currentVersionId = useCurrentVersionId();
 
   // Resolve projectId early for hooks — empty string when not yet loaded.
   const resolvedProjectId = projectInit.status === 'ready' ? projectInit.projectId : '';

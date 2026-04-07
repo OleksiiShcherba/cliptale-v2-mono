@@ -59,6 +59,7 @@ vi.mock('@/store/project-store', () => ({
   setProject: vi.fn(),
   setProjectSilent: vi.fn(),
   getCurrentVersionId: vi.fn().mockReturnValue(null),
+  useCurrentVersionId: vi.fn().mockReturnValue(null),
   setCurrentVersionId: vi.fn(),
 }));
 

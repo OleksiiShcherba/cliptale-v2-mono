@@ -801,3 +801,74 @@ checked by qa-reviewer - YES
 checked by design-reviewer - YES
 design-reviewer notes: Reviewed on 2026-04-07. No UI changes in this subtask. All three modified files are backend TypeScript — `packages/remotion-comps/src/remotion-entry.tsx` (prop extraction for assetUrls from inputProps), `apps/render-worker/src/lib/remotion-renderer.ts` (assetUrls parameter added to renderComposition), and `apps/render-worker/src/jobs/render.job.ts` (resolveAssetUrls asset URL resolution logic). No components, styles, colors, typography, spacing, or layout were touched. Design review not applicable; auto-approved.
 checked by playwright-reviewer: YES - no UI changes; fix is entirely in the server-side Remotion render pipeline (render-worker SSR path). No browser-testable surface exists. Browser preview was unaffected before and after the fix. Auto-approved.
+
+## [2026-04-07]
+
+### Task: Fix render black screen — code review fixes
+**Subtask:** Address code-quality-expert review comments from render black screen fix
+
+**What was done:**
+- Extracted shared test fixtures (`makeJob`, `makeDeps`, `setupSuccessMocks`, etc.) to `apps/render-worker/src/jobs/render.job.fixtures.ts` (87 lines) — eliminates verbatim duplication between test files per §9
+- Refactored `apps/render-worker/src/jobs/render.job.test.ts` (330→182 lines, under 300-line limit) to import from fixtures
+- Refactored `apps/render-worker/src/jobs/render.job.assets.test.ts` (119 lines) to import from fixtures
+- Fixed TypeScript strict violation: added missing `assetUrls: {}` to two `renderComposition()` call sites in `apps/render-worker/src/lib/remotion-renderer.test.ts`
+
+**Notes:**
+- `vi.hoisted()` and `vi.mock()` calls remain in each test file (Vitest hoisting requirement)
+- All 20 render-worker tests pass
+
+checked by code-reviewer - YES (false positive on docJson JSDoc — line 15 already has `/** Default doc fixture with one video clip referencing asset-aaa. */`)
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer: YES
+
+## [2026-04-07]
+
+### Task: Fix render-worker Docker dev workflow
+**Subtask:** Add volume mounts and tsx watch for render-worker in docker-compose
+
+**What was done:**
+- Added volume mounts to `render-worker` service in `docker-compose.yml`: source code (`apps/render-worker/src`), `packages/project-schema`, and `packages/remotion-comps`
+- Added `command: npx tsx watch` override matching the pattern used by api and media-worker services
+- Rebuilt `packages/remotion-comps/dist/` — the `remotion-entry.js` file was missing from dist, preventing Remotion's `bundle()` from working with the latest code
+
+**Notes:**
+- Previously the render-worker had no volume mounts and no tsx watch, unlike all other services — code changes required a full `docker compose build render-worker` to take effect
+- Remotion's `bundle()` still needs compiled `remotion-comps/dist/`, so changes to composition code require `npm run build --workspace=packages/remotion-comps`
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer: YES
+
+## [2026-04-07]
+
+### Task: Fix Export button not activating after autosave
+**Subtask:** Export button only became active after pressing Renders button (or any other button that triggers re-render)
+
+**What was done:**
+- Root cause: `getCurrentVersionId()` in `App.tsx` was a plain function call, not a React subscription. After autosave set the version ID, the App component did not re-render — the Export button stayed disabled until an unrelated state change triggered a re-render.
+- Added `notifyListeners()` call to `setCurrentVersionId()` in `apps/web-editor/src/store/project-store.ts` so subscribers are notified when the version ID changes
+- Added `useCurrentVersionId()` hook using `useSyncExternalStore` for reactive subscription
+- Updated `apps/web-editor/src/App.tsx` to use `useCurrentVersionId()` instead of `getCurrentVersionId()`
+- Updated test mocks in 5 test files (`App.test.tsx`, `App.mobile.test.tsx`, `App.PreviewSection.test.tsx`, `App.RightSidebar.test.tsx`, `App.reorder.test.tsx`) to include `useCurrentVersionId`
+- Added test: `setCurrentVersionId` notifies listeners (in `project-store.test.ts`)
+
+**Files created/modified:**
+- `apps/web-editor/src/store/project-store.ts` — added `notifyListeners()` to `setCurrentVersionId`, added `useCurrentVersionId` hook
+- `apps/web-editor/src/App.tsx` — import and use `useCurrentVersionId` instead of `getCurrentVersionId`
+- `apps/web-editor/src/store/project-store.test.ts` — added listener notification test
+- `apps/web-editor/src/App.test.tsx` — updated mock + 4 test cases
+- `apps/web-editor/src/App.mobile.test.tsx` — updated mock + 2 test cases
+- `apps/web-editor/src/App.PreviewSection.test.tsx` — updated mock
+- `apps/web-editor/src/App.RightSidebar.test.tsx` — updated mock
+- `apps/web-editor/src/App.reorder.test.tsx` — updated mock
+
+**Notes:**
+- `getCurrentVersionId()` is still exported and used by non-React code (e.g. `useAutosave`, `VersionHistoryPanel`) — no breaking changes
+- `useSyncExternalStore` bails out when snapshot hasn't changed, so the extra `notifyListeners()` call does not cause unnecessary re-renders for `useProjectStore` subscribers
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer: YES

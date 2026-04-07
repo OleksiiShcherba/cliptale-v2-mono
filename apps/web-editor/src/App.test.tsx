@@ -47,6 +47,7 @@ vi.mock('@/store/project-store', () => ({
   setProject: vi.fn(),
   setProjectSilent: vi.fn(),
   getCurrentVersionId: vi.fn().mockReturnValue(7),
+  useCurrentVersionId: vi.fn().mockReturnValue(7),
   setCurrentVersionId: vi.fn(),
 }));
 
@@ -278,28 +279,28 @@ describe('App', () => {
     });
 
     it('Export button has aria-disabled="false" when currentVersionId is non-null', () => {
-      vi.mocked(projectStoreModule.getCurrentVersionId).mockReturnValue(7);
+      vi.mocked(projectStoreModule.useCurrentVersionId).mockReturnValue(7);
       render(<App />);
       const exportBtn = screen.getByRole('button', { name: 'Export video' });
       expect(exportBtn.getAttribute('aria-disabled')).toBe('false');
     });
 
     it('Export button has aria-disabled="true" when currentVersionId is null', () => {
-      vi.mocked(projectStoreModule.getCurrentVersionId).mockReturnValue(null);
+      vi.mocked(projectStoreModule.useCurrentVersionId).mockReturnValue(null);
       render(<App />);
       const exportBtn = screen.getByRole('button', { name: 'Export video' });
       expect(exportBtn.getAttribute('aria-disabled')).toBe('true');
     });
 
     it('clicking Export button does not open ExportModal when currentVersionId is null', () => {
-      vi.mocked(projectStoreModule.getCurrentVersionId).mockReturnValue(null);
+      vi.mocked(projectStoreModule.useCurrentVersionId).mockReturnValue(null);
       render(<App />);
       fireEvent.click(screen.getByRole('button', { name: 'Export video' }));
       expect(screen.queryByTestId('export-modal')).toBeNull();
     });
 
     it('Export button shows tooltip when currentVersionId is null', () => {
-      vi.mocked(projectStoreModule.getCurrentVersionId).mockReturnValue(null);
+      vi.mocked(projectStoreModule.useCurrentVersionId).mockReturnValue(null);
       render(<App />);
       const exportBtn = screen.getByRole('button', { name: 'Export video' });
       expect(exportBtn.getAttribute('title')).toBe('Save your project first to export.');

@@ -206,6 +206,14 @@ describe('project-store', () => {
       setCurrentVersionId(99);
       expect(getCurrentVersionId()).toBe(99);
     });
+
+    it('notifies listeners when version id is set', () => {
+      const listener = vi.fn();
+      const unsub = subscribe(listener);
+      setCurrentVersionId(55);
+      expect(listener).toHaveBeenCalled();
+      unsub();
+    });
   });
 
   describe('DEV_PROJECT initial fixture', () => {

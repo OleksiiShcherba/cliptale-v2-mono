@@ -104,9 +104,11 @@ export function getCurrentVersionId(): number | null {
 /**
  * Sets the current version ID after a successful autosave.
  * Called by `useAutosave` once the API responds with the new version ID.
+ * Notifies subscribers so hooks like `useCurrentVersionId` trigger a re-render.
  */
 export function setCurrentVersionId(id: number): void {
   currentVersionId = id;
+  notifyListeners();
 }
 
 /**
@@ -115,4 +117,12 @@ export function setCurrentVersionId(id: number): void {
  */
 export function useProjectStore(): ProjectDoc {
   return useSyncExternalStore(subscribe, getSnapshot);
+}
+
+/**
+ * React hook that subscribes to version ID changes. Returns the current
+ * version ID or null if the project has not been saved yet.
+ */
+export function useCurrentVersionId(): number | null {
+  return useSyncExternalStore(subscribe, getCurrentVersionId);
 }
