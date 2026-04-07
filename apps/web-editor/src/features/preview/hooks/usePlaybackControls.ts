@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PlayerRef } from '@remotion/player';
 
-import { getSnapshot as getProjectSnapshot } from '@/store/project-store.js';
+import { useProjectStore } from '@/store/project-store.js';
 import { setPlayheadFrame } from '@/store/ephemeral-store.js';
 import { updateTimelinePlayheadFrame } from '@/store/timeline-refs.js';
 import { formatTimecode } from '@/shared/utils/formatTimecode.js';
@@ -17,8 +17,10 @@ export type UsePlaybackControlsResult = {
   currentFrame: number;
   /** Total frames in the project. */
   totalFrames: number;
-  /** Formatted timecode string `HH:MM:SS:FF`. */
+  /** Formatted timecode string `HH:MM:SS:FF` for the current playhead position. */
   timecode: string;
+  /** Formatted timecode string `HH:MM:SS:FF` for the total project duration. */
+  totalTimecode: string;
   /** DOM ref to attach to the controls container for CSS custom property mutations. */
   containerRef: React.RefObject<HTMLDivElement | null>;
   /** Start playback. */
@@ -54,7 +56,7 @@ export type UsePlaybackControlsResult = {
 export function usePlaybackControls(
   playerRef: React.RefObject<PlayerRef | null>,
 ): UsePlaybackControlsResult {
-  const projectDoc = getProjectSnapshot();
+  const projectDoc = useProjectStore();
   const { fps, durationFrames } = projectDoc;
 
   const [isPlaying, setIsPlaying] = useState(false);
@@ -244,12 +246,14 @@ export function usePlaybackControls(
   // ---------------------------------------------------------------------------
 
   const timecode = formatTimecode(currentFrame, fps);
+  const totalTimecode = formatTimecode(durationFrames, fps);
 
   return {
     isPlaying,
     currentFrame,
     totalFrames: durationFrames,
     timecode,
+    totalTimecode,
     containerRef,
     play,
     pause,

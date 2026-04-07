@@ -32,7 +32,7 @@ export function usePrefetchAssets(streamUrls: Record<string, string>): Record<st
     entries.forEach(([assetId, streamUrl]) => {
       const { free, waitUntilDone } = prefetch(streamUrl, { method: 'blob-url' });
       cleanups.push(free);
-      void waitUntilDone
+      void waitUntilDone()
         .then((blobUrl) => {
           if (isMounted) {
             setBlobUrls((prev) => ({ ...prev, [assetId]: blobUrl }));

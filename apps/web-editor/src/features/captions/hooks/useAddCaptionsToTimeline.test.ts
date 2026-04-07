@@ -18,8 +18,9 @@ vi.mock('crypto', () => ({
     .mockReturnValue('clip-uuid-xxxx'),
 }));
 
-import * as projectStore from '@/store/project-store';
 import type { ProjectDoc, Track, Clip } from '@ai-video-editor/project-schema';
+
+import * as projectStore from '@/store/project-store';
 
 const mockGetSnapshot = vi.mocked(projectStore.getSnapshot);
 const mockSetProject = vi.mocked(projectStore.setProject);
@@ -58,7 +59,7 @@ describe('useAddCaptionsToTimeline', () => {
     act(() => result.current.addCaptionsToTimeline(TEST_SEGMENTS));
 
     const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
-    const captionsTrack = updated.tracks.find((t: Track) => t.name === 'Captions');
+    const captionsTrack = updated.tracks.find((t: Track) => t.name === 'Captions 1');
     expect(captionsTrack).toBeDefined();
     expect(captionsTrack?.type).toBe('overlay');
   });
@@ -109,7 +110,7 @@ describe('useAddCaptionsToTimeline', () => {
     act(() => result.current.addCaptionsToTimeline(TEST_SEGMENTS));
 
     const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
-    const captionsTrack = updated.tracks.find((t: Track) => t.name === 'Captions');
+    const captionsTrack = updated.tracks.find((t: Track) => t.name === 'Captions 1');
     const clips = updated.clips.filter((c: Clip) => c.type === 'text-overlay');
 
     clips.forEach((clip: Clip) => {
@@ -126,7 +127,7 @@ describe('useAddCaptionsToTimeline', () => {
 
     const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
     expect(updated.tracks).toContain(existingTrack);
-    expect(updated.tracks).toHaveLength(2); // existing + captions
+    expect(updated.tracks).toHaveLength(2); // existing + captions 1
   });
 
   it('handles an empty segments array without throwing', () => {
@@ -139,15 +140,26 @@ describe('useAddCaptionsToTimeline', () => {
 
     const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
     expect(updated.clips).toHaveLength(0);
-    expect(updated.tracks).toHaveLength(1); // empty captions track still created
+    expect(updated.tracks).toHaveLength(1); // empty caption track still created
   });
 
-  describe('idempotency guard', () => {
-    it('does not add a duplicate Captions track when one already exists', () => {
+  describe('multiple caption tracks', () => {
+    it('names the first caption track "Captions 1" when no caption tracks exist', () => {
+      mockGetSnapshot.mockReturnValue(makeProject());
+
+      const { result } = renderHook(() => useAddCaptionsToTimeline());
+      act(() => result.current.addCaptionsToTimeline(TEST_SEGMENTS));
+
+      const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
+      const track = updated.tracks.find((t: Track) => t.type === 'overlay');
+      expect(track?.name).toBe('Captions 1');
+    });
+
+    it('names the second caption track "Captions 2" when one caption track already exists', () => {
       const existingCaptionsTrack: Track = {
         id: 'existing-captions-track',
         type: 'overlay',
-        name: 'Captions',
+        name: 'Captions 1',
         muted: false,
         locked: false,
       };
@@ -158,11 +170,32 @@ describe('useAddCaptionsToTimeline', () => {
       const { result } = renderHook(() => useAddCaptionsToTimeline());
       act(() => result.current.addCaptionsToTimeline(TEST_SEGMENTS));
 
-      // setProject should NOT be called — hook returns early.
-      expect(mockSetProject).not.toHaveBeenCalled();
+      expect(mockSetProject).toHaveBeenCalledTimes(1);
+      const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
+      const newTrack = updated.tracks.find((t: Track) => t.name === 'Captions 2');
+      expect(newTrack).toBeDefined();
     });
 
-    it('still adds a Captions track when no track named "Captions" exists', () => {
+    it('can add multiple caption tracks in sequence', () => {
+      mockGetSnapshot
+        .mockReturnValueOnce(makeProject())
+        .mockReturnValueOnce(makeProject(30, {
+          tracks: [{ id: 'ct1', type: 'overlay', name: 'Captions 1', muted: false, locked: false }],
+          clips: [],
+        }));
+
+      const { result } = renderHook(() => useAddCaptionsToTimeline());
+      act(() => result.current.addCaptionsToTimeline(TEST_SEGMENTS));
+      act(() => result.current.addCaptionsToTimeline(TEST_SEGMENTS));
+
+      expect(mockSetProject).toHaveBeenCalledTimes(2);
+      const first = mockSetProject.mock.calls[0]![0] as ProjectDoc;
+      const second = mockSetProject.mock.calls[1]![0] as ProjectDoc;
+      expect(first.tracks.some((t: Track) => t.name === 'Captions 1')).toBe(true);
+      expect(second.tracks.some((t: Track) => t.name === 'Captions 2')).toBe(true);
+    });
+
+    it('still adds a caption track when no tracks starting with "Captions" exist', () => {
       const unrelatedTrack: Track = {
         id: 'video-track',
         type: 'video',
@@ -179,28 +212,8 @@ describe('useAddCaptionsToTimeline', () => {
 
       expect(mockSetProject).toHaveBeenCalledTimes(1);
       const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
-      const captionsTrack = updated.tracks.find((t: Track) => t.name === 'Captions');
+      const captionsTrack = updated.tracks.find((t: Track) => t.name === 'Captions 1');
       expect(captionsTrack).toBeDefined();
-    });
-
-    it('returns without calling setProject when guard triggers', () => {
-      const existingCaptionsTrack: Track = {
-        id: 'existing-captions-track',
-        type: 'overlay',
-        name: 'Captions',
-        muted: false,
-        locked: false,
-      };
-      mockGetSnapshot.mockReturnValue(
-        makeProject(30, { tracks: [existingCaptionsTrack], clips: [] }),
-      );
-
-      const { result } = renderHook(() => useAddCaptionsToTimeline());
-      // Call twice — should be a no-op both times due to guard.
-      act(() => result.current.addCaptionsToTimeline(TEST_SEGMENTS));
-      act(() => result.current.addCaptionsToTimeline(TEST_SEGMENTS));
-
-      expect(mockSetProject).not.toHaveBeenCalled();
     });
   });
 });

@@ -86,8 +86,6 @@ export function makeDragInfo(overrides: Partial<ClipDragInfo> = {}): ClipDragInf
     ghostPositions: new Map<string, number>(),
     isSnapping: false,
     snapIndicatorPx: null,
-    targetTrackId: null,
-    draggingClipSnapshots: [],
     ...overrides,
   };
 }

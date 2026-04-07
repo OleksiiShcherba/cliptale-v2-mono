@@ -99,6 +99,7 @@ apps/web-editor/
 │   │   └── remotion-env.ts         # useRemotionEnvironment helper for dual-mode components
 │   ├── shared/
 │   │   ├── components/             # Re-exports from packages/ui + any editor-specific shared UI
+│   │   ├── hooks/                  # Cross-feature React hooks (e.g. useWindowWidth)
 │   │   └── utils/                  # formatTimecode, pxToFrame, frameToPx
 │   ├── App.tsx                     # Root app shell: QueryClient provider + two-column layout
 │   └── main.tsx                    # Entry point: ReactDOM.createRoot → mounts <App />

@@ -20,6 +20,15 @@ export { parseStorageUri };
 const WAVEFORM_PEAKS = 200;
 
 /**
+ * Fallback FPS used when an asset has no video stream (i.e. pure audio files).
+ * Audio clips must be represented as frame ranges on the timeline, so we use a
+ * standard 30 fps assumption to convert `durationSeconds` → `durationFrames`.
+ * The stored fps value is used in `toAssetApiResponse` to reconstruct
+ * `durationSeconds = durationFrames / fps` for the frontend.
+ */
+const AUDIO_FPS_FALLBACK = 30;
+
+/**
  * Parses an FFprobe `r_frame_rate` string (e.g. `"30000/1001"`) into a decimal fps value.
  * Returns `null` for zero-denominator or unparseable inputs.
  */
@@ -193,7 +202,12 @@ export async function processIngestJob(
     const videoStream = probe.streams.find(s => s.codec_type === 'video');
     const audioStream = probe.streams.find(s => s.codec_type === 'audio');
     const durationSec = parseFloat(String(probe.format.duration ?? 0));
-    const fps = videoStream?.r_frame_rate ? parseFps(videoStream.r_frame_rate) : null;
+    // For video assets, use the actual frame rate. For audio-only assets, use the
+    // fallback so that durationFrames can be computed (audio clips need a frame
+    // range on the timeline even though they have no video fps).
+    const videoFps = videoStream?.r_frame_rate ? parseFps(videoStream.r_frame_rate) : null;
+    const isAudioOnly = !videoStream && contentType.startsWith('audio/');
+    const fps = videoFps ?? (isAudioOnly ? AUDIO_FPS_FALLBACK : null);
     const width = videoStream?.width ?? null;
     const height = videoStream?.height ?? null;
     const durationFrames = fps && durationSec ? Math.round(durationSec * fps) : null;

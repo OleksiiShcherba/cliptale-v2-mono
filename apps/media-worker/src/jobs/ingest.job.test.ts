@@ -4,6 +4,7 @@ import type { S3Client } from '@aws-sdk/client-s3';
 import type { Pool } from 'mysql2/promise';
 
 import type { MediaIngestJobPayload } from '@ai-video-editor/project-schema';
+
 import {
   parseStorageUri,
   parseFps,
@@ -208,6 +209,67 @@ describe('ingest.job', () => {
       // thumbnailUri (index 4) and waveformJson (index 5) are null for images.
       expect(params[4]).toBeNull();
       expect(params[5]).toBeNull();
+    });
+
+    it('stores correct durationFrames for audio-only assets using AUDIO_FPS_FALLBACK=30', async () => {
+      const ffmpegMod = await import('fluent-ffmpeg');
+      const mockFfprobe = vi.mocked(ffmpegMod.default as never as { ffprobe: (...args: unknown[]) => void });
+
+      // Audio-only: no video stream, one audio stream, 107 seconds duration.
+      const audioProbe = {
+        streams: [{ codec_type: 'audio' } as never],
+        format: { duration: '107' } as never,
+        chapters: [] as never[],
+      };
+      mockFfprobe.ffprobe.mockImplementationOnce(
+        (_input, cb: (err: null, data: typeof audioProbe) => void) => cb(null, audioProbe),
+      );
+
+      await processIngestJob(makeJob({ contentType: 'audio/mpeg' }), deps);
+
+      const call = mockDbExecute.mock.calls[0]!;
+      const params = call[1] as (string | null | number)[];
+      // setAssetReady params: [durationFrames, width, height, fps, thumbnailUri, waveformJson, assetId]
+      // 107s * 30fps = 3210 frames
+      expect(params[0]).toBe(3210);        // durationFrames
+      expect(params[1]).toBeNull();        // width (no video)
+      expect(params[2]).toBeNull();        // height (no video)
+      expect(params[3]).toBe(30);          // fps = AUDIO_FPS_FALLBACK
+      expect(params[4]).toBeNull();        // thumbnailUri (no video)
+    });
+
+    it('stores null durationFrames for audio-only assets with zero duration', async () => {
+      const ffmpegMod = await import('fluent-ffmpeg');
+      const mockFfprobe = vi.mocked(ffmpegMod.default as never as { ffprobe: (...args: unknown[]) => void });
+
+      // Audio-only: duration is 0 (unknown/unreadable).
+      const audioProbe = {
+        streams: [{ codec_type: 'audio' } as never],
+        format: { duration: '0' } as never,
+        chapters: [] as never[],
+      };
+      mockFfprobe.ffprobe.mockImplementationOnce(
+        (_input, cb: (err: null, data: typeof audioProbe) => void) => cb(null, audioProbe),
+      );
+
+      await processIngestJob(makeJob({ contentType: 'audio/wav' }), deps);
+
+      const call = mockDbExecute.mock.calls[0]!;
+      const params = call[1] as (string | null | number)[];
+      // durationSec=0 means durationFrames stays null (fps && durationSec is falsy when durationSec=0)
+      expect(params[0]).toBeNull();        // durationFrames = null
+      expect(params[3]).toBe(30);          // fps still set to AUDIO_FPS_FALLBACK
+    });
+
+    it('does not apply audio fallback fps to video assets', async () => {
+      // Default mock ffprobe returns a video stream with r_frame_rate='30/1'.
+      await processIngestJob(makeJob({ contentType: 'video/mp4' }), deps);
+
+      const call = mockDbExecute.mock.calls[0]!;
+      const params = call[1] as (string | null | number)[];
+      // Video: fps comes from the video stream, not the fallback.
+      expect(params[3]).toBe(30);          // fps=30 from the actual video stream
+      expect(params[0]).toBe(300);         // durationFrames = 10s * 30fps = 300
     });
   });
 });

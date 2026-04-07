@@ -9,7 +9,7 @@ import { makePlayerRef, makeProjectDoc } from './usePlaybackControls.fixtures.js
 // ---------------------------------------------------------------------------
 
 vi.mock('@/store/project-store.js', () => ({
-  getSnapshot: vi.fn(),
+  useProjectStore: vi.fn(),
 }));
 
 vi.mock('@/store/ephemeral-store.js', () => ({
@@ -19,7 +19,7 @@ vi.mock('@/store/ephemeral-store.js', () => ({
 import * as projectStore from '@/store/project-store.js';
 import * as ephemeralStore from '@/store/ephemeral-store.js';
 
-const mockGetSnapshot = vi.mocked(projectStore.getSnapshot);
+const mockUseProjectStore = vi.mocked(projectStore.useProjectStore);
 const mockSetPlayheadFrame = vi.mocked(ephemeralStore.setPlayheadFrame);
 
 // ---------------------------------------------------------------------------
@@ -29,7 +29,7 @@ const mockSetPlayheadFrame = vi.mocked(ephemeralStore.setPlayheadFrame);
 describe('usePlaybackControls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetSnapshot.mockReturnValue(makeProjectDoc() as ReturnType<typeof mockGetSnapshot>);
+    mockUseProjectStore.mockReturnValue(makeProjectDoc() as ReturnType<typeof mockUseProjectStore>);
 
     // Stub rAF to avoid infinite loops in jsdom.
     vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
@@ -56,7 +56,7 @@ describe('usePlaybackControls', () => {
     });
 
     it('returns totalFrames from the project doc', () => {
-      mockGetSnapshot.mockReturnValue(makeProjectDoc({ durationFrames: 150 }) as ReturnType<typeof mockGetSnapshot>);
+      mockUseProjectStore.mockReturnValue(makeProjectDoc({ durationFrames: 150 }) as ReturnType<typeof mockUseProjectStore>);
       const { ref } = makePlayerRef();
       const { result } = renderHook(() => usePlaybackControls(ref));
 

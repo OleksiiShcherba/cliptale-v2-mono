@@ -5,12 +5,14 @@ import { useTranscriptionStatus } from '@/features/captions/hooks/useTranscripti
 import { useAddCaptionsToTimeline } from '@/features/captions/hooks/useAddCaptionsToTimeline';
 import type { CaptionTrackStatus } from '@/features/captions/types';
 
+/** Props for the TranscribeButton component. */
 export interface TranscribeButtonProps {
+  /** ID of the video or audio asset to transcribe. */
   assetId: string;
 }
 
 /** Extended button states (superset of CaptionTrackStatus). */
-type ButtonState = CaptionTrackStatus | 'loading' | 'added';
+type ButtonState = CaptionTrackStatus | 'loading';
 
 const LABEL: Record<ButtonState, string> = {
   loading: 'Checking…',
@@ -19,7 +21,6 @@ const LABEL: Record<ButtonState, string> = {
   processing: 'Transcribing…',
   ready: 'Add Captions to Timeline',
   error: 'Transcription failed — Retry',
-  added: 'Captions Added',
 };
 
 const STATUS_COLOR: Record<ButtonState, string> = {
@@ -29,7 +30,6 @@ const STATUS_COLOR: Record<ButtonState, string> = {
   processing: '#8A8AA0',
   ready: '#10B981',
   error: '#EF4444',
-  added: '#8A8AA0',
 };
 
 /**
@@ -40,8 +40,8 @@ const STATUS_COLOR: Record<ButtonState, string> = {
  * - idle       → GET /assets/:id/captions returned 404 or hook not yet resolved
  * - pending    → user clicked "Transcribe"; waiting for job to complete
  * - processing → same as pending (server returns processing status)
- * - ready      → captions exist; shows "Add Captions to Timeline"
- * - added      → user added captions to timeline; button disabled with confirmation
+ * - ready      → captions exist; shows "Add Captions to Timeline"; stays enabled so the
+ *                user can click multiple times to add additional caption tracks
  * - error      → non-404 error from server; shows retry
  *
  * `useTranscriptionStatus` is enabled only after the user clicks "Transcribe" —
@@ -50,7 +50,6 @@ const STATUS_COLOR: Record<ButtonState, string> = {
 export function TranscribeButton({ assetId }: TranscribeButtonProps): React.ReactElement {
   const [isTriggering, setIsTriggering] = useState(false);
   const [hasPendingTranscription, setHasPendingTranscription] = useState(false);
-  const [captionsAdded, setCaptionsAdded] = useState(false);
 
   // Always fetch once on mount to detect existing captions.
   // Polling (3 s interval) only activates after the user triggers transcription.
@@ -63,9 +62,7 @@ export function TranscribeButton({ assetId }: TranscribeButtonProps): React.Reac
   // Derive the effective button state.
   let effectiveState: ButtonState;
 
-  if (captionsAdded) {
-    effectiveState = 'added';
-  } else if (hasPendingTranscription) {
+  if (hasPendingTranscription) {
     // User has triggered transcription — treat hook's idle as pending.
     effectiveState = queryStatus === 'idle' ? 'pending' : queryStatus;
   } else if (isFetching) {
@@ -91,7 +88,6 @@ export function TranscribeButton({ assetId }: TranscribeButtonProps): React.Reac
   const handleAddToTimeline = useCallback(() => {
     if (!segments) return;
     addCaptionsToTimeline(segments);
-    setCaptionsAdded(true);
   }, [segments, addCaptionsToTimeline]);
 
   const handleRetry = useCallback(() => {
@@ -99,7 +95,6 @@ export function TranscribeButton({ assetId }: TranscribeButtonProps): React.Reac
   }, []);
 
   const isDisabled =
-    captionsAdded ||
     isTriggering ||
     effectiveState === 'loading' ||
     effectiveState === 'pending' ||

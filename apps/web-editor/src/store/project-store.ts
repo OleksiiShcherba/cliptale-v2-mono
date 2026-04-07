@@ -81,6 +81,21 @@ export function setProject(doc: ProjectDoc): void {
   notifyListeners();
 }
 
+/**
+ * Replaces the stored project document WITHOUT pushing patches to the
+ * history store. Used exclusively by `useUndoRedo` when applying undo/redo
+ * operations — the patches for these operations are already managed by the
+ * history store, and re-pushing would corrupt the undo/redo stacks.
+ */
+export function setProjectSilent(doc: ProjectDoc): void {
+  const derived: ProjectDoc = {
+    ...doc,
+    durationFrames: computeProjectDuration(doc.clips, doc.fps),
+  };
+  snapshot = derived;
+  notifyListeners();
+}
+
 /** Returns the version ID of the last successfully saved version, or null. */
 export function getCurrentVersionId(): number | null {
   return currentVersionId;

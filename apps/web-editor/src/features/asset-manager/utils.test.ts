@@ -1,6 +1,81 @@
 import { describe, it, expect } from 'vitest';
 
-import { buildClipForAsset, computeClipDurationFrames } from './utils';
+import { buildClipForAsset, computeClipDurationFrames, getAssetPreviewUrl } from './utils';
+import type { Asset } from './types';
+
+// Minimal asset fixture for getAssetPreviewUrl tests
+function makeAsset(overrides: Partial<Asset> = {}): Asset {
+  return {
+    id: 'asset-001',
+    projectId: 'proj-001',
+    filename: 'file.mp4',
+    contentType: 'video/mp4',
+    downloadUrl: 'https://example.com/presigned',
+    status: 'ready',
+    durationSeconds: 10,
+    width: 1920,
+    height: 1080,
+    fileSizeBytes: 5_000_000,
+    thumbnailUri: null,
+    waveformPeaks: null,
+    createdAt: '2026-04-06T00:00:00.000Z',
+    updatedAt: '2026-04-06T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// getAssetPreviewUrl
+// ---------------------------------------------------------------------------
+
+describe('getAssetPreviewUrl', () => {
+  const API_BASE = 'http://localhost:3001';
+
+  it('returns thumbnailUri when set (regardless of content type)', () => {
+    const asset = makeAsset({ thumbnailUri: 'http://api/assets/asset-001/thumbnail', contentType: 'video/mp4' });
+    expect(getAssetPreviewUrl(asset, API_BASE)).toBe('http://api/assets/asset-001/thumbnail');
+  });
+
+  it('returns the stream URL for a ready image asset with no thumbnailUri', () => {
+    const asset = makeAsset({ contentType: 'image/png', thumbnailUri: null, status: 'ready' });
+    expect(getAssetPreviewUrl(asset, API_BASE)).toBe('http://localhost:3001/assets/asset-001/stream');
+  });
+
+  it('returns the stream URL for image/jpeg ready asset', () => {
+    const asset = makeAsset({ contentType: 'image/jpeg', thumbnailUri: null, status: 'ready' });
+    expect(getAssetPreviewUrl(asset, API_BASE)).toBe('http://localhost:3001/assets/asset-001/stream');
+  });
+
+  it('returns null for a processing image asset (stream may not be ready)', () => {
+    const asset = makeAsset({ contentType: 'image/png', thumbnailUri: null, status: 'processing' });
+    expect(getAssetPreviewUrl(asset, API_BASE)).toBeNull();
+  });
+
+  it('returns null for a pending image asset', () => {
+    const asset = makeAsset({ contentType: 'image/png', thumbnailUri: null, status: 'pending' });
+    expect(getAssetPreviewUrl(asset, API_BASE)).toBeNull();
+  });
+
+  it('returns null for a ready audio asset with no thumbnailUri', () => {
+    const asset = makeAsset({ contentType: 'audio/mpeg', thumbnailUri: null, status: 'ready' });
+    expect(getAssetPreviewUrl(asset, API_BASE)).toBeNull();
+  });
+
+  it('returns null for a ready video asset with no thumbnailUri (no fallback for video)', () => {
+    const asset = makeAsset({ contentType: 'video/mp4', thumbnailUri: null, status: 'ready' });
+    expect(getAssetPreviewUrl(asset, API_BASE)).toBeNull();
+  });
+
+  it('returns null for unknown content type', () => {
+    const asset = makeAsset({ contentType: 'application/pdf', thumbnailUri: null, status: 'ready' });
+    expect(getAssetPreviewUrl(asset, API_BASE)).toBeNull();
+  });
+
+  it('uses the provided apiBaseUrl correctly', () => {
+    const asset = makeAsset({ id: 'img-999', contentType: 'image/png', thumbnailUri: null, status: 'ready' });
+    expect(getAssetPreviewUrl(asset, 'https://api.example.com')).toBe('https://api.example.com/assets/img-999/stream');
+  });
+});
 
 // ---------------------------------------------------------------------------
 // buildClipForAsset

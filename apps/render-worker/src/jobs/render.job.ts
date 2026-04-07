@@ -3,7 +3,8 @@ import os from 'node:os';
 import fs from 'node:fs/promises';
 
 import type { Job } from 'bullmq';
-import { PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { Pool } from 'mysql2/promise';
 import type { RowDataPacket } from 'mysql2/promise';
 
@@ -55,6 +56,10 @@ export async function processRenderJob(
   try {
     // Fetch the version snapshot from the DB.
     const docJson = await fetchDocJson(pool, projectId, versionId);
+    const doc = docJson as ProjectDoc;
+
+    // Resolve presigned S3 URLs for every asset referenced by clips.
+    const assetUrls = await resolveAssetUrls(pool, s3, doc);
 
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `render-${jobId}-`));
     const ext = preset.format === 'webm' ? 'webm' : 'mp4';
@@ -65,9 +70,10 @@ export async function processRenderJob(
 
     await renderComposition({
       compositionId: COMPOSITION_ID,
-      doc: docJson as ProjectDoc,
+      doc,
       preset,
       outputPath,
+      assetUrls,
       onProgress: async (progress) => {
         const pct = Math.floor(progress * 100);
         // Only write to DB when crossing a PROGRESS_REPORT_STEP_PCT boundary.
@@ -101,6 +107,72 @@ export async function processRenderJob(
       });
     }
   }
+}
+
+// ── Asset URL resolution ─────────────────────────────────────────────────────
+
+/** Presigned URL expiry — generous because renders can take minutes. */
+const ASSET_URL_EXPIRY_SECONDS = 3600;
+
+/**
+ * Extracts every unique assetId from the project clips, looks up their
+ * `storage_uri` in `project_assets_current`, and generates a presigned S3 GET
+ * URL for each.  Returns a map from assetId → presigned URL that the Remotion
+ * composition uses to load media files.
+ */
+async function resolveAssetUrls(
+  pool: Pool,
+  s3: S3Client,
+  doc: ProjectDoc,
+): Promise<Record<string, string>> {
+  const assetIds = [
+    ...new Set(
+      doc.clips
+        .filter((c): c is { assetId: string } & typeof c => 'assetId' in c)
+        .map((c) => c.assetId),
+    ),
+  ];
+
+  if (assetIds.length === 0) return {};
+
+  // Fetch storage URIs for all referenced assets in one query.
+  const placeholders = assetIds.map(() => '?').join(',');
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT asset_id, storage_uri FROM project_assets_current WHERE asset_id IN (${placeholders})`,
+    assetIds,
+  );
+
+  const uriByAssetId = new Map<string, string>();
+  for (const row of rows) {
+    uriByAssetId.set(row['asset_id'] as string, row['storage_uri'] as string);
+  }
+
+  // Generate presigned URLs in parallel.
+  const entries = await Promise.all(
+    assetIds
+      .filter((id) => uriByAssetId.has(id))
+      .map(async (assetId) => {
+        const storageUri = uriByAssetId.get(assetId)!;
+        const key = extractS3KeyFromUri(storageUri);
+        const url = await getSignedUrl(
+          s3,
+          new GetObjectCommand({ Bucket: config.s3.bucket, Key: key }),
+          { expiresIn: ASSET_URL_EXPIRY_SECONDS },
+        );
+        return [assetId, url] as const;
+      }),
+  );
+
+  return Object.fromEntries(entries);
+}
+
+/**
+ * Extracts the S3 object key from a URI of the form `s3://<bucket>/<key>`.
+ * Falls back to using the full URI as the key if the prefix is not present.
+ */
+function extractS3KeyFromUri(uri: string): string {
+  const match = uri.match(/^s3:\/\/[^/]+\/(.+)$/);
+  return match ? match[1]! : uri;
 }
 
 // ── DB helpers ────────────────────────────────────────────────────────────────

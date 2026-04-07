@@ -37,13 +37,15 @@ test.describe('Asset manager — panel and upload dropzone', () => {
     // We allow both "no assets" text and "could not load" error text.
     const sidebar = page.getByRole('complementary', { name: 'Asset browser' });
 
-    const emptyText = sidebar.getByText('No assets yet — upload to get started');
-    const errorText = sidebar.getByRole('alert');
-
-    // At least one of the two states must be present
-    const hasEmpty = (await emptyText.count()) > 0;
-    const hasError = (await errorText.count()) > 0;
-    expect(hasEmpty || hasError).toBe(true);
+    // Wait for the asset list to settle (either empty state or error state).
+    // The API call is async so we use waitFor to allow up to 5 s.
+    await expect(async () => {
+      const emptyText = sidebar.getByText('No assets yet — upload to get started');
+      const errorText = sidebar.getByRole('alert');
+      const hasEmpty = (await emptyText.count()) > 0;
+      const hasError = (await errorText.count()) > 0;
+      expect(hasEmpty || hasError).toBe(true);
+    }).toPass({ timeout: 5_000 });
   });
 
   test('upload button is present', async ({ page }) => {

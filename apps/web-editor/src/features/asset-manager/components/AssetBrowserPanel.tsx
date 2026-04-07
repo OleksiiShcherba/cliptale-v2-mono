@@ -4,10 +4,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getAssets } from '@/features/asset-manager/api';
 import { useAssetUpload } from '@/features/asset-manager/hooks/useAssetUpload';
 import { useAssetPolling } from '@/features/asset-manager/hooks/useAssetPolling';
+import { matchesTab } from '@/features/asset-manager/utils';
 import type { Asset, AssetFilterTab } from '@/features/asset-manager/types';
 
 import { AssetCard } from './AssetCard';
 import { AssetDetailPanel } from './AssetDetailPanel';
+import { DeleteAssetDialog } from './DeleteAssetDialog';
+import { ReplaceAssetDialog } from './ReplaceAssetDialog';
 import { UploadDropzone } from './UploadDropzone';
 
 /** Renders nothing; runs useAssetPolling for one asset and calls onSettled when done. */
@@ -29,13 +32,6 @@ const TABS: { label: string; value: AssetFilterTab }[] = [
   { label: 'Image', value: 'image' },
 ];
 
-function matchesTab(asset: Asset, tab: AssetFilterTab): boolean {
-  if (tab === 'all') return true;
-  if (tab === 'video') return asset.contentType.startsWith('video/');
-  if (tab === 'audio') return asset.contentType.startsWith('audio/');
-  if (tab === 'image') return asset.contentType.startsWith('image/');
-  return false;
-}
 
 export interface AssetBrowserPanelProps {
   projectId: string;
@@ -51,6 +47,8 @@ export function AssetBrowserPanel({ projectId }: AssetBrowserPanelProps): React.
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isReplaceOpen, setIsReplaceOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -81,11 +79,12 @@ export function AssetBrowserPanel({ projectId }: AssetBrowserPanelProps): React.
   };
 
   return (
-    <div style={{ display: 'flex', fontFamily: 'Inter, sans-serif' }}>
+    <div style={{ display: 'flex', fontFamily: 'Inter, sans-serif', flex: 1, minHeight: 0 }}>
       {/* Browser panel */}
       <div
         style={{
           width: 320,
+          flexShrink: 0,
           height: '100%',
           backgroundColor: '#16161F',
           display: 'flex',
@@ -112,7 +111,7 @@ export function AssetBrowserPanel({ projectId }: AssetBrowserPanelProps): React.
               style={{
                 flex: 1,
                 height: 32,
-                borderRadius: 6,
+                borderRadius: 4,
                 border: 'none',
                 backgroundColor: activeTab === tab.value ? '#7C3AED' : 'transparent',
                 color: activeTab === tab.value ? '#F0F0FA' : '#8A8AA0',
@@ -138,11 +137,11 @@ export function AssetBrowserPanel({ projectId }: AssetBrowserPanelProps): React.
             style={{
               width: '100%',
               height: 36,
-              borderRadius: 6,
+              borderRadius: 4,
               border: '1px solid #252535',
               backgroundColor: 'transparent',
               color: '#F0F0FA',
-              fontSize: 13,
+              fontSize: 12,
               padding: '0 10px',
               boxSizing: 'border-box',
               fontFamily: 'Inter, sans-serif',
@@ -204,7 +203,7 @@ export function AssetBrowserPanel({ projectId }: AssetBrowserPanelProps): React.
           <button
             onClick={() => setIsUploadOpen(true)}
             style={{
-              width: 296,
+              width: '100%',
               height: 40,
               borderRadius: 8,
               backgroundColor: '#7C3AED',
@@ -226,7 +225,35 @@ export function AssetBrowserPanel({ projectId }: AssetBrowserPanelProps): React.
         <AssetDetailPanel
           asset={selectedAsset}
           projectId={projectId}
-          onDelete={() => setSelectedAssetId(null)}
+          onDelete={() => setIsDeleteOpen(true)}
+          onClose={() => setSelectedAssetId(null)}
+          onReplace={() => setIsReplaceOpen(true)}
+        />
+      )}
+
+      {/* Replace file dialog */}
+      {isReplaceOpen && selectedAsset && (
+        <ReplaceAssetDialog
+          asset={selectedAsset}
+          libraryAssets={assets}
+          projectId={projectId}
+          onClose={() => setIsReplaceOpen(false)}
+          onReplaced={() => {
+            setIsReplaceOpen(false);
+            void queryClient.invalidateQueries({ queryKey: ['assets', projectId] });
+          }}
+        />
+      )}
+
+      {/* Delete asset confirmation dialog */}
+      {isDeleteOpen && selectedAsset && (
+        <DeleteAssetDialog
+          asset={selectedAsset}
+          onClose={() => setIsDeleteOpen(false)}
+          onDeleted={() => {
+            setIsDeleteOpen(false);
+            setSelectedAssetId(null);
+          }}
         />
       )}
 

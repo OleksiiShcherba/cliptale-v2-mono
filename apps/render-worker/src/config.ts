@@ -12,6 +12,12 @@ const envSchema = z.object({
   APP_DB_NAME: z.string().default('cliptale'),
   APP_DB_USER: z.string().default('cliptale'),
   APP_DB_PASSWORD: z.string().min(1),
+  /**
+   * Absolute path to the Chromium/Chrome executable used by Remotion's renderMedia.
+   * In Docker this is /usr/bin/chromium.  Omit when running locally if Remotion
+   * can auto-detect a downloaded browser.
+   */
+  APP_CHROMIUM_EXECUTABLE_PATH: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -42,4 +48,6 @@ export const config = {
     user: env.APP_DB_USER,
     password: env.APP_DB_PASSWORD,
   },
+  /** Absolute path to the Chromium/Chrome binary used by Remotion — undefined means auto-detect. */
+  chromiumExecutablePath: env.APP_CHROMIUM_EXECUTABLE_PATH,
 } as const;

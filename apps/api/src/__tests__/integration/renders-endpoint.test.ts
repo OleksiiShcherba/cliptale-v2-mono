@@ -257,6 +257,48 @@ describe('GET /projects/:id/renders', () => {
     expect(first).toHaveProperty('createdAt');
   });
 
+  it('should include downloadUrl for complete jobs and omit it for non-complete jobs', async () => {
+    // Seed a complete render job directly into the DB so we can assert the
+    // download URL is present in the list response without waiting for a real
+    // render to finish.
+    const completeJobId = `job-complete-${Date.now()}`;
+    await conn.query(
+      `INSERT INTO render_jobs
+         (job_id, project_id, version_id, requested_by, status, progress_pct, preset_json, output_uri)
+       VALUES (?, ?, ?, ?, 'complete', 100, ?, ?)`,
+      [
+        completeJobId,
+        testProjectId,
+        testVersionId,
+        'user-render-test',
+        JSON.stringify({ key: '1080p', width: 1920, height: 1080, fps: 30, format: 'mp4', codec: 'h264' }),
+        `s3://test-bucket/renders/${completeJobId}.mp4`,
+      ],
+    );
+    insertedJobIds.push(completeJobId);
+
+    const res = await request(app)
+      .get(`/projects/${testProjectId}/renders`)
+      .set('Authorization', `Bearer ${validToken()}`);
+
+    expect(res.status).toBe(200);
+
+    const completeEntry = (res.body['renders'] as Array<Record<string, unknown>>).find(
+      (r) => r['jobId'] === completeJobId,
+    );
+    expect(completeEntry).toBeDefined();
+    expect(typeof completeEntry!['downloadUrl']).toBe('string');
+    expect(completeEntry!['downloadUrl']).toBe('https://example.com/signed-render-url');
+
+    // Non-complete jobs must not have downloadUrl.
+    const nonCompleteEntries = (res.body['renders'] as Array<Record<string, unknown>>).filter(
+      (r) => r['jobId'] !== completeJobId,
+    );
+    for (const entry of nonCompleteEntries) {
+      expect(entry['downloadUrl']).toBeUndefined();
+    }
+  });
+
   it('should return 401 when no auth token is provided', async () => {
     const res = await request(app).get(`/projects/${testProjectId}/renders`);
 

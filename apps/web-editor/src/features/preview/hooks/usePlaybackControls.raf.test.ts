@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // ---------------------------------------------------------------------------
 
 vi.mock('@/store/project-store.js', () => ({
-  getSnapshot: vi.fn(),
+  useProjectStore: vi.fn(),
 }));
 
 vi.mock('@/store/ephemeral-store.js', () => ({
@@ -24,7 +24,7 @@ import * as timelineRefs from '@/store/timeline-refs.js';
 import { usePlaybackControls } from './usePlaybackControls.js';
 import { makePlayerRef, makeProjectDoc } from './usePlaybackControls.fixtures.js';
 
-const mockGetSnapshot = vi.mocked(projectStore.getSnapshot);
+const mockUseProjectStore = vi.mocked(projectStore.useProjectStore);
 const mockSetPlayheadFrame = vi.mocked(ephemeralStore.setPlayheadFrame);
 const mockUpdateTimelinePlayheadFrame = vi.mocked(timelineRefs.updateTimelinePlayheadFrame);
 
@@ -35,7 +35,7 @@ const mockUpdateTimelinePlayheadFrame = vi.mocked(timelineRefs.updateTimelinePla
 describe('usePlaybackControls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetSnapshot.mockReturnValue(makeProjectDoc() as ReturnType<typeof mockGetSnapshot>);
+    mockUseProjectStore.mockReturnValue(makeProjectDoc() as ReturnType<typeof mockUseProjectStore>);
 
     // Default stub: rAF captures the callback but never invokes it automatically.
     vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
@@ -85,7 +85,7 @@ describe('usePlaybackControls', () => {
         }),
       );
 
-      mockGetSnapshot.mockReturnValue(makeProjectDoc({ fps: 30 }) as ReturnType<typeof mockGetSnapshot>);
+      mockUseProjectStore.mockReturnValue(makeProjectDoc({ fps: 30 }) as ReturnType<typeof mockUseProjectStore>);
       const { ref, currentFrame: frameState, playing } = makePlayerRef();
       playing.value = true;
       frameState.value = 30; // 1 second at 30 fps → 00:00:01:00

@@ -116,9 +116,23 @@ describe('ClipContextMenu', () => {
   });
 
   it('positions menu at the given x/y coordinates', () => {
-    const { container } = render(<ClipContextMenu {...defaultProps} x={150} y={300} />);
-    const menu = container.firstChild as HTMLElement;
+    render(<ClipContextMenu {...defaultProps} x={150} y={300} />);
+    // Portal renders into document.body — query the menu via screen
+    const menu = screen.getByRole('menu');
     expect(menu.style.left).toBe('150px');
     expect(menu.style.top).toBe('300px');
+  });
+
+  it('renders the menu into document.body via a React portal (not inside render container)', () => {
+    // The portal renders to document.body so that position:fixed coordinates are
+    // relative to the viewport even when the component is nested inside a
+    // react-window list that applies will-change:transform (which traps fixed
+    // positioning relative to the list container otherwise).
+    const { container } = render(<ClipContextMenu {...defaultProps} />);
+    // The render container itself has no direct child that is the menu
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+    // The menu IS accessible via screen (found in document.body)
+    expect(screen.getByRole('menu')).toBeDefined();
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
   });
 });

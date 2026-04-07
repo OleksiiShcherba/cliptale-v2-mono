@@ -9,3 +9,4 @@
 - [Ruling: styles object camelCase naming in component files](ruling_styles_object_naming.md) — `const styles` / `const style` in component files uses camelCase; treat as warning not violation; pattern established in ClipBlock.tsx and accepted in prior reviews
 - [setProject derives durationFrames — existing tests may break](ruling_setproject_durationframes_derivation.md) — toEqual(doc) assertions against getSnapshot() will fail if doc.durationFrames != computeProjectDuration result
 - [Ruling: components importing directly from feature api.ts](ruling_component_direct_api_import.md) — established pattern; do not flag unless component bypasses api.ts and calls fetch directly
+- [Recurring violation: UPPER_SNAKE_CASE constants inside function bodies](ruling_uppercase_constant_placement.md) — dev places module-level-style constants inside component bodies; always flag as ❌ per §9

@@ -2,8 +2,10 @@ import React from 'react';
 
 import { TranscribeButton } from '@/features/captions/components/TranscribeButton';
 import type { Asset } from '@/features/asset-manager/types';
-import { useAddAssetToTimeline } from '@/features/asset-manager/hooks/useAddAssetToTimeline';
-import { formatDuration, formatFileSize, getTypeLabel } from '@/features/asset-manager/utils';
+import { formatDuration, formatFileSize, getAssetPreviewUrl, getTypeLabel } from '@/features/asset-manager/utils';
+import { config } from '@/lib/config';
+
+import { AddToTimelineDropdown } from './AddToTimelineDropdown';
 
 const STATUS_BG: Record<string, string> = {
   ready: '#10B981',
@@ -12,10 +14,19 @@ const STATUS_BG: Record<string, string> = {
   pending: '#8A8AA0',
 };
 
+const BORDER = '#252535';
+const ERROR = '#EF4444';
+const TEXT_PRIMARY = '#F0F0FA';
+const TEXT_SECONDARY = '#8A8AA0';
+
 export interface AssetDetailPanelProps {
   asset: Asset;
   projectId: string;
-  onDelete?: (id: string) => void;
+  /** Called when the user clicks "Delete Asset". Opens the delete confirmation dialog in the parent. */
+  onDelete?: () => void;
+  onClose?: () => void;
+  /** Called when the user clicks "Replace File". Opens the replace dialog in the parent. */
+  onReplace?: () => void;
 }
 
 /**
@@ -23,11 +34,11 @@ export interface AssetDetailPanelProps {
  * status badge, and Replace/Delete action buttons.
  * Visible only when an asset is selected in AssetBrowserPanel.
  */
-export function AssetDetailPanel({ asset, projectId, onDelete }: AssetDetailPanelProps): React.ReactElement {
-  const addAssetToTimeline = useAddAssetToTimeline(projectId);
+export function AssetDetailPanel({ asset, projectId, onDelete, onClose, onReplace }: AssetDetailPanelProps): React.ReactElement {
   const badgeBg = STATUS_BG[asset.status] ?? '#8A8AA0';
   const isReady = asset.status === 'ready';
   const isAV = asset.contentType.startsWith('video/') || asset.contentType.startsWith('audio/');
+  const previewUrl = getAssetPreviewUrl(asset, config.apiBaseUrl);
 
   return (
     <div
@@ -44,7 +55,39 @@ export function AssetDetailPanel({ asset, projectId, onDelete }: AssetDetailPane
         flexShrink: 0,
       }}
     >
-      {/* Preview */}
+      {/* Panel header: title + close button */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexShrink: 0,
+        }}
+      >
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#8A8AA0', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+          Asset Details
+        </span>
+        {onClose && (
+          <button
+            onClick={onClose}
+            aria-label="Close asset details"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#8A8AA0',
+              cursor: 'pointer',
+              padding: 4,
+              lineHeight: 1,
+              fontSize: 14,
+              borderRadius: 4,
+            }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {/* Preview — status badge overlaid at lower-right corner */}
       <div
         style={{
           width: 248,
@@ -53,11 +96,12 @@ export function AssetDetailPanel({ asset, projectId, onDelete }: AssetDetailPane
           backgroundColor: '#1E1E2E',
           overflow: 'hidden',
           flexShrink: 0,
+          position: 'relative',
         }}
       >
-        {asset.thumbnailUri ? (
+        {previewUrl ? (
           <img
-            src={asset.thumbnailUri}
+            src={previewUrl}
             alt={`Preview for ${asset.filename}`}
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
@@ -76,6 +120,31 @@ export function AssetDetailPanel({ asset, projectId, onDelete }: AssetDetailPane
             No preview
           </div>
         )}
+        {/* Status badge overlaid on preview, lower-right */}
+        <div
+          aria-label={`Status: ${asset.status}`}
+          style={{
+            position: 'absolute',
+            bottom: 8,
+            right: 8,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: 28,
+            paddingLeft: 8,
+            paddingRight: 8,
+            borderRadius: 9999,
+            backgroundColor: badgeBg,
+            fontSize: 11,
+            fontWeight: 500,
+            color: '#F0F0FA',
+            textTransform: 'capitalize',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.5)',
+            letterSpacing: '0.04em',
+          }}
+        >
+          {asset.status}
+        </div>
       </div>
 
       {/* Filename */}
@@ -138,87 +207,53 @@ export function AssetDetailPanel({ asset, projectId, onDelete }: AssetDetailPane
       {/* Transcribe button — video and audio assets only */}
       {isAV && <TranscribeButton assetId={asset.id} />}
 
-      {/* Status badge */}
-      <div
-        aria-label={`Status: ${asset.status}`}
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: 28,
-          width: 140,
-          borderRadius: 9999,
-          backgroundColor: badgeBg,
-          fontSize: 11,
-          fontWeight: 500,
-          color: '#F0F0FA',
-          textTransform: 'capitalize',
-          flexShrink: 0,
-        }}
-      >
-        {asset.status}
-      </div>
-
       {/* Spacer pushes action buttons to bottom of the 620px panel */}
       <div style={{ flex: 1 }} />
 
-      {/* Add to Timeline — enabled only when the asset is ready */}
-      <button
+      {/* Add to Timeline — shows a dropdown with "New Track" and existing tracks */}
+      <AddToTimelineDropdown
+        asset={asset}
+        projectId={projectId}
         disabled={!isReady}
-        title={isReady ? undefined : 'Processing…'}
-        aria-label={`Add ${asset.filename} to timeline`}
-        onClick={() => addAssetToTimeline(asset)}
-        style={{
-          width: 248,
-          height: 36,
-          borderRadius: 8,
-          border: 'none',
-          backgroundColor: isReady ? '#7C3AED' : '#4C1D95',
-          color: isReady ? '#F0F0FA' : '#8A8AA0',
-          fontSize: 14,
-          fontWeight: 500,
-          cursor: isReady ? 'pointer' : 'not-allowed',
-          fontFamily: 'Inter, sans-serif',
-          flexShrink: 0,
-        }}
-      >
-        Add to Timeline
-      </button>
+      />
 
       <button
-        disabled
+        disabled={!onReplace}
+        aria-label="Replace file"
+        onClick={onReplace}
         style={{
           width: 248,
           height: 36,
           borderRadius: 8,
-          border: '1px solid #252535',
+          border: `1px solid ${BORDER}`,
           backgroundColor: 'transparent',
-          color: '#8A8AA0',
-          fontSize: 12,
-          cursor: 'not-allowed',
+          color: onReplace ? TEXT_PRIMARY : TEXT_SECONDARY,
+          fontSize: 14,
+          cursor: onReplace ? 'pointer' : 'not-allowed',
           fontFamily: 'Inter, sans-serif',
           flexShrink: 0,
-          opacity: 0.5,
+          opacity: onReplace ? 1 : 0.5,
         }}
       >
         Replace File
       </button>
 
       <button
-        disabled
+        disabled={!onDelete}
         aria-label={`Delete asset ${asset.filename}`}
+        onClick={onDelete}
         style={{
           width: 248,
           height: 36,
           borderRadius: 8,
-          border: '1px solid #252535',
+          border: `1px solid ${BORDER}`,
           backgroundColor: 'transparent',
-          color: '#8A8AA0',
-          fontSize: 12,
-          cursor: 'not-allowed',
+          color: onDelete ? ERROR : TEXT_SECONDARY,
+          fontSize: 14,
+          cursor: onDelete ? 'pointer' : 'not-allowed',
           fontFamily: 'Inter, sans-serif',
           flexShrink: 0,
-          opacity: 0.5,
+          opacity: onDelete ? 1 : 0.5,
         }}
       >
         Delete Asset

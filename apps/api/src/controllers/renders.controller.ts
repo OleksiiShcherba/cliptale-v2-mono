@@ -99,6 +99,7 @@ export async function listProjectRenders(
         errorMessage: r.errorMessage,
         createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
         updatedAt: r.updatedAt instanceof Date ? r.updatedAt.toISOString() : r.updatedAt,
+        ...(r.downloadUrl ? { downloadUrl: r.downloadUrl } : {}),
       })),
     });
   } catch (err) {

@@ -1,8 +1,10 @@
 /**
  * ClipContextMenu — lightweight right-click context menu for ClipBlock.
  *
- * Rendered as an absolutely-positioned `<div>` overlay within the timeline
- * panel. No external library required.
+ * Rendered via a React portal into `document.body` so it escapes any
+ * ancestor stacking context (including react-window's `will-change: transform`
+ * container). This ensures the menu always appears at the correct viewport
+ * coordinates regardless of where it is triggered in the DOM tree.
  *
  * Menu items:
  * - Split at Playhead — disabled (greyed out) when playhead is not overlapping
@@ -14,6 +16,7 @@
  */
 
 import React, { useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 // Design tokens
 const SURFACE_ELEVATED = '#1E1E2E';
@@ -23,14 +26,14 @@ const TEXT_SECONDARY = '#8A8AA0';
 const ERROR = '#EF4444';
 
 /** A single item in the context menu. */
-interface MenuItem {
+type MenuItem = {
   id: string;
   label: string;
   /** When true the item is shown but cannot be activated. */
   disabled?: boolean;
   /** When true the item is styled with the destructive (error) color. */
   destructive?: boolean;
-}
+};
 
 interface ClipContextMenuProps {
   /** Screen X position where the menu should appear. */
@@ -139,7 +142,7 @@ export function ClipContextMenu({
     [handleAction, onClose],
   );
 
-  return (
+  const menu = (
     <div
       ref={menuRef}
       role="menu"
@@ -187,6 +190,8 @@ export function ClipContextMenu({
       })}
     </div>
   );
+
+  return createPortal(menu, document.body);
 }
 
 const styles: Record<string, React.CSSProperties> = {
@@ -195,15 +200,15 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 1000,
     background: SURFACE_ELEVATED,
     border: `1px solid ${BORDER}`,
-    borderRadius: 6,
+    borderRadius: 8,
     padding: '4px 0',
     minWidth: 160,
     boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
     outline: 'none',
   },
   item: {
-    padding: '6px 12px',
-    fontSize: 13,
+    padding: '8px 12px',
+    fontSize: 12,
     fontFamily: 'Inter, sans-serif',
     lineHeight: '20px',
     userSelect: 'none',

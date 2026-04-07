@@ -8,9 +8,19 @@ import { AssetDetailPanel } from './AssetDetailPanel';
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
-const mockAddAssetToTimeline = vi.fn();
-vi.mock('@/features/asset-manager/hooks/useAddAssetToTimeline', () => ({
-  useAddAssetToTimeline: (_projectId: string) => mockAddAssetToTimeline,
+vi.mock('@/lib/config', () => ({
+  config: { apiBaseUrl: 'http://localhost:3001' },
+}));
+
+vi.mock('./AddToTimelineDropdown', () => ({
+  AddToTimelineDropdown: ({ asset, projectId, disabled }: { asset: Asset; projectId: string; disabled?: boolean }) =>
+    React.createElement('button', {
+      'data-testid': 'add-to-timeline-dropdown',
+      'data-asset-id': asset.id,
+      'data-project-id': projectId,
+      disabled: disabled ?? false,
+      'aria-label': `Add ${asset.filename} to timeline`,
+    }, 'Add to Timeline'),
 }));
 
 vi.mock('@/features/captions/components/TranscribeButton', () => ({
@@ -47,59 +57,44 @@ describe('AssetDetailPanel', () => {
     vi.clearAllMocks();
   });
 
-  describe('Add to Timeline button', () => {
-    it('renders the "Add to Timeline" button', () => {
+  describe('AddToTimelineDropdown', () => {
+    it('renders the AddToTimelineDropdown', () => {
       render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
-      expect(screen.getByRole('button', { name: /add.*timeline/i })).toBeDefined();
+      expect(screen.getByTestId('add-to-timeline-dropdown')).toBeDefined();
     });
 
-    it('is enabled when asset status is ready', () => {
+    it('passes disabled=false when asset status is ready', () => {
       render(<AssetDetailPanel asset={makeAsset({ status: 'ready' })} projectId="proj-001" />);
-      const btn = screen.getByRole('button', { name: /add.*timeline/i }) as HTMLButtonElement;
-      expect(btn.disabled).toBe(false);
+      const el = screen.getByTestId('add-to-timeline-dropdown') as HTMLButtonElement;
+      expect(el.disabled).toBe(false);
     });
 
-    it('is disabled when asset status is processing', () => {
+    it('passes disabled=true when asset status is processing', () => {
       render(<AssetDetailPanel asset={makeAsset({ status: 'processing' })} projectId="proj-001" />);
-      const btn = screen.getByRole('button', { name: /add.*timeline/i }) as HTMLButtonElement;
-      expect(btn.disabled).toBe(true);
+      const el = screen.getByTestId('add-to-timeline-dropdown') as HTMLButtonElement;
+      expect(el.disabled).toBe(true);
     });
 
-    it('is disabled when asset status is pending', () => {
+    it('passes disabled=true when asset status is pending', () => {
       render(<AssetDetailPanel asset={makeAsset({ status: 'pending' })} projectId="proj-001" />);
-      const btn = screen.getByRole('button', { name: /add.*timeline/i }) as HTMLButtonElement;
-      expect(btn.disabled).toBe(true);
+      const el = screen.getByTestId('add-to-timeline-dropdown') as HTMLButtonElement;
+      expect(el.disabled).toBe(true);
     });
 
-    it('is disabled when asset status is error', () => {
+    it('passes disabled=true when asset status is error', () => {
       render(<AssetDetailPanel asset={makeAsset({ status: 'error' })} projectId="proj-001" />);
-      const btn = screen.getByRole('button', { name: /add.*timeline/i }) as HTMLButtonElement;
-      expect(btn.disabled).toBe(true);
+      const el = screen.getByTestId('add-to-timeline-dropdown') as HTMLButtonElement;
+      expect(el.disabled).toBe(true);
     });
 
-    it('shows a "Processing…" tooltip via title when disabled', () => {
-      render(<AssetDetailPanel asset={makeAsset({ status: 'processing' })} projectId="proj-001" />);
-      const btn = screen.getByRole('button', { name: /add.*timeline/i });
-      expect(btn.getAttribute('title')).toBe('Processing…');
+    it('passes the projectId to AddToTimelineDropdown', () => {
+      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
+      expect(screen.getByTestId('add-to-timeline-dropdown').getAttribute('data-project-id')).toBe('proj-001');
     });
 
-    it('has no title attribute when enabled (status ready)', () => {
-      render(<AssetDetailPanel asset={makeAsset({ status: 'ready' })} projectId="proj-001" />);
-      const btn = screen.getByRole('button', { name: /add.*timeline/i });
-      expect(btn.getAttribute('title')).toBeNull();
-    });
-
-    it('calls addAssetToTimeline with the asset when clicked', () => {
-      const asset = makeAsset({ status: 'ready' });
-      render(<AssetDetailPanel asset={asset} projectId="proj-001" />);
-      fireEvent.click(screen.getByRole('button', { name: /add.*timeline/i }));
-      expect(mockAddAssetToTimeline).toHaveBeenCalledWith(asset);
-    });
-
-    it('does not call addAssetToTimeline when button is disabled', () => {
-      render(<AssetDetailPanel asset={makeAsset({ status: 'processing' })} projectId="proj-001" />);
-      fireEvent.click(screen.getByRole('button', { name: /add.*timeline/i }));
-      expect(mockAddAssetToTimeline).not.toHaveBeenCalled();
+    it('passes the asset id to AddToTimelineDropdown', () => {
+      render(<AssetDetailPanel asset={makeAsset({ id: 'asset-xyz' })} projectId="proj-001" />);
+      expect(screen.getByTestId('add-to-timeline-dropdown').getAttribute('data-asset-id')).toBe('asset-xyz');
     });
   });
 
@@ -133,8 +128,35 @@ describe('AssetDetailPanel', () => {
       expect(img.src).toBe('https://example.com/thumb.jpg');
     });
 
-    it('renders "No preview" text when thumbnailUri is null', () => {
-      render(<AssetDetailPanel asset={makeAsset({ thumbnailUri: null })} projectId="proj-001" />);
+    it('renders "No preview" text for video asset when thumbnailUri is null', () => {
+      render(<AssetDetailPanel asset={makeAsset({ contentType: 'video/mp4', thumbnailUri: null })} projectId="proj-001" />);
+      expect(screen.getByText('No preview')).toBeDefined();
+    });
+
+    it('renders "No preview" text for audio asset when thumbnailUri is null', () => {
+      render(<AssetDetailPanel asset={makeAsset({ contentType: 'audio/mpeg', thumbnailUri: null })} projectId="proj-001" />);
+      expect(screen.getByText('No preview')).toBeDefined();
+    });
+
+    it('renders an img element for a ready image asset using the stream URL', () => {
+      const { container } = render(
+        <AssetDetailPanel
+          asset={makeAsset({ id: 'img-001', contentType: 'image/png', thumbnailUri: null, status: 'ready' })}
+          projectId="proj-001"
+        />,
+      );
+      const img = container.querySelector('img');
+      expect(img).not.toBeNull();
+      expect((img as HTMLImageElement).src).toContain('/assets/img-001/stream');
+    });
+
+    it('renders "No preview" for a processing image asset', () => {
+      render(
+        <AssetDetailPanel
+          asset={makeAsset({ contentType: 'image/png', thumbnailUri: null, status: 'processing' })}
+          projectId="proj-001"
+        />,
+      );
       expect(screen.getByText('No preview')).toBeDefined();
     });
   });
@@ -148,6 +170,98 @@ describe('AssetDetailPanel', () => {
     it('renders the asset status badge', () => {
       render(<AssetDetailPanel asset={makeAsset({ status: 'ready' })} projectId="proj-001" />);
       expect(screen.getByLabelText(/status: ready/i)).toBeDefined();
+    });
+  });
+
+  describe('close button (task 4)', () => {
+    it('does not render a close button when onClose is not provided', () => {
+      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
+      expect(screen.queryByRole('button', { name: /close asset details/i })).toBeNull();
+    });
+
+    it('renders a close button when onClose is provided', () => {
+      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" onClose={vi.fn()} />);
+      expect(screen.getByRole('button', { name: /close asset details/i })).toBeDefined();
+    });
+
+    it('calls onClose when the close button is clicked', () => {
+      const onClose = vi.fn();
+      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" onClose={onClose} />);
+      fireEvent.click(screen.getByRole('button', { name: /close asset details/i }));
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('Replace File button', () => {
+    it('renders the "Replace File" button', () => {
+      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
+      expect(screen.getByRole('button', { name: /replace file/i })).toBeDefined();
+    });
+
+    it('is disabled when onReplace is not provided', () => {
+      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
+      const btn = screen.getByRole('button', { name: /replace file/i }) as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+    });
+
+    it('is enabled when onReplace is provided', () => {
+      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" onReplace={vi.fn()} />);
+      const btn = screen.getByRole('button', { name: /replace file/i }) as HTMLButtonElement;
+      expect(btn.disabled).toBe(false);
+    });
+
+    it('calls onReplace when the button is clicked', () => {
+      const onReplace = vi.fn();
+      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" onReplace={onReplace} />);
+      fireEvent.click(screen.getByRole('button', { name: /replace file/i }));
+      expect(onReplace).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('Delete Asset button', () => {
+    it('renders the "Delete Asset" button', () => {
+      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
+      expect(screen.getByRole('button', { name: /delete asset/i })).toBeDefined();
+    });
+
+    it('is disabled when onDelete is not provided', () => {
+      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
+      const btn = screen.getByRole('button', { name: /delete asset/i }) as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+    });
+
+    it('is enabled when onDelete is provided', () => {
+      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" onDelete={vi.fn()} />);
+      const btn = screen.getByRole('button', { name: /delete asset/i }) as HTMLButtonElement;
+      expect(btn.disabled).toBe(false);
+    });
+
+    it('calls onDelete when the button is clicked', () => {
+      const onDelete = vi.fn();
+      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" onDelete={onDelete} />);
+      fireEvent.click(screen.getByRole('button', { name: /delete asset/i }));
+      expect(onDelete).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('status badge overlay (task 5)', () => {
+    it('status badge is inside the preview container (overlaid)', () => {
+      const { container } = render(
+        <AssetDetailPanel asset={makeAsset({ status: 'ready', thumbnailUri: null })} projectId="proj-001" />,
+      );
+      const badge = screen.getByLabelText(/status: ready/i);
+      // The badge should be a descendant of the preview container (position: relative wrapper)
+      // Check that it has position: absolute style set
+      expect(badge.style.position).toBe('absolute');
+    });
+
+    it('status badge is positioned at bottom-right of preview', () => {
+      render(
+        <AssetDetailPanel asset={makeAsset({ status: 'processing' })} projectId="proj-001" />,
+      );
+      const badge = screen.getByLabelText(/status: processing/i);
+      expect(badge.style.bottom).toBe('8px');
+      expect(badge.style.right).toBe('8px');
     });
   });
 });

@@ -142,15 +142,6 @@ export function ClipLane({
     trimInfo?.isSnapping ? trimInfo :
     null;
 
-  /**
-   * Whether this lane is the target for a cross-track clip drag.
-   * True when `dragInfo.targetTrackId === track.id` AND at least one dragged clip
-   * originates from a different track.
-   */
-  const isClipDragTarget = dragInfo !== null &&
-    dragInfo.targetTrackId === track.id &&
-    dragInfo.draggingClipSnapshots.some(c => c.trackId !== track.id);
-
   return (
     <div
       style={{
@@ -167,8 +158,8 @@ export function ClipLane({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Drop target overlay — shows when an asset or cross-track clip is dragged over */}
-      {(isAssetDragOver || isClipDragTarget) && (
+      {/* Drop target overlay — shows when an asset from the asset browser is dragged over */}
+      {isAssetDragOver && (
         <div aria-hidden="true" style={styles.dropTargetOverlay} />
       )}
 
@@ -177,18 +168,10 @@ export function ClipLane({
         const assetData = assetId && assetDataMap ? assetDataMap[assetId] : undefined;
         const isDragging = dragInfo?.draggingClipIds.has(clip.id) ?? false;
 
-        // Hide the original clip when it's being dragged to a different track.
-        const isDraggedAway = isDragging &&
-          dragInfo !== null &&
-          dragInfo.targetTrackId !== null &&
-          dragInfo.targetTrackId !== track.id;
-
         // During trim: render the trimmed clip at its ghost dimensions.
         const isTrimming = trimInfo?.clipId === clip.id;
         const ghostLeft = isTrimming ? trimInfo!.ghostStartFrame * pxPerFrame : undefined;
         const ghostWidth = isTrimming ? Math.max(2, trimInfo!.ghostDurationFrames * pxPerFrame) : undefined;
-
-        if (isDraggedAway) return null;
 
         return (
           <ClipBlock
@@ -211,10 +194,9 @@ export function ClipLane({
         );
       })}
 
-      {/* Ghost blocks (same-track + cross-track) during drag */}
+      {/* Ghost blocks during drag — same-track only (clips stay on their original track) */}
       {dragInfo && (
         <ClipLaneGhosts
-          trackId={track.id}
           clips={clips}
           pxPerFrame={pxPerFrame}
           scrollOffsetX={scrollOffsetX}

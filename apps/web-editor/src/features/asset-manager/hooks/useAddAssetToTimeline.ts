@@ -21,57 +21,84 @@ function stripExtension(filename: string): string {
 }
 
 /**
- * Returns an `addAssetToTimeline(asset)` callback that:
- * 1. Maps the asset's `contentType` to a track type; derives the track name from `asset.filename` (extension stripped).
- * 2. Reuses the first existing track with that name, or creates a new one.
- * 3. Appends the new clip at the end of all clips on that track.
- * 4. Calls `setProject()` — which auto-derives `durationFrames` via `computeProjectDuration`.
- * 5. Calls `createClip()` to persist the new clip row to `project_clips_current`.
- *
- * Silently no-ops for unsupported content types (not video/*, audio/*, or image/*).
+ * Computes the startFrame for a new clip on a track:
+ * the end frame of the last clip on that track, or 0 if the track is empty.
  */
-export function useAddAssetToTimeline(projectId: string): (asset: Asset) => void {
-  return useCallback((asset: Asset) => {
+function computeStartFrame(trackId: string, clips: ReadonlyArray<{ trackId: string; startFrame: number; durationFrames: number }>): number {
+  return clips
+    .filter(c => c.trackId === trackId)
+    .reduce((max, c) => {
+      const end = c.startFrame + c.durationFrames;
+      return end > max ? end : max;
+    }, 0);
+}
+
+/**
+ * Returns an object with two callbacks for placing an asset on the timeline:
+ *
+ * - `addAssetToNewTrack(asset)` — always creates a new track named after the
+ *   asset filename (extension stripped) and appends a clip at frame 0.
+ *   Use this when the user selects "To New Video/Audio Track".
+ *
+ * - `addAssetToExistingTrack(asset, trackId)` — appends a clip to the end of
+ *   the specified existing track.  No track is created.
+ *   Use this when the user selects a specific existing track.
+ *
+ * Both functions silently no-op for unsupported content types (not video/*,
+ * audio/*, or image/*) and call `createClip` to persist the new clip row.
+ */
+export function useAddAssetToTimeline(projectId: string): {
+  addAssetToNewTrack: (asset: Asset) => void;
+  addAssetToExistingTrack: (asset: Asset, trackId: string) => void;
+} {
+  const addAssetToNewTrack = useCallback((asset: Asset) => {
     const trackType = resolveTrackType(asset.contentType);
     if (!trackType) return;
 
     const project = getSnapshot();
     const trackName = stripExtension(asset.filename);
 
-    // Find existing track by name, or create a new one.
-    let track = project.tracks.find(t => t.name === trackName) ?? null;
-    const newTracks = track
-      ? project.tracks
-      : [
-          ...project.tracks,
-          (track = {
-            id: crypto.randomUUID(),
-            type: trackType,
-            name: trackName,
-            muted: false,
-            locked: false,
-          }),
-        ];
-
-    // startFrame = end frame of the last clip on this track, or 0 if no clips yet.
-    const startFrame = project.clips
-      .filter(c => c.trackId === track!.id)
-      .reduce((max, c) => {
-        const end = c.startFrame + c.durationFrames;
-        return end > max ? end : max;
-      }, 0);
+    const newTrack: Track = {
+      id: crypto.randomUUID(),
+      type: trackType,
+      name: trackName,
+      muted: false,
+      locked: false,
+    };
 
     const durationFrames = computeClipDurationFrames(asset.durationSeconds, project.fps);
-    const clip = buildClipForAsset(asset.contentType, asset.id, track.id, startFrame, durationFrames);
+    const clip = buildClipForAsset(asset.contentType, asset.id, newTrack.id, 0, durationFrames);
     if (!clip) return;
 
     setProject({
       ...project,
-      tracks: newTracks,
+      tracks: [...project.tracks, newTrack],
       clips: [...project.clips, clip],
     });
 
-    // Persist the new clip to project_clips_current in the database.
     void createClip(projectId, clip);
   }, [projectId]);
+
+  const addAssetToExistingTrack = useCallback((asset: Asset, trackId: string) => {
+    const trackType = resolveTrackType(asset.contentType);
+    if (!trackType) return;
+
+    const project = getSnapshot();
+    const track = project.tracks.find(t => t.id === trackId);
+    if (!track) return;
+
+    const startFrame = computeStartFrame(trackId, project.clips);
+    const durationFrames = computeClipDurationFrames(asset.durationSeconds, project.fps);
+    const clip = buildClipForAsset(asset.contentType, asset.id, trackId, startFrame, durationFrames);
+    if (!clip) return;
+
+    setProject({
+      ...project,
+      clips: [...project.clips, clip],
+    });
+
+    void createClip(projectId, clip);
+  }, [projectId]);
+
+  return { addAssetToNewTrack, addAssetToExistingTrack };
 }

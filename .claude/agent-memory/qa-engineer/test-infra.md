@@ -76,6 +76,22 @@ Pre-existing 401 failures: integration tests that assert `401` when no auth toke
 
 `apps/web-editor/src/features/asset-manager/utils.ts` contains pure utility functions (`buildClipForAsset`, `computeClipDurationFrames`, `formatFileSize`, `formatDuration`, `getTypeLabel`). As of 2026-04-05, no test file existed for this module. When new utility functions are added to this file, create `utils.test.ts` in the same directory.
 
+## export/utils.ts — pure helpers extracted from RendersQueueModal.tsx require direct unit tests
+
+`apps/web-editor/src/features/export/utils.ts` was created during the "Add Renders in Progress modal" feature (2026-04-07) when code-quality-expert required moving `getPresetLabel`, `formatDate`, `getStatusBadgeStyle`, `getStatusLabel` out of the `.tsx` file. The extraction left these helpers with no dedicated test file — they were only exercised indirectly through `RendersQueueModal.test.tsx`. Always create `features/export/utils.test.ts` alongside any utility extraction into this module.
+
+**Why:** Discovered during 2026-04-07 QA review — the feature had a prior `YES` stamp but the `utils.ts` extraction (applied as a post-stamp code-quality fix) introduced a gap in direct coverage.
+
+**Impact:** Any new function added to `features/export/utils.ts` requires a test in `utils.test.ts` co-located in the same directory.
+
+## useAssetUpload onUploadComplete — capture in vi.mock factory to test callback path
+
+When testing `ReplaceAssetDialog` (or any component that passes `onUploadComplete` into `useAssetUpload`), the upload-completion path (replaceAsset + onReplaced) can only be tested by capturing the `onUploadComplete` argument inside the `vi.mock` factory and invoking it directly in the test. Pattern: declare a module-level `let capturedOnUploadComplete: ((id: string) => void) | null = null;`, assign it inside the factory, and reset it in `beforeEach`. Then call `capturedOnUploadComplete!('new-id')` in the test body.
+
+**Why:** Discovered 2026-04-07 QA review — the existing upload test only verified `uploadFiles` was called, not the post-upload callback chain. The callback is not reachable through DOM events because the upload is async and the hook hides the internal state.
+
+**Impact:** Any test that needs to verify what happens after a file upload completes must use this capture pattern instead of trying to simulate the full upload flow.
+
 **Why:** Discovered during the drag-and-drop QA review (2026-04-06). `buildClipForAsset` and `computeClipDurationFrames` were added for the asset drop feature with no corresponding unit tests.
 
 **Impact:** Any future addition to `utils.ts` must be accompanied by tests in `utils.test.ts` co-located in `apps/web-editor/src/features/asset-manager/`.

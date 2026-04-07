@@ -4,7 +4,7 @@ description: ../hooks/ pattern is pervasive across timeline feature components b
 type: project
 ---
 
-The entire `features/timeline/components/` directory uses `../hooks/` relative imports to reach sibling hooks (e.g. `from '../hooks/useClipDrag'`). This appears in `ClipLane.tsx`, `ClipLane.test.tsx`, `TimelinePanel.tsx`, `TrackList.tsx`, `TrackList.test.tsx`, and the newly introduced `ScrollbarStrip.tsx`. All of these violate §9 which forbids cross-directory relative imports and requires `@/` aliases.
+The entire `features/timeline/` subtree uses cross-directory relative imports: `../hooks/` from components, and `../components/` from hooks. Confirmed violations in `ClipLane.tsx`, `ClipLane.test.tsx`, `TimelinePanel.tsx`, `TrackList.tsx`, `TrackList.test.tsx`, `ScrollbarStrip.tsx`, `useTimelineResize.ts`, `useTimelineResize.test.ts`. All violate §9 which forbids cross-directory relative imports and requires `@/` aliases. Also see: `App.tsx` split group-4 imports (a blank line separating two batches of `@/` imports) was flagged in the 2026-04-07 "Resizable video preview block" review.
 
 **Why:** The pattern was present before code-reviewer started reviewing this codebase and was never previously flagged. It is not an approved deviation — it is an uncaught recurring violation.
 

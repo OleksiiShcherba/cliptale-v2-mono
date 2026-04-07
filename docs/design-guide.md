@@ -225,11 +225,11 @@ Get Figma node 6:2 (Design System frame) from file KwzjofZgWKvEQuz9bXzEYT and ex
 | Main Editor | Desktop, Tablet | Full editor layout |
 
 **Key regions (Desktop — fixed 1440×900 viewport):**
-- `TOP BAR` — 48px: editable project title, undo/redo, version history, share, export (primary CTA)
+- `TOP BAR` — 48px: editable project title, undo/redo, version history, **renders** (transparent/BORDER button, PRIMARY pill badge when active renders > 0), share, export (primary CTA)
 - `LEFT SIDEBAR` — 240px: Asset Browser / AI Tools tabs, asset list, upload button
 - `REMOTION PLAYER` — center, 816×410px (16:9), video output + playback controls below
 - `RIGHT SIDEBAR` — 280px Inspector: clip name, position, scale, opacity, trim in/out, captions, fill, effects
-- `TIMELINE AREA` — 232px bottom: toolbar, track labels column, 4 track lanes (Video/Audio/Caption/Overlay), colored clip blocks, red playhead
+- `TIMELINE AREA` — 232px bottom: toolbar, track labels column, 4 track lanes (Video/Audio/Caption/Overlay), colored clip blocks, red playhead. Toolbar buttons follow a shared spec: 24×24px, transparent background, BORDER border, radius-sm (4px), TEXT_PRIMARY label/icon color, Inter font. Current toolbar buttons (left to right): "Scroll to beginning" (double-bar+chevron-left SVG, shown only when scrollOffsetX > 0), "Return to first frame" (single-bar+chevron-left SVG, shown only when playheadFrame > 0), Zoom out (−), zoom label (px/f readout), Zoom in (+), track count (right-aligned), Add Track menu.
 
 **Tablet simplification:** preview takes full 768px width; inspector collapses to tabs; bottom toolbar replaces sidebars.
 

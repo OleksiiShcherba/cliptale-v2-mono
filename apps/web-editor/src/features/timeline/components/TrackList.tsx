@@ -1,97 +1,21 @@
-import React from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { FixedSizeList } from 'react-window';
 
 import type { Clip, Track } from '@ai-video-editor/project-schema';
+
 import type { Asset } from '@/features/asset-manager/types';
 
-import { TrackHeader, TRACK_HEADER_WIDTH, TRACK_ROW_HEIGHT } from './TrackHeader';
-import { ClipLane } from './ClipLane';
+import { TRACK_HEADER_WIDTH, TRACK_ROW_HEIGHT } from './TrackHeader';
 import type { ClipAssetData } from './ClipBlock';
 import type { ClipDragInfo } from '../hooks/useClipDrag';
 import type { TrimDragInfo } from '../hooks/useClipTrim';
+import { useTrackReorder } from '../hooks/useTrackReorder';
+import { TrackRow } from './TrackRow';
+import type { TrackRowData } from './TrackRow';
+import { styles } from './trackListStyles';
 
 // Re-export so consumers (TimelinePanel) can import from a single entry point.
 export { TRACK_HEADER_WIDTH };
-
-// Design tokens
-const BORDER = '#252535';
-
-type TrackRowData = {
-  projectId: string;
-  tracks: Track[];
-  clips: ReadonlyArray<Clip & { layer?: number }>;
-  pxPerFrame: number;
-  selectedClipIds: ReadonlySet<string>;
-  laneWidth: number;
-  /** Horizontal scroll offset forwarded to each ClipLane. */
-  scrollOffsetX: number;
-  assetDataMap: Readonly<Record<string, ClipAssetData>>;
-  dragInfo: ClipDragInfo | null;
-  onClipPointerDown: (e: React.PointerEvent, clipId: string, isLocked: boolean) => void;
-  trimInfo: TrimDragInfo | null;
-  getTrimCursor: (
-    e: React.MouseEvent,
-    clipId: string,
-    clipWidth: number,
-    isLocked: boolean,
-  ) => 'ew-resize' | null;
-  onTrimPointerDown: (
-    e: React.PointerEvent,
-    clipId: string,
-    clipWidth: number,
-    isLocked: boolean,
-    assetDurationFrames?: number,
-  ) => boolean;
-  onRename: (trackId: string, newName: string) => void;
-  onToggleMute: (trackId: string) => void;
-  onToggleLock: (trackId: string) => void;
-  /** Called when an asset is dropped from the browser onto a specific track lane. */
-  onAssetDrop: (asset: Asset, trackId: string, startFrame: number) => void;
-}
-
-interface TrackRowProps {
-  index: number;
-  style: React.CSSProperties;
-  data: TrackRowData;
-}
-
-/**
- * Renders a single row inside the virtualized list:
- * a `TrackHeader` on the left and a `ClipLane` on the right.
- */
-function TrackRow({ index, style, data }: TrackRowProps): React.ReactElement {
-  const track = data.tracks[index]!;
-
-  // Filter clips belonging to this track.
-  const trackClips = data.clips.filter((c) => c.trackId === track.id);
-
-  return (
-    <div style={{ ...style, display: 'flex' }} role="row" aria-label={`Track row: ${track.name}`}>
-      <TrackHeader
-        track={track}
-        onRename={data.onRename}
-        onToggleMute={data.onToggleMute}
-        onToggleLock={data.onToggleLock}
-      />
-      <ClipLane
-        projectId={data.projectId}
-        track={track}
-        clips={trackClips}
-        pxPerFrame={data.pxPerFrame}
-        selectedClipIds={data.selectedClipIds}
-        width={data.laneWidth}
-        scrollOffsetX={data.scrollOffsetX}
-        assetDataMap={data.assetDataMap}
-        dragInfo={data.dragInfo}
-        onClipPointerDown={data.onClipPointerDown}
-        trimInfo={data.trimInfo}
-        getTrimCursor={data.getTrimCursor}
-        onTrimPointerDown={data.onTrimPointerDown}
-        onAssetDrop={(asset, startFrame) => data.onAssetDrop(asset, track.id, startFrame)}
-      />
-    </div>
-  );
-}
 
 interface TrackListProps {
   projectId: string;
@@ -139,6 +63,23 @@ interface TrackListProps {
   onToggleLock: (trackId: string) => void;
   /** Called when an asset is dropped from the browser onto a specific track lane. */
   onAssetDrop: (asset: Asset, trackId: string, startFrame: number) => void;
+  /**
+   * Called when an asset is dropped onto the empty-timeline area (no tracks exist).
+   * The callee is responsible for creating a track and clip from the asset.
+   */
+  onEmptyAreaDrop?: (asset: Asset, startFrame: number) => void;
+  /**
+   * Called when the user drags a track header to reorder the track list.
+   * Receives the new ordered array of track IDs.
+   */
+  onReorderTracks?: (orderedTrackIds: string[]) => void;
+  /** Called when the delete button on a track header is clicked. */
+  onDeleteTrack?: (trackId: string) => void;
+  /**
+   * Ref to the FixedSizeList instance so the parent can programmatically
+   * scroll the track list vertically (e.g. on wheel events over the header area).
+   */
+  listRef?: React.RefObject<FixedSizeList | null>;
 }
 
 /**
@@ -147,6 +88,8 @@ interface TrackListProps {
  *
  * Each row contains a `TrackHeader` (left, fixed width) and a `ClipLane` (right,
  * scrollable content area with absolutely-positioned `ClipBlock`s).
+ *
+ * Supports drag-and-drop reordering of tracks via the drag handle on each header.
  */
 export function TrackList({
   projectId,
@@ -167,7 +110,61 @@ export function TrackList({
   onToggleMute,
   onToggleLock,
   onAssetDrop,
+  onEmptyAreaDrop,
+  onReorderTracks,
+  onDeleteTrack,
+  listRef,
 }: TrackListProps): React.ReactElement {
+  const [isEmptyDragOver, setIsEmptyDragOver] = useState(false);
+  const internalListRef = useRef<FixedSizeList>(null);
+  const resolvedListRef = (listRef as React.RefObject<FixedSizeList>) ?? internalListRef;
+
+  const { reorderState, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop } =
+    useTrackReorder();
+
+  const handleTrackDrop = useCallback(
+    (targetTrackId: string) => {
+      const trackIds = tracks.map((t) => t.id);
+      const newOrder = onDrop(trackIds);
+      if (newOrder) {
+        onReorderTracks?.(newOrder);
+      }
+    },
+    [onDrop, onReorderTracks, tracks],
+  );
+
+  const handleEmptyDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('application/cliptale-asset')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setIsEmptyDragOver(true);
+  }, []);
+
+  const handleEmptyDragLeave = useCallback(() => {
+    setIsEmptyDragOver(false);
+  }, []);
+
+  const handleEmptyDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsEmptyDragOver(false);
+      if (!onEmptyAreaDrop) return;
+
+      const assetJson = e.dataTransfer.getData('application/cliptale-asset');
+      if (!assetJson) return;
+
+      let asset: Asset;
+      try {
+        asset = JSON.parse(assetJson) as Asset;
+      } catch {
+        return;
+      }
+
+      onEmptyAreaDrop(asset, 0);
+    },
+    [onEmptyAreaDrop],
+  );
+
   const totalWidth = TRACK_HEADER_WIDTH + laneWidth;
 
   const itemData: TrackRowData = {
@@ -188,12 +185,33 @@ export function TrackList({
     onToggleMute,
     onToggleLock,
     onAssetDrop,
+    onDeleteTrack,
+    draggingTrackId: reorderState.draggingId,
+    overTargetTrackId: reorderState.overTargetId,
+    onTrackDragStart: onDragStart,
+    onTrackDragOver: onDragOver,
+    onTrackDragLeave: onDragLeave,
+    onTrackDrop: handleTrackDrop,
+    onTrackDragEnd: onDragEnd,
   };
 
   if (tracks.length === 0) {
     return (
-      <div style={{ ...styles.emptyState, height }} role="list" aria-label="Track list">
-        <span style={styles.emptyText}>No tracks — add a track to get started</span>
+      <div
+        style={{
+          ...styles.emptyState,
+          height,
+          ...(isEmptyDragOver ? styles.emptyStateDropActive : {}),
+        }}
+        role="list"
+        aria-label="Track list"
+        onDragOver={handleEmptyDragOver}
+        onDragLeave={handleEmptyDragLeave}
+        onDrop={handleEmptyDrop}
+      >
+        <span style={styles.emptyText}>
+          {isEmptyDragOver ? 'Drop to create a new track' : 'No tracks — drag a media file here to get started'}
+        </span>
       </div>
     );
   }
@@ -210,6 +228,7 @@ export function TrackList({
       </div>
 
       <FixedSizeList
+        ref={resolvedListRef}
         height={height}
         itemCount={tracks.length}
         itemSize={TRACK_ROW_HEIGHT}
@@ -222,34 +241,3 @@ export function TrackList({
     </div>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  headerColumn: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: TRACK_HEADER_WIDTH,
-    zIndex: 1,
-    pointerEvents: 'none',
-  },
-  headerLabel: {
-    height: 0,
-    overflow: 'hidden',
-  },
-  emptyState: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: '#0D0D14',
-    borderTop: `1px solid ${BORDER}`,
-  },
-  emptyText: {
-    color: '#8A8AA0',
-    fontSize: 12,
-    fontFamily: 'Inter, sans-serif',
-  },
-};

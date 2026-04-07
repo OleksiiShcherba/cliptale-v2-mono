@@ -1,4 +1,4 @@
-import type { TextOverlayClip } from '@ai-video-editor/project-schema';
+import type { AudioClip, ImageClip, TextOverlayClip, VideoClip } from '@ai-video-editor/project-schema';
 
 export const CLIP_ID = '00000000-0000-0000-0000-000000000020';
 export const TRACK_ID = '00000000-0000-0000-0000-000000000010';
@@ -19,8 +19,53 @@ export function makeTextOverlayClip(overrides: Partial<TextOverlayClip> = {}): T
   };
 }
 
+/** Creates a minimal ImageClip for use in App component tests. */
+export function makeImageClip(overrides: Partial<ImageClip> = {}): ImageClip {
+  return {
+    id: CLIP_ID,
+    type: 'image',
+    assetId: 'asset-001',
+    trackId: TRACK_ID,
+    startFrame: 0,
+    durationFrames: 150,
+    opacity: 1,
+    ...overrides,
+  };
+}
+
+/** Creates a minimal VideoClip for use in App component tests. */
+export function makeVideoClip(overrides: Partial<VideoClip> = {}): VideoClip {
+  return {
+    id: CLIP_ID,
+    type: 'video',
+    assetId: 'asset-001',
+    trackId: TRACK_ID,
+    startFrame: 0,
+    durationFrames: 150,
+    trimInFrame: 0,
+    opacity: 1,
+    volume: 1,
+    ...overrides,
+  };
+}
+
+/** Creates a minimal AudioClip for use in App component tests. */
+export function makeAudioClip(overrides: Partial<AudioClip> = {}): AudioClip {
+  return {
+    id: CLIP_ID,
+    type: 'audio',
+    assetId: 'asset-001',
+    trackId: TRACK_ID,
+    startFrame: 0,
+    durationFrames: 150,
+    trimInFrame: 0,
+    volume: 1,
+    ...overrides,
+  };
+}
+
 /** Creates a minimal ProjectDoc with optional clips for use in App component tests. */
-export function makeProjectDoc(clips: TextOverlayClip[] = []) {
+export function makeProjectDoc(clips: Array<AudioClip | ImageClip | TextOverlayClip | VideoClip> = []) {
   return {
     schemaVersion: 1,
     id: 'proj-001',

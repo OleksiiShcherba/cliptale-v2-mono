@@ -8,6 +8,8 @@ import {
   setZoom,
   setPxPerFrame,
   setScrollOffsetX,
+  setVolume,
+  setMuted,
 } from './ephemeral-store.js';
 
 describe('ephemeral-store', () => {
@@ -216,6 +218,80 @@ describe('ephemeral-store', () => {
       expect(l2).toHaveBeenCalledTimes(1);
       u1();
       u2();
+    });
+  });
+
+  describe('setVolume', () => {
+    it('updates volume in the snapshot', () => {
+      setVolume(0.5);
+      expect(getSnapshot().volume).toBe(0.5);
+    });
+
+    it('clamps volume to minimum of 0', () => {
+      setVolume(-0.5);
+      expect(getSnapshot().volume).toBe(0);
+    });
+
+    it('clamps volume to maximum of 1', () => {
+      setVolume(1.5);
+      expect(getSnapshot().volume).toBe(1);
+    });
+
+    it('notifies subscribers when volume changes', () => {
+      setVolume(1);
+      const listener = vi.fn();
+      const unsub = subscribe(listener);
+      setVolume(0.5);
+      expect(listener).toHaveBeenCalledTimes(1);
+      unsub();
+    });
+
+    it('does not notify when volume is unchanged', () => {
+      setVolume(0.8);
+      const listener = vi.fn();
+      const unsub = subscribe(listener);
+      setVolume(0.8);
+      expect(listener).not.toHaveBeenCalled();
+      unsub();
+    });
+
+    it('clears isMuted when volume is set above 0', () => {
+      setMuted(true);
+      setVolume(0.5);
+      expect(getSnapshot().isMuted).toBe(false);
+    });
+  });
+
+  describe('setMuted', () => {
+    it('updates isMuted in the snapshot', () => {
+      setMuted(true);
+      expect(getSnapshot().isMuted).toBe(true);
+      setMuted(false);
+      expect(getSnapshot().isMuted).toBe(false);
+    });
+
+    it('notifies subscribers when muted state changes', () => {
+      setMuted(false);
+      const listener = vi.fn();
+      const unsub = subscribe(listener);
+      setMuted(true);
+      expect(listener).toHaveBeenCalledTimes(1);
+      unsub();
+    });
+
+    it('does not notify when muted state is unchanged', () => {
+      setMuted(false);
+      const listener = vi.fn();
+      const unsub = subscribe(listener);
+      setMuted(false);
+      expect(listener).not.toHaveBeenCalled();
+      unsub();
+    });
+
+    it('does not change volume when muted', () => {
+      setVolume(0.7);
+      setMuted(true);
+      expect(getSnapshot().volume).toBe(0.7);
     });
   });
 });

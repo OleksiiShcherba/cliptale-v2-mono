@@ -1,7 +1,9 @@
-import React, { type ChangeEvent } from 'react';
+import React, { type ChangeEvent, useEffect } from 'react';
 import type { PlayerRef } from '@remotion/player';
 
+import { useEphemeralStore } from '@/store/ephemeral-store';
 import { usePlaybackControls } from '@/features/preview/hooks/usePlaybackControls.js';
+import { VolumeControl } from './VolumeControl';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -72,6 +74,7 @@ export function PlaybackControls({ playerRef }: PlaybackControlsProps): React.Re
     currentFrame,
     totalFrames,
     timecode,
+    totalTimecode,
     containerRef,
     play,
     pause,
@@ -80,6 +83,22 @@ export function PlaybackControls({ playerRef }: PlaybackControlsProps): React.Re
     stepBack,
     seekTo,
   } = usePlaybackControls(playerRef);
+
+  const { volume, isMuted } = useEphemeralStore();
+
+  // Sync volume and mute state from ephemeral store to the Remotion playerRef.
+  // This effect runs whenever the ephemeral store volume or muted state changes,
+  // ensuring the actual player audio output matches the UI controls.
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    if (isMuted) {
+      player.mute();
+    } else {
+      player.unmute();
+      player.setVolume(volume);
+    }
+  }, [playerRef, volume, isMuted]);
 
   const handlePlayPause = () => {
     if (isPlaying) {
@@ -151,14 +170,17 @@ export function PlaybackControls({ playerRef }: PlaybackControlsProps): React.Re
         />
       </div>
 
-      {/* Right group: frame counter + timecode */}
+      {/* Right group: volume control + frame counter + timecode */}
       <div style={styles.group}>
+        <VolumeControl />
+        <div style={styles.divider} aria-hidden="true" />
         <span style={styles.frameCounter} aria-label="Current frame">
           {currentFrame} / {totalFrames}
         </span>
         <div style={styles.divider} aria-hidden="true" />
         <span style={styles.timecode} aria-label="Timecode">
           {timecode}
+          <span style={styles.totalTimecode} aria-label="Total duration"> / {totalTimecode}</span>
         </span>
       </div>
     </div>
@@ -246,6 +268,10 @@ const styles = {
     lineHeight: '16px',
     color: TEXT_PRIMARY,
     whiteSpace: 'nowrap' as const,
+    fontVariantNumeric: 'tabular-nums',
+  } as React.CSSProperties,
+  totalTimecode: {
+    color: TEXT_SECONDARY,
     fontVariantNumeric: 'tabular-nums',
   } as React.CSSProperties,
 } as const;

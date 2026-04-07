@@ -68,9 +68,9 @@ const makeReactPointerEvent = (clientX: number, offsetX: number, button = 0) => 
         left: clientX - offsetX,
         right: clientX - offsetX + 240,
         top: 0,
-        bottom: 48,
+        bottom: 36,
         width: 240,
-        height: 48,
+        height: 36,
       }),
     },
   } as unknown as React.PointerEvent;

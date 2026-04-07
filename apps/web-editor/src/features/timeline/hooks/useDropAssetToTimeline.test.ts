@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 
-import type { Asset } from '@/features/asset-manager/types';
-import type { Clip, ProjectDoc, Track } from '@ai-video-editor/project-schema';
+import type { Clip, ProjectDoc } from '@ai-video-editor/project-schema';
+
 import { useDropAssetToTimeline } from './useDropAssetToTimeline';
+import { makeProject, makeAsset } from './useDropAssetToTimeline.fixtures';
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -12,7 +13,7 @@ vi.mock('@/store/project-store', () => ({
   setProject: vi.fn(),
 }));
 
-vi.mock('../api', () => ({
+vi.mock('@/features/timeline/api', () => ({
   createClip: vi.fn().mockResolvedValue(undefined),
   patchClip: vi.fn().mockResolvedValue(undefined),
 }));
@@ -23,46 +24,11 @@ vi.mock('crypto', () => ({
 }));
 
 import * as projectStore from '@/store/project-store';
-import * as timelineApi from '../api';
+import * as timelineApi from '@/features/timeline/api';
 
 const mockGetSnapshot = vi.mocked(projectStore.getSnapshot);
 const mockSetProject = vi.mocked(projectStore.setProject);
 const mockCreateClip = vi.mocked(timelineApi.createClip);
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function makeProject(overrides: Partial<ProjectDoc> = {}): ProjectDoc {
-  return {
-    schemaVersion: 1,
-    id: 'proj-001',
-    title: 'Test',
-    fps: 30,
-    durationFrames: 300,
-    width: 1920,
-    height: 1080,
-    tracks: [] as Track[],
-    clips: [] as Clip[],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...overrides,
-  } as unknown as ProjectDoc;
-}
-
-function makeAsset(overrides: Partial<Asset> = {}): Asset {
-  return {
-    id: 'asset-001',
-    projectId: 'proj-001',
-    filename: 'test.mp4',
-    contentType: 'video/mp4',
-    status: 'ready',
-    durationSeconds: 5,
-    thumbnailUri: null,
-    storageUri: 's3://bucket/test.mp4',
-    waveformUri: null,
-    createdAt: new Date().toISOString(),
-    ...overrides,
-  };
-}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -172,5 +138,33 @@ describe('useDropAssetToTimeline', () => {
     const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
     expect(updated.clips).toHaveLength(2);
     expect(updated.clips.find((c: Clip) => c.id === 'existing-clip')).toBeDefined();
+  });
+
+  it('allows adding the same asset (same assetId) more than once to the same track', () => {
+    const existingClip = {
+      id: 'clip-first',
+      type: 'video' as const,
+      assetId: 'asset-001', // same assetId as the asset being dropped
+      trackId: 'track-001',
+      startFrame: 0,
+      durationFrames: 150,
+      trimInFrame: 0,
+      volume: 1,
+      opacity: 1,
+    } as unknown as Clip;
+    mockGetSnapshot.mockReturnValue(makeProject({ clips: [existingClip] as Clip[] }));
+
+    const { result } = renderHook(() => useDropAssetToTimeline('proj-001'));
+    result.current(makeAsset({ id: 'asset-001' }), 'track-001', 150);
+
+    const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
+    // Both clips should be present
+    expect(updated.clips).toHaveLength(2);
+    // Both reference the same assetId
+    expect(updated.clips.filter((c: Clip) => (c as { assetId: string }).assetId === 'asset-001')).toHaveLength(2);
+    // New clip has a different id
+    const newClip = updated.clips.find((c: Clip) => c.id !== 'clip-first');
+    expect(newClip).toBeDefined();
+    expect(newClip?.startFrame).toBe(150);
   });
 });

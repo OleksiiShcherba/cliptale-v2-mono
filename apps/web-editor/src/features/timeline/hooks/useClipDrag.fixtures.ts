@@ -18,7 +18,8 @@ if (typeof PointerEvent === 'undefined') {
   (globalThis as any).PointerEvent = PointerEventPolyfill;
 }
 
-export const TRACK_ROW_HEIGHT = 48;
+/** Height of each track row in pixels — must match `TRACK_ROW_HEIGHT` in `trackHeaderStyles.ts`. */
+export const TRACK_ROW_HEIGHT = 36;
 
 export const makeClip = (id: string, startFrame: number, trackId = 'track-001'): Clip => ({
   id,

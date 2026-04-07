@@ -2,16 +2,7 @@ import React from 'react';
 
 import { useAutosave } from '@/features/version-history/hooks/useAutosave';
 import { SaveStatusBadge } from './SaveStatusBadge';
-
-// Design-guide tokens used by this component.
-const SURFACE_ALT = '#16161F';
-const BORDER = '#252535';
-const TEXT_PRIMARY = '#F0F0FA';
-const TEXT_SECONDARY = '#8A8AA0';
-const PRIMARY = '#7C3AED';
-const PRIMARY_LIGHT = '#4C1D95';
-const TEXT_DISABLED = '#4A4A5A';
-const SURFACE_DISABLED = '#252535';
+import { styles } from './topBar.styles';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -23,8 +14,29 @@ export interface TopBarProps {
   onToggleHistory: () => void;
   isExportOpen: boolean;
   onToggleExport: () => void;
+  /** Whether the renders queue modal is open. */
+  isRendersOpen: boolean;
+  /** Called when the Renders button is clicked. */
+  onToggleRenders: () => void;
+  /**
+   * Number of render jobs currently queued or processing.
+   * When > 0, a badge is shown on the Renders button.
+   */
+  activeRenderCount: number;
   /** When false, the Export button is greyed out and non-interactive. */
   canExport: boolean;
+  /** Whether undo is available. When false the Undo button is disabled. */
+  canUndo: boolean;
+  /** Whether redo is available. When false the Redo button is disabled. */
+  canRedo: boolean;
+  /** Called when the Undo button is clicked. */
+  onUndo: () => void;
+  /** Called when the Redo button is clicked. */
+  onRedo: () => void;
+  /** Whether the project settings modal is open. */
+  isSettingsOpen: boolean;
+  /** Called when the Settings button is clicked. */
+  onToggleSettings: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -32,7 +44,8 @@ export interface TopBarProps {
 // ---------------------------------------------------------------------------
 
 /**
- * Editor top bar: project title, save status badge, and version history toggle.
+ * Editor top bar: project title, undo/redo, save status badge, version history
+ * toggle, renders queue toggle, and export button.
  */
 export function TopBar({
   projectId,
@@ -40,7 +53,16 @@ export function TopBar({
   onToggleHistory,
   isExportOpen,
   onToggleExport,
+  isRendersOpen,
+  onToggleRenders,
+  activeRenderCount,
   canExport,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
+  isSettingsOpen,
+  onToggleSettings,
 }: TopBarProps): React.ReactElement {
   const { saveStatus, lastSavedAt, hasEverEdited } = useAutosave(projectId);
 
@@ -54,11 +76,74 @@ export function TopBar({
     <header style={styles.topBar} aria-label="Editor top bar">
       <span style={styles.topBarTitle}>ClipTale Editor</span>
       <div style={styles.topBarRight}>
+        {/* Undo / Redo */}
+        <div style={styles.undoRedoGroup}>
+          <button
+            type="button"
+            style={canUndo ? styles.iconButton : styles.iconButtonDisabled}
+            onClick={canUndo ? onUndo : undefined}
+            aria-label="Undo"
+            aria-disabled={!canUndo}
+            title="Undo (Ctrl+Z)"
+          >
+            {/* Left-pointing curved arrow */}
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path
+                d="M2 5H8.5C10.433 5 12 6.567 12 8.5S10.433 12 8.5 12H5"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+              <path
+                d="M4.5 2.5L2 5l2.5 2.5"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            style={canRedo ? styles.iconButton : styles.iconButtonDisabled}
+            onClick={canRedo ? onRedo : undefined}
+            aria-label="Redo"
+            aria-disabled={!canRedo}
+            title="Redo (Ctrl+Y)"
+          >
+            {/* Right-pointing curved arrow (mirror of undo) */}
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path
+                d="M12 5H5.5C3.567 5 2 6.567 2 8.5S3.567 12 5.5 12H9"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+              <path
+                d="M9.5 2.5L12 5l-2.5 2.5"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+
         <SaveStatusBadge
           saveStatus={saveStatus}
           lastSavedAt={lastSavedAt}
           hasEverEdited={hasEverEdited}
         />
+        <button
+          type="button"
+          style={isSettingsOpen ? styles.settingsButtonActive : styles.settingsButton}
+          onClick={onToggleSettings}
+          aria-label="Toggle project settings"
+          aria-pressed={isSettingsOpen}
+        >
+          Settings
+        </button>
         <button
           type="button"
           style={isHistoryOpen ? styles.historyButtonActive : styles.historyButton}
@@ -68,6 +153,25 @@ export function TopBar({
         >
           History
         </button>
+        <div style={styles.rendersButtonWrapper}>
+          <button
+            type="button"
+            style={isRendersOpen ? styles.rendersButtonActive : styles.rendersButton}
+            onClick={onToggleRenders}
+            aria-label="View renders queue"
+            aria-pressed={isRendersOpen}
+          >
+            Renders
+          </button>
+          {activeRenderCount > 0 && (
+            <span
+              style={styles.rendersBadge}
+              aria-label={`${activeRenderCount} active render${activeRenderCount === 1 ? '' : 's'}`}
+            >
+              {activeRenderCount}
+            </span>
+          )}
+        </div>
         <button
           type="button"
           style={exportButtonStyle}
@@ -83,98 +187,3 @@ export function TopBar({
     </header>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
-
-const styles = {
-  topBar: {
-    height: '48px',
-    flexShrink: 0,
-    background: SURFACE_ALT,
-    borderBottom: `1px solid ${BORDER}`,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingLeft: '16px',
-    paddingRight: '16px',
-  } as React.CSSProperties,
-
-  topBarTitle: {
-    fontSize: '14px',
-    fontWeight: 500,
-    color: TEXT_PRIMARY,
-  } as React.CSSProperties,
-
-  topBarRight: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-  } as React.CSSProperties,
-
-  historyButton: {
-    background: 'transparent',
-    border: `1px solid ${BORDER}`,
-    borderRadius: '6px',
-    color: TEXT_SECONDARY,
-    fontSize: '12px',
-    fontWeight: 500,
-    fontFamily: 'Inter, sans-serif',
-    padding: '4px 10px',
-    cursor: 'pointer',
-    lineHeight: '16px',
-  } as React.CSSProperties,
-
-  historyButtonActive: {
-    background: PRIMARY_LIGHT,
-    border: `1px solid ${PRIMARY}`,
-    borderRadius: '6px',
-    color: TEXT_PRIMARY,
-    fontSize: '12px',
-    fontWeight: 500,
-    fontFamily: 'Inter, sans-serif',
-    padding: '4px 10px',
-    cursor: 'pointer',
-    lineHeight: '16px',
-  } as React.CSSProperties,
-
-  exportButton: {
-    background: PRIMARY,
-    border: 'none',
-    borderRadius: '6px',
-    color: TEXT_PRIMARY,
-    fontSize: '12px',
-    fontWeight: 600,
-    fontFamily: 'Inter, sans-serif',
-    padding: '4px 12px',
-    cursor: 'pointer',
-    lineHeight: '16px',
-  } as React.CSSProperties,
-
-  exportButtonActive: {
-    background: PRIMARY_LIGHT,
-    border: `1px solid ${PRIMARY}`,
-    borderRadius: '6px',
-    color: TEXT_PRIMARY,
-    fontSize: '12px',
-    fontWeight: 600,
-    fontFamily: 'Inter, sans-serif',
-    padding: '4px 12px',
-    cursor: 'pointer',
-    lineHeight: '16px',
-  } as React.CSSProperties,
-
-  exportButtonDisabled: {
-    background: SURFACE_DISABLED,
-    border: `1px solid ${BORDER}`,
-    borderRadius: '6px',
-    color: TEXT_DISABLED,
-    fontSize: '12px',
-    fontWeight: 600,
-    fontFamily: 'Inter, sans-serif',
-    padding: '4px 12px',
-    cursor: 'not-allowed',
-    lineHeight: '16px',
-  } as React.CSSProperties,
-};

@@ -12,6 +12,16 @@ vi.mock('@/features/preview/hooks/usePlaybackControls.js', () => ({
   usePlaybackControls: vi.fn(),
 }));
 
+vi.mock('@/store/ephemeral-store', () => ({
+  useEphemeralStore: () => ({ volume: 1, isMuted: false }),
+  setVolume: vi.fn(),
+  setMuted: vi.fn(),
+}));
+
+vi.mock('./VolumeControl', () => ({
+  VolumeControl: () => null,
+}));
+
 import * as playbackControlsModule from '@/features/preview/hooks/usePlaybackControls.js';
 
 const mockUsePlaybackControls = vi.mocked(playbackControlsModule.usePlaybackControls);
@@ -22,6 +32,7 @@ function makeHookResult(overrides: Record<string, unknown> = {}) {
     currentFrame: 0,
     totalFrames: 300,
     timecode: '00:00:00:00',
+    totalTimecode: '00:00:10:00',
     containerRef: { current: null },
     play: vi.fn(),
     pause: vi.fn(),

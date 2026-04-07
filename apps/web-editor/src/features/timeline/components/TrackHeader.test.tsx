@@ -2,8 +2,9 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
-import { TrackHeader } from './TrackHeader';
 import type { Track } from '@ai-video-editor/project-schema';
+
+import { TrackHeader } from './TrackHeader';
 
 const baseTrack: Track = {
   id: 'track-001',
@@ -205,4 +206,45 @@ describe('TrackHeader', () => {
     // Empty string should fall back to original name — no rename call
     expect(onRename).not.toHaveBeenCalled();
   });
+
+  it('does not render a delete button when onDelete is not provided', () => {
+    render(
+      <TrackHeader
+        track={baseTrack}
+        onRename={vi.fn()}
+        onToggleMute={vi.fn()}
+        onToggleLock={vi.fn()}
+      />,
+    );
+    expect(screen.queryByLabelText('Delete track')).toBeNull();
+  });
+
+  it('renders a delete button when onDelete is provided', () => {
+    render(
+      <TrackHeader
+        track={baseTrack}
+        onRename={vi.fn()}
+        onToggleMute={vi.fn()}
+        onToggleLock={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText('Delete track')).toBeDefined();
+  });
+
+  it('calls onDelete with the track id when delete button is clicked', () => {
+    const onDelete = vi.fn();
+    render(
+      <TrackHeader
+        track={baseTrack}
+        onRename={vi.fn()}
+        onToggleMute={vi.fn()}
+        onToggleLock={vi.fn()}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('Delete track'));
+    expect(onDelete).toHaveBeenCalledWith('track-001');
+  });
+
 });

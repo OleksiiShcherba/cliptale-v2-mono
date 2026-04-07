@@ -1,20 +1,29 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { FixedSizeList } from 'react-window';
 
 import type { Clip, Track } from '@ai-video-editor/project-schema';
 
-import { useEphemeralStore, setPxPerFrame, setScrollOffsetX } from '@/store/ephemeral-store';
+import { useEphemeralStore, setPxPerFrame, setPlayheadFrame, setScrollOffsetX } from '@/store/ephemeral-store';
 import { useProjectStore } from '@/store/project-store';
 import { registerTimelinePlayheadUpdater, unregisterTimelinePlayheadUpdater, registerTrackListBounds } from '@/store/timeline-refs';
 
+import { AddTrackMenu } from './AddTrackMenu';
 import { ScrollbarStrip } from './ScrollbarStrip';
 import { TimelineRuler } from './TimelineRuler';
 import { TrackList, TRACK_HEADER_WIDTH } from './TrackList';
 import { useClipDeleteShortcut } from '../hooks/useClipDeleteShortcut';
 import { useClipDrag } from '../hooks/useClipDrag';
 import { useClipTrim } from '../hooks/useClipTrim';
-import { useDropAssetToTimeline } from '../hooks/useDropAssetToTimeline';
-import { PLAYHEAD_COLOR, TRACK_LIST_HEIGHT, styles } from './timelinePanelStyles';
+import { useDropAssetToTimeline, useDropAssetWithAutoTrack } from '../hooks/useDropAssetToTimeline';
+import { useTimelineWheel } from '../hooks/useTimelineWheel';
+import { PLAYHEAD_COLOR, TIMELINE_PANEL_HEIGHT, TOOLBAR_HEIGHT, RULER_HEIGHT, styles } from './timelinePanelStyles';
+import { SCROLLBAR_HEIGHT } from './ScrollbarStrip';
 
+/** Extra pixels scrollable past the end of the last clip. Gives dead space for
+ *  dragging, adding clips, and visual breathing room. */
+export const SCROLL_OVERRUN_PX = 300;
+
+/** Props for the TimelinePanel component. */
 interface TimelinePanelProps {
   /** Called when a track name is edited. */
   onRenameTrack: (trackId: string, newName: string) => void;
@@ -22,6 +31,12 @@ interface TimelinePanelProps {
   onToggleMute: (trackId: string) => void;
   /** Called when lock is toggled. */
   onToggleLock: (trackId: string) => void;
+  /** Called when tracks are reordered via drag-and-drop. */
+  onReorderTracks?: (orderedTrackIds: string[]) => void;
+  /** Called when a track delete button is clicked. */
+  onDeleteTrack?: (trackId: string) => void;
+  /** Override panel height in pixels. Defaults to TIMELINE_PANEL_HEIGHT. Used when the panel is resizable. */
+  height?: number;
 }
 
 /**
@@ -32,15 +47,23 @@ interface TimelinePanelProps {
  * Renders a 1px playhead needle overlaid on the track lane area, positioned
  * at `playheadFrame * pxPerFrame - scrollOffsetX` from the left of the lanes.
  * The needle is hidden when it scrolls outside the visible lane bounds.
+ *
+ * Supports vertical scrolling of the track list via mouse wheel when hovering
+ * over the track header area.
  */
 export function TimelinePanel({
   onRenameTrack,
   onToggleMute,
   onToggleLock,
+  onReorderTracks,
+  onDeleteTrack,
+  height = TIMELINE_PANEL_HEIGHT,
 }: TimelinePanelProps): React.ReactElement {
+  const trackListHeight = height - TOOLBAR_HEIGHT - RULER_HEIGHT - SCROLLBAR_HEIGHT;
   const panelRef = useRef<HTMLDivElement>(null);
   const rulerWrapperRef = useRef<HTMLDivElement>(null);
   const trackListWrapperRef = useRef<HTMLDivElement>(null);
+  const trackListRef = useRef<FixedSizeList | null>(null);
   const [panelWidth, setPanelWidth] = useState(800);
 
   const { pxPerFrame, scrollOffsetX, selectedClipIds, playheadFrame } = useEphemeralStore();
@@ -86,9 +109,11 @@ export function TimelinePanel({
   }, [tracks]);
 
   const handleAssetDrop = useDropAssetToTimeline(projectId);
+  const handleEmptyAreaDrop = useDropAssetWithAutoTrack(projectId);
 
   const laneWidth = Math.max(0, panelWidth - TRACK_HEADER_WIDTH);
   const totalContentWidth = durationFrames * pxPerFrame;
+  const scrollableWidth = totalContentWidth + SCROLL_OVERRUN_PX;
 
   const handleZoomIn = useCallback(() => setPxPerFrame(pxPerFrame * 1.25), [pxPerFrame]);
   const handleZoomOut = useCallback(() => setPxPerFrame(pxPerFrame / 1.25), [pxPerFrame]);
@@ -99,8 +124,8 @@ export function TimelinePanel({
   scrollOffsetXRef.current = scrollOffsetX;
   const laneWidthRef = useRef(laneWidth);
   laneWidthRef.current = laneWidth;
-  const totalContentWidthRef = useRef(totalContentWidth);
-  totalContentWidthRef.current = totalContentWidth;
+  const totalContentWidthRef = useRef(scrollableWidth);
+  totalContentWidthRef.current = scrollableWidth;
   const pxPerFrameRef = useRef(pxPerFrame);
   pxPerFrameRef.current = pxPerFrame;
 
@@ -120,25 +145,14 @@ export function TimelinePanel({
     return () => unregisterTimelinePlayheadUpdater();
   }, []);
 
-  // Attach wheel listeners as non-passive so preventDefault() is allowed.
-  // React's synthetic onWheel is passive by default and blocks preventDefault.
-  useEffect(() => {
-    const handleWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const newOffset = scrollOffsetXRef.current + e.deltaX + e.deltaY;
-      const maxOffset = Math.max(0, totalContentWidthRef.current - laneWidthRef.current);
-      setScrollOffsetX(Math.max(0, Math.min(newOffset, maxOffset)));
-    };
-
-    const ruler = rulerWrapperRef.current;
-    const trackList = trackListWrapperRef.current;
-    ruler?.addEventListener('wheel', handleWheel, { passive: false });
-    trackList?.addEventListener('wheel', handleWheel, { passive: false });
-    return () => {
-      ruler?.removeEventListener('wheel', handleWheel);
-      trackList?.removeEventListener('wheel', handleWheel);
-    };
-  }, []);
+  useTimelineWheel({
+    rulerWrapperRef,
+    trackListWrapperRef,
+    trackListRef,
+    scrollOffsetXRef,
+    totalContentWidthRef,
+    laneWidthRef,
+  });
 
   // Compute playhead needle position within the track list wrapper.
   // The needle left is relative to the wrapper, which starts at the left edge
@@ -147,9 +161,36 @@ export function TimelinePanel({
   const playheadVisible = playheadPx >= TRACK_HEADER_WIDTH && playheadPx <= TRACK_HEADER_WIDTH + laneWidth;
 
   return (
-    <div ref={panelRef} style={styles.panel} aria-label="Timeline">
+    <div ref={panelRef} style={{ ...styles.panel, height }} aria-label="Timeline">
       {/* Toolbar row */}
       <div style={styles.toolbar} role="toolbar" aria-label="Timeline toolbar">
+        {scrollOffsetX > 0 && (
+          <button
+            onClick={() => setScrollOffsetX(0)}
+            aria-label="Scroll to beginning"
+            style={styles.toolbarButton}
+            title="Scroll to beginning"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+              <rect x="0" y="0" width="2" height="12" rx="1" />
+              <rect x="3" y="0" width="2" height="12" rx="1" />
+              <path d="M11 1.134a1 1 0 0 0-1.5-.866L5 6l4.5 5.732A1 1 0 0 0 11 10.866V1.134z" />
+            </svg>
+          </button>
+        )}
+        {playheadFrame > 0 && (
+          <button
+            onClick={() => setPlayheadFrame(0)}
+            aria-label="Return to first frame"
+            style={styles.toolbarButton}
+            title="Return to first frame"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+              <rect x="0" y="0" width="2" height="12" rx="1" />
+              <path d="M11 1.134a1 1 0 0 0-1.5-.866L3 6l6.5 5.732A1 1 0 0 0 11 10.866V1.134z" />
+            </svg>
+          </button>
+        )}
         <button
           onClick={handleZoomOut}
           aria-label="Zoom out timeline"
@@ -172,6 +213,7 @@ export function TimelinePanel({
         <span style={styles.trackCount}>
           {tracks.length} track{tracks.length !== 1 ? 's' : ''}
         </span>
+        <AddTrackMenu />
       </div>
 
       {/* Ruler row — offset by header width so it aligns with the clip lane */}
@@ -198,7 +240,7 @@ export function TimelinePanel({
           selectedClipIds={selectedClipIdSet}
           laneWidth={laneWidth}
           scrollOffsetX={scrollOffsetX}
-          height={TRACK_LIST_HEIGHT}
+          height={trackListHeight}
           dragInfo={dragInfo}
           onClipPointerDown={onClipPointerDown}
           trimInfo={trimInfo}
@@ -208,6 +250,10 @@ export function TimelinePanel({
           onToggleMute={onToggleMute}
           onToggleLock={onToggleLock}
           onAssetDrop={handleAssetDrop}
+          onEmptyAreaDrop={handleEmptyAreaDrop}
+          onReorderTracks={onReorderTracks}
+          onDeleteTrack={onDeleteTrack}
+          listRef={trackListRef}
         />
         {/* Playhead needle — always mounted; rAF bridge mutates left/display directly.
             React-controlled left/display remain correct after pause and on re-renders. */}
@@ -232,11 +278,10 @@ export function TimelinePanel({
       <ScrollbarStrip
         scrollOffsetX={scrollOffsetX}
         laneWidth={laneWidth}
-        totalContentWidth={totalContentWidth}
+        totalContentWidth={scrollableWidth}
         scrollOffsetXRef={scrollOffsetXRef}
         headerWidth={TRACK_HEADER_WIDTH}
       />
     </div>
   );
 }
-

@@ -2,14 +2,7 @@ import React, { useState, useCallback, useRef } from 'react';
 
 import type { Track } from '@ai-video-editor/project-schema';
 
-// Design tokens
-const SURFACE_ALT = '#16161F';
-const BORDER = '#252535';
-const TEXT_PRIMARY = '#F0F0FA';
-const TEXT_SECONDARY = '#8A8AA0';
-const PRIMARY = '#7C3AED';
-const WARNING = '#F59E0B';
-const SURFACE_ELEVATED = '#1E1E2E';
+import { styles, TRACK_ROW_HEIGHT } from './trackHeaderStyles';
 
 /**
  * Width of the track header column in pixels.
@@ -18,8 +11,9 @@ const SURFACE_ELEVATED = '#1E1E2E';
  */
 export const TRACK_HEADER_WIDTH = 160;
 
-/** Height of each track row in pixels (shared with ClipLane). */
-export const TRACK_ROW_HEIGHT = 48;
+// Re-export so all existing consumers (`TrackList`, `ClipLane`, `ClipLaneGhosts`)
+// continue importing from a single entry point without modification.
+export { TRACK_ROW_HEIGHT };
 
 interface TrackHeaderProps {
   track: Track;
@@ -29,11 +23,28 @@ interface TrackHeaderProps {
   onToggleMute: (trackId: string) => void;
   /** Called when the lock toggle is clicked. */
   onToggleLock: (trackId: string) => void;
+  /** Whether this track is currently being dragged. */
+  isDragging?: boolean;
+  /** Whether this track is the current drag-over drop target. */
+  isDropTarget?: boolean;
+  /** Called when drag starts on this header's drag handle. */
+  onDragStart?: (trackId: string) => void;
+  /** Called when another dragged track enters this header. */
+  onDragOver?: (trackId: string) => void;
+  /** Called when a dragged track leaves this header. */
+  onDragLeave?: (trackId: string) => void;
+  /** Called when a dragged track is dropped onto this header. */
+  onDrop?: (trackId: string) => void;
+  /** Called when the drag operation ends (drop or cancel). */
+  onDragEnd?: () => void;
+  /** Called when the delete button is clicked. Deletes the track and all its clips. */
+  onDelete?: (trackId: string) => void;
 }
 
 /**
  * Renders the left-side header for a single timeline track.
- * Shows the track name (click-to-edit), a mute button, and a lock button.
+ * Shows a drag handle (for reordering), the track name (click-to-edit),
+ * a mute button, and a lock button.
  * Name changes commit on Enter or blur.
  */
 export function TrackHeader({
@@ -41,9 +52,18 @@ export function TrackHeader({
   onRename,
   onToggleMute,
   onToggleLock,
+  isDragging = false,
+  isDropTarget = false,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
+  onDelete,
 }: TrackHeaderProps): React.ReactElement {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(track.name);
+  const [isDeleteHovered, setIsDeleteHovered] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleNameClick = useCallback(() => {
@@ -90,11 +110,99 @@ export function TrackHeader({
     [onToggleLock, track.id],
   );
 
+  const handleDeleteClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onDelete?.(track.id);
+    },
+    [onDelete, track.id],
+  );
+
+  // -------------------------------------------------------------------------
+  // Drag-and-drop handlers for track reordering
+  // -------------------------------------------------------------------------
+
+  const handleDragHandleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Prevent the name-click handler from firing
+    e.stopPropagation();
+  }, []);
+
+  const handleDragStart = useCallback(
+    (e: React.DragEvent) => {
+      e.dataTransfer.effectAllowed = 'move';
+      // Set a minimal drag image so the browser default ghost is replaced
+      e.dataTransfer.setData('application/cliptale-track', track.id);
+      onDragStart?.(track.id);
+    },
+    [onDragStart, track.id],
+  );
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (!e.dataTransfer.types.includes('application/cliptale-track')) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      onDragOver?.(track.id);
+    },
+    [onDragOver, track.id],
+  );
+
+  const handleDragLeave = useCallback(
+    (e: React.DragEvent) => {
+      // Only fire if leaving this element entirely (not entering a child)
+      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+      onDragLeave?.(track.id);
+    },
+    [onDragLeave, track.id],
+  );
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      if (!e.dataTransfer.types.includes('application/cliptale-track')) return;
+      onDrop?.(track.id);
+    },
+    [onDrop, track.id],
+  );
+
+  const handleDragEnd = useCallback(() => {
+    onDragEnd?.();
+  }, [onDragEnd]);
+
   return (
     <div
-      style={styles.header}
+      style={{
+        ...styles.header,
+        ...(isDragging ? styles.headerDragging : {}),
+        ...(isDropTarget ? styles.headerDropTarget : {}),
+      }}
       aria-label={`Track: ${track.name}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
+      {/* Drag handle — only this element is draggable to avoid interfering with click-to-rename */}
+      <div
+        draggable
+        onMouseDown={handleDragHandleMouseDown}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        style={styles.dragHandle}
+        aria-label="Drag to reorder track"
+        title="Drag to reorder track"
+        role="button"
+        tabIndex={-1}
+      >
+        <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" aria-hidden="true">
+          <circle cx="3" cy="2" r="1.5" />
+          <circle cx="7" cy="2" r="1.5" />
+          <circle cx="3" cy="7" r="1.5" />
+          <circle cx="7" cy="7" r="1.5" />
+          <circle cx="3" cy="12" r="1.5" />
+          <circle cx="7" cy="12" r="1.5" />
+        </svg>
+      </div>
+
       {/* Track name — click to edit inline */}
       <div style={styles.nameArea}>
         {isEditing ? (
@@ -145,85 +253,23 @@ export function TrackHeader({
         >
           L
         </button>
+        {onDelete && (
+          <button
+            onClick={handleDeleteClick}
+            onMouseEnter={() => setIsDeleteHovered(true)}
+            onMouseLeave={() => setIsDeleteHovered(false)}
+            title="Delete track"
+            aria-label="Delete track"
+            style={{
+              ...styles.controlButtonDelete,
+              ...(isDeleteHovered ? styles.controlButtonDeleteHover : {}),
+            }}
+          >
+            ×
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  header: {
-    width: TRACK_HEADER_WIDTH,
-    height: TRACK_ROW_HEIGHT,
-    flexShrink: 0,
-    background: SURFACE_ALT,
-    borderRight: `1px solid ${BORDER}`,
-    borderBottom: `1px solid ${BORDER}`,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 4,
-    padding: '0 8px',
-    overflow: 'hidden',
-  },
-  nameArea: {
-    flex: 1,
-    overflow: 'hidden',
-    minWidth: 0,
-  },
-  nameButton: {
-    background: 'none',
-    border: 'none',
-    color: TEXT_PRIMARY,
-    fontSize: 12,
-    fontFamily: 'Inter, sans-serif',
-    cursor: 'pointer',
-    padding: 0,
-    textAlign: 'left',
-    width: '100%',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  nameInput: {
-    background: SURFACE_ELEVATED,
-    border: `1px solid ${PRIMARY}`,
-    borderRadius: 4,
-    color: TEXT_PRIMARY,
-    fontSize: 12,
-    fontFamily: 'Inter, sans-serif',
-    padding: '1px 4px',
-    width: '100%',
-    outline: 'none',
-  },
-  controls: {
-    display: 'flex',
-    gap: 2,
-    flexShrink: 0,
-  },
-  controlButton: {
-    width: 20,
-    height: 20,
-    background: 'transparent',
-    border: `1px solid ${BORDER}`,
-    borderRadius: 4,
-    color: TEXT_SECONDARY,
-    fontSize: 9,
-    fontFamily: 'Inter, sans-serif',
-    fontWeight: 600,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    padding: 0,
-  },
-  controlButtonActive: {
-    background: WARNING,
-    borderColor: WARNING,
-    color: '#000',
-  },
-  controlButtonLocked: {
-    background: PRIMARY,
-    borderColor: PRIMARY,
-    color: '#fff',
-  },
-};

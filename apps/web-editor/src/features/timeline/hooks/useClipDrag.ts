@@ -10,10 +10,8 @@
  * Multi-clip drag: when multiple clips are selected, all selected clips move
  * together maintaining their relative `startFrame` offsets.
  *
- * Cross-track drag: moving the pointer vertically across track rows changes
- * the target track. All dragged clips move to the new track on drop.
- * The target track is resolved from pointer Y using the track list bounds
- * registered in `timeline-refs.ts`.
+ * Clips always stay on their original track — cross-track drag is intentionally
+ * disabled. Only horizontal position (startFrame) changes on drop.
  */
 
 import { useCallback, useRef, useState } from 'react';
@@ -26,7 +24,6 @@ import { getSnapshot as getEphemeralSnapshot } from '@/store/ephemeral-store';
 import { patchClip } from '../api';
 import { useSnapping } from './useSnapping';
 import type { ClipDragInfo, ClipDragOrigin, DragState } from './useClipDragHelpers';
-import { resolveTargetTrackId } from './useClipDragHelpers';
 
 export type { ClipDragInfo } from './useClipDragHelpers';
 
@@ -80,15 +77,14 @@ export function useClipDrag(projectId: string): UseClipDragReturn {
   );
 
   const commitDrag = useCallback(
-    async (ds: DragState, positions: Map<string, number>, finalTargetTrackId: string | null) => {
+    async (ds: DragState, positions: Map<string, number>) => {
       const project = getProjectSnapshot();
 
       const updatedClips = (project.clips ?? []).map((clip) => {
         const newStart = positions.get(clip.id);
         if (newStart !== undefined) {
-          const origin = ds.origins.find(o => o.clipId === clip.id)!;
-          const newTrackId = finalTargetTrackId ?? origin.originalTrackId;
-          return { ...clip, startFrame: newStart, trackId: newTrackId };
+          // Track never changes — clips stay on their original track.
+          return { ...clip, startFrame: newStart };
         }
         return clip;
       });
@@ -101,17 +97,10 @@ export function useClipDrag(projectId: string): UseClipDragReturn {
           const newStart = positions.get(origin.clipId);
           if (newStart === undefined) return Promise.resolve();
 
-          const newTrackId = finalTargetTrackId ?? origin.originalTrackId;
-          const trackChanged = newTrackId !== origin.originalTrackId;
           const frameChanged = newStart !== origin.originalStartFrame;
+          if (!frameChanged) return Promise.resolve();
 
-          if (!trackChanged && !frameChanged) return Promise.resolve();
-
-          const payload: Parameters<typeof patchClip>[2] = {};
-          if (frameChanged) payload.startFrame = newStart;
-          if (trackChanged) payload.trackId = newTrackId;
-
-          return patchClip(projectId, origin.clipId, payload);
+          return patchClip(projectId, origin.clipId, { startFrame: newStart });
         }),
       );
     },
@@ -127,19 +116,12 @@ export function useClipDrag(projectId: string): UseClipDragReturn {
       const currentPointerFrame = e.clientX / pxPerFrame;
 
       const { positions, snapResult } = resolvePositions(ds, currentPointerFrame);
-      const targetTrackId = resolveTargetTrackId(e.clientY);
-
-      // Build snapshots of dragging clips for cross-track ghost rendering.
-      const allClips = (getProjectSnapshot().clips ?? []) as ReadonlyArray<Clip & { layer?: number }>;
-      const draggingClipSnapshots = allClips.filter(c => positions.has(c.id));
 
       setDragInfo({
         draggingClipIds: new Set(ds.origins.map((o) => o.clipId)),
         ghostPositions: positions,
         isSnapping: snapResult.isSnapping,
         snapIndicatorPx: snapResult.snapPx,
-        targetTrackId,
-        draggingClipSnapshots,
       });
     },
     [resolvePositions],
@@ -159,8 +141,7 @@ export function useClipDrag(projectId: string): UseClipDragReturn {
         const pxPerFrame = getEphemeralSnapshot().pxPerFrame;
         const currentPointerFrame = e.clientX / pxPerFrame;
         const { positions } = resolvePositions(ds, currentPointerFrame);
-        const finalTargetTrackId = resolveTargetTrackId(e.clientY);
-        void commitDrag(ds, positions, finalTargetTrackId);
+        void commitDrag(ds, positions);
       }
 
       dragStateRef.current = null;
@@ -233,15 +214,11 @@ export function useClipDrag(projectId: string): UseClipDragReturn {
         cancelled: false,
       };
 
-      const draggingClipSnapshots = allClips.filter(c => clipIdsToMove.includes(c.id)) as ReadonlyArray<Clip & { layer?: number }>;
-
       setDragInfo({
         draggingClipIds: new Set(clipIdsToMove),
         ghostPositions: new Map(origins.map((o) => [o.clipId, o.originalStartFrame])),
         isSnapping: false,
         snapIndicatorPx: null,
-        targetTrackId: anchorClip.trackId,
-        draggingClipSnapshots,
       });
 
       // Capture pointer on the DOM element for reliable tracking.

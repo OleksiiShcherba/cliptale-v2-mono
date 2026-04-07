@@ -242,4 +242,6 @@ describe('render.service', () => {
       expect(mockGetSignedUrl).not.toHaveBeenCalled();
     });
   });
+
 });
+

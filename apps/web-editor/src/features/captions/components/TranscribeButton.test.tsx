@@ -22,6 +22,15 @@ import * as captionsApi from '@/features/captions/api';
 import * as useTranscriptionStatusModule from '@/features/captions/hooks/useTranscriptionStatus';
 import * as useAddCaptionsToTimelineModule from '@/features/captions/hooks/useAddCaptionsToTimeline';
 
+import {
+  TEST_SEGMENTS,
+  makeIdleStatus,
+  makeReadyStatus,
+  makeErrorStatus,
+  makeFetchingStatus,
+  makeAddCaptionsHook,
+} from './TranscribeButton.fixtures';
+
 const mockTriggerTranscription = vi.mocked(captionsApi.triggerTranscription);
 const mockUseTranscriptionStatus = vi.mocked(
   useTranscriptionStatusModule.useTranscriptionStatus,
@@ -29,31 +38,6 @@ const mockUseTranscriptionStatus = vi.mocked(
 const mockUseAddCaptionsToTimeline = vi.mocked(
   useAddCaptionsToTimelineModule.useAddCaptionsToTimeline,
 );
-
-const TEST_SEGMENTS = [
-  { start: 0.0, end: 2.5, text: 'Hello world' },
-  { start: 2.5, end: 5.0, text: 'Second line' },
-];
-
-function makeIdleStatus(isFetching = false) {
-  return { status: 'idle' as const, segments: null, isFetching };
-}
-
-function makeReadyStatus() {
-  return { status: 'ready' as const, segments: TEST_SEGMENTS, isFetching: false };
-}
-
-function makeErrorStatus() {
-  return { status: 'error' as const, segments: null, isFetching: false };
-}
-
-function makeFetchingStatus() {
-  return { status: 'idle' as const, segments: null, isFetching: true };
-}
-
-function makeAddCaptionsHook() {
-  return { addCaptionsToTimeline: vi.fn() };
-}
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
@@ -73,7 +57,6 @@ describe('TranscribeButton', () => {
 
     it('does NOT pass null as assetId to useTranscriptionStatus before user clicks', () => {
       render(<TranscribeButton assetId="asset-001" />);
-      // First argument should always be the assetId string, never null.
       const calls = mockUseTranscriptionStatus.mock.calls;
       expect(calls.every(([assetId]) => assetId === 'asset-001')).toBe(true);
     });
@@ -123,7 +106,6 @@ describe('TranscribeButton', () => {
 
   describe('ready state on mount (existing captions detected)', () => {
     beforeEach(() => {
-      // Simulate the hook returning ready immediately (captions already exist).
       mockUseTranscriptionStatus.mockReturnValue(makeReadyStatus());
     });
 
@@ -188,62 +170,6 @@ describe('TranscribeButton', () => {
     });
   });
 
-  describe('ready state (after transcription flow)', () => {
-    beforeEach(() => {
-      mockUseTranscriptionStatus.mockReturnValue(makeReadyStatus());
-    });
-
-    it('renders "Add Captions to Timeline" label when ready (on mount, no click needed)', () => {
-      // Because assetId is always passed, the hook resolves ready on mount.
-      render(<TranscribeButton assetId="asset-001" />);
-      expect(
-        screen.getByRole('button', { name: 'Add Captions to Timeline' }),
-      ).toBeDefined();
-    });
-
-    it('calls addCaptionsToTimeline with segments when "Add Captions to Timeline" is clicked', () => {
-      const addCaptionsToTimeline = vi.fn();
-      mockUseAddCaptionsToTimeline.mockReturnValue({ addCaptionsToTimeline });
-
-      render(<TranscribeButton assetId="asset-001" />);
-      fireEvent.click(screen.getByRole('button', { name: 'Add Captions to Timeline' }));
-      expect(addCaptionsToTimeline).toHaveBeenCalledWith(TEST_SEGMENTS);
-    });
-  });
-
-  describe('"Captions Added" state (Task 2: feedback after adding to timeline)', () => {
-    beforeEach(() => {
-      // Hook returns ready on mount since assetId is always passed.
-      mockUseTranscriptionStatus.mockReturnValue(makeReadyStatus());
-    });
-
-    it('changes label to "Captions Added" after clicking "Add Captions to Timeline"', () => {
-      render(<TranscribeButton assetId="asset-001" />);
-      fireEvent.click(screen.getByRole('button', { name: 'Add Captions to Timeline' }));
-      expect(screen.getByRole('button', { name: 'Captions Added' })).toBeDefined();
-    });
-
-    it('disables the button after "Captions Added" to prevent duplicate clicks', () => {
-      render(<TranscribeButton assetId="asset-001" />);
-      fireEvent.click(screen.getByRole('button', { name: 'Add Captions to Timeline' }));
-      const addedBtn = screen.getByRole('button', { name: 'Captions Added' });
-      expect((addedBtn as HTMLButtonElement).disabled).toBe(true);
-    });
-
-    it('calls addCaptionsToTimeline only once even if button element is clicked again after state change', () => {
-      const addCaptionsToTimeline = vi.fn();
-      mockUseAddCaptionsToTimeline.mockReturnValue({ addCaptionsToTimeline });
-
-      render(<TranscribeButton assetId="asset-001" />);
-      const addBtn = screen.getByRole('button', { name: 'Add Captions to Timeline' });
-      fireEvent.click(addBtn);
-
-      // Button is now disabled/relabeled — HTML disabled prevents handler from firing.
-      // We verify only one call was made.
-      expect(addCaptionsToTimeline).toHaveBeenCalledTimes(1);
-    });
-  });
-
   describe('error state', () => {
     it('renders error retry label when status is error on mount', () => {
       mockUseTranscriptionStatus.mockReturnValue(makeErrorStatus());
@@ -254,14 +180,11 @@ describe('TranscribeButton', () => {
     });
 
     it('resets to idle state when retry is clicked after triggering transcription that errored', async () => {
-      // Start idle → user clicks "Transcribe" → mock returns error (transcription failed).
       mockUseTranscriptionStatus.mockReturnValue(makeIdleStatus());
       render(<TranscribeButton assetId="asset-001" />);
 
-      // Click "Transcribe" to set hasPendingTranscription=true.
       fireEvent.click(screen.getByRole('button', { name: 'Transcribe' }));
 
-      // Polling now resolves to error.
       mockUseTranscriptionStatus.mockReturnValue(makeErrorStatus());
 
       await waitFor(() => {
@@ -270,7 +193,6 @@ describe('TranscribeButton', () => {
         ).toBeDefined();
       });
 
-      // Clicking retry sets hasPendingTranscription=false; hook returns idle.
       mockUseTranscriptionStatus.mockReturnValue(makeIdleStatus());
       fireEvent.click(screen.getByRole('button', { name: 'Transcription failed — Retry' }));
 
@@ -287,8 +209,6 @@ describe('TranscribeButton', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        // After a successful trigger, hasPendingTranscription becomes true.
-        // The hook should be called with pollingEnabled=true on the next render.
         const calls = mockUseTranscriptionStatus.mock.calls;
         const hasPollingCall = calls.some(([, pollingEnabled]) => pollingEnabled === true);
         expect(hasPollingCall).toBe(true);
@@ -297,7 +217,6 @@ describe('TranscribeButton', () => {
 
     it('passes pollingEnabled=false to useTranscriptionStatus before user triggers transcription', () => {
       render(<TranscribeButton assetId="asset-001" />);
-      // Only one render on mount — pollingEnabled must be false.
       expect(mockUseTranscriptionStatus).toHaveBeenLastCalledWith('asset-001', false);
     });
   });
@@ -313,8 +232,8 @@ describe('TranscribeButton', () => {
         expect(screen.getByRole('button', { name: 'Transcribe' })).toBeDefined();
       });
 
-      // Verify assetId is always passed (mount fetch still happens).
       expect(mockUseTranscriptionStatus).toHaveBeenCalledWith('asset-001', false);
     });
   });
+
 });

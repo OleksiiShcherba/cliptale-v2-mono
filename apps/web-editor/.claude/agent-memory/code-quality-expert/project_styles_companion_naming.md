@@ -8,4 +8,4 @@ type: project
 
 **Why:** §9 lists only two patterns for `.ts` files: `camelCase.ts` (utilities) with specific suffixes for service/repo/controller/route/schema files. `PascalCase.styles.ts` matches none of them.
 
-**How to apply:** Any future styles-companion extraction file must be named in `camelCase` — e.g. `timelinePanelStyles.ts` — not `PascalCase.styles.ts`. Flag all occurrences of the `PascalCase.styles.ts` pattern as §9 violations.
+**How to apply:** Any future styles-companion extraction file must be named in `camelCase` — e.g. `timelinePanelStyles.ts` — not `PascalCase.styles.ts` or `camelCase.styles.ts`. The `.styles.ts` suffix is not recognized by §9 regardless of whether the base is PascalCase or camelCase. Flag all occurrences as §9 violations. Second occurrence flagged 2026-04-07: `addToTimelineDropdown.styles.ts` in the asset-manager components folder.

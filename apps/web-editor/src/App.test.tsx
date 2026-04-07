@@ -2,10 +2,6 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
 vi.mock('@tanstack/react-query', () => ({
   QueryClient: vi.fn().mockImplementation(() => ({})),
   QueryClientProvider: ({ children }: { children: React.ReactNode }) =>
@@ -34,8 +30,14 @@ vi.mock('@/features/captions/components/CaptionEditorPanel', () => ({
     React.createElement('div', { 'data-testid': 'caption-editor-panel', 'data-clip-id': clip.id }),
 }));
 
+vi.mock('@/features/timeline/components/ImageClipEditorPanel', () => ({
+  ImageClipEditorPanel: ({ clip }: { clip: { id: string } }) =>
+    React.createElement('div', { 'data-testid': 'image-clip-editor-panel', 'data-clip-id': clip.id }),
+}));
+
 vi.mock('@/store/ephemeral-store', () => ({
   useEphemeralStore: vi.fn(),
+  setSelectedClips: vi.fn(),
 }));
 
 vi.mock('@/store/project-store', () => ({
@@ -43,6 +45,7 @@ vi.mock('@/store/project-store', () => ({
   getSnapshot: vi.fn(),
   subscribe: vi.fn().mockReturnValue(() => {}),
   setProject: vi.fn(),
+  setProjectSilent: vi.fn(),
   getCurrentVersionId: vi.fn().mockReturnValue(7),
   setCurrentVersionId: vi.fn(),
 }));
@@ -50,6 +53,9 @@ vi.mock('@/store/project-store', () => ({
 vi.mock('@/store/history-store', () => ({
   drainPatches: vi.fn().mockReturnValue({ patches: [], inversePatches: [] }),
   hasPendingPatches: vi.fn().mockReturnValue(false),
+  useHistoryStore: vi.fn().mockReturnValue({ canUndo: false, canRedo: false }),
+  undo: vi.fn().mockReturnValue(null),
+  redo: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock('@/features/version-history/hooks/useAutosave', () => ({
@@ -69,6 +75,15 @@ vi.mock('@/features/export/components/ExportModal', () => ({
     React.createElement('div', { 'data-testid': 'export-modal', onClick: onClose }),
 }));
 
+vi.mock('@/features/export/components/RendersQueueModal', () => ({
+  RendersQueueModal: ({ onClose }: { onClose: () => void }) =>
+    React.createElement('div', { 'data-testid': 'renders-queue-modal', onClick: onClose }),
+}));
+
+vi.mock('@/features/export/hooks/useListRenders', () => ({
+  useListRenders: vi.fn().mockReturnValue({ renders: [], isLoading: false, error: null, activeCount: 0 }),
+}));
+
 vi.mock('@/features/timeline/components/TimelinePanel', () => ({
   TimelinePanel: () => React.createElement('div', { 'data-testid': 'timeline-panel' }),
 }));
@@ -77,12 +92,24 @@ vi.mock('@/features/project/hooks/useProjectInit', () => ({
   useProjectInit: vi.fn(),
 }));
 
+vi.mock('@/shared/hooks/useWindowWidth', () => ({
+  useWindowWidth: vi.fn().mockReturnValue(1440),
+}));
+
+vi.mock('@/features/preview/components/MobileInspectorTabs', () => ({
+  MobileInspectorTabs: () => React.createElement('nav', { 'data-testid': 'mobile-inspector-tabs' }),
+}));
+
+vi.mock('@/features/preview/components/MobileBottomBar', () => ({
+  MobileBottomBar: () => React.createElement('nav', { 'data-testid': 'mobile-bottom-bar' }),
+}));
+
 import * as ephemeralStoreModule from '@/store/ephemeral-store';
 import * as projectStoreModule from '@/store/project-store';
 import * as autosaveModule from '@/features/version-history/hooks/useAutosave';
-import * as useRemotionPlayerModule from '@/features/preview/hooks/useRemotionPlayer';
 import * as useProjectInitModule from '@/features/project/hooks/useProjectInit';
-import { App, PreviewSection } from './App.js';
+import * as useWindowWidthModule from '@/shared/hooks/useWindowWidth';
+import { App } from './App.js';
 import { makeProjectDoc } from './App.fixtures';
 
 const TEST_PROJECT_ID = 'test-project-app-001';
@@ -90,16 +117,13 @@ const TEST_PROJECT_ID = 'test-project-app-001';
 const mockUseEphemeralStore = vi.mocked(ephemeralStoreModule.useEphemeralStore);
 const mockUseProjectStore = vi.mocked(projectStoreModule.useProjectStore);
 const mockUseAutosave = vi.mocked(autosaveModule.useAutosave);
-const mockUseRemotionPlayer = vi.mocked(useRemotionPlayerModule.useRemotionPlayer);
+const mockUseWindowWidth = vi.mocked(useWindowWidthModule.useWindowWidth);
 const mockUseProjectInit = vi.mocked(useProjectInitModule.useProjectInit);
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseWindowWidth.mockReturnValue(1440);
     mockUseProjectInit.mockReturnValue({ status: 'ready', projectId: TEST_PROJECT_ID });
     mockUseEphemeralStore.mockReturnValue({
       selectedClipIds: [],
@@ -170,8 +194,7 @@ describe('App', () => {
       const { container } = render(<App />);
       const shell = container.firstChild as HTMLElement;
       const shellChildren = Array.from(shell.children);
-      // Shell has: TopBar + editor row + TimelinePanel = 3 children
-      expect(shellChildren.length).toBe(3);
+      expect(shellChildren.length).toBe(4); // TopBar + editorRow + ResizeHandle + TimelinePanel
       const editorRow = shellChildren[1] as HTMLElement;
       const editorRowChildren = Array.from(editorRow.children);
       expect(editorRowChildren.length).toBeGreaterThanOrEqual(3);
@@ -281,137 +304,32 @@ describe('App', () => {
       const exportBtn = screen.getByRole('button', { name: 'Export video' });
       expect(exportBtn.getAttribute('title')).toBe('Save your project first to export.');
     });
+
+    // ── Renders queue button + modal ─────────────────────────────────────────
+
+    it('renders a "View renders queue" button in the top bar', () => {
+      render(<App />);
+      expect(screen.getByRole('button', { name: 'View renders queue' })).toBeTruthy();
+    });
+
+    it('does not show RendersQueueModal by default', () => {
+      render(<App />);
+      expect(screen.queryByTestId('renders-queue-modal')).toBeNull();
+    });
+
+    it('shows RendersQueueModal after clicking the Renders button', () => {
+      render(<App />);
+      fireEvent.click(screen.getByRole('button', { name: 'View renders queue' }));
+      expect(screen.getByTestId('renders-queue-modal')).toBeTruthy();
+    });
+
+    it('hides RendersQueueModal after a second click on the Renders button', () => {
+      render(<App />);
+      const rendersBtn = screen.getByRole('button', { name: 'View renders queue' });
+      fireEvent.click(rendersBtn);
+      fireEvent.click(rendersBtn);
+      expect(screen.queryByTestId('renders-queue-modal')).toBeNull();
+    });
   });
 });
 
-describe('PreviewSection', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    // Restore default useRemotionPlayer return value so Bug 3 tests don't
-    // pollute the simple render assertions above.
-    mockUseRemotionPlayer.mockReturnValue({ playerRef: { current: null } });
-    mockUseEphemeralStore.mockReturnValue({
-      selectedClipIds: [],
-      playheadFrame: 0,
-      zoom: 1,
-      pxPerFrame: 4,
-      scrollOffsetX: 0,
-    });
-  });
-
-  it('renders PreviewPanel', () => {
-    render(<PreviewSection />);
-    expect(screen.getByTestId('preview-panel')).toBeTruthy();
-  });
-
-  it('renders PlaybackControls', () => {
-    render(<PreviewSection />);
-    expect(screen.getByTestId('playback-controls')).toBeTruthy();
-  });
-
-  it('renders PreviewPanel before PlaybackControls in DOM order', () => {
-    const { container } = render(<PreviewSection />);
-    const section = container.firstChild as HTMLElement;
-    const children = Array.from(section.children);
-    expect(children[0]?.querySelector('[data-testid="preview-panel"]')).toBeTruthy();
-    expect(children[1]?.getAttribute('data-testid')).toBe('playback-controls');
-  });
-
-  // ---------------------------------------------------------------------------
-  // Bug 3 — ruler click seeks Remotion player (useEffect on playheadFrame)
-  // ---------------------------------------------------------------------------
-
-  it('calls player.seekTo with playheadFrame when playheadFrame changes and player is not playing (Bug 3)', () => {
-    const seekTo = vi.fn();
-    const mockPlayer = { seekTo, isPlaying: () => false };
-
-    mockUseRemotionPlayer.mockReturnValue({
-      playerRef: { current: mockPlayer } as unknown as React.RefObject<import('@remotion/player').PlayerRef | null>,
-    });
-    mockUseEphemeralStore.mockReturnValue({
-      selectedClipIds: [],
-      playheadFrame: 0,
-      zoom: 1,
-      pxPerFrame: 4,
-      scrollOffsetX: 0,
-    });
-
-    const { rerender } = render(<PreviewSection />);
-    seekTo.mockClear();
-
-    // Simulate a playheadFrame change (e.g. ruler click) while not playing.
-    mockUseEphemeralStore.mockReturnValue({
-      selectedClipIds: [],
-      playheadFrame: 45,
-      zoom: 1,
-      pxPerFrame: 4,
-      scrollOffsetX: 0,
-    });
-    rerender(<PreviewSection />);
-
-    expect(seekTo).toHaveBeenCalledWith(45);
-  });
-
-  it('does NOT call player.seekTo when player is currently playing (Bug 3)', () => {
-    const seekTo = vi.fn();
-    const mockPlayer = { seekTo, isPlaying: () => true };
-
-    mockUseRemotionPlayer.mockReturnValue({
-      playerRef: { current: mockPlayer } as unknown as React.RefObject<import('@remotion/player').PlayerRef | null>,
-    });
-    mockUseEphemeralStore.mockReturnValue({
-      selectedClipIds: [],
-      playheadFrame: 0,
-      zoom: 1,
-      pxPerFrame: 4,
-      scrollOffsetX: 0,
-    });
-
-    const { rerender } = render(<PreviewSection />);
-    seekTo.mockClear();
-
-    // Change playheadFrame but player is still playing — seekTo must NOT be called.
-    mockUseEphemeralStore.mockReturnValue({
-      selectedClipIds: [],
-      playheadFrame: 90,
-      zoom: 1,
-      pxPerFrame: 4,
-      scrollOffsetX: 0,
-    });
-    rerender(<PreviewSection />);
-
-    expect(seekTo).not.toHaveBeenCalled();
-  });
-
-  it('does not throw when playerRef.current is null and playheadFrame changes (Bug 3)', () => {
-    mockUseRemotionPlayer.mockReturnValue({
-      playerRef: { current: null },
-    });
-    mockUseEphemeralStore.mockReturnValue({
-      selectedClipIds: [],
-      playheadFrame: 0,
-      zoom: 1,
-      pxPerFrame: 4,
-      scrollOffsetX: 0,
-    });
-
-    const { rerender } = render(<PreviewSection />);
-
-    mockUseEphemeralStore.mockReturnValue({
-      selectedClipIds: [],
-      playheadFrame: 30,
-      zoom: 1,
-      pxPerFrame: 4,
-      scrollOffsetX: 0,
-    });
-
-    expect(() => rerender(<PreviewSection />)).not.toThrow();
-  });
-});
-
-describe('PreviewPanel props', () => {
-  it('accepts optional playerRef without crashing', () => {
-    render(<PreviewSection />);
-    expect(screen.getByTestId('preview-panel')).toBeTruthy();
-  });
-});

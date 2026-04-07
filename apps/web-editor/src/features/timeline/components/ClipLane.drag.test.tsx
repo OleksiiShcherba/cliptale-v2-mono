@@ -2,9 +2,8 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render } from '@testing-library/react';
 
-import type { Clip } from '@ai-video-editor/project-schema';
 import { ClipLane } from './ClipLane';
-import { defaultProps, clip1, makeDragInfo } from './ClipLane.fixtures';
+import { defaultProps, makeDragInfo } from './ClipLane.fixtures';
 
 vi.mock('../api', () => ({
   createClip: vi.fn().mockResolvedValue(undefined),
@@ -21,8 +20,7 @@ describe('ClipLane — drag ghosts and snap indicator', () => {
       draggingClipIds: new Set(['clip-001']),
       ghostPositions: new Map([['clip-001', 20]]),
     });
-    render(<ClipLane {...defaultProps} dragInfo={dragInfo} />);
-    // 2 original + 1 same-track ghost
+    // 2 original clips + 1 same-track ghost = at least 2 role="button" elements
     const { container } = render(<ClipLane {...defaultProps} dragInfo={dragInfo} />);
     const buttons = container.querySelectorAll('[role="button"]');
     expect(buttons.length).toBeGreaterThanOrEqual(2);
@@ -54,71 +52,34 @@ describe('ClipLane — drag ghosts and snap indicator', () => {
     expect(snapIndicator).toBeUndefined();
   });
 
-  it('shows drop target overlay when a clip from a different track is being dragged over this lane', () => {
-    const dragInfo = makeDragInfo({
-      draggingClipIds: new Set(['clip-external']),
-      ghostPositions: new Map([['clip-external', 10]]),
-      targetTrackId: 'track-001',
-      draggingClipSnapshots: [
-        {
-          id: 'clip-external',
-          type: 'video',
-          assetId: 'asset-002',
-          trackId: 'track-002', // different from this lane's track-001
-          startFrame: 0,
-          durationFrames: 30,
-          trimInFrame: 0,
-          volume: 1,
-          opacity: 1,
-        } as unknown as Clip & { layer?: number },
-      ],
-    });
-    const { container } = render(<ClipLane {...defaultProps} dragInfo={dragInfo} />);
-    const overlay = container.querySelector('[style*="dashed"]') as HTMLElement | null;
-    expect(overlay).not.toBeNull();
-  });
-
-  it('does NOT show drop target overlay when dragged clip originates on the same track', () => {
+  it('does NOT show clip drag drop target overlay when dragging a clip (clips stay on original track)', () => {
+    // Cross-track clip drag overlay is no longer rendered; only asset browser drags show an overlay.
     const dragInfo = makeDragInfo({
       draggingClipIds: new Set(['clip-001']),
       ghostPositions: new Map([['clip-001', 20]]),
-      targetTrackId: 'track-001',
-      draggingClipSnapshots: [{ ...clip1 }] as unknown as ReadonlyArray<Clip & { layer?: number }>,
     });
     const { container } = render(<ClipLane {...defaultProps} dragInfo={dragInfo} />);
+    // The dashed border overlay only appears for asset-browser drags, not clip drags.
     const overlay = container.querySelector('[style*="dashed"]') as HTMLElement | null;
     expect(overlay).toBeNull();
   });
 
-  it('renders cross-track ghost block on the target lane when dragging from another track', () => {
-    const externalClip: Clip & { layer?: number } = {
-      id: 'clip-external',
-      type: 'video',
-      assetId: 'asset-ext',
-      trackId: 'track-002', // source is different from this lane (track-001)
-      startFrame: 5,
-      durationFrames: 20,
-      trimInFrame: 0,
-      volume: 1,
-      opacity: 1,
-    } as unknown as Clip & { layer?: number };
-
+  it('renders same-track ghost block at projected position during drag', () => {
     const dragInfo = makeDragInfo({
-      draggingClipIds: new Set(['clip-external']),
-      ghostPositions: new Map([['clip-external', 15]]),
-      targetTrackId: 'track-001',
-      draggingClipSnapshots: [externalClip],
+      draggingClipIds: new Set(['clip-001']),
+      ghostPositions: new Map([['clip-001', 15]]),
     });
 
-    // Render track-001 lane with no clips of its own so ghost count is unambiguous.
-    const { container } = render(
-      <ClipLane {...defaultProps} clips={[]} dragInfo={dragInfo} />,
-    );
+    const { container } = render(<ClipLane {...defaultProps} dragInfo={dragInfo} />);
 
     const ghostBlocks = container.querySelectorAll('[role="button"]');
-    expect(ghostBlocks.length).toBe(1);
-    const ghostBlock = ghostBlocks[0] as HTMLElement;
-    // ghostLeft = 15 * pxPerFrame(4) - scrollOffsetX(0) = 60px
-    expect(ghostBlock.style.left).toBe('60px');
+    // clip-001 (dimmed original) + ghost + clip-002 = at least 2 buttons
+    expect(ghostBlocks.length).toBeGreaterThanOrEqual(2);
+
+    // The ghost block should be positioned at: 15 * pxPerFrame(4) - scrollOffsetX(0) = 60px
+    const ghostBlock = Array.from(ghostBlocks).find(
+      (b) => (b as HTMLElement).style.left === '60px',
+    ) as HTMLElement | undefined;
+    expect(ghostBlock).toBeDefined();
   });
 });

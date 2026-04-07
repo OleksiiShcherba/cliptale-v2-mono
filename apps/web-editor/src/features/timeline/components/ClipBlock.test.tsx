@@ -32,7 +32,7 @@ const defaultProps = {
   pxPerFrame: 4,
   isSelected: false,
   isLocked: false,
-  laneHeight: 48,
+  laneHeight: 36,
   scrollOffsetX: 0,
   onClick: vi.fn(),
 };

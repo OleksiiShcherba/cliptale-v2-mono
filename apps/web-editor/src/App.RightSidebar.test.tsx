@@ -33,6 +33,21 @@ vi.mock('@/features/captions/components/CaptionEditorPanel', () => ({
     React.createElement('div', { 'data-testid': 'caption-editor-panel', 'data-clip-id': clip.id }),
 }));
 
+vi.mock('@/features/timeline/components/ImageClipEditorPanel', () => ({
+  ImageClipEditorPanel: ({ clip }: { clip: { id: string } }) =>
+    React.createElement('div', { 'data-testid': 'image-clip-editor-panel', 'data-clip-id': clip.id }),
+}));
+
+vi.mock('@/features/timeline/components/VideoClipEditorPanel', () => ({
+  VideoClipEditorPanel: ({ clip }: { clip: { id: string } }) =>
+    React.createElement('div', { 'data-testid': 'video-clip-editor-panel', 'data-clip-id': clip.id }),
+}));
+
+vi.mock('@/features/timeline/components/AudioClipEditorPanel', () => ({
+  AudioClipEditorPanel: ({ clip }: { clip: { id: string } }) =>
+    React.createElement('div', { 'data-testid': 'audio-clip-editor-panel', 'data-clip-id': clip.id }),
+}));
+
 vi.mock('@/store/ephemeral-store', () => ({
   useEphemeralStore: vi.fn(),
 }));
@@ -42,6 +57,7 @@ vi.mock('@/store/project-store', () => ({
   getSnapshot: vi.fn(),
   subscribe: vi.fn().mockReturnValue(() => {}),
   setProject: vi.fn(),
+  setProjectSilent: vi.fn(),
   getCurrentVersionId: vi.fn().mockReturnValue(null),
   setCurrentVersionId: vi.fn(),
 }));
@@ -49,6 +65,9 @@ vi.mock('@/store/project-store', () => ({
 vi.mock('@/store/history-store', () => ({
   drainPatches: vi.fn().mockReturnValue({ patches: [], inversePatches: [] }),
   hasPendingPatches: vi.fn().mockReturnValue(false),
+  useHistoryStore: vi.fn().mockReturnValue({ canUndo: false, canRedo: false }),
+  undo: vi.fn().mockReturnValue(null),
+  redo: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock('@/features/version-history/hooks/useAutosave', () => ({
@@ -65,6 +84,15 @@ vi.mock('@/features/export/components/ExportModal', () => ({
     React.createElement('div', { 'data-testid': 'export-modal', onClick: onClose }),
 }));
 
+vi.mock('@/features/export/components/RendersQueueModal', () => ({
+  RendersQueueModal: ({ onClose }: { onClose: () => void }) =>
+    React.createElement('div', { 'data-testid': 'renders-queue-modal', onClick: onClose }),
+}));
+
+vi.mock('@/features/export/hooks/useListRenders', () => ({
+  useListRenders: vi.fn().mockReturnValue({ renders: [], isLoading: false, error: null, activeCount: 0 }),
+}));
+
 vi.mock('@/features/timeline/components/TimelinePanel', () => ({
   TimelinePanel: () => React.createElement('div', { 'data-testid': 'timeline-panel' }),
 }));
@@ -75,11 +103,21 @@ vi.mock('@/features/project/hooks/useProjectInit', () => ({
 
 import * as ephemeralStoreModule from '@/store/ephemeral-store';
 import * as projectStoreModule from '@/store/project-store';
+
 import { App } from './App.js';
-import { CLIP_ID, TRACK_ID, makeTextOverlayClip, makeProjectDoc } from './App.fixtures';
+import { CLIP_ID, makeTextOverlayClip, makeImageClip, makeVideoClip, makeAudioClip, makeProjectDoc } from './App.fixtures';
 
 const mockUseEphemeralStore = vi.mocked(ephemeralStoreModule.useEphemeralStore);
 const mockUseProjectStore = vi.mocked(projectStoreModule.useProjectStore);
+
+// Shared ephemeral state for single-clip selection tests.
+const makeSingleSelectState = (clipId: string) => ({
+  selectedClipIds: [clipId],
+  playheadFrame: 0,
+  zoom: 1,
+  pxPerFrame: 4,
+  scrollOffsetX: 0,
+});
 
 // ---------------------------------------------------------------------------
 // Tests — RightSidebar (conditional inspector)
@@ -129,64 +167,112 @@ describe('RightSidebar', () => {
     expect(screen.queryByTestId('caption-editor-panel')).toBeNull();
   });
 
-  it('does not render the inspector when the selected clip is not a text-overlay', () => {
-    const videoClip = {
-      id: CLIP_ID,
-      type: 'video' as const,
-      trackId: TRACK_ID,
-      startFrame: 0,
-      durationFrames: 30,
-      assetId: 'asset-001',
-      volume: 1,
-    };
-    mockUseEphemeralStore.mockReturnValue({
-      selectedClipIds: [CLIP_ID],
-      playheadFrame: 0,
-      zoom: 1,
-      pxPerFrame: 4,
-      scrollOffsetX: 0,
-    });
+  // --- video clip ---
+
+  it('renders VideoClipEditorPanel in Inspector when a video clip is selected', () => {
+    const clip = makeVideoClip({ id: CLIP_ID });
+    mockUseEphemeralStore.mockReturnValue(makeSingleSelectState(CLIP_ID));
     mockUseProjectStore.mockReturnValue({
       ...makeProjectDoc([]),
-      clips: [videoClip],
+      clips: [clip],
     } as unknown as ReturnType<typeof mockUseProjectStore>);
     render(<App />);
-    expect(screen.queryByRole('complementary', { name: 'Inspector' })).toBeNull();
+    expect(screen.getByRole('complementary', { name: 'Inspector' })).toBeTruthy();
+    expect(screen.getByTestId('video-clip-editor-panel')).toBeTruthy();
+  });
+
+  it('passes the correct clip id to VideoClipEditorPanel', () => {
+    const clip = makeVideoClip({ id: CLIP_ID });
+    mockUseEphemeralStore.mockReturnValue(makeSingleSelectState(CLIP_ID));
+    mockUseProjectStore.mockReturnValue({
+      ...makeProjectDoc([]),
+      clips: [clip],
+    } as unknown as ReturnType<typeof mockUseProjectStore>);
+    render(<App />);
+    expect(screen.getByTestId('video-clip-editor-panel').getAttribute('data-clip-id')).toBe(CLIP_ID);
+  });
+
+  // --- audio clip ---
+
+  it('renders AudioClipEditorPanel in Inspector when an audio clip is selected', () => {
+    const clip = makeAudioClip({ id: CLIP_ID });
+    mockUseEphemeralStore.mockReturnValue(makeSingleSelectState(CLIP_ID));
+    mockUseProjectStore.mockReturnValue({
+      ...makeProjectDoc([]),
+      clips: [clip],
+    } as unknown as ReturnType<typeof mockUseProjectStore>);
+    render(<App />);
+    expect(screen.getByRole('complementary', { name: 'Inspector' })).toBeTruthy();
+    expect(screen.getByTestId('audio-clip-editor-panel')).toBeTruthy();
+  });
+
+  it('passes the correct clip id to AudioClipEditorPanel', () => {
+    const clip = makeAudioClip({ id: CLIP_ID });
+    mockUseEphemeralStore.mockReturnValue(makeSingleSelectState(CLIP_ID));
+    mockUseProjectStore.mockReturnValue({
+      ...makeProjectDoc([]),
+      clips: [clip],
+    } as unknown as ReturnType<typeof mockUseProjectStore>);
+    render(<App />);
+    expect(screen.getByTestId('audio-clip-editor-panel').getAttribute('data-clip-id')).toBe(CLIP_ID);
+  });
+
+  // --- image clip ---
+
+  it('renders ImageClipEditorPanel in Inspector when an image clip is selected', () => {
+    const clip = makeImageClip({ id: CLIP_ID });
+    mockUseEphemeralStore.mockReturnValue(makeSingleSelectState(CLIP_ID));
+    mockUseProjectStore.mockReturnValue({
+      ...makeProjectDoc([]),
+      clips: [clip],
+    } as unknown as ReturnType<typeof mockUseProjectStore>);
+    render(<App />);
+    expect(screen.getByRole('complementary', { name: 'Inspector' })).toBeTruthy();
+    expect(screen.getByTestId('image-clip-editor-panel')).toBeTruthy();
+  });
+
+  it('passes the correct clip id to ImageClipEditorPanel', () => {
+    const clip = makeImageClip({ id: CLIP_ID });
+    mockUseEphemeralStore.mockReturnValue(makeSingleSelectState(CLIP_ID));
+    mockUseProjectStore.mockReturnValue({
+      ...makeProjectDoc([]),
+      clips: [clip],
+    } as unknown as ReturnType<typeof mockUseProjectStore>);
+    render(<App />);
+    expect(screen.getByTestId('image-clip-editor-panel').getAttribute('data-clip-id')).toBe(CLIP_ID);
+  });
+
+  it('does not render CaptionEditorPanel when an image clip is selected', () => {
+    const clip = makeImageClip({ id: CLIP_ID });
+    mockUseEphemeralStore.mockReturnValue(makeSingleSelectState(CLIP_ID));
+    mockUseProjectStore.mockReturnValue({
+      ...makeProjectDoc([]),
+      clips: [clip],
+    } as unknown as ReturnType<typeof mockUseProjectStore>);
+    render(<App />);
     expect(screen.queryByTestId('caption-editor-panel')).toBeNull();
   });
 
-  it('renders the inspector aside with CaptionEditorPanel when one text-overlay clip is selected', () => {
+  // --- text-overlay (caption) clip ---
+
+  it('renders CaptionEditorPanel in Inspector when a text-overlay clip is selected', () => {
     const clip = makeTextOverlayClip();
-    mockUseEphemeralStore.mockReturnValue({
-      selectedClipIds: [CLIP_ID],
-      playheadFrame: 0,
-      zoom: 1,
-      pxPerFrame: 4,
-      scrollOffsetX: 0,
-    });
+    mockUseEphemeralStore.mockReturnValue(makeSingleSelectState(CLIP_ID));
     mockUseProjectStore.mockReturnValue(
       makeProjectDoc([clip]) as ReturnType<typeof mockUseProjectStore>,
     );
     render(<App />);
-    const inspector = screen.getByRole('complementary', { name: 'Inspector' });
-    expect(inspector).toBeTruthy();
+    expect(screen.getByRole('complementary', { name: 'Inspector' })).toBeTruthy();
     expect(screen.getByTestId('caption-editor-panel')).toBeTruthy();
   });
 
-  it('passes the correct clip to CaptionEditorPanel', () => {
+  it('passes the correct clip id to CaptionEditorPanel', () => {
     const clip = makeTextOverlayClip({ id: CLIP_ID });
-    mockUseEphemeralStore.mockReturnValue({
-      selectedClipIds: [CLIP_ID],
-      playheadFrame: 0,
-      zoom: 1,
-      pxPerFrame: 4,
-      scrollOffsetX: 0,
-    });
+    mockUseEphemeralStore.mockReturnValue(makeSingleSelectState(CLIP_ID));
     mockUseProjectStore.mockReturnValue(
       makeProjectDoc([clip]) as ReturnType<typeof mockUseProjectStore>,
     );
     render(<App />);
-    const panel = screen.getByTestId('caption-editor-panel');
-    expect(panel.getAttribute('data-clip-id')).toBe(CLIP_ID);
+    expect(screen.getByTestId('caption-editor-panel').getAttribute('data-clip-id')).toBe(CLIP_ID);
   });
 });

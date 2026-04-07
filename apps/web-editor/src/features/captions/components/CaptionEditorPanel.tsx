@@ -20,6 +20,7 @@ const PRIMARY = '#7C3AED';
 
 export interface CaptionEditorPanelProps {
   clip: TextOverlayClip;
+  onClose?: () => void;
 }
 
 /**
@@ -28,7 +29,7 @@ export interface CaptionEditorPanelProps {
  * vertical position.  All mutations go through `useCaptionEditor` which writes
  * directly to the project store — no local component state for clip values.
  */
-export function CaptionEditorPanel({ clip }: CaptionEditorPanelProps): React.ReactElement {
+export function CaptionEditorPanel({ clip, onClose }: CaptionEditorPanelProps): React.ReactElement {
   const { setText, setStartFrame, setEndFrame, setFontSize, setColor, setPosition } =
     useCaptionEditor(clip);
 
@@ -36,7 +37,18 @@ export function CaptionEditorPanel({ clip }: CaptionEditorPanelProps): React.Rea
 
   return (
     <section style={styles.panel} aria-label="Caption editor">
-      <h2 style={styles.heading}>Caption</h2>
+      <div style={styles.panelHeader}>
+        <h2 style={styles.heading}>Caption</h2>
+        {onClose && (
+          <button
+            onClick={onClose}
+            aria-label="Close caption editor"
+            style={styles.closeButton}
+          >
+            ✕
+          </button>
+        )}
+      </div>
 
       {/* Text */}
       <div style={styles.field}>
@@ -153,6 +165,17 @@ const styles = {
     gap: '12px',
   } as React.CSSProperties,
 
+  panelHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: '48px',
+    background: SURFACE_ELEVATED,
+    margin: '-16px -16px 0',
+    padding: '0 16px',
+    flexShrink: 0,
+  } as React.CSSProperties,
+
   heading: {
     margin: 0,
     fontSize: '16px',
@@ -160,6 +183,17 @@ const styles = {
     color: TEXT_PRIMARY,
     fontFamily: 'Inter, sans-serif',
     lineHeight: '24px',
+  } as React.CSSProperties,
+
+  closeButton: {
+    background: 'transparent',
+    border: 'none',
+    color: TEXT_SECONDARY,
+    cursor: 'pointer',
+    padding: 4,
+    lineHeight: 1,
+    fontSize: 14,
+    borderRadius: 4,
   } as React.CSSProperties,
 
   field: {

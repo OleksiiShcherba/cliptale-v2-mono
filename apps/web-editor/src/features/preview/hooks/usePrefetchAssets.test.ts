@@ -22,14 +22,14 @@ const mockPrefetch = vi.mocked(prefetch);
 function makePrefetchResult(blobUrl: string) {
   return {
     free: vi.fn(),
-    waitUntilDone: Promise.resolve(blobUrl),
+    waitUntilDone: () => Promise.resolve(blobUrl),
   };
 }
 
 function makeFailingPrefetchResult() {
   return {
     free: vi.fn(),
-    waitUntilDone: Promise.reject(new Error('network error')),
+    waitUntilDone: () => Promise.reject(new Error('network error')),
   };
 }
 
@@ -59,7 +59,7 @@ describe('usePrefetchAssets', () => {
     const { promise, resolve } = makeDeferred();
     mockPrefetch.mockReturnValue({
       free: vi.fn(),
-      waitUntilDone: promise,
+      waitUntilDone: () => promise,
     });
 
     const { result, unmount } = renderHook(() => usePrefetchAssets(streamUrls));
@@ -97,8 +97,8 @@ describe('usePrefetchAssets', () => {
     const deferredA = makeDeferred();
     const deferredB = makeDeferred();
     mockPrefetch
-      .mockReturnValueOnce({ free: vi.fn(), waitUntilDone: deferredA.promise })
-      .mockReturnValueOnce({ free: vi.fn(), waitUntilDone: deferredB.promise });
+      .mockReturnValueOnce({ free: vi.fn(), waitUntilDone: () => deferredA.promise })
+      .mockReturnValueOnce({ free: vi.fn(), waitUntilDone: () => deferredB.promise });
 
     const { unmount } = renderHook(() => usePrefetchAssets(streamUrls));
 
@@ -120,7 +120,7 @@ describe('usePrefetchAssets', () => {
   });
 
   it('does not call prefetch when streamUrls is empty', () => {
-    mockPrefetch.mockReturnValue({ free: vi.fn(), waitUntilDone: Promise.resolve('') });
+    mockPrefetch.mockReturnValue({ free: vi.fn(), waitUntilDone: () => Promise.resolve('') });
 
     // Hoist the empty map OUTSIDE renderHook — inline `{}` would create a new
     // object reference on every render, making [streamUrls] dep unstable and
@@ -137,7 +137,7 @@ describe('usePrefetchAssets', () => {
     const { promise, resolve } = makeDeferred();
     mockPrefetch.mockReturnValue({
       free: freeA,
-      waitUntilDone: promise,
+      waitUntilDone: () => promise,
     });
 
     const streamUrls = { 'asset-a': 'http://localhost:3001/assets/asset-a/stream' };
@@ -171,8 +171,8 @@ describe('usePrefetchAssets', () => {
     const deferredFirst = makeDeferred();
     const deferredSecond = makeDeferred();
     mockPrefetch
-      .mockReturnValueOnce({ free: freeOld, waitUntilDone: deferredFirst.promise })
-      .mockReturnValueOnce({ free: vi.fn(), waitUntilDone: deferredSecond.promise });
+      .mockReturnValueOnce({ free: freeOld, waitUntilDone: () => deferredFirst.promise })
+      .mockReturnValueOnce({ free: vi.fn(), waitUntilDone: () => deferredSecond.promise });
 
     const firstUrls = { 'asset-a': 'http://localhost:3001/assets/asset-a/stream' };
     const secondUrls = { 'asset-b': 'http://localhost:3001/assets/asset-b/stream' };

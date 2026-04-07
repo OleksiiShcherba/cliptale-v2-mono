@@ -1,5 +1,7 @@
 import type { AudioClip, ImageClip, VideoClip } from '@ai-video-editor/project-schema';
 
+import type { Asset, AssetFilterTab } from './types';
+
 /** Formats bytes to a human-readable string (B / KB / MB / GB). */
 export function formatFileSize(bytes: number | null): string {
   if (bytes === null) return '—';
@@ -50,6 +52,26 @@ export function buildClipForAsset(
 }
 
 /**
+ * Returns the best preview image URL for an asset.
+ *
+ * - Video assets: returns `thumbnailUri` (API-proxied JPEG thumbnail).
+ * - Image assets: returns the asset stream URL (`/assets/:id/stream`) so the
+ *   browser can display the actual image even when no separate thumbnail exists.
+ * - Audio / unknown: returns null (no visual preview).
+ *
+ * @param asset       The asset record from the API.
+ * @param apiBaseUrl  The API base URL (e.g. "http://localhost:3001") used to
+ *                    build the stream endpoint URL.
+ */
+export function getAssetPreviewUrl(asset: Asset, apiBaseUrl: string): string | null {
+  if (asset.thumbnailUri) return asset.thumbnailUri;
+  if (asset.contentType.startsWith('image/') && asset.status === 'ready') {
+    return `${apiBaseUrl}/assets/${asset.id}/stream`;
+  }
+  return null;
+}
+
+/**
  * Computes the duration in frames for an asset drop.
  * Falls back to `fps * 5` when the asset has no duration (images).
  */
@@ -58,4 +80,25 @@ export function computeClipDurationFrames(durationSeconds: number | null, fps: n
     return Math.max(1, Math.round(durationSeconds * fps));
   }
   return fps * 5;
+}
+
+/**
+ * Returns a human-readable track type label for a given asset MIME type.
+ * Used in the "Add to Timeline" dropdown to label the target track type.
+ */
+export function trackTypeLabel(contentType: string): string {
+  if (contentType.startsWith('audio/')) return 'Audio';
+  return 'Video'; // video/* and image/* both target video tracks
+}
+
+/**
+ * Returns true when the given asset belongs to the active filter tab.
+ * `'all'` always returns true.
+ */
+export function matchesTab(asset: Asset, tab: AssetFilterTab): boolean {
+  if (tab === 'all') return true;
+  if (tab === 'video') return asset.contentType.startsWith('video/');
+  if (tab === 'audio') return asset.contentType.startsWith('audio/');
+  if (tab === 'image') return asset.contentType.startsWith('image/');
+  return false;
 }

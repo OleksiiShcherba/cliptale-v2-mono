@@ -1,6 +1,8 @@
 import React from 'react';
 
 import type { Asset } from '@/features/asset-manager/types';
+import { getAssetPreviewUrl, getTypeLabel } from '@/features/asset-manager/utils';
+import { config } from '@/lib/config';
 import { TranscribeButton } from '@/features/captions/components/TranscribeButton';
 
 const STATUS_BG: Record<string, string> = {
@@ -9,14 +11,6 @@ const STATUS_BG: Record<string, string> = {
   error: '#EF4444',
   pending: '#8A8AA0',
 };
-
-/** Returns a human-readable media type label for a MIME content type. */
-function getTypeLabel(contentType: string): string {
-  if (contentType.startsWith('video/')) return 'Video';
-  if (contentType.startsWith('audio/')) return 'Audio';
-  if (contentType.startsWith('image/')) return 'Image';
-  return 'File';
-}
 
 /** Returns an SVG icon element representing the media type. Used as thumbnail placeholder. */
 function TypeIcon({ contentType }: { contentType: string }): React.ReactElement {
@@ -122,6 +116,7 @@ const isTranscribable = (contentType: string) =>
 export function AssetCard({ asset, isSelected, onSelect }: AssetCardProps): React.ReactElement {
   const badgeBg = STATUS_BG[asset.status] ?? '#8A8AA0';
   const isDraggable = asset.status === 'ready';
+  const previewUrl = getAssetPreviewUrl(asset, config.apiBaseUrl);
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.effectAllowed = 'copy';
@@ -168,9 +163,9 @@ export function AssetCard({ asset, isSelected, onSelect }: AssetCardProps): Reac
             overflow: 'hidden',
           }}
         >
-          {asset.thumbnailUri ? (
+          {previewUrl ? (
             <img
-              src={asset.thumbnailUri}
+              src={previewUrl}
               alt=""
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />

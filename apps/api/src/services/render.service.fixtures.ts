@@ -5,6 +5,7 @@
 import type { RenderJob } from '@/repositories/render.repository.js';
 import { ALLOWED_PRESETS } from './render.service.js';
 
+/** Minimal project version row used across render service tests. */
 export const mockVersion = {
   versionId: 42,
   projectId: 'proj-abc',
@@ -15,6 +16,7 @@ export const mockVersion = {
   parentVersionId: null,
 };
 
+/** Minimal queued render job row used across render service tests. */
 export const mockJob: RenderJob = {
   jobId: 'job-uuid-123',
   projectId: 'proj-abc',

@@ -6,7 +6,7 @@ type: project
 
 Exported functions in `.fixtures.ts` files (e.g. `makeTrack`, `makeClip`, `makeProjectDoc`, `dispatchKey`) require individual JSDoc comments per §9 ("Write JSDoc on all exported functions and types"). A file-level block comment describing the purpose of the file does not satisfy the per-function requirement.
 
-Exported constants (e.g. `QUEUED_JOB` in `ExportModal.fixtures.ts`) were not flagged — the rule applies specifically to exported functions.
+Exported constants in `.fixtures.ts` files also require JSDoc — `TEST_SEGMENTS` in `TranscribeButton.fixtures.ts` was flagged and fixed in the 2026-04-07 review pass. Apply the JSDoc requirement to all exported symbols (functions and constants) in fixture files.
 
 **Why:** §9 is explicit: "all exported functions and types". Prior reviews applied this to `imageClipSchema` and `WaveformSvg`; fixture helper functions are no exception.
 **How to apply:** Flag any exported function in a `.fixtures.ts` file that lacks a JSDoc comment — even if the function name is self-descriptive.

@@ -13,6 +13,10 @@ type EphemeralState = {
   pxPerFrame: number;
   /** Horizontal scroll offset of the timeline clip lane area in pixels. */
   scrollOffsetX: number;
+  /** Player volume in range [0, 1]. Default 1 (full volume). */
+  volume: number;
+  /** Whether the player is muted. Independent of volume level. */
+  isMuted: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -24,6 +28,8 @@ let snapshot: EphemeralState = {
   zoom: 1,
   pxPerFrame: 4,
   scrollOffsetX: 0,
+  volume: 1,
+  isMuted: false,
 };
 
 const listeners = new Set<() => void>();
@@ -107,6 +113,28 @@ export function setScrollOffsetX(offsetX: number): void {
   const clamped = Math.max(0, offsetX);
   if (snapshot.scrollOffsetX === clamped) return;
   snapshot = { ...snapshot, scrollOffsetX: clamped };
+  notifyListeners();
+}
+
+/**
+ * Sets the player volume level.
+ * Clamped to [0, 1]. Setting volume > 0 also unmutes the player.
+ */
+export function setVolume(volume: number): void {
+  const clamped = Math.max(0, Math.min(1, volume));
+  const isMuted = clamped === 0 ? snapshot.isMuted : false;
+  if (snapshot.volume === clamped && snapshot.isMuted === isMuted) return;
+  snapshot = { ...snapshot, volume: clamped, isMuted };
+  notifyListeners();
+}
+
+/**
+ * Toggles the mute state without changing the volume level.
+ * This matches the expected behaviour: unmuting restores the previous volume.
+ */
+export function setMuted(muted: boolean): void {
+  if (snapshot.isMuted === muted) return;
+  snapshot = { ...snapshot, isMuted: muted };
   notifyListeners();
 }
 

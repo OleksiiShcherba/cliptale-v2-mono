@@ -6,6 +6,7 @@ import {
   getSnapshot,
   subscribe,
   setProject,
+  setProjectSilent,
   getCurrentVersionId,
   setCurrentVersionId,
 } from './project-store.js';
@@ -129,6 +130,40 @@ describe('project-store', () => {
       drainPatches(); // drain
 
       const { patches } = drainPatches(); // second drain should be empty
+      expect(patches).toHaveLength(0);
+    });
+  });
+
+  describe('setProjectSilent', () => {
+    it('replaces the snapshot with the provided document (happy path)', () => {
+      const doc = makeDoc({ title: 'Silent Project' });
+      setProjectSilent(doc);
+      expect(getSnapshot().title).toBe('Silent Project');
+    });
+
+    it('notifies subscribers when called', () => {
+      const listener = vi.fn();
+      const unsub = subscribe(listener);
+
+      setProjectSilent(makeDoc({ title: 'Notify Silent' }));
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      unsub();
+    });
+
+    it('derives durationFrames from clips rather than using the caller-provided value', () => {
+      // makeDoc provides durationFrames: 300 with clips: [], so derived value is fps*5 = 150
+      const doc = makeDoc({ durationFrames: 300 });
+      setProjectSilent(doc);
+      expect(getSnapshot().durationFrames).toBe(150);
+    });
+
+    it('does NOT push patches to history-store — drainPatches returns empty after setProjectSilent', () => {
+      drainPatches(); // start clean
+
+      setProjectSilent(makeDoc({ title: 'No History' }));
+
+      const { patches } = drainPatches();
       expect(patches).toHaveLength(0);
     });
   });

@@ -142,12 +142,34 @@ export async function getRenderStatus(jobId: string): Promise<GetRenderStatusRes
   return job;
 }
 
+/** Render job summary extended with an optional presigned download URL. */
+export type RenderJobSummaryWithUrl = RenderJobSummary & {
+  /** Presigned S3 download URL — only present when status is 'complete'. */
+  downloadUrl?: string;
+};
+
 /**
  * Returns all render jobs for a project, newest first.
+ * Complete jobs include a presigned `downloadUrl` (1-hour expiry).
  * Throws `nothing` — returns an empty array when no jobs exist.
  */
-export async function listProjectRenders(projectId: string): Promise<RenderJobSummary[]> {
-  return renderRepository.listRenderJobsByProject(projectId);
+export async function listProjectRenders(projectId: string): Promise<RenderJobSummaryWithUrl[]> {
+  const jobs = await renderRepository.listRenderJobsByProject(projectId);
+
+  return Promise.all(
+    jobs.map(async (job) => {
+      if (job.status === 'complete' && job.outputUri) {
+        const key = extractS3Key(job.outputUri);
+        const downloadUrl = await getSignedUrl(
+          s3Client,
+          new GetObjectCommand({ Bucket: config.s3.bucket, Key: key }),
+          { expiresIn: DOWNLOAD_URL_EXPIRY_SECONDS },
+        );
+        return { ...job, downloadUrl };
+      }
+      return job;
+    }),
+  );
 }
 
 /**

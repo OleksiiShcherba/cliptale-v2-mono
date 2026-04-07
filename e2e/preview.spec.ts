@@ -45,9 +45,9 @@ test.describe('Preview panel — Remotion player and playback controls', () => {
     const text = await timecode.textContent();
     expect(text).toBeTruthy();
 
-    // Accept both HH:MM:SS:FF (SMPTE) and MM:SS:FF formats
-    // The formatTimecode utility produces HH:MM:SS:FF
-    const validTimecodePattern = /^\d{2}:\d{2}:\d{2}:\d{2}$/;
+    // The timecode element shows "HH:MM:SS:FF / HH:MM:SS:FF" (current / total).
+    // Accept a string that starts with a valid SMPTE timecode (HH:MM:SS:FF).
+    const validTimecodePattern = /^\d{2}:\d{2}:\d{2}:\d{2}/;
     expect(text!.trim()).toMatch(validTimecodePattern);
   });
 

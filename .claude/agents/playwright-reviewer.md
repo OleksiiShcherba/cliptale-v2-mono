@@ -73,7 +73,7 @@ Always prefer these files over generating synthetic data or skipping asset-depen
 - For drag-and-drop, use `page.mouse.move()` + `page.mouse.down()` + `page.mouse.move()` + `page.mouse.up()` sequences
 - Wait for `networkidle` after navigation
 - Add `page.waitForTimeout(800)` after interactions for animations to settle
-- Save screenshots to `./playwright-screenshots/` organized by feature slug
+- Save screenshots to `./docs/test_screenshots/` organized by feature slug
 
 ## Visual Analysis Rules
 
@@ -124,8 +124,9 @@ Always clean up after each run:
 ```bash
 rm -f ./playwright-review-temp.js
 rm -f ./playwright-results.json
-rm -rf ./playwright-screenshots
 ```
+
+Never delete `./docs/test_screenshots/` — it is the permanent visual record of all test runs.
 
 ## Output Format
 

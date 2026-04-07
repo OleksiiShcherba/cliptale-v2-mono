@@ -175,4 +175,23 @@ describe('CaptionEditorPanel', () => {
       expect(handlers.setPosition).toHaveBeenCalledWith('top');
     });
   });
+
+  describe('close button (task 4)', () => {
+    it('does not render a close button when onClose is not provided', () => {
+      render(<CaptionEditorPanel clip={makeClip()} />);
+      expect(screen.queryByRole('button', { name: /close caption editor/i })).toBeNull();
+    });
+
+    it('renders a close button when onClose is provided', () => {
+      render(<CaptionEditorPanel clip={makeClip()} onClose={vi.fn()} />);
+      expect(screen.getByRole('button', { name: /close caption editor/i })).toBeDefined();
+    });
+
+    it('calls onClose when the close button is clicked', () => {
+      const onClose = vi.fn();
+      render(<CaptionEditorPanel clip={makeClip()} onClose={onClose} />);
+      fireEvent.click(screen.getByRole('button', { name: /close caption editor/i }));
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+  });
 });

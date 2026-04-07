@@ -1,14 +1,3 @@
-/**
- * TimelinePanel — scrollbar strip behaviour.
- *
- * Tests cover:
- *   - strip renders with role="scrollbar"
- *   - thumb geometry when totalContentWidth > laneWidth (overflow)
- *   - thumb fills strip when totalContentWidth <= laneWidth (no overflow)
- *   - pointer events disabled when no overflow
- *   - thumb drag via pointer capture updates setScrollOffsetX
- */
-
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
@@ -47,6 +36,7 @@ vi.mock('@/store/ephemeral-store', async (importOriginal) => {
     useEphemeralStore: vi.fn(),
     setScrollOffsetX: vi.fn(),
     setPxPerFrame: vi.fn(),
+    setPlayheadFrame: vi.fn(),
   };
 });
 
@@ -118,15 +108,19 @@ afterEach(() => {
 /** TRACK_HEADER_WIDTH=160, panelWidth=800 → laneWidth=640 */
 const LANE_WIDTH = 640;
 
+// SCROLL_OVERRUN_PX is added by TimelinePanel to allow scrolling past content end.
+const SCROLL_OVERRUN_PX = 300;
+
 function makeEphemeralState(overrides: {
   pxPerFrame?: number;
   scrollOffsetX?: number;
+  playheadFrame?: number;
 } = {}) {
   return {
     pxPerFrame: overrides.pxPerFrame ?? 4,
     scrollOffsetX: overrides.scrollOffsetX ?? 0,
     selectedClipIds: [],
-    playheadFrame: 0,
+    playheadFrame: overrides.playheadFrame ?? 0,
     zoom: 1,
   };
 }
@@ -151,9 +145,10 @@ function renderPanel(opts: {
   pxPerFrame?: number;
   scrollOffsetX?: number;
   durationFrames?: number;
+  playheadFrame?: number;
 } = {}) {
   vi.mocked(ephemeralStore.useEphemeralStore).mockReturnValue(
-    makeEphemeralState({ pxPerFrame: opts.pxPerFrame, scrollOffsetX: opts.scrollOffsetX }),
+    makeEphemeralState({ pxPerFrame: opts.pxPerFrame, scrollOffsetX: opts.scrollOffsetX, playheadFrame: opts.playheadFrame }),
   );
   vi.mocked(projectStore.useProjectStore).mockReturnValue(
     makeProjectState({ durationFrames: opts.durationFrames }) as never,
@@ -178,12 +173,13 @@ describe('TimelinePanel — scrollbar strip', () => {
     expect(screen.getByRole('scrollbar')).toBeDefined();
   });
 
-  describe('overflow — totalContentWidth (300 * 4 = 1200) > laneWidth (640)', () => {
-    it('thumb width is proportional to laneWidth / totalContentWidth', () => {
+  describe('overflow — scrollableWidth (300 * 4 + 300 = 1500) > laneWidth (640)', () => {
+    it('thumb width is proportional to laneWidth / scrollableWidth', () => {
       renderPanel({ pxPerFrame: 4, durationFrames: 300 });
       const thumb = screen.getByRole('scrollbar');
-      // totalContentWidth = 300 * 4 = 1200
-      const expectedWidth = Math.max(16, (LANE_WIDTH / 1200) * LANE_WIDTH);
+      // scrollableWidth = 300 * 4 + SCROLL_OVERRUN_PX = 1200 + 300 = 1500
+      const scrollableWidth = 300 * 4 + SCROLL_OVERRUN_PX;
+      const expectedWidth = Math.max(16, (LANE_WIDTH / scrollableWidth) * LANE_WIDTH);
       expect(parseFloat(thumb.style.width)).toBeCloseTo(expectedWidth, 0);
     });
 
@@ -196,8 +192,9 @@ describe('TimelinePanel — scrollbar strip', () => {
     it('thumb left shifts right as scrollOffsetX increases', () => {
       renderPanel({ pxPerFrame: 4, durationFrames: 300, scrollOffsetX: 300 });
       const thumb = screen.getByRole('scrollbar');
-      const thumbWidth = Math.max(16, (LANE_WIDTH / 1200) * LANE_WIDTH);
-      const expectedLeft = Math.min((300 / 1200) * LANE_WIDTH, LANE_WIDTH - thumbWidth);
+      const scrollableWidth = 300 * 4 + SCROLL_OVERRUN_PX;
+      const thumbWidth = Math.max(16, (LANE_WIDTH / scrollableWidth) * LANE_WIDTH);
+      const expectedLeft = Math.min((300 / scrollableWidth) * LANE_WIDTH, LANE_WIDTH - thumbWidth);
       expect(parseFloat(thumb.style.left)).toBeCloseTo(expectedLeft, 0);
     });
 
@@ -250,9 +247,9 @@ describe('TimelinePanel — scrollbar strip', () => {
       act(() => { dispatchPointer(thumb, 'pointerdown', 200); });
       act(() => { dispatchPointer(thumb, 'pointermove', 300); });
 
-      // ratio = totalContentWidth / laneWidth = 1200 / 640 = 1.875
-      // newOffset = 0 + 100 * 1.630 = 163.0
-      const ratio = 1200 / LANE_WIDTH;
+      // ratio = scrollableWidth / laneWidth = (1200 + 300) / 640 = 1500 / 640 ≈ 2.344
+      const scrollableWidth = 300 * 4 + SCROLL_OVERRUN_PX;
+      const ratio = scrollableWidth / LANE_WIDTH;
       const expectedOffset = Math.max(0, 0 + 100 * ratio);
 
       expect(vi.mocked(ephemeralStore.setScrollOffsetX)).toHaveBeenCalledWith(
