@@ -171,7 +171,7 @@ export function MobileTabContent({ activeTab, projectId }: MobileTabContentProps
   );
 
   if (activeTab === 'assets') {
-    return <AssetBrowserPanel projectId={projectId} />;
+    return <AssetBrowserPanel projectId={projectId} areFilterTabsHidden />;
   }
 
   if (activeTab === 'captions') {

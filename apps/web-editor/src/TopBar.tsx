@@ -37,6 +37,8 @@ export interface TopBarProps {
   isSettingsOpen: boolean;
   /** Called when the Settings button is clicked. */
   onToggleSettings: () => void;
+  /** Called when the Sign Out button is clicked. */
+  onLogout: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +65,7 @@ export function TopBar({
   onRedo,
   isSettingsOpen,
   onToggleSettings,
+  onLogout,
 }: TopBarProps): React.ReactElement {
   const { saveStatus, lastSavedAt, hasEverEdited } = useAutosave(projectId);
 
@@ -182,6 +185,14 @@ export function TopBar({
           title={!canExport ? 'Save your project first to export.' : undefined}
         >
           Export
+        </button>
+        <button
+          type="button"
+          style={styles.signOutButton}
+          onClick={onLogout}
+          aria-label="Sign out"
+        >
+          Sign out
         </button>
       </div>
     </header>

@@ -138,6 +138,7 @@ export function usePlaybackControls(
     if (!player) return;
     player.play();
     setIsPlaying(true);
+    isPlayingRef.current = true;
     startRafLoop();
   }, [playerRef, startRafLoop]);
 
@@ -146,10 +147,12 @@ export function usePlaybackControls(
     if (!player) return;
     player.pause();
     stopRafLoop();
+    isPlayingRef.current = false;
     const frame = player.getCurrentFrame();
     setIsPlaying(false);
     setCurrentFrameState(frame);
     setPlayheadFrame(frame);
+    updateTimelinePlayheadFrame(frame);
   }, [playerRef, stopRafLoop]);
 
   const rewind = useCallback(() => {
@@ -158,9 +161,14 @@ export function usePlaybackControls(
     player.pause();
     player.seekTo(0);
     stopRafLoop();
+    isPlayingRef.current = false;
     setIsPlaying(false);
     setCurrentFrameState(0);
     setPlayheadFrame(0);
+    updateTimelinePlayheadFrame(0);
+    if (containerRef.current) {
+      containerRef.current.style.setProperty('--playhead-frame', '0');
+    }
   }, [playerRef, stopRafLoop]);
 
   const stepForward = useCallback(() => {
@@ -168,11 +176,13 @@ export function usePlaybackControls(
     if (!player) return;
     player.pause();
     stopRafLoop();
+    isPlayingRef.current = false;
     const next = Math.min(player.getCurrentFrame() + 1, durationFrames - 1);
     player.seekTo(next);
     setIsPlaying(false);
     setCurrentFrameState(next);
     setPlayheadFrame(next);
+    updateTimelinePlayheadFrame(next);
   }, [playerRef, stopRafLoop, durationFrames]);
 
   const stepBack = useCallback(() => {
@@ -180,11 +190,13 @@ export function usePlaybackControls(
     if (!player) return;
     player.pause();
     stopRafLoop();
+    isPlayingRef.current = false;
     const prev = Math.max(player.getCurrentFrame() - 1, 0);
     player.seekTo(prev);
     setIsPlaying(false);
     setCurrentFrameState(prev);
     setPlayheadFrame(prev);
+    updateTimelinePlayheadFrame(prev);
   }, [playerRef, stopRafLoop]);
 
   const seekTo = useCallback(
@@ -195,6 +207,7 @@ export function usePlaybackControls(
       player.seekTo(clamped);
       setCurrentFrameState(clamped);
       setPlayheadFrame(clamped);
+      updateTimelinePlayheadFrame(clamped);
     },
     [playerRef, durationFrames],
   );

@@ -34,7 +34,7 @@ export async function saveVersion(
       parentVersionId: body.parentVersionId,
       patches: body.patches,
       inversePatches: body.inversePatches,
-      createdByUserId: req.user?.id ?? null,
+      createdByUserId: req.user?.userId ?? null,
     });
     res.status(201).json({
       versionId: result.versionId,
@@ -93,7 +93,7 @@ export async function restoreVersion(
     const docJson = await versionService.restoreVersion({
       projectId: req.params['id']!,
       versionId,
-      restoredByUserId: req.user?.id ?? null,
+      restoredByUserId: req.user?.userId ?? null,
     });
     res.status(200).json({ docJson });
   } catch (err) {

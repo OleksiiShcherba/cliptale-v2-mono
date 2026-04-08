@@ -16,11 +16,18 @@ vi.mock('@/store/ephemeral-store.js', () => ({
   setPlayheadFrame: vi.fn(),
 }));
 
+vi.mock('@/store/timeline-refs.js', () => ({
+  updateTimelinePlayheadFrame: vi.fn(),
+  registerTimelinePlayheadUpdater: vi.fn(),
+}));
+
 import * as projectStore from '@/store/project-store.js';
 import * as ephemeralStore from '@/store/ephemeral-store.js';
+import * as timelineRefs from '@/store/timeline-refs.js';
 
 const mockUseProjectStore = vi.mocked(projectStore.useProjectStore);
 const mockSetPlayheadFrame = vi.mocked(ephemeralStore.setPlayheadFrame);
+const mockUpdateTimelinePlayheadFrame = vi.mocked(timelineRefs.updateTimelinePlayheadFrame);
 
 // ---------------------------------------------------------------------------
 // usePlaybackControls hook tests
@@ -188,6 +195,129 @@ describe('usePlaybackControls', () => {
       });
 
       expect(result.current.isPlaying).toBe(false);
+    });
+
+    it('calls updateTimelinePlayheadFrame(0) to sync the timeline needle', () => {
+      const { ref } = makePlayerRef();
+      const { result } = renderHook(() => usePlaybackControls(ref));
+
+      act(() => {
+        result.current.rewind();
+      });
+
+      expect(mockUpdateTimelinePlayheadFrame).toHaveBeenCalledWith(0);
+    });
+  });
+
+  describe('totalTimecode', () => {
+    it('returns the formatted total duration timecode', () => {
+      // durationFrames=300, fps=30 → 10 seconds → 00:00:10:00
+      mockUseProjectStore.mockReturnValue(
+        makeProjectDoc({ durationFrames: 300, fps: 30 }) as ReturnType<typeof mockUseProjectStore>,
+      );
+      const { ref } = makePlayerRef();
+      const { result } = renderHook(() => usePlaybackControls(ref));
+
+      expect(result.current.totalTimecode).toBe('00:00:10:00');
+    });
+
+    it('updates totalTimecode when the store provides a different durationFrames', () => {
+      mockUseProjectStore.mockReturnValue(
+        makeProjectDoc({ durationFrames: 60, fps: 30 }) as ReturnType<typeof mockUseProjectStore>,
+      );
+      const { ref } = makePlayerRef();
+      const { result } = renderHook(() => usePlaybackControls(ref));
+
+      // 60 frames at 30 fps → 2 seconds → 00:00:02:00
+      expect(result.current.totalTimecode).toBe('00:00:02:00');
+    });
+  });
+
+  describe('rewind() — CSS custom property reset', () => {
+    it('sets --playhead-frame CSS property to "0" on containerRef after rewind', () => {
+      const { ref } = makePlayerRef();
+      const { result } = renderHook(() => usePlaybackControls(ref));
+
+      const div = document.createElement('div');
+      (result.current.containerRef as React.MutableRefObject<HTMLDivElement>).current = div;
+      // Set a non-zero value first to confirm the reset happens.
+      div.style.setProperty('--playhead-frame', '50');
+
+      act(() => {
+        result.current.rewind();
+      });
+
+      expect(div.style.getPropertyValue('--playhead-frame')).toBe('0');
+    });
+  });
+
+  describe('store reactivity — useProjectStore hook', () => {
+    it('reflects updated durationFrames when the store mock returns a different value on re-render', () => {
+      // This test guards against a regression where getSnapshot (non-reactive) was used
+      // instead of useProjectStore, causing stale durationFrames on store updates.
+      mockUseProjectStore.mockReturnValue(
+        makeProjectDoc({ durationFrames: 120 }) as ReturnType<typeof mockUseProjectStore>,
+      );
+      const { ref } = makePlayerRef();
+      const { result, rerender } = renderHook(() => usePlaybackControls(ref));
+
+      expect(result.current.totalFrames).toBe(120);
+
+      mockUseProjectStore.mockReturnValue(
+        makeProjectDoc({ durationFrames: 240 }) as ReturnType<typeof mockUseProjectStore>,
+      );
+      rerender();
+
+      expect(result.current.totalFrames).toBe(240);
+    });
+  });
+
+  describe('timeline bridge updates', () => {
+    it('calls updateTimelinePlayheadFrame on pause', () => {
+      const { ref, player } = makePlayerRef();
+      player.getCurrentFrame.mockReturnValue(30);
+      const { result } = renderHook(() => usePlaybackControls(ref));
+
+      act(() => {
+        result.current.pause();
+      });
+
+      expect(mockUpdateTimelinePlayheadFrame).toHaveBeenCalledWith(30);
+    });
+
+    it('calls updateTimelinePlayheadFrame on stepForward', () => {
+      const { ref, player } = makePlayerRef();
+      player.getCurrentFrame.mockReturnValue(10);
+      const { result } = renderHook(() => usePlaybackControls(ref));
+
+      act(() => {
+        result.current.stepForward();
+      });
+
+      expect(mockUpdateTimelinePlayheadFrame).toHaveBeenCalledWith(11);
+    });
+
+    it('calls updateTimelinePlayheadFrame on stepBack', () => {
+      const { ref, player } = makePlayerRef();
+      player.getCurrentFrame.mockReturnValue(10);
+      const { result } = renderHook(() => usePlaybackControls(ref));
+
+      act(() => {
+        result.current.stepBack();
+      });
+
+      expect(mockUpdateTimelinePlayheadFrame).toHaveBeenCalledWith(9);
+    });
+
+    it('calls updateTimelinePlayheadFrame on seekTo', () => {
+      const { ref } = makePlayerRef();
+      const { result } = renderHook(() => usePlaybackControls(ref));
+
+      act(() => {
+        result.current.seekTo(50);
+      });
+
+      expect(mockUpdateTimelinePlayheadFrame).toHaveBeenCalledWith(50);
     });
   });
 

@@ -35,6 +35,8 @@ const TABS: { label: string; value: AssetFilterTab }[] = [
 
 export interface AssetBrowserPanelProps {
   projectId: string;
+  /** When true, the type filter tabs (All/Video/Audio/Image) are hidden. */
+  areFilterTabsHidden?: boolean;
 }
 
 /**
@@ -42,7 +44,7 @@ export interface AssetBrowserPanelProps {
  * Shows AssetDetailPanel (280px) to the right when an asset is selected.
  * Upload button opens the UploadDropzone modal.
  */
-export function AssetBrowserPanel({ projectId }: AssetBrowserPanelProps): React.ReactElement {
+export function AssetBrowserPanel({ projectId, areFilterTabsHidden = false }: AssetBrowserPanelProps): React.ReactElement {
   const [activeTab, setActiveTab] = useState<AssetFilterTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
@@ -91,40 +93,42 @@ export function AssetBrowserPanel({ projectId }: AssetBrowserPanelProps): React.
           flexDirection: 'column',
         }}
       >
-        {/* Type tabs */}
-        <div
-          style={{
-            height: 40,
-            backgroundColor: '#1E1E2E',
-            display: 'flex',
-            alignItems: 'center',
-            padding: '0 4px',
-            gap: 2,
-            flexShrink: 0,
-          }}
-        >
-          {TABS.map((tab) => (
-            <button
-              key={tab.value}
-              aria-pressed={activeTab === tab.value}
-              onClick={() => setActiveTab(tab.value)}
-              style={{
-                flex: 1,
-                height: 32,
-                borderRadius: 4,
-                border: 'none',
-                backgroundColor: activeTab === tab.value ? '#7C3AED' : 'transparent',
-                color: activeTab === tab.value ? '#F0F0FA' : '#8A8AA0',
-                fontSize: 12,
-                fontWeight: 500,
-                cursor: 'pointer',
-                fontFamily: 'Inter, sans-serif',
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {/* Type tabs — hidden on mobile where the panel is full-screen */}
+        {!areFilterTabsHidden && (
+          <div
+            style={{
+              height: 40,
+              backgroundColor: '#1E1E2E',
+              display: 'flex',
+              alignItems: 'center',
+              padding: '0 4px',
+              gap: 2,
+              flexShrink: 0,
+            }}
+          >
+            {TABS.map((tab) => (
+              <button
+                key={tab.value}
+                aria-pressed={activeTab === tab.value}
+                onClick={() => setActiveTab(tab.value)}
+                style={{
+                  flex: 1,
+                  height: 32,
+                  borderRadius: 4,
+                  border: 'none',
+                  backgroundColor: activeTab === tab.value ? '#7C3AED' : 'transparent',
+                  color: activeTab === tab.value ? '#F0F0FA' : '#8A8AA0',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  fontFamily: 'Inter, sans-serif',
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Search bar */}
         <div style={{ padding: '8px 12px 0', flexShrink: 0 }}>

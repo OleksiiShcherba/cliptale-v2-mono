@@ -199,6 +199,19 @@ export const styles = {
     lineHeight: '16px',
   } as React.CSSProperties,
 
+  signOutButton: {
+    background: 'transparent',
+    border: `1px solid ${BORDER}`,
+    borderRadius: '6px',
+    color: TEXT_SECONDARY,
+    fontSize: '12px',
+    fontWeight: 500,
+    fontFamily: 'Inter, sans-serif',
+    padding: '4px 10px',
+    cursor: 'pointer',
+    lineHeight: '16px',
+  } as React.CSSProperties,
+
   exportButtonDisabled: {
     background: SURFACE_DISABLED,
     border: `1px solid ${BORDER}`,

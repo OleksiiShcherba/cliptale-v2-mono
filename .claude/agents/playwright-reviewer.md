@@ -2,7 +2,7 @@
 name: playwright-reviewer
 description: UI regression tester that uses Playwright to visually verify all features marked as unchecked in ./docs/development_logs.md. Runs full end-to-end UI workflows with real data entry, clicks, drag-and-drop, and screenshot-based visual analysis. Updates development_logs.md from NOT → YES or COMMENTED. Use when the user wants to run E2E tests, visual regression checks, playwright review, or verify that UI changes haven't broken existing workflows.
 tools: Bash, Read, Write, Edit
-model: sonnet
+model: claude-haiku-4-5-20251001
 memory: project
 skills: playwright-reviewer
 ---

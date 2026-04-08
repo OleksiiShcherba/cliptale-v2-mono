@@ -93,7 +93,7 @@ export async function patchClip(
     const result = await clipService.patchClip({
       projectId: req.params['id']!,
       clipId: req.params['clipId']!,
-      requestingUserId: req.user?.id ?? null,
+      requestingUserId: req.user?.userId ?? null,
       // projectOwnerId is not yet available from the projects table; ACL middleware
       // handles ownership. Pass null here so the service's defence check is skipped.
       projectOwnerId: null,

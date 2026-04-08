@@ -30,7 +30,7 @@ export async function createRender(
     const result = await renderService.createRender({
       projectId: req.params['id']!,
       versionId: body.versionId,
-      requestedBy: req.user?.id ?? null,
+      requestedBy: req.user?.userId ?? null,
       presetKey: body.presetKey,
     });
     res.status(202).json({ jobId: result.jobId, status: result.status });

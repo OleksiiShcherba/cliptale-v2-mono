@@ -119,6 +119,23 @@ vi.mock('@/features/preview/components/MobileBottomBar', () => ({
     ]),
 }));
 
+vi.mock('@/features/auth/hooks/useAuth', () => ({
+  useAuth: vi.fn(() => ({
+    user: { userId: 'test-user', email: 'test@example.com', displayName: 'Test User' },
+    isLoading: false,
+    setSession: vi.fn(),
+    logout: vi.fn(),
+  })),
+}));
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: vi.fn(() => vi.fn()),
+  };
+});
+
 import * as ephemeralStoreModule from '@/store/ephemeral-store';
 import * as projectStoreModule from '@/store/project-store';
 import * as autosaveModule from '@/features/version-history/hooks/useAutosave';

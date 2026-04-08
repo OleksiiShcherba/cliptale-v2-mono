@@ -1,8 +1,10 @@
 import React, { useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 import type { Track } from '@ai-video-editor/project-schema';
 
 import { styles, TRACK_ROW_HEIGHT } from './trackHeaderStyles';
+import { DeleteTrackDialog } from './DeleteTrackDialog';
 
 /**
  * Width of the track header column in pixels.
@@ -64,6 +66,7 @@ export function TrackHeader({
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(track.name);
   const [isDeleteHovered, setIsDeleteHovered] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleNameClick = useCallback(() => {
@@ -113,9 +116,17 @@ export function TrackHeader({
   const handleDeleteClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      onDelete?.(track.id);
+      setIsDeleteDialogOpen(true);
     },
-    [onDelete, track.id],
+    [],
+  );
+
+  const handleDeleteConfirm = useCallback(
+    (trackId: string) => {
+      setIsDeleteDialogOpen(false);
+      onDelete?.(trackId);
+    },
+    [onDelete],
   );
 
   // -------------------------------------------------------------------------
@@ -269,6 +280,15 @@ export function TrackHeader({
           </button>
         )}
       </div>
+
+      {isDeleteDialogOpen && createPortal(
+        <DeleteTrackDialog
+          track={track}
+          onClose={() => setIsDeleteDialogOpen(false)}
+          onConfirm={handleDeleteConfirm}
+        />,
+        document.body,
+      )}
     </div>
   );
 }

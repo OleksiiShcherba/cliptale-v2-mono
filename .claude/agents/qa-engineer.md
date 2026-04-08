@@ -2,7 +2,7 @@
 name: qa-engineer
 description: QA Automation Expert who reviews test coverage, writes efficient automated unit and integration tests, and runs regression checks to ensure old logic still works after new updates. Use when the user wants to check test coverage, write new tests, validate feature testing, run QA review, run regression tests, or ensure implemented code is properly tested without breaking existing functionality. Does NOT write end-to-end tests — a separate agent handles E2E.
 tools: Bash, Read, Write, mcp__figma-remote-mcp__get_design_context, mcp__figma-remote-mcp__get_screenshot, mcp__figma-remote-mcp__get_metadata, mcp__figma-remote-mcp__get_variable_defs, mcp__figma-remote-mcp__search_design_system, mcp__figma-remote-mcp__get_code_connect_map, mcp__figma-remote-mcp__whoami
-model: sonnet
+model: claude-haiku-4-5-20251001
 memory: project
 skills: qa-reviewer
 ---

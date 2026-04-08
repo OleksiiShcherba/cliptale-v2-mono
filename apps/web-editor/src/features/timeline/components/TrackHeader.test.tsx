@@ -232,7 +232,22 @@ describe('TrackHeader', () => {
     expect(screen.getByLabelText('Delete track')).toBeDefined();
   });
 
-  it('calls onDelete with the track id when delete button is clicked', () => {
+  it('opens confirmation dialog when delete button is clicked', () => {
+    render(
+      <TrackHeader
+        track={baseTrack}
+        onRename={vi.fn()}
+        onToggleMute={vi.fn()}
+        onToggleLock={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('Delete track'));
+    expect(screen.getByRole('dialog')).toBeDefined();
+    expect(screen.getByRole('heading', { name: 'Delete Track' })).toBeDefined();
+  });
+
+  it('does not call onDelete immediately when delete button is clicked', () => {
     const onDelete = vi.fn();
     render(
       <TrackHeader
@@ -244,7 +259,55 @@ describe('TrackHeader', () => {
       />,
     );
     fireEvent.click(screen.getByLabelText('Delete track'));
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it('calls onDelete with track id after confirming in dialog', () => {
+    const onDelete = vi.fn();
+    render(
+      <TrackHeader
+        track={baseTrack}
+        onRename={vi.fn()}
+        onToggleMute={vi.fn()}
+        onToggleLock={vi.fn()}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('Delete track'));
+    fireEvent.click(screen.getByRole('button', { name: /delete track video track 1/i }));
     expect(onDelete).toHaveBeenCalledWith('track-001');
+  });
+
+  it('closes dialog after confirming deletion', () => {
+    render(
+      <TrackHeader
+        track={baseTrack}
+        onRename={vi.fn()}
+        onToggleMute={vi.fn()}
+        onToggleLock={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('Delete track'));
+    fireEvent.click(screen.getByRole('button', { name: /delete track video track 1/i }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('closes dialog without deleting when Cancel is clicked', () => {
+    const onDelete = vi.fn();
+    render(
+      <TrackHeader
+        track={baseTrack}
+        onRename={vi.fn()}
+        onToggleMute={vi.fn()}
+        onToggleLock={vi.fn()}
+        onDelete={onDelete}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('Delete track'));
+    fireEvent.click(screen.getByRole('button', { name: /cancel delete/i }));
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
 });

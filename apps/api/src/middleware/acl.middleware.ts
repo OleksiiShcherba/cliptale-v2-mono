@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 
+import { config } from '@/config.js';
 import { ForbiddenError, UnauthorizedError } from '@/lib/errors.js';
 
 type Role = 'viewer' | 'editor' | 'owner';
@@ -12,7 +13,7 @@ type Role = 'viewer' | 'editor' | 'owner';
  */
 export function aclMiddleware(_requiredRole: Role) {
   return (req: Request, _res: Response, next: NextFunction): void => {
-    if (process.env.NODE_ENV === 'development') {
+    if (config.auth.devAuthBypass) {
       return next();
     }
 

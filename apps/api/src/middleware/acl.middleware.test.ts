@@ -1,39 +1,50 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
+
+const { mockConfig } = vi.hoisted(() => ({
+  mockConfig: {
+    config: {
+      auth: { devAuthBypass: false },
+    },
+  },
+}));
+
+vi.mock('@/config.js', () => mockConfig);
 
 import { UnauthorizedError } from '@/lib/errors.js';
 
 import { aclMiddleware } from './acl.middleware.js';
 
-// config.ts is imported indirectly via errors.ts — no mock needed here.
-
 function mockNext(): NextFunction {
   return vi.fn() as unknown as NextFunction;
 }
 
-function reqWithUser(user?: { id: string; email: string }): Request {
+function reqWithUser(user?: { userId: string; email: string; displayName: string }): Request {
   return { user } as unknown as Request;
 }
 
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockConfig.config.auth.devAuthBypass = false;
+});
+
 describe('aclMiddleware (stub)', () => {
-  describe('development bypass (NODE_ENV === "development")', () => {
-    beforeEach(() => {
-      process.env.NODE_ENV = 'development';
-    });
-
-    afterEach(() => {
-      process.env.NODE_ENV = 'test';
-    });
-
+  describe('dev auth bypass (DEV_AUTH_BYPASS=true)', () => {
     it('calls next() with no arguments even when req.user is absent', () => {
+      mockConfig.config.auth.devAuthBypass = true;
       const next = mockNext();
       aclMiddleware('editor')(reqWithUser(undefined), {} as Response, next);
       expect(next).toHaveBeenCalledWith();
     });
 
     it('calls next() with no arguments for any role when req.user is present', () => {
+      mockConfig.config.auth.devAuthBypass = true;
       const next = mockNext();
-      aclMiddleware('owner')(reqWithUser({ id: 'user-1', email: 'a@b.com' }), {} as Response, next);
+      aclMiddleware('owner')(
+        reqWithUser({ userId: 'user-1', email: 'a@b.com', displayName: 'A' }),
+        {} as Response,
+        next,
+      );
       expect(next).toHaveBeenCalledWith();
     });
   });
@@ -47,17 +58,17 @@ describe('aclMiddleware (stub)', () => {
   it('calls next() with no arguments when req.user is set (any authenticated user passes stub)', () => {
     const next = mockNext();
     aclMiddleware('editor')(
-      reqWithUser({ id: 'user-1', email: 'a@b.com' }),
+      reqWithUser({ userId: 'user-1', email: 'a@b.com', displayName: 'A' }),
       {} as Response,
       next,
     );
-    expect(next).toHaveBeenCalledWith(); // no error arg
+    expect(next).toHaveBeenCalledWith();
   });
 
   it('allows all role values through the stub without error (viewer)', () => {
     const next = mockNext();
     aclMiddleware('viewer')(
-      reqWithUser({ id: 'user-2', email: 'b@c.com' }),
+      reqWithUser({ userId: 'user-2', email: 'b@c.com', displayName: 'B' }),
       {} as Response,
       next,
     );
@@ -67,7 +78,7 @@ describe('aclMiddleware (stub)', () => {
   it('allows all role values through the stub without error (owner)', () => {
     const next = mockNext();
     aclMiddleware('owner')(
-      reqWithUser({ id: 'user-3', email: 'c@d.com' }),
+      reqWithUser({ userId: 'user-3', email: 'c@d.com', displayName: 'C' }),
       {} as Response,
       next,
     );

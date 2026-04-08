@@ -1,17 +1,26 @@
 import type { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
 
 import { config } from '@/config.js';
+import * as authService from '@/services/auth.service.js';
 import { UnauthorizedError } from '@/lib/errors.js';
 
-type JwtPayload = { sub: string; email: string; iat: number; exp: number };
+/** Hardcoded dev user attached when DEV_AUTH_BYPASS is enabled. */
+const DEV_USER = {
+  userId: 'dev-user-001',
+  email: 'dev@cliptale.local',
+  displayName: 'Dev User',
+} as const;
 
-/** Hardcoded dev user attached to every request when NODE_ENV === 'development'. */
-const DEV_USER = { id: 'dev-user-001', email: 'dev@cliptale.local' } as const;
-
-/** Validates the Bearer JWT in the Authorization header and attaches `req.user`. */
-export function authMiddleware(req: Request, _res: Response, next: NextFunction): void {
-  if (process.env.NODE_ENV === 'development') {
+/**
+ * Validates the Bearer session token in the Authorization header and attaches `req.user`.
+ * When `DEV_AUTH_BYPASS` is enabled, skips validation and attaches a hardcoded dev user.
+ */
+export async function authMiddleware(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): Promise<void> {
+  if (config.auth.devAuthBypass) {
     req.user = DEV_USER;
     return next();
   }
@@ -21,12 +30,12 @@ export function authMiddleware(req: Request, _res: Response, next: NextFunction)
     return next(new UnauthorizedError('Missing or malformed Authorization header'));
   }
 
-  const token = authHeader.slice(7);
+  const rawToken = authHeader.slice(7);
   try {
-    const payload = jwt.verify(token, config.auth.jwtSecret) as JwtPayload;
-    req.user = { id: payload.sub, email: payload.email };
+    const user = await authService.validateSession(rawToken);
+    req.user = user;
     next();
   } catch {
-    next(new UnauthorizedError('Invalid or expired token'));
+    next(new UnauthorizedError('Invalid or expired session'));
   }
 }

@@ -36,6 +36,7 @@ const defaultProps = {
   canRedo: false,
   onUndo: vi.fn(),
   onRedo: vi.fn(),
+  onLogout: vi.fn(),
 };
 
 // ---------------------------------------------------------------------------
@@ -285,5 +286,19 @@ describe('TopBar', () => {
   it('shows badge count "1" and singular label when activeRenderCount is 1', () => {
     render(<TopBar {...defaultProps} activeRenderCount={1} />);
     expect(screen.getByLabelText(/1 active render/i)).toBeTruthy();
+  });
+
+  // ── Logout button ──────────────────────────────────────────────────────────
+
+  it('renders the Sign out button', () => {
+    render(<TopBar {...defaultProps} />);
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy();
+  });
+
+  it('calls onLogout when the Sign out button is clicked', () => {
+    const onLogout = vi.fn();
+    render(<TopBar {...defaultProps} onLogout={onLogout} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(onLogout).toHaveBeenCalledOnce();
   });
 });

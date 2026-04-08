@@ -56,6 +56,7 @@ services:
       APP_S3_SECRET_ACCESS_KEY: ${APP_S3_SECRET_ACCESS_KEY}
       APP_PORT: '3001'
       APP_CORS_ORIGIN: http://localhost:5173
+      APP_DEV_AUTH_BYPASS: 'true'
       NODE_ENV: development
     volumes:
       - ./apps/api/src:/app/apps/api/src

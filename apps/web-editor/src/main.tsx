@@ -1,8 +1,15 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { App } from '@/App';
+import { AuthProvider } from '@/features/auth/components/AuthProvider';
+import { ProtectedRoute } from '@/features/auth/components/ProtectedRoute';
+import { LoginPage } from '@/features/auth/components/LoginPage';
+import { RegisterPage } from '@/features/auth/components/RegisterPage';
+import { ForgotPasswordPage } from '@/features/auth/components/ForgotPasswordPage';
+import { ResetPasswordPage } from '@/features/auth/components/ResetPasswordPage';
 
 // ---------------------------------------------------------------------------
 // Global CSS reset — applied programmatically so no separate CSS file is needed.
@@ -19,10 +26,28 @@ document.head.appendChild(resetStyle);
 
 const queryClient = new QueryClient();
 
+const router = createBrowserRouter([
+  { path: '/login', element: <LoginPage /> },
+  { path: '/register', element: <RegisterPage /> },
+  { path: '/forgot-password', element: <ForgotPasswordPage /> },
+  { path: '/reset-password', element: <ResetPasswordPage /> },
+  {
+    path: '/editor',
+    element: (
+      <ProtectedRoute>
+        <App />
+      </ProtectedRoute>
+    ),
+  },
+  { path: '*', element: <Navigate to="/editor" replace /> },
+]);
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <AuthProvider>
+        <RouterProvider router={router} />
+      </AuthProvider>
     </QueryClientProvider>
   </React.StrictMode>,
 );

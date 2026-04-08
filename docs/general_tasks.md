@@ -1,970 +1,1332 @@
-# AI Video Editor Web App — Market Research & Epic Breakdown
-> Based on the Remotion + React + Node.js monorepo architecture
-
----
-
-## Part 1: Market Research
-
-### Business Idea Summary
-
-A **web-based AI video editor** powered by Remotion — letting users compose, preview, and export videos through a timeline UI. The product differentiates by being **developer-grade underneath** (typed project documents, programmatic rendering via Remotion) while offering an accessible UX to non-technical creators. It sits at the intersection of collaborative editing tools (Canva/Kapwing) and programmatic video platforms (Remotion/Revid).
-
----
-
-### Competitor Landscape
-
-| Competitor | Key Features | Strengths | Weaknesses |
-|---|---|---|---|
-| **CapCut** (ByteDance) | Timeline editor, AI captions, templates, voice isolation, text-to-video | 200M+ MAU, cross-platform (web/mobile/desktop), aggressive freemium | US ban risk, ByteDance data concerns, generic output, TOS grants them perpetual content license |
-| **Canva Video** | Drag-and-drop, AI video gen, auto-captions, brand kit, scheduling | World's largest design user base, strong brand tooling, seamless asset reuse | Not a real NLE; timeline is shallow; heavy on templates, weak on precision editing |
-| **Kapwing** | Browser-based, real-time team collaboration, templates, AI tools | Strong collaboration story, no account needed to start | No mobile app, watermark on free tier, limited AI depth vs newer tools |
-| **InVideo AI** | Text-to-video, AI scripts, 8M+ stock library, 3 aspect ratios | $1M ARR benchmarks in short time, fast content pipeline | Limited aspect ratios, AI output quality inconsistent |
-| **VEED.io** | Recording, captions, subtitles, AI studio, brand templates | Multi-language support, recording + editing in one | AI clips less detailed than competitors; recording insufficient for pro teams |
-| **Runway** | Gen-4 video model, multi-shot, audio gen, professional VFX | Best-in-class generative video quality; used by pro filmmakers | Very expensive; not a general editing platform |
-| **OpusClip** | AI clip extraction from long video, subject tracking, B-roll gen | Repurposing niche well-owned; prompt-based editing is unique | Focused narrowly on repurposing; not a full editor |
-| **DaVinci Resolve** | Full NLE, color grading, audio mixing, AI tools | Most powerful free pro editor; constant AI updates | Steep learning curve; desktop-only; overkill for most creators |
-| **Clipchamp** (Microsoft) | Browser-based, free 1080p watermark-free exports, OneDrive integration | Excellent free tier; Microsoft 365 ecosystem lock-in | Shallow NLE; limited AI depth; no real programmatic layer |
-| **Typeframes** (Remotion-based) | Product intro videos from text, SaaS-specific templates | Built on Remotion, fast to MVP, strong PLG (watermark free tier) | Narrow niche (SaaS product intros), not a full editor |
-
-**Key market insight:** The CapCut exodus (US ban + ToS concerns) has left a gap for a privacy-respecting, web-based editor with genuine AI depth. Tools that combine **timeline precision + AI generation + programmatic rendering** don't yet exist in a single well-executed product. Remotion's success stories (Submagic, Typeframes, AIVideo.com hitting $1M ARR) confirm the tech is production-validated.
-
----
-
-### Feature Ideation
-
-#### 🎛 Core Editing
-1. **Timeline editor with multi-track clips** — Drag, trim, split, layer video/audio/overlay clips on a virtual timeline
-2. **Real-time Remotion Player preview** — In-browser preview synchronized to the project document, memoized for scrub performance
-3. **Asset manager with upload + ingest pipeline** — Upload via presigned URLs, auto-generate waveforms/thumbnails/proxy
-
-#### 🤖 AI Generation
-4. **AI captions / auto-subtitles** — Whisper-powered transcription with editable caption track on the timeline
-5. **Text-to-video clip generation** — Generate b-roll or intro clips from a prompt (integrates with Runway/Kling/Veo APIs)
-6. **AI audio generation** — Generate background music or SFX from a text prompt (ElevenLabs/Suno-style)
-7. **Smart clip trimmer** — AI detects silences, filler words, dead air; auto-creates edit points on the timeline
-
-#### 🔗 Collaboration & Sharing
-8. **Project version history + rollback** — Snapshot-per-update with one-click restore (already in architecture)
-9. **Shareable preview links** — Unlisted/public slugs for stakeholder review without account required
-10. **Team workspaces** — Invite collaborators with role-based permissions (owner/editor/viewer)
-
-#### 🚀 Export & Delivery
-11. **Background render pipeline** — Queue-based export to MP4/WebM via Remotion SSR; progress tracking
-12. **Render presets** — 1080p, 4K, vertical (9:16), square (1:1), custom — mapped to Remotion composition props
-13. **Direct publish to social** — Post to YouTube / TikTok / Instagram directly from the export modal
-
-#### 💡 Growth / Delight
-14. **Project templates** — Starter compositions (product demo, explainer, social ad) with replaceable slots
-15. **Brand kit** — Save fonts, colors, logos — auto-applied to new compositions and text overlays
-
----
-
-### Prioritization Matrix
-
-| Feature | Value (1–5) | Effort (1–5) | Priority Tier | Rationale |
-|---|---|---|---|---|
-| Timeline editor (multi-track) | 5 | 5 | 🔵 Strategic Bet | Core product identity; high effort but non-negotiable |
-| Remotion Player preview | 5 | 3 | 🟢 Quick Win | Remotion Player drops in; architecture already designed for this |
-| Asset manager + upload | 5 | 3 | 🟢 Quick Win | Presigned URL pattern is well-defined; unblocks everything |
-| AI captions / subtitles | 5 | 3 | 🟢 Quick Win | Whisper API is mature; high user demand; strong differentiation from Clipchamp |
-| Background render pipeline | 5 | 4 | 🔵 Strategic Bet | Required for usability; BullMQ + Remotion SSR is clear path |
-| Render presets | 4 | 2 | 🟢 Quick Win | Maps to Remotion inputProps; almost free once render pipeline exists |
-| Version history + rollback | 4 | 2 | 🟢 Quick Win | Schema already designed; massive trust/safety signal for users |
-| Shareable preview links | 4 | 2 | 🟢 Quick Win | Public slug pattern already in schema |
-| Smart clip trimmer (AI) | 4 | 4 | 🔵 Strategic Bet | Silence detection via FFmpeg + AI; real differentiation vs CapCut |
-| Text-to-video generation | 4 | 4 | 🔵 Strategic Bet | Requires external model API integration + async job handling |
-| Project templates | 3 | 2 | 🟡 Fill-in | Nice onboarding lift; low effort once compositions exist |
-| Brand kit | 3 | 3 | 🟡 Fill-in | Valuable for teams; can ship incrementally |
-| Team workspaces | 3 | 4 | 🔵 Strategic Bet | Needed for B2B; defer until single-user flow is stable |
-| AI audio generation | 3 | 3 | 🟡 Fill-in | Useful but not core to editing workflow |
-| Direct social publish | 2 | 4 | 🔴 Avoid for now | OAuth per platform + API rate limits + compliance overhead |
-
----
-
-### Recommended Roadmap
-
-**Phase 1 — MVP (Next Sprint)**
-Quick Wins: Asset manager, Remotion Player preview, AI captions, version history, shareable links, render presets
-
-**Phase 2 — Core Product (Next Quarter)**
-Strategic Bets: Timeline editor (split into sub-epics below), background render pipeline, smart clip trimmer
-
-**Phase 3 — Growth (Later)**
-Strategic Bets: Text-to-video generation, team workspaces
-Fill-ins: Brand kit, project templates, AI audio
-
-**Strategic reasoning:** The fastest path to a usable product is: upload an asset → preview it in the Player → add AI captions → export. That creates a complete loop before the full timeline editor is polished. The timeline is the most complex surface and should be parallelized with backend work. Captions alone are a strong enough differentiator to acquire early users given the CapCut exodus and trust concerns.
-
----
----
-
-## Part 2: Epic Breakdown
-
----
-
-### EPIC 1 — Asset Manager & Upload Pipeline 🟢 Quick Win
-
-**Pages / Surfaces:**
-- Asset Browser panel (sidebar in the editor)
-- Upload modal (drag-and-drop + file picker)
-- Asset detail view (metadata, waveform/thumbnail preview)
-
----
-
-**[BE] Create Asset Upload Presigned URL Endpoint**
-
-**Description:** Build a `POST /projects/:id/assets/upload-url` endpoint that generates a presigned PUT URL to object storage (S3/R2). The endpoint validates the file type and size, creates a pending `project_assets_current` row, and returns the signed URL + asset ID to the client. This unblocks the frontend from uploading directly to storage without routing files through the API server.
-
-**Acceptance Criteria:**
-- [ ] Accepts `{ filename, contentType, fileSizeBytes }` in request body
-- [ ] Validates allowed content types (`video/*`, `audio/*`, `image/*`)
-- [ ] Returns `{ assetId, uploadUrl, expiresAt }` with 15-minute URL expiry
-- [ ] Creates a `pending` asset row in `project_assets_current`
-- [ ] Returns 400 on invalid content type, 413 on oversized file
-- [ ] Auth middleware enforces user owns the project
-
-**Dependencies:** None
-**Effort:** S
-
----
-
-**[BE] Asset Finalization + Ingest Job Enqueue Endpoint**
-
-**Description:** Build a `POST /assets/:id/finalize` endpoint the client calls after upload completes. It verifies the file exists in object storage (HEAD request), transitions the asset status from `pending` to `processing`, and enqueues an ingest job via BullMQ. The ingest job extracts metadata (duration, resolution) and generates a thumbnail + waveform proxy.
-
-**Acceptance Criteria:**
-- [ ] Verifies the object exists in storage before finalizing
-- [ ] Updates asset status to `processing` in DB
-- [ ] Enqueues a `media-ingest` BullMQ job with `{ assetId, projectId, uri }`
-- [ ] Returns 404 if asset not found or not in `pending` status
-- [ ] Idempotent — repeated calls do not create duplicate jobs
-
-**Dependencies:** Create presigned URL endpoint
-**Effort:** M ⚠️ Requires BullMQ + Redis setup
-
----
-
-**[BE] Media Worker — Asset Ingest Job**
-
-**Description:** Implement the `media-ingest` BullMQ job handler in `apps/media-worker/`. It uses FFprobe to extract video/audio metadata, generates a thumbnail (first frame), and for audio/video generates a downsampled waveform JSON. Updates the asset row with extracted metadata and sets status to `ready`.
-
-**Acceptance Criteria:**
-- [ ] Extracts `durationFrames`, `width`, `height`, `fps` from video
-- [ ] Generates a 320x180 JPEG thumbnail stored to object storage
-- [ ] Generates waveform peak data (array of normalized floats) for audio/video assets
-- [ ] Updates `project_assets_current` row to `ready` status with all extracted fields
-- [ ] On failure: sets status to `error`, stores error message, retries up to 3x with exponential backoff
-
-**Dependencies:** Asset finalization endpoint
-**Effort:** M ⚠️ FFprobe/FFmpeg binary dependency in worker container
-
----
-
-**[FE] Asset Browser Panel + Upload UI**
-
-**Description:** Build the asset browser sidebar panel in `apps/web-editor/`. Shows all `ready` assets for the current project grouped by type (video/audio/image). Includes a drag-and-drop upload zone and a file picker button. Uploaded assets show a progress bar during upload + ingest, then appear in the list when `ready`. Clicking an asset selects it; dragging an asset onto the timeline creates a clip.
-
-**Acceptance Criteria:**
-- [ ] Displays assets grouped by type with thumbnail previews
-- [ ] Drag-and-drop and file picker upload trigger presigned URL flow
-- [ ] Upload progress shown via XHR `onprogress` event
-- [ ] Asset cards show `processing` spinner until ingest completes (poll `/assets/:id` every 2s)
-- [ ] Selecting an asset shows metadata in a detail popover (duration, resolution, size)
-- [ ] Empty state with illustrated prompt to upload first asset
-- [ ] Handles upload errors with inline toast notification
-
-**Dependencies:** Presigned URL + finalization endpoints
-**Effort:** M
-
----
-
-**Summary — Epic 1**
-
-| Ticket | Area | Effort | Depends On |
-|---|---|---|---|
-| Create presigned URL endpoint | BE | S | None |
-| Asset finalization + ingest enqueue | BE | M | Presigned URL |
-| Media worker ingest job | BE/INFRA | M | Finalization endpoint |
-| Asset browser panel + upload UI | FE | M | Both BE endpoints |
-
-**Build order:** Start BE tickets immediately. FE can begin with mocked presigned URLs and a stub status endpoint, enabling parallelization. Worker setup (Redis + BullMQ) is the biggest infra risk — spike this day 1.
-
----
----
-
-### EPIC 2 — Remotion Player Preview 🟢 Quick Win
-
-**Pages / Surfaces:**
-- Preview panel (center of editor)
-- Playback controls bar (play/pause/scrub/frame counter)
-
----
-
-**[FE] Integrate Remotion Player with Project Document**
-
-**Description:** Mount `<Player>` from `remotion` in the preview panel of `apps/web-editor/`. Pass the current project snapshot as `inputProps` to the composition defined in `packages/remotion-comps/`. Implement memoization of inputProps via `useMemo` to prevent full re-renders during scrubbing. Connect playhead frame to a `useSyncExternalStore` subscription so only the Player and frame counter re-render during playback.
-
-**Acceptance Criteria:**
-- [ ] Player renders the current project document composition
-- [ ] Playback (play/pause/scrub) works without full component tree re-render
-- [ ] `inputProps` are memoized — confirmed with React DevTools Profiler
-- [ ] Player respects `video.fps`, `video.width`, `video.height` from project doc
-- [ ] Player scales to fill the preview panel with letterboxing if needed
-- [ ] Playhead frame synced bi-directionally with the timeline ruler
-
-**Dependencies:** `packages/remotion-comps/` base composition exists
-**Effort:** M ⚠️ Performance-sensitive; requires profiling pass
-
----
-
-**[FE] Base Remotion Composition in `packages/remotion-comps/`**
-
-**Description:** Create the root `<VideoComposition>` component in `packages/remotion-comps/` that accepts a `ProjectDoc` as input props. Renders tracks and clips in z-order. Each clip type dispatches to a typed sub-component: `<VideoLayer>` (dual-mode `<Video>` / `<OffthreadVideo>` using `useRemotionEnvironment`), `<AudioLayer>`, `<ImageLayer>`, and `<TextOverlayLayer>`. This is the shared render target used by both the Player (preview) and the render worker (SSR).
-
-**Acceptance Criteria:**
-- [ ] Renders clips at correct `startFrame` and `durationFrames`
-- [ ] `<VideoLayer>` uses `<Video>` in browser, `<OffthreadVideo>` in SSR render
-- [ ] Layer z-order respected per `clip.layer` field
-- [ ] Audio clips render `<Audio>` with volume and fade-in/out from `clip.audio`
-- [ ] TypeScript strict-mode: `inputProps` typed to `ProjectDoc` from `packages/project-schema/`
-- [ ] Storybook stories cover: empty timeline, single video clip, audio + video, overlapping clips
-
-**Dependencies:** `packages/project-schema/` types
-**Effort:** M
-
----
-
-**[FE] Playback Controls Bar**
-
-**Description:** Build the playback controls bar below the preview panel. Includes play/pause, rewind-to-start, frame-step forward/back, current frame display, and a scrub slider. Playhead updates via `requestAnimationFrame` loop during playback — does NOT dispatch state updates on every rAF tick; instead, it mutates a CSS custom property directly for the timeline playhead indicator to minimize React work.
-
-**Acceptance Criteria:**
-- [ ] Play/pause toggles Remotion Player's `playing` prop
-- [ ] Scrub slider moves playhead and updates Player `currentFrame`
-- [ ] Frame counter displays `frame / totalFrames` and current timecode `HH:MM:SS:FF`
-- [ ] Frame-step buttons advance/retreat by exactly 1 frame
-- [ ] Keyboard shortcuts: Space (play/pause), Left/Right arrows (frame step), Home (rewind)
-- [ ] rAF loop used for timeline playhead indicator — no full re-render at 60fps
-
-**Dependencies:** Remotion Player integration
-**Effort:** S
-
----
-
-**Summary — Epic 2**
-
-| Ticket | Area | Effort | Depends On |
-|---|---|---|---|
-| Base Remotion composition | FE | M | project-schema types |
-| Remotion Player integration | FE | M | Base composition |
-| Playback controls bar | FE | S | Player integration |
-
-**Build order:** All FE, can be parallelized with Epic 1 backend work. Ship composition first, then Player, then controls. Performance profiling is mandatory before merging Player integration.
-
----
----
-
-### EPIC 3 — AI Captions / Auto-Subtitles 🟢 Quick Win
-
-**Pages / Surfaces:**
-- Transcription modal (triggered from timeline context menu or asset menu)
-- Caption track on the timeline
-- Caption editor panel (click caption to edit text/timing)
-
----
-
-**[BE] Transcription Job Endpoint + Worker**
-
-**Description:** Build `POST /assets/:id/transcribe` which enqueues a transcription BullMQ job. The worker calls OpenAI Whisper API (or self-hosted Whisper) with the asset URI and returns word-level timestamps. On completion, stores the transcript as a `caption_tracks` row linked to the asset, and fires a webhook/poll response to the client.
-
-**Acceptance Criteria:**
-- [ ] Enqueues `transcribe-asset` job; returns `{ jobId }` immediately (async)
-- [ ] Worker downloads asset from object storage, sends to Whisper with `response_format=verbose_json`
-- [ ] Stores resulting `segments[]` (start, end, text) in a new `caption_tracks` table
-- [ ] `GET /assets/:id/captions` returns transcript segments when ready
-- [ ] Handles Whisper API errors with retry (3x, exponential backoff)
-- [ ] Returns 409 if transcription already exists for asset
-
-**Dependencies:** Asset ingest complete (asset must be in `ready` status)
-**Effort:** M ⚠️ Whisper API cost; add rate limiting and user credit guard
-
----
-
-**[DB] Caption Tracks Table Migration**
-
-**Description:** Create a `caption_tracks` table that stores transcription results per asset. Each row contains the full segments array as JSON and metadata. Linked to `project_assets_current` via `asset_id`.
-
-**Acceptance Criteria:**
-- [ ] Table: `caption_track_id`, `asset_id`, `project_id`, `language`, `segments_json` (JSON), `created_at`
-- [ ] Index on `(asset_id, project_id)`
-- [ ] Migration is reversible (up/down)
-
-**Dependencies:** None
-**Effort:** XS
-
----
-
-**[FE] Add Captions Track to Timeline from Transcription**
-
-**Description:** After transcription completes, expose an "Add to Timeline" button in the asset panel. This adds a dedicated captions overlay track to the project document, populating it with caption clips derived from the Whisper segments. Each segment becomes a `TextOverlayLayer` clip with the segment text as content, positioned at the correct start/duration frame.
-
-**Acceptance Criteria:**
-- [ ] "Transcribe" button appears on video/audio assets in the browser
-- [ ] Transcription status shown inline (pending/processing/ready/error)
-- [ ] "Add Captions to Timeline" converts segments to caption clips in the project doc
-- [ ] Caption clips render via `<TextOverlayLayer>` in the Remotion composition
-- [ ] Clips are created in a new `captions` overlay track, not mixed with video tracks
-
-**Dependencies:** Transcription endpoint, Caption table, Base composition with TextOverlayLayer
-**Effort:** M
-
----
-
-**[FE] Inline Caption Editor Panel**
-
-**Description:** Clicking a caption clip on the timeline opens an inspector panel on the right. The panel shows the raw text (editable), start/end frame (editable), font size, color, and vertical position. Edits update the project document via Immer patch, triggering a debounced autosave.
-
-**Acceptance Criteria:**
-- [ ] Text field directly edits `clip.text` in project doc
-- [ ] Start/end frame inputs adjust clip bounds with validation (no negative duration)
-- [ ] Font size, color, vertical position controls map to `clip.style.*` fields
-- [ ] Changes produce Immer patches and are undo/redo-able
-- [ ] Preview updates in real-time as text/style is edited
-
-**Dependencies:** Caption track on timeline
-**Effort:** S
-
----
-
-**Summary — Epic 3**
-
-| Ticket | Area | Effort | Depends On |
-|---|---|---|---|
-| Caption tracks DB migration | DB | XS | None |
-| Transcription job endpoint + worker | BE | M | Asset ingest, DB migration |
-| Add captions track to timeline | FE | M | Transcription endpoint, composition |
-| Inline caption editor panel | FE | S | Caption track on timeline |
-
-**Build order:** DB migration and BE can start immediately in parallel. FE caption track depends on both BE and the Remotion composition having `TextOverlayLayer`. Caption editor is independent of BE.
-
----
----
-
-### EPIC 4 — Version History & Rollback 🟢 Quick Win
-
-**Pages / Surfaces:**
-- Version history sidebar panel
-- Restore version confirmation modal
-
----
-
-**[BE] Project Version Persistence on Save**
-
-**Description:** Build `POST /projects/:id/versions` which accepts the full `doc_json` snapshot, validates it against the project schema, and atomically: inserts a `project_versions` row, inserts a `project_version_patches` row (forward + inverse Immer patches from client), updates `projects.latest_version_id`, and updates the `*_current` materialized tables — all within a single InnoDB transaction. Returns the new `version_id`.
-
-**Acceptance Criteria:**
-- [ ] Full transaction: versions insert + patches insert + latest pointer update + current tables update
-- [ ] Rolls back transaction on any failure, returns 500 with error detail
-- [ ] Validates `doc_schema_version` matches server-side expected version
-- [ ] Rejects save if `parent_version_id` doesn't match current `latest_version_id` (optimistic lock)
-- [ ] Writes to `project_audit_log` with event type `project.update`
-- [ ] Returns `{ versionId, createdAt }`
-
-**Dependencies:** DB schema from architecture doc
-**Effort:** M ⚠️ Optimistic lock logic + transaction correctness is critical
-
----
-
-**[BE] List and Restore Version Endpoints**
-
-**Description:** Build `GET /projects/:id/versions` (paginated, last 50) and `POST /projects/:id/versions/:versionId/restore`. Restore atomically updates `projects.latest_version_id` to the target version and re-materializes all `*_current` tables from that snapshot's `doc_json`.
-
-**Acceptance Criteria:**
-- [ ] `GET` returns `[{ versionId, createdAt, createdByUserId, durationFrames }]` newest-first
-- [ ] `POST /restore` updates `latest_version_id` and rebuilds current tables in one transaction
-- [ ] Writes `project.restore` event to audit log
-- [ ] Restore returns the full project document at that version
-- [ ] Only project owner or editors can restore (ACL check)
-
-**Dependencies:** Version persistence endpoint
-**Effort:** S
-
----
-
-**[FE] Version History Panel**
-
-**Description:** Build a collapsible version history panel. Shows a list of saved versions with timestamp, editor name, and a preview thumbnail (first frame of the composition at that version — can be lazy). Each version has a "Restore" button triggering a confirmation modal. After restore, the editor reloads the project document from the API.
-
-**Acceptance Criteria:**
-- [ ] Lists last 50 versions in reverse chronological order
-- [ ] Timestamp shown as relative time ("2 minutes ago") with tooltip for absolute
-- [ ] "Restore" button opens a confirmation modal ("This will replace your current version")
-- [ ] On confirm: calls restore API, refetches project doc, updates editor store
-- [ ] Loading state during restore; error toast on failure
-- [ ] Current (latest) version is visually distinguished
-
-**Dependencies:** List and restore version endpoints
-**Effort:** S
-
----
-
-**[FE] Autosave with Debounce + Immer Patch Generation**
-
-**Description:** Instrument the editor's external store to generate Immer `patches` and `inversePatches` on every project document mutation using `produceWithPatches`. Debounce saves at 2s after last change. On save, send `{ doc_json, patches, inversePatches, parentVersionId }` to the version persistence endpoint. Show "Saved" / "Saving…" / "Unsaved changes" indicator in the header.
-
-**Acceptance Criteria:**
-- [ ] Every store mutation uses `produceWithPatches` from Immer
-- [ ] Patches accumulated since last save sent with each version write
-- [ ] Debounce: saves 2s after last mutation, immediate save on tab/window close
-- [ ] Save status indicator in header: idle/"Saving…"/"Saved Xs ago"/"Unsaved changes"
-- [ ] Handles 409 conflict (stale parent version) by showing "Reload to get latest" warning
-- [ ] Undo/redo uses in-memory inverse patches (does NOT re-fetch from API for each undo)
-
-**Dependencies:** Version persistence endpoint
-**Effort:** M ⚠️ Undo/redo correctness edge cases require thorough testing
-
----
-
-**Summary — Epic 4**
-
-| Ticket | Area | Effort | Depends On |
-|---|---|---|---|
-| Project version persistence | BE | M | DB schema |
-| List + restore version endpoints | BE | S | Version persistence |
-| Autosave + Immer patch generation | FE | M | Persistence endpoint |
-| Version history panel | FE | S | List + restore endpoints |
-
-**Build order:** BE first — persistence endpoint is a blocker for everything. FE autosave and history panel can develop in parallel once both BE endpoints exist. Use a stub endpoint initially for FE development.
-
----
----
-
-### EPIC 5 — Background Render Pipeline 🔵 Strategic Bet
-
-**Pages / Surfaces:**
-- Export modal (preset selection, format, quality)
-- Render progress overlay / status page
-- Completed renders list (download/share links)
-
----
-
-**[DB] Render Jobs Table Migration**
-
-**Description:** Create a `render_jobs` table tracking export requests. Fields include job status, progress percentage, output URI, preset settings, and error details.
-
-**Acceptance Criteria:**
-- [ ] Fields: `job_id`, `project_id`, `version_id`, `requested_by`, `status` (ENUM: queued/processing/complete/failed), `progress_pct`, `preset_json`, `output_uri`, `error_message`, `created_at`, `updated_at`
-- [ ] Index on `(project_id, status)` and `(status, created_at)` for worker polling
-- [ ] Migration is reversible
-
-**Dependencies:** None
-**Effort:** XS
-
----
-
-**[BE] Create Render Job Endpoint**
-
-**Description:** Build `POST /projects/:id/renders` which validates the requested preset, records a `render_jobs` row, and enqueues a `render-video` BullMQ job. Returns `{ jobId }` immediately. The client polls `GET /renders/:jobId` for progress.
-
-**Acceptance Criteria:**
-- [ ] Validates preset: resolution, fps, format (`mp4`/`webm`) are within allowed values
-- [ ] Snapshots the current `latest_version_id` into the job (renders exact version)
-- [ ] Returns `{ jobId, status: "queued" }` with 202 Accepted
-- [ ] Rate-limits to max 2 concurrent renders per user (returns 429 if exceeded)
-- [ ] Writes `render.requested` to audit log
-
-**Dependencies:** Render jobs table
-**Effort:** S
-
----
-
-**[BE] Render Worker — Remotion SSR Job**
-
-**Description:** Implement the `render-video` BullMQ job handler in `apps/render-worker/`. Fetches the project version's `doc_json` from MySQL, bundles the Remotion composition, calls `renderMedia()` with the project doc as inputProps, streams progress updates to the `render_jobs` table, and uploads the completed file to object storage.
-
-**Acceptance Criteria:**
-- [ ] Fetches `doc_json` from `project_versions` by `version_id`
-- [ ] Bundles composition from `packages/remotion-comps/` via `bundle()`
-- [ ] Calls `renderMedia()` with correct codec, fps, output format from preset
-- [ ] Updates `render_jobs.progress_pct` every 5% via DB update (not Redis — keep simple)
-- [ ] On success: uploads MP4 to object storage, updates job to `complete` with `output_uri`
-- [ ] On failure: updates job to `failed` with `error_message`, retries up to 2x
-- [ ] Uses `<OffthreadVideo>` path (SSR render environment)
-
-**Dependencies:** Create render job endpoint; Remotion compositions package
-**Effort:** L ⚠️ FFmpeg binary + Remotion renderer in container; video codec licensing; large file upload to S3
-
----
-
-**[BE] Render Progress + Download Endpoint**
-
-**Description:** Build `GET /renders/:jobId` returning current status and progress. When status is `complete`, return a time-limited presigned download URL (1-hour expiry). Build `GET /projects/:id/renders` listing all renders for a project.
-
-**Acceptance Criteria:**
-- [ ] Returns `{ status, progressPct, outputUrl?, errorMessage? }`
-- [ ] `outputUrl` is a presigned GET URL valid for 1 hour (generated on request, not stored)
-- [ ] Project renders list shows all jobs newest-first with status and file size
-- [ ] Returns 403 if requesting user doesn't have read access to project
-
-**Dependencies:** Render worker
-**Effort:** S
-
----
-
-**[FE] Export Modal + Render Preset Selection**
-
-**Description:** Build an export modal triggered by a "Export" button in the header. Shows preset options (1080p MP4, 4K MP4, 720p MP4, Vertical 9:16, Square 1:1) with estimated render time. On submit, calls create render job and transitions to a progress view.
-
-**Acceptance Criteria:**
-- [ ] Preset cards show resolution, format, estimated time (static copy initially)
-- [ ] "Start Export" calls `POST /renders`, disables button during request
-- [ ] Transitions to progress view on success (shows animated progress bar)
-- [ ] Progress bar polls `GET /renders/:jobId` every 3 seconds
-- [ ] On completion: shows download button + "Share link" copy button
-- [ ] On failure: shows error message with "Try again" button
-
-**Dependencies:** Create render endpoint, progress endpoint
-**Effort:** M
-
----
-
-**Summary — Epic 5**
-
-| Ticket | Area | Effort | Depends On |
-|---|---|---|---|
-| Render jobs DB migration | DB | XS | None |
-| Create render job endpoint | BE | S | DB migration |
-| Render worker SSR job | BE/INFRA | L | Render endpoint + compositions |
-| Render progress + download endpoint | BE | S | Render worker |
-| Export modal + progress UI | FE | M | All BE endpoints |
-
-**Build order:** DB + endpoints first; worker is the longest task and should start in parallel with endpoint work. FE export modal can be built against a stubbed progress endpoint. The render worker is the highest-risk ticket in the entire project — allocate a dedicated spike to validate Remotion SSR + FFmpeg in the target container environment before committing to timeline.
-
----
----
-
-### EPIC 6 — Timeline Editor (Multi-track) 🔵 Strategic Bet
-
-> This epic is large. Recommend splitting into Phase 1 (core interactions) and Phase 2 (advanced editing).
-
-**Pages / Surfaces:**
-- Timeline panel (full-width, bottom of editor)
-- Track headers (left sidebar within timeline)
-- Clip lane (canvas/DOM per track)
-- Context menus (right-click on clip, track)
-
----
-
-#### Phase 1 — Core Timeline
-
-**[FE] Timeline Ruler + Virtualized Track List**
-
-**Description:** Build the timeline ruler (frame/timecode markers that scale with zoom) and the virtualized track list using `react-window FixedSizeList`. Each track row renders a track header (name, mute/lock toggles) and a clip lane. The timeline zoom level is stored in ephemeral UI state (not the project doc).
-
-**Acceptance Criteria:**
-- [ ] Ruler shows timecodes at appropriate intervals for current zoom level
-- [ ] Tracks rendered via `react-window` — 100 tracks scrolls without jank
-- [ ] Track header shows name (editable inline), mute toggle, lock toggle
-- [ ] Zoom: horizontal scroll wheel zooms timeline (min 1px/frame, max 100px/frame)
-- [ ] Ruler click sets playhead to that frame
-- [ ] `overscanCount={5}` on the virtual list
-
-**Dependencies:** Project doc type definitions
-**Effort:** M
-
----
-
-**[FE] Clip Rendering on Timeline**
-
-**Description:** Render clips as absolutely-positioned divs within each track lane. Clip position and width are derived from `startFrame * pxPerFrame` and `durationFrames * pxPerFrame`. Clips show a thumbnail (for video) or waveform (for audio). Clip selection adds to `selectedClipIds` in ephemeral UI store.
-
-**Acceptance Criteria:**
-- [ ] Clips positioned correctly at all zoom levels
-- [ ] Video clips show first-frame thumbnail (fetched from ingest metadata)
-- [ ] Audio clips show waveform SVG (from ingest waveform data)
-- [ ] Clip selection: click selects, Shift+click multi-selects, click empty area deselects
-- [ ] Selected clips have a highlighted border
-- [ ] Overlapping clips on same track displayed with slight vertical offset by `layer`
-
-**Dependencies:** Timeline ruler + track list
-**Effort:** M
-
----
-
-**[FE] Clip Drag (Move) Interaction**
-
-**Description:** Implement pointer-event-based drag for moving clips along the timeline. On drag, show a ghost/preview of the clip at the new position. On drop, dispatch an Immer mutation to update `clip.startFrame`. Snapping to other clip edges and to the playhead within a configurable threshold (default 5px).
-
-**Acceptance Criteria:**
-- [ ] Drag clip changes `startFrame` in project doc on drop
-- [ ] Ghost clip shown during drag; original stays dimmed in place
-- [ ] Snap to: clip edges, playhead, frame 0 — with visible snap indicator line
-- [ ] Drag is cancelled on Escape key
-- [ ] Dragging a locked clip is prevented (cursor shows "not-allowed")
-- [ ] Multi-clip drag moves all selected clips maintaining relative offsets
-
-**Dependencies:** Clip rendering
-**Effort:** M ⚠️ Snapping math + pointer capture edge cases
-
----
-
-**[FE] Clip Trim Interaction**
-
-**Description:** Hovering near the left or right edge of a clip shows a resize cursor. Dragging trims the clip: left edge adjusts `startFrame` and `trimInFrames`; right edge adjusts `trimOutFrames`. Duration cannot be trimmed below 1 frame or beyond the source asset length.
-
-**Acceptance Criteria:**
-- [ ] Left-edge drag: adjusts `startFrame` + `trimInFrames` simultaneously (maintains clip position in timeline)
-- [ ] Right-edge drag: adjusts `trimOutFrames` / `durationFrames`
-- [ ] Cannot trim beyond asset boundaries
-- [ ] Cannot trim clip to less than 1 frame duration
-- [ ] Snapping applies during trim (same snap targets as move)
-- [ ] Immer patch generated on trim completion (mouseup)
-
-**Dependencies:** Clip drag interaction
-**Effort:** M
-
----
-
-**[FE] Clip Split Interaction**
-
-**Description:** Right-click on a clip → "Split at Playhead" splits the clip at the current playhead frame into two clips. The first clip's `trimOutFrames` is set to the split point; the second clip gets a new `clipId`, `startFrame` = split point, `trimInFrames` = offset from original.
-
-**Acceptance Criteria:**
-- [ ] Right-click context menu shows "Split at Playhead" when playhead overlaps clip
-- [ ] Split produces two new clips covering the original range
-- [ ] Both clips reference the same `assetId`; trim values adjusted correctly
-- [ ] Undo splits by merging the two clips back (via inverse Immer patch)
-- [ ] Context menu also shows "Delete Clip", "Duplicate Clip"
-
-**Dependencies:** Clip rendering, version history (Immer patches for undo)
-**Effort:** S
-
----
-
-**[BE] Project Partial Update Endpoint (Clip-level)**
-
-**Description:** For high-frequency clip edits (drag, trim), a full document snapshot per mouse event is too heavy. Build `PATCH /projects/:id/clips/:clipId` that updates a single clip's mutable fields (`startFrame`, `durationFrames`, `trimInFrames`, `trimOutFrames`, `transform`) and updates `project_clips_current` without creating a full version snapshot. Version snapshot is still created on explicit save/autosave.
-
-**Acceptance Criteria:**
-- [ ] Updates `project_clips_current` row for the given clip
-- [ ] Does NOT create a `project_versions` row
-- [ ] Validates clip belongs to the project
-- [ ] Returns updated clip fields
-- [ ] Rate-limited to 60 req/s per project (covers 60fps scrubbing)
-
-**Dependencies:** None
-**Effort:** S
-
----
-
-**Summary — Epic 6 (Phase 1)**
-
-| Ticket | Area | Effort | Depends On |
-|---|---|---|---|
-| Timeline ruler + virtual track list | FE | M | project-schema types |
-| Clip rendering on timeline | FE | M | Ruler + track list |
-| Clip drag (move) interaction | FE | M | Clip rendering |
-| Clip trim interaction | FE | M | Clip drag |
-| Clip split + context menu | FE | S | Clip rendering, Immer patches |
-| Clip partial update endpoint | BE | S | None |
-
-**Build order:** All FE tickets are sequential (ruler → clips → drag → trim → split). BE partial update endpoint can be built independently and is low risk. Phase 2 (add track, delete track, multi-track reorder, keyboard shortcuts, undo/redo UI) should be a separate epic after Phase 1 is validated with real users.
-
----
----
-
-## Overall Build Order Recommendation
-
-```
-Week 1–2:   [Epic 1 BE] Asset upload pipeline (presigned URLs + ingest worker)
-            [Epic 2 FE] Remotion compositions + Player preview (parallel)
-            [Epic 4 DB+BE] Version persistence (parallel)
-
-Week 3–4:   [Epic 1 FE] Asset browser UI
-            [Epic 3 DB+BE] Captions transcription pipeline
-            [Epic 4 FE] Autosave + version history panel
-
-Week 5–6:   [Epic 3 FE] Caption track + inline editor
-            [Epic 5 DB+BE] Render pipeline (begin worker spike)
-            [Epic 6 FE] Timeline ruler + clip rendering (begin)
-
-Week 7–8:   [Epic 5 FE] Export modal + progress UI
-            [Epic 6 FE] Clip drag + trim + split
-            [Epic 6 BE] Partial update endpoint
-
-Week 9+:    Epic 6 Phase 2 (advanced timeline)
-            Epic: Team workspaces
-            Epic: Text-to-video generation
-
-Week 10+:   [Epic 7] Edit page integration consolidation
-```
-
----
----
-
-### EPIC 7 — Edit Page Integration: Consolidate Features into One Working Flow
-
-> All core features exist individually (asset upload, timeline drag/trim, captions) but do not connect to each other. This epic wires them into a single, usable Edit page. The primary outcome: a user can upload media, place it on the timeline, navigate the timeline comfortably, and optionally add captions — all without leaving the page or hitting dead ends.
-
-**Investigation Summary**
-
-| Area | Status | Notes |
-|---|---|---|
-| Asset upload (UploadDropzone + useAssetUpload) | ✅ Works | |
-| Asset browser with filter tabs + search | ✅ Works | |
-| Clip drag on timeline (useClipDrag) | ✅ Works | |
-| Clip trim on timeline (useClipTrim) | ✅ Works | |
-| Right-click context menu: delete, duplicate, split | ✅ Works | Wired in ClipLane |
-| Timeline ruler click-to-seek | ✅ Works | Already implemented |
-| Timeline zoom (+ / − buttons) | ✅ Works | |
-| Caption editor panel for selected text-overlay clip | ✅ Works | |
-| useAddCaptionsToTimeline hook | ✅ Works | But unreachable from UI |
-| **Add asset → timeline** | ❌ Missing | No "Add to Timeline" button or drag; AssetDetailPanel has disabled stubs |
-| **Image clip type** | ❌ Missing | Schema has `video`, `audio`, `text-overlay` — no `image` type; images can't go on timeline |
-| **Caption transcription flow** | ❌ Stranded | `TranscribeButton` exists but is not mounted anywhere in the running app |
-| **Timeline horizontal scrollbar** | ❌ Missing | Wheel scroll works, no visible scrollbar |
-| **Delete key shortcut for clips** | ❌ Missing | Only reachable via right-click context menu |
-| **Asset delete (AssetDetailPanel)** | ❌ Disabled | Button exists as a stub |
-| **Playhead auto-scroll during playback** | ❌ Missing | Timeline doesn't follow playhead |
-
-**Pages / Surfaces:**
-- Edit Page (`App.tsx` shell) — the single editor surface; all features rendered here but disconnected
-- Asset Browser Panel (left sidebar) — upload, browse, filter; no way to push assets to timeline
-- Timeline Panel (bottom) — tracks, clips, drag/trim; no way to receive assets, no scrollbar
-- Right Sidebar / Inspector — shows `CaptionEditorPanel` on clip select; transcription flow stranded here
-
----
-
-**[DB/Schema] Add `image` clip type to project-schema**
-
-**Description:** `packages/project-schema/src/schemas/clip.schema.ts` only defines `video`, `audio`, and `text-overlay`. Images can be uploaded as assets (`image/*`) but cannot be placed on the timeline — there is no `ImageClip` type. This is a zero-dependency schema change that unblocks all downstream image-related FE work.
-
-**Acceptance Criteria:**
-- [ ] `imageClipSchema` added to `packages/project-schema/src/schemas/clip.schema.ts` with fields: `id`, `type: 'image'`, `assetId`, `trackId`, `startFrame`, `durationFrames`, `opacity` (0–1, default 1)
-- [ ] `imageClipSchema` added to the `clipSchema` discriminated union
-- [ ] `ImageClip` TypeScript type exported from `packages/project-schema/src/types/index.ts`
-- [ ] Existing Zod tests pass; a new test covers the `image` variant
-- [ ] `CLIP_COLORS` in `ClipBlock.tsx` updated to include `image: '#0EA5E9'` (no visual regression on existing types)
-
-**Dependencies:** None
-**Effort:** XS
-
----
-
-**[FE] Add `image` clip rendering to `packages/remotion-comps` (ImageLayer)**
-
-**Description:** `packages/remotion-comps/src/layers/ImageLayer.tsx` already exists per the architecture. `VideoComposition.tsx` must be updated to render `ImageClip` instances using it so the browser preview and SSR render both work for image clips.
-
-**Acceptance Criteria:**
-- [ ] `VideoComposition.tsx` maps `ImageClip` entries to `<ImageLayer>` using the asset `src` URL
-- [ ] `ImageLayer.tsx` renders a Remotion `<Img>` primitive with `opacity` applied
-- [ ] Image clip appears in the browser `<Player>` preview at correct start/duration
-- [ ] No existing composition snapshot tests break
-
-**Dependencies:** Add `image` clip type to project-schema
-**Effort:** S
-
----
-
-**[BE] Implement `DELETE /assets/:id` endpoint**
-
-**Description:** `AssetDetailPanel` has a disabled "Delete Asset" button. The API has no route to delete an asset. This endpoint should soft-delete the asset record (set `deleted_at`) rather than hard-delete so object storage cleanup can be handled separately.
-
-**Acceptance Criteria:**
-- [ ] `DELETE /assets/:id` route registered in `apps/api/src/routes/assets.routes.ts`
-- [ ] Controller calls `asset.service.ts`; service calls `asset.repository.ts` — no business logic in controller
-- [ ] Returns `204 No Content` on success
-- [ ] Returns `404` if asset not found for this user
-- [ ] Returns `409` if asset is referenced by any existing clip in a project (guard against orphaning clips)
-- [ ] Validated with auth middleware — only asset owner can delete
-- [ ] Integration test covers happy path, 404, and 409
-
-**Dependencies:** None
-**Effort:** S
-
----
-
-**[FE] Add "Add to Timeline" action to AssetDetailPanel**
-
-**Description:** The biggest integration gap. Assets sit in the browser but there is no way to create a clip from them. Add a prominent "Add to Timeline" button to `AssetDetailPanel`. Logic lives in a new `useAddAssetToTimeline` hook in `features/asset-manager/hooks/`. The hook finds or creates an appropriate track, creates a clip of the matching type (`VideoClip`, `AudioClip`, `ImageClip`), and writes to the project store via `setProject`.
-
-⚠️ _Requires creating a track + clip atomically in the project store; must handle the case where no compatible track exists._
-
-**Acceptance Criteria:**
-- [ ] "Add to Timeline" button visible in `AssetDetailPanel` for assets with `status === 'ready'`
-- [ ] Button is disabled and shows tooltip "Processing…" when `status !== 'ready'`
-- [ ] Clicking creates the correct clip type: `video/*` → `VideoClip`, `audio/*` → `AudioClip`, `image/*` → `ImageClip`
-- [ ] If no track of the correct type exists, a new track is created with a default name (e.g. "Video 1")
-- [ ] `durationFrames` is derived from `asset.durationSeconds * fps`; falls back to `project.fps * 5` if `durationSeconds` is null (images)
-- [ ] Clip is placed immediately after the last clip on the chosen track (no overlap)
-- [ ] `useAddAssetToTimeline` hook lives in `features/asset-manager/hooks/useAddAssetToTimeline.ts` with unit tests
-- [ ] `AssetDetailPanel` does not contain business logic — it only calls the hook
-
-**Dependencies:** Add `image` clip type to project-schema (for images)
-**Effort:** M
-
----
-
-**[FE] Enable drag-and-drop from AssetCard to TrackList**
-
-**Description:** Users expect to drag an asset card from the left panel and drop it onto a track lane to create a clip at the drop position — the natural video editor workflow. `AssetCard` gets `draggable={true}` and `onDragStart` storing `assetId` in `dataTransfer`. `ClipLane` gets `onDragOver` + `onDrop` handlers that calculate `startFrame` from the drop X position using `pxPerFrame` and `scrollOffsetX`. Reuses `useAddAssetToTimeline` for clip creation logic.
-
-⚠️ _Cross-component drag uses HTML5 DnD; drop target must identify the track from context and account for scrollOffsetX in the frame calculation._
-
-**Acceptance Criteria:**
-- [ ] Dragging an `AssetCard` shows a drag ghost (browser default is acceptable)
-- [ ] Hovering over a `ClipLane` highlights it with a drop affordance (border or background tint)
-- [ ] Dropping creates the correct clip type at the pointer's frame position on the target track
-- [ ] If dropped on the wrong track type (e.g. audio asset on video track), drop is rejected and user sees feedback
-- [ ] Clip is not created if `asset.status !== 'ready'`
-- [ ] `scrollOffsetX` is correctly accounted for in the frame calculation
-- [ ] Existing drag (move) interactions via `useClipDrag` are unaffected
-
-**Dependencies:** Add "Add to Timeline" action (`useAddAssetToTimeline` hook reused), Add `image` clip type to project-schema
-**Effort:** M
-
----
-
-**[FE] Surface caption transcription flow in AssetDetailPanel**
-
-**Description:** `TranscribeButton` and `useAddCaptionsToTimeline` exist and work but are mounted nowhere in the running app — the caption workflow is completely inaccessible. Mount `TranscribeButton` inside `AssetDetailPanel` (visible only for `video/*` and `audio/*` assets). On transcription completion, show an "Add Captions to Timeline" button that calls `useAddCaptionsToTimeline`. No changes to existing hooks required — this is wiring only.
-
-**Acceptance Criteria:**
-- [ ] `TranscribeButton` rendered in `AssetDetailPanel` for video/audio assets only
-- [ ] Button disabled when `asset.status !== 'ready'`
-- [ ] `useTranscriptionStatus` polling starts after transcribe is triggered; UI reflects idle → processing → done/error states
-- [ ] Once transcription is `done`, an "Add Captions to Timeline" button appears
-- [ ] Clicking it calls `useAddCaptionsToTimeline` and the caption track appears in the timeline
-- [ ] If a "Captions" track already exists (idempotency guard in hook), button shows "Captions already added" and is disabled
-- [ ] No changes to `TranscribeButton`, `useTranscriptionStatus`, or `useAddCaptionsToTimeline`
-
-**Dependencies:** None (all backend logic already exists)
-**Effort:** S
-
----
-
-**[FE] Add horizontal scrollbar to timeline panel**
-
-**Description:** The only timeline scroll mechanism is the mouse wheel — there is no visible scrollbar for click-drag navigation. This is the "comfortable and natural way to scroll" the user described. Add a custom horizontal scrollbar strip below the clip lanes in `TimelinePanel`. The thumb width represents the visible viewport relative to total content width (`durationFrames * pxPerFrame`). Scrolling updates `scrollOffsetX` in the ephemeral store.
-
-**Acceptance Criteria:**
-- [ ] A horizontal scrollbar is visible at the bottom of the timeline panel
-- [ ] Scrollbar thumb width correctly reflects the ratio of visible width to total content width
-- [ ] Dragging the thumb updates `scrollOffsetX` in real time (no jank)
-- [ ] Scrollbar position updates when `scrollOffsetX` changes from wheel scroll
-- [ ] Scrollbar is hidden/inactive when all content fits in the visible area
-- [ ] Works at all zoom levels (1–100 px/frame)
-- [ ] Scrollbar rendered as an additional strip — does not reduce clip lane height
-
-**Dependencies:** None
-**Effort:** S
-
----
-
-**[FE] Add `Delete` key shortcut to remove selected clips**
-
-**Description:** Clips can only be deleted via the right-click context menu. The standard `Delete` / `Backspace` keyboard shortcut is missing, making the timeline feel unpolished. Add a `keydown` listener scoped to when the timeline panel is focused. Deletes all `selectedClipIds` from the project store, skipping locked clips. Must not fire when focus is inside an `<input>`, `<textarea>`, or `<select>`.
-
-**Acceptance Criteria:**
-- [ ] Pressing `Delete` or `Backspace` when clips are selected removes them from the project store
-- [ ] Deleted clips are removed from `selectedClipIds` in the ephemeral store
-- [ ] Locked clips in the selection are skipped (not deleted)
-- [ ] No deletion when focus is inside an `<input>`, `<textarea>`, or `<select>`
-- [ ] Listener is added/removed correctly (no stale closures or memory leaks)
-- [ ] Unit test covers the happy path and the input-focused guard
-
-**Dependencies:** None
-**Effort:** XS
-
----
-
-**[FE] Enable "Delete Asset" button in AssetDetailPanel**
-
-**Description:** The "Delete Asset" button is permanently `disabled` in `AssetDetailPanel`. Wire it to `DELETE /assets/:id` using a React Query mutation. Show a confirmation dialog before proceeding. On success, invalidate the asset list cache and close the detail panel. On `409` (asset in use by a clip), show an actionable error message.
-
-**Acceptance Criteria:**
-- [ ] Clicking "Delete Asset" shows a confirmation dialog before proceeding
-- [ ] On confirm, calls `DELETE /assets/:id` and shows a loading spinner on the button
-- [ ] On success, invalidates `['assets', projectId]` query and sets `selectedAssetId` to `null`
-- [ ] On `409` (asset in use), shows: "This asset is used by a clip on the timeline. Remove the clip first."
-- [ ] On generic error, shows an error toast
-- [ ] Button never enabled when `asset.status === 'processing'`
-
-**Dependencies:** Implement `DELETE /assets/:id` BE ticket
-**Effort:** S
-
----
-
-**[FE] Auto-scroll timeline to follow playhead during playback**
-
-**Description:** When the project plays, the playhead moves across the timeline but `scrollOffsetX` stays fixed. After a few seconds the playhead exits the visible area and the user loses context. Add logic in `TimelinePanel` to update `scrollOffsetX` to keep the playhead visible. Only activate when the playhead exits the visible window; respect manual scrolling by disabling auto-follow until playback restarts.
-
-**Acceptance Criteria:**
-- [ ] During playback, `scrollOffsetX` updates to keep the playhead within the visible clip lane
-- [ ] Auto-follow only triggers when the playhead exits the visible window — not on every frame
-- [ ] Manual scrolling during playback disables auto-follow until play is restarted
-- [ ] Auto-follow is inactive when paused (ruler scrubbing does not trigger it)
-- [ ] Scroll updates batched with `requestAnimationFrame` — no jank
-
-**Dependencies:** None
-**Effort:** S
-
----
-
-**[FE] Auto-derive project duration from timeline content**
-
-**Description:** `projectDoc.durationFrames` is hardcoded to `300` (10 seconds at 30 fps) and never updates as clips are added or moved. Both the Remotion `<Player>` (`PreviewPanel.tsx:43 durationInFrames={projectDoc.durationFrames}`) and the timeline ruler width read this field directly, so the playable range and ruler are always 10 seconds regardless of content. The project duration should automatically equal the end frame of the last clip on the timeline, with a configurable minimum floor.
-
-The computation logic — `max(clip.startFrame + clip.durationFrames)` over all clips, clamped to a minimum — belongs in `packages/editor-core/` as a pure function. It must be called inside `setProject()` in `apps/web-editor/src/store/project-store.ts` so that every store mutation (drag, trim, add clip, delete clip) automatically keeps `durationFrames` in sync without any component knowing about it.
-
-**Acceptance Criteria:**
-- [ ] A pure function `computeProjectDuration(clips: Clip[], fps: number, minSeconds?: number): number` is added to `packages/editor-core/` with unit tests; it returns `max(clip.startFrame + clip.durationFrames)` across all clips, floored at `fps * minSeconds` (default minimum: 5 seconds)
-- [ ] `setProject()` in `project-store.ts` calls `computeProjectDuration` and writes the result back to `projectDoc.durationFrames` before notifying listeners
-- [ ] Remotion `<Player>` (`durationInFrames`) updates immediately when a clip is added that extends beyond the current duration
-- [ ] Timeline ruler width grows automatically when clips are placed beyond the current ruler end
-- [ ] Adding a clip, dragging a clip to a new position, trimming, and deleting a clip all correctly update `durationFrames`
-- [ ] When all clips are deleted, duration falls back to the minimum floor (not 0 — a zero-frame Remotion composition crashes)
-- [ ] Unit tests cover: empty clips (returns floor), single clip, multi-clip (takes max), clip deletion shrinks duration
-
-**Dependencies:** None
-**Effort:** S
-
----
-
-**[FE] Manual project duration control in timeline toolbar**
-
-**Description:** Even with auto-derived duration, users need the ability to manually extend the timeline (e.g. to add a black tail after the last clip, or to set a fixed output length). The timeline toolbar already has zoom +/− buttons; add a duration input control to it. The control should display the current duration in seconds (derived from `projectDoc.durationFrames / fps`) and allow the user to type or scrub a new value. Writing a manual value overrides auto-derive for that session; adding a clip that extends beyond the manual value should expand it again (auto-derive always wins upward, manual only extends downward).
-
-**Acceptance Criteria:**
-- [ ] Timeline toolbar shows current duration as a number input (seconds, 1 decimal place, e.g. `10.0 s`)
-- [ ] User can type a new duration value; on blur or Enter the project store is updated with `Math.round(value * fps)` frames
-- [ ] Manual value is clamped: minimum = `fps * 1` (1 second floor), maximum = `fps * 3600` (1 hour cap)
-- [ ] If a clip is later placed beyond the manually-set duration, `setProject()` auto-derives upward (the existing `computeProjectDuration` guard in the store handles this)
-- [ ] The input reflects changes from auto-derive (reactive to store updates)
-- [ ] Input styled consistently with the existing toolbar (dark background, `#F0F0FA` text, `Inter` font, same height as zoom buttons)
-
-**Dependencies:** Auto-derive project duration from timeline content
-**Effort:** XS
-
----
-
-**Summary — Epic 7**
-
-| Ticket | Area | Effort | Depends On |
-|---|---|---|---|
-| Add `image` clip type to project-schema | Schema | XS | None |
-| Add `image` clip rendering (ImageLayer) | FE/Remotion | S | image clip schema |
-| Implement `DELETE /assets/:id` | BE | S | None |
-| Add horizontal scrollbar to timeline | FE | S | None |
-| Add `Delete` key shortcut for clips | FE | XS | None |
-| Auto-derive project duration from clips | FE | S | None |
-| Manual project duration control in toolbar | FE | XS | Auto-derive ticket |
-| Add "Add to Timeline" to AssetDetailPanel | FE | M | image clip schema |
-| Surface caption transcription in AssetDetailPanel | FE | S | None |
-| Drag-and-drop AssetCard to TrackList | FE | M | "Add to Timeline" hook |
-| Enable "Delete Asset" button | FE | S | DELETE /assets/:id BE |
-| Auto-scroll timeline during playback | FE | S | None |
-
-**Build order:** Start with the two zero-dependency unblocking items in parallel: the **`image` clip schema** (XS) and **`DELETE /assets/:id`** (S). Immediately also ship **auto-derive project duration** (S, pure FE) — this is a silent but critical fix that makes every other timeline feature behave correctly. While those land, a frontend developer can simultaneously ship **horizontal scrollbar**, **Delete key shortcut**, **caption transcription wiring**, **manual duration control**, and **auto-scroll** — all pure FE. The **"Add to Timeline" button** is the single most impactful user-facing ticket; once it ships the page is usable end-to-end. **Drag-and-drop** is Phase 2 polish — build last, reusing `useAddAssetToTimeline`.
-
-The fastest path to a demo-able product is: **upload asset → auto-caption → export**. That's Epics 1 + 3 + 5, and can be shown without a full timeline editor. The timeline (Epic 6) is the most complex surface and runs in parallel without blocking the initial value loop.
+  Epics 8–12 — Phase 2 Breakdown                                                                                                                                                                                   
+                                                                                                                                                                                                                                                                                                                                                                                                                    
+                                                                                                                                                                                                                   
+  ---
+  EPIC 8 — Authentication & Authorization                                                                                                                                                                          
+                                         
+  ▎ Required before any multi-user features, billing, or API rate limiting.
+                                                                                                                                                                                                                   
+  Pages / Surfaces:
+  - Login page — email/password + OAuth (Google, GitHub)                                                                                                                                                           
+  - Registration page — email/password + OAuth                                                                                                                                                                     
+  - Forgot password / reset flow              
+  - Email verification page                                                                                                                                                                                        
+  - User profile/settings page (basic)                                                                                                                                                                             
+  - All existing pages — auth guard wrapper
+                                                                                                                                                                                                                   
+  ---             
+  [DB] Users Table + Auth Schema Migration                                                                                                                                                                         
+                                                                                                                                                                                                                   
+  Description: Create users, sessions, password_resets, and email_verifications tables. Users table stores email, hashed password, OAuth provider IDs, email verification status, and profile info.
+                                                                                                                                                                                                                   
+  Acceptance Criteria:
+  - users table: user_id (CHAR(26) ULID), email (UNIQUE), password_hash, display_name, avatar_url, google_id, github_id, email_verified_at, created_at, updated_at                                                 
+  - sessions table: session_id, user_id, token_hash, expires_at, created_at                                                                                                                                        
+  - password_resets table: id, user_id, token_hash, expires_at, used_at    
+  - email_verifications table: id, user_id, token_hash, expires_at, verified_at                                                                                                                                    
+  - Indexes on email, google_id, github_id, token_hash                                                                                                                                                             
+  - Migration is reversible                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  Dependencies: None
+  Effort: S                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---
+  [BE] Email/Password Registration Endpoint                                                                                                                                                                        
+                                           
+  Description: Build POST /auth/register that creates a user with bcrypt-hashed password, generates an email verification token, and sends a verification email via a transactional email service
+  (Resend/SendGrid/SES). Returns a session token.                                                                                                                                                                  
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Accepts { email, password, displayName }
+  - Validates email format, password minimum 8 chars                                                                                                                                                               
+  - Returns 409 if email already registered         
+  - Hashes password with bcrypt (cost factor 12)                                                                                                                                                                   
+  - Creates user + session in one transaction                                                                                                                                                                      
+  - Sends verification email with time-limited token (24h expiry)
+  - Returns { userId, sessionToken, expiresAt }                                                                                                                                                                    
+                                                                                                                                                                                                                   
+  Dependencies: Users DB schema                                                                                                                                                                                    
+  Effort: M ⚠️  Requires email service integration (Resend/SES)                                                                                                                                                     
+                                                                                                                                                                                                                   
+  ---
+  [BE] Email/Password Login Endpoint                                                                                                                                                                               
+                                    
+  Description: Build POST /auth/login that verifies credentials, creates a session, and returns a session token. Rate-limited to 5 attempts per email per 15 minutes.
+                                                                                                                                                                                                                   
+  Acceptance Criteria:
+  - Accepts { email, password }                                                                                                                                                                                    
+  - Returns 401 on invalid credentials (same message for wrong email or password)                                                                                                                                  
+  - Creates session with configurable TTL (default 30 days)                      
+  - Rate-limited: 5 failures per email per 15 min → 429                                                                                                                                                            
+  - Returns { userId, sessionToken, expiresAt }        
+                                                                                                                                                                                                                   
+  Dependencies: Users DB schema
+  Effort: S                                                                                                                                                                                                        
+                  
+  ---                                                                                                                                                                                                              
+  [BE] OAuth Login/Register (Google + GitHub)
+                                             
+  Description: Build GET /auth/google/callback and GET /auth/github/callback OAuth2 code exchange endpoints. On first login, create user automatically. On subsequent login, find existing user by provider ID. Use
+   Passport.js or manual OAuth2 code exchange.                                                                                                                                                                     
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - GET /auth/google redirects to Google OAuth consent screen
+  - GET /auth/google/callback exchanges code for profile, creates/finds user, creates session
+  - Same flow for GitHub (GET /auth/github, GET /auth/github/callback)                       
+  - If email from OAuth matches existing email/password user, links accounts                                                                                                                                       
+  - OAuth users have email_verified_at set immediately (provider already verified)                                                                                                                                 
+  - Returns session token via redirect to frontend with token in URL fragment                                                                                                                                      
+                                                                                                                                                                                                                   
+  Dependencies: Users DB schema                                                                                                                                                                                    
+  Effort: M ⚠️  Requires Google Cloud Console + GitHub OAuth App setup                                                                                                                                              
+                                                                                                                                                                                                                   
+  ---             
+  [BE] Password Reset + Email Verification Endpoints                                                                                                                                                               
+                                                                                                                                                                                                                   
+  Description: Build POST /auth/forgot-password, POST /auth/reset-password, and POST /auth/verify-email. Each uses a time-limited, single-use token.
+                                                                                                                                                                                                                   
+  Acceptance Criteria:
+  - POST /auth/forgot-password accepts { email }, always returns 200 (no email enumeration)                                                                                                                        
+  - Sends reset email with 1-hour token                                                                                                                                                                            
+  - POST /auth/reset-password accepts { token, newPassword }, validates token, updates password hash
+  - POST /auth/verify-email accepts { token }, sets email_verified_at                                                                                                                                              
+  - All tokens are single-use (marked as used after consumption)                                                                                                                                                   
+  - Expired/used tokens return 400                              
+                                                                                                                                                                                                                   
+  Dependencies: Registration endpoint                                                                                                                                                                              
+  Effort: S                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---             
+  [BE] Replace Dev Auth Bypass with Real Auth Middleware
+                                                                                                                                                                                                                   
+  Description: The current auth.middleware.ts has a NODE_ENV=development bypass that injects DEV_USER. Replace this with real session token validation. Read Authorization: Bearer <token> header, look up session,
+   attach req.user. Keep the dev bypass behind a DEV_AUTH_BYPASS=true env var for local development.                                                                                                               
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Reads Authorization: Bearer <token> from request headers
+  - Looks up session by token_hash, validates not expired   
+  - Attaches req.user = { userId, email, displayName } to request
+  - Returns 401 if no token, invalid token, or expired session                                                                                                                                                     
+  - DEV_AUTH_BYPASS=true env var keeps the old dev-user behavior for local dev                                                                                                                                     
+  - All existing endpoints protected by auth middleware work with real tokens                                                                                                                                      
+  - acl.middleware.ts updated to check real req.user.userId against project ownership                                                                                                                              
+                  
+  Dependencies: Login endpoint                                                                                                                                                                                     
+  Effort: M ⚠️  Must update all existing integration tests to use real or mock tokens
+                                                                                                                                                                                                                   
+  ---             
+  [FE] Login Page                                                                                                                                                                                                  
+                  
+  Description: Build a /login route with email/password form + "Sign in with Google" / "Sign in with GitHub" buttons. On success, store session token in localStorage and redirect to editor.
+                                                                                                                                                                                                                   
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Email + password inputs with validation (email format, password required)                                                                                                                                      
+  - "Sign in" button calls POST /auth/login, shows loading state                                                                                                                                                   
+  - Error message on 401/429                                    
+  - Google + GitHub OAuth buttons redirect to /auth/google and /auth/github                                                                                                                                        
+  - "Forgot password?" link navigates to reset page                                                                                                                                                                
+  - "Don't have an account? Sign up" link to register page                                                                                                                                                         
+  - On success: stores token, redirects to /editor                                                                                                                                                                 
+  - Dark theme, matches design system             
+                                                                                                                                                                                                                   
+  Dependencies: Login + OAuth endpoints                                                                                                                                                                            
+  Effort: M                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---             
+  [FE] Registration Page
+                        
+  Description: Build a /register route with email/password/display name form + OAuth buttons. Shows "Check your email" message after registration.
+                                                                                                                                                                                                                   
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Display name, email, password, confirm password inputs                                                                                                                                                         
+  - Client-side validation: email format, password min 8 chars, passwords match                                                                                                                                    
+  - "Create account" calls POST /auth/register                                 
+  - Shows 409 error inline ("Email already registered")                                                                                                                                                            
+  - Google + GitHub OAuth buttons                      
+  - On success: stores token, shows "Verify your email" banner, redirects to editor                                                                                                                                
+  - Dark theme, matches design system
+                                                                                                                                                                                                                   
+  Dependencies: Registration + OAuth endpoints
+  Effort: M                                                                                                                                                                                                        
+                  
+  ---
+  [FE] Forgot Password + Reset Password Pages
+                                             
+  Description: Build /forgot-password (email input → "Check your email") and /reset-password?token=xxx (new password input → "Password updated, sign in").
+                                                                                                                                                                                                                   
+  Acceptance Criteria:
+  - /forgot-password: email input + submit → always shows success (no email enumeration)                                                                                                                           
+  - /reset-password: new password + confirm → calls POST /auth/reset-password                                                                                                                                      
+  - Handles expired/invalid token with clear error                           
+  - Links back to login page                                                                                                                                                                                       
+                                                                                                                                                                                                                   
+  Dependencies: Password reset endpoints                                                                                                                                                                           
+  Effort: S                                                                                                                                                                                                        
+                  
+  ---
+  [FE] Auth Guard + Token Management
+                                                                                                                                                                                                                   
+  Description: Create an AuthProvider context that wraps the app. Reads session token from localStorage, validates it, and redirects unauthenticated users to /login. Adds Authorization header to all API requests
+   via the configured fetch wrapper in lib/api-client.ts.                                                                                                                                                          
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - AuthProvider wraps the app in main.tsx
+  - Unauthenticated routes: /login, /register, /forgot-password, /reset-password
+  - All other routes redirect to /login if no valid token                       
+  - api-client.ts automatically attaches Authorization: Bearer <token> to all requests                                                                                                                             
+  - On 401 response from any API call, clears token and redirects to /login                                                                                                                                        
+  - Logout button in TopBar clears session and redirects                                                                                                                                                           
+                                                                                                                                                                                                                   
+  Dependencies: Login page, auth middleware BE                                                                                                                                                                     
+  Effort: M                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---             
+  Summary — Epic 8
+                                                                                                                                                                                                                   
+  ┌─────────────────────────────────────┬──────┬────────┬─────────────────────────┐
+  │               Ticket                │ Area │ Effort │       Depends On        │                                                                                                                                
+  ├─────────────────────────────────────┼──────┼────────┼─────────────────────────┤                                                                                                                                
+  │ Users + auth DB schema              │ DB   │ S      │ None                    │
+  ├─────────────────────────────────────┼──────┼────────┼─────────────────────────┤                                                                                                                                
+  │ Email/password registration         │ BE   │ M      │ DB schema               │
+  ├─────────────────────────────────────┼──────┼────────┼─────────────────────────┤                                                                                                                                
+  │ Email/password login                │ BE   │ S      │ DB schema               │
+  ├─────────────────────────────────────┼──────┼────────┼─────────────────────────┤                                                                                                                                
+  │ OAuth (Google + GitHub)             │ BE   │ M      │ DB schema               │
+  ├─────────────────────────────────────┼──────┼────────┼─────────────────────────┤
+  │ Password reset + email verification │ BE   │ S      │ Registration            │
+  ├─────────────────────────────────────┼──────┼────────┼─────────────────────────┤
+  │ Replace dev auth bypass             │ BE   │ M      │ Login                   │
+  ├─────────────────────────────────────┼──────┼────────┼─────────────────────────┤                                                                                                                                
+  │ Login page                          │ FE   │ M      │ Login + OAuth BE        │
+  ├─────────────────────────────────────┼──────┼────────┼─────────────────────────┤                                                                                                                                
+  │ Registration page                   │ FE   │ M      │ Registration + OAuth BE │
+  ├─────────────────────────────────────┼──────┼────────┼─────────────────────────┤
+  │ Forgot/reset password pages         │ FE   │ S      │ Password reset BE       │
+  ├─────────────────────────────────────┼──────┼────────┼─────────────────────────┤                                                                                                                                
+  │ Auth guard + token management       │ FE   │ M      │ Login page              │
+  └─────────────────────────────────────┴──────┴────────┴─────────────────────────┘                                                                                                                                
+                  
+  Build order: DB → registration + login + OAuth (parallel) → replace auth bypass → FE pages (parallel). The auth guard is the final ticket — nothing works until it's wired.                                      
+   
+  ---                                                                                                                                                                                                              
+  EPIC 9 — External AI Platform Integration Layer
+                                                                                                                                                                                                                   
+  ▎ Provides the foundation for text-to-video, AI image/audio generation by connecting to popular platforms via their APIs.
+                                                                                                                                                                                                                   
+  Pages / Surfaces:
+  - AI Providers settings page (admin/user level) — configure API keys                                                                                                                                             
+  - AI Generation panel in editor sidebar — unified UI for all AI generation                                                                                                                                       
+   
+  ---                                                                                                                                                                                                              
+  [DB] AI Provider Configuration Schema
+                                                                                                                                                                                                                   
+  Description: Create ai_provider_configs table storing per-user API keys and preferences for external AI platforms (OpenAI, Runway, Stability AI, ElevenLabs, Kling, Pika, Suno).
+                                                                                                                                                                                                                   
+  Acceptance Criteria:
+  - Table: config_id, user_id, provider (ENUM), api_key_encrypted, is_active, created_at, updated_at                                                                                                               
+  - provider ENUM: openai, runway, stability_ai, elevenlabs, kling, pika, suno, replicate                                                                                                                          
+  - API keys encrypted at rest using AES-256 (encryption key from env var)               
+  - UNIQUE constraint on (user_id, provider)                                                                                                                                                                       
+  - Migration is reversible                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  Dependencies: Users table (Epic 8)                                                                                                                                                                               
+  Effort: S                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---
+  [BE] AI Provider Configuration CRUD Endpoints                                                                                                                                                                    
+                                               
+  Description: Build POST /user/ai-providers, GET /user/ai-providers, PATCH /user/ai-providers/:provider, DELETE /user/ai-providers/:provider. API keys are write-only (never returned in GET — only isConfigured: 
+  true/false).                                                                                                                                                                                                     
+   
+  Acceptance Criteria:                                                                                                                                                                                             
+  - POST accepts { provider, apiKey }, encrypts and stores
+  - GET returns all providers with { provider, isActive, isConfigured, createdAt } — no key                                                                                                                        
+  - PATCH updates key or active status                                                     
+  - DELETE removes provider config                                                                                                                                                                                 
+  - Validates provider against allowed ENUM values                                                                                                                                                                 
+  - Auth middleware: user can only access own configs                                                                                                                                                              
+                                                                                                                                                                                                                   
+  Dependencies: AI provider DB schema                                                                                                                                                                              
+  Effort: S
+                                                                                                                                                                                                                   
+  ---             
+  [BE] Unified AI Generation Service + Job Queue
+                                                                                                                                                                                                                   
+  Description: Build a provider-agnostic AI generation service in apps/api/src/services/ai-generation.service.ts. It accepts generation requests (image, video, audio, text), resolves the user's configured
+  provider for that media type, enqueues a BullMQ job, and returns a jobId. The actual provider-specific logic lives in apps/media-worker/src/providers/.                                                          
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - POST /projects/:id/ai/generate accepts { type: 'image'|'video'|'audio'|'text', prompt, options }
+  - Resolves user's active provider for the requested type                                                                                                                                                         
+  - Returns 400 if no provider configured for that type   
+  - Enqueues ai-generate BullMQ job with { userId, projectId, type, prompt, provider, providerApiKey }                                                                                                             
+  - Returns { jobId, status: 'queued' } with 202                                                      
+  - GET /ai/jobs/:jobId returns status, progress, result URL when complete                                                                                                                                         
+                                                                                                                                                                                                                   
+  Dependencies: AI provider config endpoints, BullMQ infrastructure (exists)                                                                                                                                       
+  Effort: M                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---                                                                                                                                                                                                              
+  [BE] Provider Adapters — Image Generation (OpenAI DALL-E, Stability AI, Replicate)                                                                                                                               
+                                                                                                                                                                                                                   
+  Description: Implement provider adapter modules in apps/media-worker/src/providers/ for image generation. Each adapter implements a common generateImage(prompt, options) interface. The worker job handler
+  routes to the correct adapter based on the job's provider field.                                                                                                                                                 
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - openai-image.adapter.ts — calls DALL-E 3 API, returns image URL
+  - stability-image.adapter.ts — calls Stability AI text-to-image, returns image URL                                                                                                                               
+  - replicate-image.adapter.ts — calls Replicate's SDXL/Flux model, returns image URL
+  - All adapters download generated image to object storage and create an asset row                                                                                                                                
+  - Common interface: { imageUrl, width, height, provider, model }                                                                                                                                                 
+  - Error handling with provider-specific error messages                                                                                                                                                           
+  - Unit tests per adapter with mocked API calls                                                                                                                                                                   
+                                                                                                                                                                                                                   
+  Dependencies: AI generation service
+  Effort: M                                                                                                                                                                                                        
+                  
+  ---                                                                                                                                                                                                              
+  [BE] Provider Adapters — Video Generation (Runway Gen-4, Kling, Pika)
+                                                                                                                                                                                                                   
+  Description: Implement video generation provider adapters. Video generation is async (generation takes 30s–5min), so adapters must handle polling or webhook-based completion.
+                                                                                                                                                                                                                   
+  Acceptance Criteria:
+  - runway-video.adapter.ts — calls Runway Gen-4 API, polls for completion, returns video URL                                                                                                                      
+  - kling-video.adapter.ts — calls Kling API, polls/webhook for completion                   
+  - pika-video.adapter.ts — calls Pika API, polls for completion          
+  - All adapters download generated video to object storage and create an asset row                                                                                                                                
+  - Progress updates written to ai_generation_jobs table during polling            
+  - Timeout after 10 minutes with graceful failure                                                                                                                                                                 
+  - Common interface: { videoUrl, durationSeconds, width, height, provider, model }
+                                                                                                                                                                                                                   
+  Dependencies: AI generation service                                                                                                                                                                              
+  Effort: L ⚠️  Each provider has different API patterns; Runway uses tasks, Kling uses callbacks                                                                                                                   
+                                                                                                                                                                                                                   
+  ---             
+  [BE] Provider Adapters — Audio Generation (ElevenLabs, Suno)                                                                                                                                                     
+                                                              
+  Description: Implement audio generation adapters for background music, SFX, and voice synthesis.
+                                                                                                                                                                                                                   
+  Acceptance Criteria:
+  - elevenlabs-audio.adapter.ts — text-to-speech + SFX generation                                                                                                                                                  
+  - suno-audio.adapter.ts — music generation from prompt                                                                                                                                                           
+  - All adapters download generated audio to object storage and create an asset row
+  - Common interface: { audioUrl, durationSeconds, provider, model }                                                                                                                                               
+  - Error handling + retry with exponential backoff                 
+                                                                                                                                                                                                                   
+  Dependencies: AI generation service
+  Effort: M                                                                                                                                                                                                        
+   
+  ---                                                                                                                                                                                                              
+  [FE] AI Providers Settings Page
+                                 
+  Description: Build a /settings/ai-providers page (accessible from user menu). Shows a card for each supported provider with: name, description, "Add API Key" input, active/inactive toggle, and connection test
+  button.                                                                                                                                                                                                          
+   
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Lists all supported providers with icons and descriptions
+  - API key input (password type) — shows "Connected" badge when configured
+  - "Test Connection" button validates the key against the provider's API  
+  - Active/inactive toggle per provider                                                                                                                                                                            
+  - Delete button removes the provider config                                                                                                                                                                      
+  - Dark theme, consistent with editor design system                                                                                                                                                               
+                                                                                                                                                                                                                   
+  Dependencies: AI provider CRUD endpoints
+  Effort: M                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---
+  [FE] AI Generation Panel in Editor                                                                                                                                                                               
+                                    
+  Description: Add an "AI Generate" tab/panel in the editor sidebar. Shows generation options by type (Image / Video / Audio). User enters a prompt, selects options (size, duration, style), and clicks
+  "Generate". Result appears in the asset browser when complete.                                                                                                                                                   
+   
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Tab or button in sidebar opens AI generation panel
+  - Type selector: Image / Video / Audio                                                                                                                                                                           
+  - Prompt text input (multiline, max 1000 chars)
+  - Type-specific options: image (size, style), video (duration 3s/5s/10s, aspect ratio), audio (duration, type: music/sfx/voice)                                                                                  
+  - "Generate" button calls POST /ai/generate, shows spinner                                                                                                                                                       
+  - Progress indicator while generation is in progress (polls job status)                                                                                                                                          
+  - On completion: asset appears in asset browser, can be added to timeline                                                                                                                                        
+  - Shows error message on failure with "Try Again" button                                                                                                                                                         
+  - Disabled state when no provider configured for the selected type (with link to settings)                                                                                                                       
+                                                                                                                                                                                                                   
+  Dependencies: AI generation service BE, AI providers settings page                                                                                                                                               
+  Effort: M       
+                                                                                                                                                                                                                   
+  ---             
+  Summary — Epic 9
+                                                                                                                                                                                                                   
+  ┌───────────────────────────────┬──────┬────────┬───────────────────────┐
+  │            Ticket             │ Area │ Effort │      Depends On       │                                                                                                                                        
+  ├───────────────────────────────┼──────┼────────┼───────────────────────┤
+  │ AI provider config DB schema  │ DB   │ S      │ Users table           │
+  ├───────────────────────────────┼──────┼────────┼───────────────────────┤
+  │ AI provider CRUD endpoints    │ BE   │ S      │ DB schema             │
+  ├───────────────────────────────┼──────┼────────┼───────────────────────┤                                                                                                                                        
+  │ Unified AI generation service │ BE   │ M      │ Provider config       │
+  ├───────────────────────────────┼──────┼────────┼───────────────────────┤                                                                                                                                        
+  │ Image generation adapters     │ BE   │ M      │ AI generation service │
+  ├───────────────────────────────┼──────┼────────┼───────────────────────┤                                                                                                                                        
+  │ Video generation adapters     │ BE   │ L      │ AI generation service │
+  ├───────────────────────────────┼──────┼────────┼───────────────────────┤                                                                                                                                        
+  │ Audio generation adapters     │ BE   │ M      │ AI generation service │
+  ├───────────────────────────────┼──────┼────────┼───────────────────────┤
+  │ AI providers settings page    │ FE   │ M      │ CRUD endpoints        │
+  ├───────────────────────────────┼──────┼────────┼───────────────────────┤                                                                                                                                        
+  │ AI generation panel in editor │ FE   │ M      │ AI generation service │
+  └───────────────────────────────┴──────┴────────┴───────────────────────┘                                                                                                                                        
+                  
+  Build order: DB → CRUD → unified service → adapters (parallel: image, video, audio). FE settings page can start once CRUD is done. FE generation panel once the unified service returns jobs. Video adapters are 
+  highest risk — spike Runway's API first.
+                                                                                                                                                                                                                   
+  ---             
+  EPIC 10 — Text-to-Video Pipeline
+                                  
+  ▎ End-to-end: user types a prompt → system generates a complete video with audio, captions, and transitions.
+                                                                                                                                                                                                                   
+  Pages / Surfaces:
+  - Text-to-Video wizard modal — multi-step prompt → configure → generate                                                                                                                                          
+  - Generation progress page — shows each step completing                                                                                                                                                          
+   
+  ---                                                                                                                                                                                                              
+  [BE] Text-to-Video Orchestrator Service
+                                                                                                                                                                                                                   
+  Description: Build a high-level orchestrator in apps/api/src/services/text-to-video.service.ts that takes a text prompt and generates a full video project. Steps: (1) Use OpenAI/Claude to generate a
+  script/storyboard (scene descriptions, narration text, caption text), (2) Generate video clips per scene via video provider, (3) Generate narration audio via TTS, (4) Generate background music, (5) Assemble   
+  all assets into a ProjectDoc with tracks, clips, and captions. Each step is a BullMQ job in a chain.
+                                                                                                                                                                                                                   
+  Acceptance Criteria:
+  - POST /projects/:id/text-to-video accepts { prompt, duration, format, style }
+  - Step 1: LLM generates structured storyboard JSON { scenes: [{ description, narration, duration }] }
+  - Step 2: Video generation jobs enqueued per scene (parallel)                                        
+  - Step 3: TTS job generates narration audio per scene                                                                                                                                                            
+  - Step 4: Background music generation job (single track, full duration)                                                                                                                                          
+  - Step 5: Assembly job creates ProjectDoc with all assets placed on timeline                                                                                                                                     
+  - Returns { jobId } — status endpoint shows current step + overall progress                                                                                                                                      
+  - Timeout: 15 minutes total; individual steps timeout at 5 minutes                                                                                                                                               
+                                                                                                                                                                                                                   
+  Dependencies: AI generation adapters (Epic 9), Whisper captions (Epic 3)                                                                                                                                         
+  Effort: L ⚠️  Multi-step orchestration with failure recovery is complex; consider Temporal for durable workflows                                                                                                  
+                                                                                                                                                                                                                   
+  ---                                                                                                                                                                                                              
+  [BE] LLM Script/Storyboard Generator                                                                                                                                                                             
+                                                                                                                                                                                                                   
+  Description: Build a service that takes a user's text prompt and generates a structured storyboard using an LLM (OpenAI GPT-4 or Claude). The storyboard defines scenes with visual descriptions, narration text,
+   suggested duration, and transition hints.                                                                                                                                                                       
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Calls LLM with a system prompt that produces structured JSON output
+  - Output schema: { title, scenes: [{ sceneNumber, visualDescription, narrationText, durationSeconds, transitionHint }], totalDurationSeconds }                                                                   
+  - Validates LLM output against Zod schema (retry once on parse failure)                                                                       
+  - Respects user-specified total duration (distributes across scenes)                                                                                                                                             
+  - Supports style hints: "cinematic", "corporate", "social media", "educational"                                                                                                                                  
+                                                                                                                                                                                                                   
+  Dependencies: None (uses OpenAI/Anthropic API directly)                                                                                                                                                          
+  Effort: M                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---             
+  [BE] Auto-Caption Generation for Text-to-Video                                                                                                                                                                   
+                                                
+  Description: After narration audio is generated, automatically run Whisper transcription to produce word-level captions. Place captions on a dedicated overlay track in the assembled ProjectDoc.
+                                                                                                                                                                                                                   
+  Acceptance Criteria:
+  - Whisper transcription runs automatically on generated narration audio                                                                                                                                          
+  - Captions added as text-overlay clips on a dedicated "Captions" track                                                                                                                                           
+  - Caption timing matches narration audio (word-level alignment)       
+  - Caption style defaults: white text, black outline, bottom-center position                                                                                                                                      
+                                                                                                                                                                                                                   
+  Dependencies: Whisper transcription (Epic 3), TTS audio generation                                                                                                                                               
+  Effort: S                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---             
+  [FE] Text-to-Video Wizard Modal
+                                                                                                                                                                                                                   
+  Description: Build a multi-step wizard modal triggered from the editor's "AI" menu or a prominent "Create Video from Text" button. Steps: (1) Enter prompt + style, (2) Configure duration/format/resolution, (3)
+   Review generated storyboard (editable), (4) Generate → progress view.                                                                                                                                           
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Step 1: Multiline prompt input + style dropdown (cinematic/corporate/social/educational)
+  - Step 2: Duration slider (15s–5min), format dropdown (16:9, 9:16, 1:1), resolution from project settings                                                                                                        
+  - Step 3: Shows LLM-generated storyboard — each scene card shows description + narration + duration; user can edit text or reorder scenes
+  - Step 4: "Generate Video" button → progress view showing each step with status icons                                                                                                                            
+  - Progress updates in real-time (polls job status every 3s)                                                                                                                                                      
+  - On completion: project loads the assembled video in the editor, user can edit further                                                                                                                          
+  - Cancel button available at any step; cancels in-progress generation jobs                                                                                                                                       
+  - Error handling per step with "Retry" option                                                                                                                                                                    
+                                                                                                                                                                                                                   
+  Dependencies: Text-to-video orchestrator BE                                                                                                                                                                      
+  Effort: L                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---             
+  Summary — Epic 10
+                   
+  ┌────────────────────────────┬──────┬────────┬────────────────────────────────────────────┐
+  │           Ticket           │ Area │ Effort │                 Depends On                 │                                                                                                                      
+  ├────────────────────────────┼──────┼────────┼────────────────────────────────────────────┤
+  │ LLM storyboard generator   │ BE   │ M      │ None                                       │                                                                                                                      
+  ├────────────────────────────┼──────┼────────┼────────────────────────────────────────────┤
+  │ Text-to-video orchestrator │ BE   │ L      │ AI adapters (Epic 9), storyboard generator │
+  ├────────────────────────────┼──────┼────────┼────────────────────────────────────────────┤                                                                                                                      
+  │ Auto-caption for TTV       │ BE   │ S      │ Orchestrator, Whisper (Epic 3)             │
+  ├────────────────────────────┼──────┼────────┼────────────────────────────────────────────┤                                                                                                                      
+  │ Text-to-video wizard modal │ FE   │ L      │ Orchestrator BE                            │
+  └────────────────────────────┴──────┴────────┴────────────────────────────────────────────┘                                                                                                                      
+                  
+  Build order: Storyboard generator first (can be tested independently). Orchestrator is the critical path — needs all AI adapters from Epic 9. FE wizard can start with mocked responses while orchestrator is    
+  being built.    
+                                                                                                                                                                                                                   
+  ---             
+  EPIC 11 — Social Media Publishing
+                                                                                                                                                                                                                   
+  ▎ Direct publish to YouTube, TikTok, and Instagram from the export flow.
+                                                                                                                                                                                                                   
+  Pages / Surfaces:
+  - Social accounts settings page — connect/disconnect accounts                                                                                                                                                    
+  - Publish modal — metadata form + platform selection (extends Export modal)
+  - Publish history/status page                                              
+                                                                                                                                                                                                                   
+  ---                                                                                                                                                                                                              
+  [DB] Social Accounts + Publish Jobs Schema                                                                                                                                                                       
+                                                                                                                                                                                                                   
+  Description: Create social_accounts (OAuth tokens per platform per user) and publish_jobs (track publish attempts) tables.
+                                                                                                                                                                                                                   
+  Acceptance Criteria:
+  - social_accounts: account_id, user_id, platform (ENUM: youtube, tiktok, instagram), platform_user_id, access_token_encrypted, refresh_token_encrypted, token_expires_at, display_name, avatar_url, created_at   
+  - publish_jobs: job_id, user_id, render_job_id, platform, status (ENUM: queued, uploading, processing, published, failed), platform_post_id, platform_url, metadata_json, error_message, created_at, updated_at  
+  - UNIQUE on (user_id, platform, platform_user_id)                                                                                                                                                              
+  - Migration reversible                                                                                                                                                                                           
+                  
+  Dependencies: Users table (Epic 8)                                                                                                                                                                               
+  Effort: S       
+                                                                                                                                                                                                                   
+  ---             
+  [BE] YouTube OAuth + Upload Integration
+                                                                                                                                                                                                                   
+  Description: Build YouTube Data API v3 integration: OAuth2 connect flow, video upload, metadata (title, description, tags, category, visibility, thumbnail). Uses resumable upload for large files.
+                                                                                                                                                                                                                   
+  Acceptance Criteria:
+  - GET /auth/youtube → Google OAuth with YouTube scope                                                                                                                                                            
+  - GET /auth/youtube/callback → stores tokens in social_accounts                                                                                                                                                  
+  - POST /publish/youtube accepts { renderJobId, title, description, tags[], categoryId, visibility, thumbnailAssetId? }
+  - Validates render job is complete, downloads from S3                                                                                                                                                            
+  - Uses YouTube resumable upload protocol for videos >5MB                                                                                                                                                         
+  - Sets title (max 100 chars), description (max 5000 chars), tags, category                                                                                                                                       
+  - Uploads custom thumbnail if provided                                                                                                                                                                           
+  - Returns { publishJobId } — polls via GET /publish/:jobId                                                                                                                                                       
+  - Handles quota errors (10,000 units/day) with clear error message                                                                                                                                               
+  - Token refresh when access token expires                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  Dependencies: Social accounts DB, render pipeline (Epic 5)                                                                                                                                                       
+  Effort: L ⚠️  YouTube API quota limits are strict; resumable upload adds complexity                                                                                                                               
+                                                                                                                                                                                                                   
+  ---                                                                                                                                                                                                              
+  [BE] TikTok Content Posting API Integration                                                                                                                                                                      
+                                             
+  Description: Build TikTok Content Posting API integration. TikTok uses a different flow: init upload → upload chunks → create post with metadata.
+                                                                                                                                                                                                                   
+  Acceptance Criteria:
+  - GET /auth/tiktok → TikTok OAuth                                                                                                                                                                                
+  - GET /auth/tiktok/callback → stores tokens                                                                                                                                                                      
+  - POST /publish/tiktok accepts { renderJobId, caption, allowComments, allowDuet, allowStitch, visibility }
+  - Uploads video via TikTok's chunk-based upload API                                                                                                                                                              
+  - Sets caption (max 2200 chars), privacy settings                                                                                                                                                                
+  - Handles TikTok's async publishing (video goes through review)                                                                                                                                                  
+  - Returns { publishJobId } with status tracking                                                                                                                                                                  
+  - Token refresh with TikTok's refresh flow                                                                                                                                                                       
+                                                                                                                                                                                                                   
+  Dependencies: Social accounts DB, render pipeline                                                                                                                                                                
+  Effort: L ⚠️  TikTok API review process can take up to 5 days; different SDK patterns                                                                                                                             
+                                                                                                                                                                                                                   
+  ---                                                                                                                                                                                                              
+  [BE] Instagram Graph API Integration                                                                                                                                                                             
+                                      
+  Description: Build Instagram Graph API integration for Reels and feed posts. Instagram requires a Facebook Page linked to an Instagram Professional account.
+                                                                                                                                                                                                                   
+  Acceptance Criteria:                                                                                                                                                                                             
+  - GET /auth/instagram → Facebook OAuth with Instagram scope                                                                                                                                                      
+  - GET /auth/instagram/callback → stores tokens                                                                                                                                                                   
+  - POST /publish/instagram accepts { renderJobId, caption, mediaType: 'reel'|'feed', coverTimestamp? }
+  - For Reels: uses container-based creation flow (create container → upload → publish)                
+  - Caption max 2200 chars, hashtags counted as part of caption                                                                                                                                                    
+  - Handles Instagram's async processing (container status polling)                                                                                                                                                
+  - Returns { publishJobId } with status tracking                                                                                                                                                                  
+  - Validates aspect ratio requirements per media type                                                                                                                                                             
+                                                                                                                                                                                                                   
+  Dependencies: Social accounts DB, render pipeline                                                                                                                                                                
+  Effort: L ⚠️  Instagram API requires Facebook Business account; complex container-based upload
+                                                                                                                                                                                                                   
+  ---             
+  [FE] Social Accounts Settings Page                                                                                                                                                                               
+                                    
+  Description: Build /settings/social-accounts page showing connected platforms. Each platform card shows: icon, name, connected account info, connect/disconnect buttons.
+                                                                                                                                                                                                                   
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Cards for YouTube, TikTok, Instagram                                                                                                                                                                           
+  - "Connect" button initiates OAuth flow                                                                                                                                                                          
+  - Connected accounts show display name + avatar
+  - "Disconnect" button with confirmation dialog 
+  - Status indicators: connected (green), disconnected (gray), token expired (yellow warning)                                                                                                                      
+  - Dark theme, consistent with design system                                                
+                                                                                                                                                                                                                   
+  Dependencies: OAuth endpoints for all platforms
+  Effort: M                                                                                                                                                                                                        
+                  
+  ---                                                                                                                                                                                                              
+  [FE] Publish Modal (extends Export)
+                                     
+  Description: After a render completes, add a "Publish" button alongside "Download". Opens a publish modal where users select target platforms, fill in per-platform metadata, and submit. Each platform has a
+  metadata form section.                                                                                                                                                                                           
+  
+  **Acceptance                                                                                                                                                                                                     
+                  
+● Now I have a complete picture. Let me write the epic breakdown.                                                                                                                                                  
+                  
+  ---                                                                                                                                                                                                              
+  Epic Breakdown: Epics 7–12 (Phase 2+)
+                                                                                                                                                                                                                   
+  Based on my review of:
+  - docs/general_idea.md — product vision, competitor analysis, feature prioritization                                                                                                                             
+  - docs/general_tasks.md — Epics 1–7 (all complete)                                                                                                                                                               
+  - docs/development_logs.md — 1312+ tests passing, all Phase 1 features integrated                                                                                                                                
+  - docs/architecture-rules.md — React 18 + Remotion + Node/Express + MySQL + BullMQ + Turborepo monorepo                                                                                                          
+  - docs/active_task.md — 2 minor polish items remaining                                                                                                                                                           
+                                                                                                                                                                                                                   
+  Current State Summary                                                                                                                                                                                            
+                                                                                                                                                                                                                   
+  Completed: Asset upload pipeline, Remotion preview, AI captions/Whisper, version history/rollback, background render pipeline, full timeline editor (drag/trim/split/reorder/resize/context menus), inspector    
+  panels, export modal + renders queue, project settings (FPS/resolution), add-to-timeline dropdown, asset replace/delete, multiple caption tracks.                                                                
+                                                                                                                                                                                                                   
+  What's missing for a production product: Auth/registration, AI generation APIs, text-to-video, social publishing, animations/transitions.                                                                        
+  
+  ---                                                                                                                                                                                                              
+  Pages / Surfaces (New Epics)
+                                                                                                                                                                                                                   
+  - Landing / Marketing page — public homepage, pricing, sign-up CTA
+  - Registration / Login page — email + OAuth sign-in                                                                                                                                                              
+  - Dashboard / Projects page — list user's projects, create new                                                                                                                                                   
+  - AI Generation panel (sidebar in editor) — text-to-image, text-to-video prompts                                                                                                                                 
+  - Text-to-Video wizard (modal or dedicated page) — prompt → full video pipeline                                                                                                                                  
+  - Publish modal (in editor) — platform selection, metadata, scheduling                                                                                                                                           
+  - Animation/Transitions inspector (right sidebar) — apply effects to clips                                                                                                                                       
+  - User settings page — API keys, connected accounts, billing                                                                                                                                                     
+                                                                                                                                                                                                                   
+  ---                                                                                                                                                                                                              
+  EPIC 7 — Authentication & User Management                                                                                                                                                                        
+                                           
+  ---
+  [DB] Users and Sessions Table Migrations                                                                                                                                                                         
+                                                                                                                                                                                                                   
+  Description: Create users table (id, email, password_hash, display_name, avatar_url, oauth_provider, oauth_id, created_at, updated_at) and sessions table (session_id, user_id, token_hash, expires_at,          
+  created_at). Support both email/password and OAuth login. The existing owner_user_id CHAR(26) in projects table already references user IDs — this migration formalizes the users table those IDs point to.      
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - users table with ULID primary key, unique constraint on email, unique constraint on (oauth_provider, oauth_id)
+  - sessions table with token-based lookup index                                                                                                                                                                   
+  - Password hash column nullable (OAuth users may not have a password)
+  - Migration is reversible (up/down)                                                                                                                                                                              
+  - Foreign key from projects.owner_user_id → users.user_id
+                                                                                                                                                                                                                   
+  Dependencies: None                                                                                                                                                                                               
+  Effort: S                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---             
+  [BE] Email/Password Registration Endpoint
+                                                                                                                                                                                                                   
+  Description: Build POST /auth/register that accepts { email, password, displayName }, validates inputs (email format, password min 8 chars), hashes the password with bcrypt (cost factor 12), creates a users
+  row, creates a session, and returns { userId, token, expiresAt }. Rate-limited to 5 registrations per IP per hour.                                                                                               
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Validates email format, password minimum length (8), display name (1–100 chars)
+  - Returns 409 if email already registered                                                                                                                                                                        
+  - Hashes password with bcrypt, cost factor 12
+  - Creates session with 30-day expiry                                                                                                                                                                             
+  - Returns Set-Cookie with httpOnly secure session token + JSON body
+  - Rate-limited: 5 per IP per hour (returns 429)                                                                                                                                                                  
+  - Writes auth.register to audit log                                                                                                                                                                              
+                                     
+  Dependencies: Users + Sessions DB migration                                                                                                                                                                      
+  Effort: M                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---                                                                                                                                                                                                              
+  [BE] Login Endpoint (Email/Password)
+                                      
+  Description: Build POST /auth/login that accepts { email, password }, verifies credentials via bcrypt compare, creates a new session, returns token. Returns generic "Invalid credentials" on both wrong email
+  and wrong password (no user enumeration).                                                                                                                                                                        
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Returns 401 with generic message on invalid email or password
+  - Creates new session row on success                                                                                                                                                                             
+  - Returns Set-Cookie + JSON { userId, token, expiresAt }
+  - Rate-limited: 10 attempts per email per 15 minutes (brute force protection)                                                                                                                                    
+  - Writes auth.login to audit log                                                                                                                                                                                 
+                                                                                                                                                                                                                   
+  Dependencies: Registration endpoint (users must exist)                                                                                                                                                           
+  Effort: S                                                                                                                                                                                                        
+                  
+  ---                                                                                                                                                                                                              
+  [BE] OAuth Login (Google + GitHub)
+                                                                                                                                                                                                                   
+  Description: Implement OAuth 2.0 authorization code flow for Google and GitHub. GET /auth/:provider redirects to the provider. GET /auth/:provider/callback exchanges the code for user info, creates or links
+  the user, creates a session, and redirects to the editor. Uses passport or manual OAuth implementation.                                                                                                          
+                  
+  ⚠️  Requires OAuth app registration with Google and GitHub. Client ID/secret stored in environment variables.                                                                                                     
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - GET /auth/google and GET /auth/github redirect to provider with correct scopes
+  - Callback exchanges code for access token, fetches user profile (email, name, avatar)                                                                                                                           
+  - If email already exists with password auth, links OAuth provider to existing account
+  - If new user, creates account with oauth_provider + oauth_id                                                                                                                                                    
+  - Creates session and redirects to /?token=... or sets cookie                                                                                                                                                    
+  - CSRF protection via state parameter                                                                                                                                                                            
+  - Returns 400 on callback errors (denied, invalid code)                                                                                                                                                          
+                                                                                                                                                                                                                   
+  Dependencies: Users + Sessions DB migration                                                                                                                                                                      
+  Effort: M                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---             
+  [BE] Session Middleware + Logout
+                                  
+  Description: Replace the existing DEV_USER auth bypass with real session validation. Read the session token from the Authorization: Bearer header or session cookie. Validate against the sessions table.
+  Populate req.user with the full user record. Build POST /auth/logout to invalidate the current session.                                                                                                          
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Middleware reads token from Authorization: Bearer header or cookie
+  - Invalid/expired token returns 401                                                                                                                                                                              
+  - req.user populated with { userId, email, displayName }
+  - DEV_USER bypass still works when NODE_ENV=development (backwards compatible)                                                                                                                                   
+  - POST /auth/logout deletes session row, clears cookie                                                                                                                                                           
+  - All existing API routes continue to work with the new middleware                                                                                                                                               
+                                                                                                                                                                                                                   
+  Dependencies: Login endpoints                                                                                                                                                                                    
+  Effort: S       
+                                                                                                                                                                                                                   
+  ---             
+  [FE] Registration + Login Pages
+                                                                                                                                                                                                                   
+  Description: Build /register and /login routes in the web editor app (or a separate landing app). Registration form: email, password, display name, "Sign up with Google/GitHub" buttons. Login form: email,
+  password, OAuth buttons. After successful auth, redirect to dashboard or editor. Show validation errors inline.                                                                                                  
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Registration form validates email, password (8+ chars), display name before submit
+  - Login form shows generic error on invalid credentials                                                                                                                                                          
+  - OAuth buttons redirect to /auth/google and /auth/github
+  - Success redirects to /dashboard (or editor if coming from a shared link)                                                                                                                                       
+  - "Already have an account?" / "Don't have an account?" toggle links                                                                                                                                             
+  - Forms are responsive (mobile-friendly)                                                                                                                                                                         
+  - Loading state on submit button during API call                                                                                                                                                                 
+                                                                                                                                                                                                                   
+  Dependencies: All auth BE endpoints                                                                                                                                                                              
+  Effort: M       
+                                                                                                                                                                                                                   
+  ---             
+  [FE] Dashboard / Projects List Page
+                                                                                                                                                                                                                   
+  Description: Build a /dashboard page showing the user's projects as cards. Each card shows: project name (editable), thumbnail (first frame from latest render or a placeholder), last modified date,
+  resolution/fps badge. "Create New Project" button opens the editor with a fresh project. Clicking an existing project opens it in the editor.                                                                    
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Lists all projects for the authenticated user
+  - Project cards show thumbnail, name, last modified, resolution                                                                                                                                                  
+  - "New Project" button navigates to /editor?new=true           
+  - Click on project card navigates to /editor?projectId=<id>                                                                                                                                                      
+  - Delete project: confirmation dialog → DELETE /projects/:id                                                                                                                                                     
+  - Duplicate project: creates a copy                         
+  - Empty state for new users: "Create your first project"                                                                                                                                                         
+  - Responsive grid layout (1 col mobile, 2 col tablet, 3-4 col desktop)
+                                                                                                                                                                                                                   
+  Dependencies: Auth (user must be logged in), GET /projects and DELETE /projects/:id endpoints                                                                                                                    
+  Effort: M                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---                                                                                                                                                                                                              
+  [BE] Projects List + Delete Endpoints
+                                                                                                                                                                                                                   
+  Description: Build GET /projects (lists all projects for the authenticated user, paginated) and DELETE /projects/:id (soft-delete). The existing POST /projects already creates projects but has no list
+  endpoint.                                                                                                                                                                                                        
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - GET /projects returns [{ projectId, name, updatedAt, latestVersionId, thumbnailUrl }] newest-first
+  - Paginated: ?page=1&limit=20                                                                                                                                                                                    
+  - Only returns projects owned by req.user.userId
+  - DELETE /projects/:id sets deleted_at timestamp (soft delete)                                                                                                                                                   
+  - Returns 404 if project not found or not owned by user       
+                                                                                                                                                                                                                   
+  Dependencies: Session middleware                                                                                                                                                                                 
+  Effort: S                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---             
+  Summary — Epic 7
+                  
+  ┌──────────────────────────────────┬──────┬────────┬───────────────────────────┐
+  │              Ticket              │ Area │ Effort │        Depends On         │                                                                                                                                 
+  ├──────────────────────────────────┼──────┼────────┼───────────────────────────┤
+  │ Users + Sessions DB migration    │ DB   │ S      │ None                      │                                                                                                                                 
+  ├──────────────────────────────────┼──────┼────────┼───────────────────────────┤
+  │ Email/Password registration      │ BE   │ M      │ DB migration              │                                                                                                                                 
+  ├──────────────────────────────────┼──────┼────────┼───────────────────────────┤
+  │ Email/Password login             │ BE   │ S      │ Registration              │                                                                                                                                 
+  ├──────────────────────────────────┼──────┼────────┼───────────────────────────┤
+  │ OAuth login (Google + GitHub)    │ BE   │ M      │ DB migration              │
+  ├──────────────────────────────────┼──────┼────────┼───────────────────────────┤                                                                                                                                 
+  │ Session middleware + logout      │ BE   │ S      │ Login                     │
+  ├──────────────────────────────────┼──────┼────────┼───────────────────────────┤                                                                                                                                 
+  │ Projects list + delete endpoints │ BE   │ S      │ Session middleware        │
+  ├──────────────────────────────────┼──────┼────────┼───────────────────────────┤
+  │ Registration + Login pages       │ FE   │ M      │ All auth BE               │
+  ├──────────────────────────────────┼──────┼────────┼───────────────────────────┤                                                                                                                                 
+  │ Dashboard / Projects list page   │ FE   │ M      │ Projects endpoints + auth │
+  └──────────────────────────────────┴──────┴────────┴───────────────────────────┘                                                                                                                                 
+                  
+  Build order: DB migration first, then registration + login + OAuth in parallel. Session middleware unblocks all FE work. FE pages can stub with local token until BE is ready. Dashboard is last since it        
+  requires both auth and project listing.
+                                                                                                                                                                                                                   
+  ---             
+  EPIC 8 — AI Generation Platform Integrations
+
+  ---
+  [DB] AI Generation Jobs Table Migration
+                                         
+  Description: Create ai_generation_jobs table to track all AI generation requests (image, video, audio). Fields: job_id, project_id, user_id, provider (ENUM: replicate, runway, stability, elevenlabs, openai),
+  generation_type (ENUM: image, video, audio, music), prompt, params_json, status (queued/processing/complete/failed), output_asset_id, cost_credits, provider_job_id, error_message, created_at, updated_at.      
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Index on (user_id, status) and (project_id, created_at)
+  - output_asset_id nullable FK to project_assets_current                                                                                                                                                          
+  - Migration is reversible                              
+                                                                                                                                                                                                                   
+  Dependencies: None                                                                                                                                                                                               
+  Effort: XS                                                                                                                                                                                                       
+                                                                                                                                                                                                                   
+  ---             
+  [BE] AI Provider Abstraction Layer
+                                    
+  Description: Create apps/api/src/services/ai-providers/ with a GenerationProvider interface and implementations for: Replicate (Flux for images, Kling for video), Stability AI (Stable Diffusion for images),
+  OpenAI (DALL-E for images, GPT for scripts), ElevenLabs (voice synthesis, SFX). Each provider handles: submitting a job, polling for completion, downloading the output to object storage, and creating an asset 
+  row.
+                                                                                                                                                                                                                   
+  ⚠️  Each provider has different polling patterns (webhooks vs polling), rate limits, and pricing. Abstract the differences behind a unified interface.                                                            
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - GenerationProvider interface: submit(params), checkStatus(jobId), downloadOutput(jobId)
+  - Replicate implementation: uses Replicate API for Flux (image) and Kling (video) models                                                                                                                         
+  - Stability AI implementation: uses Stability REST API for image generation             
+  - OpenAI implementation: uses DALL-E 3 API for images, Chat API for script generation                                                                                                                            
+  - ElevenLabs implementation: uses Text-to-Speech and Sound Effects APIs              
+  - Provider selection based on generation_type + user preference                                                                                                                                                  
+  - API keys stored in environment variables, never in DB                                                                                                                                                          
+  - Each provider has retry logic (3x with backoff)                                                                                                                                                                
+                                                                                                                                                                                                                   
+  Dependencies: AI Generation Jobs DB migration                                                                                                                                                                    
+  Effort: L ⚠️  Multiple external API integrations; each has its own SDK/auth pattern                                                                                                                               
+                                                                                                                                                                                                                   
+  ---             
+  [BE] AI Generation Endpoints                                                                                                                                                                                     
+                              
+  Description: Build POST /projects/:id/generate (submit generation request), GET /generation-jobs/:jobId (poll status), GET /projects/:id/generation-jobs (list jobs). The submit endpoint enqueues a BullMQ job
+  that calls the appropriate provider. On completion, the output is saved to object storage and an asset is created in the project.                                                                                
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - POST /generate accepts { type, provider, prompt, params } — returns { jobId } with 202
+  - Worker processes the job: calls provider → polls → downloads → saves to S3 → creates asset                                                                                                                     
+  - GET /generation-jobs/:jobId returns { status, progressPct, outputAssetId?, error? }       
+  - GET /projects/:id/generation-jobs lists all jobs for the project, newest-first                                                                                                                                 
+  - Rate-limited: 10 generation requests per user per hour (configurable)                                                                                                                                          
+  - Cost tracked in cost_credits field (for future billing)                                                                                                                                                        
+                                                                                                                                                                                                                   
+  Dependencies: AI Provider Abstraction Layer                                                                                                                                                                      
+  Effort: M       
+                                                                                                                                                                                                                   
+  ---             
+  [FE] AI Generation Panel (Editor Sidebar)
+                                                                                                                                                                                                                   
+  Description: Add an "AI Generate" tab/panel to the editor's left sidebar (alongside the Asset Browser). Shows generation options: Image, Video, Audio, Music. Each option opens a prompt input with
+  provider-specific parameters (style, duration, aspect ratio). Submitted jobs show progress inline. Completed outputs appear as assets in the Asset Browser automatically.                                        
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Panel accessible via a tab/button in the left sidebar
+  - Four generation categories: Image, Video, Audio, Music                                                                                                                                                         
+  - Prompt text area with character limit (500 chars)     
+  - Provider selector (when multiple providers available for a type)                                                                                                                                               
+  - Parameter controls vary by type (e.g., video: duration slider 3-10s; image: aspect ratio)                                                                                                                      
+  - Active jobs shown with progress bar and status                                                                                                                                                                 
+  - Completed assets auto-appear in Asset Browser (via polling or refetch)                                                                                                                                         
+  - Error states with retry button                                                                                                                                                                                 
+  - Job history section showing past generations                                                                                                                                                                   
+                                                                                                                                                                                                                   
+  Dependencies: AI Generation endpoints
+  Effort: M                                                                                                                                                                                                        
+                  
+  ---
+  Summary — Epic 8
+                  
+  ┌─────────────────────────────────┬──────┬────────┬──────────────────────┐
+  │             Ticket              │ Area │ Effort │      Depends On      │                                                                                                                                       
+  ├─────────────────────────────────┼──────┼────────┼──────────────────────┤
+  │ AI Generation Jobs DB migration │ DB   │ XS     │ None                 │                                                                                                                                       
+  ├─────────────────────────────────┼──────┼────────┼──────────────────────┤
+  │ AI Provider Abstraction Layer   │ BE   │ L      │ DB migration         │
+  ├─────────────────────────────────┼──────┼────────┼──────────────────────┤
+  │ AI Generation Endpoints         │ BE   │ M      │ Provider layer       │
+  ├─────────────────────────────────┼──────┼────────┼──────────────────────┤                                                                                                                                       
+  │ AI Generation Panel (FE)        │ FE   │ M      │ Generation endpoints │
+  └─────────────────────────────────┴──────┴────────┴──────────────────────┘                                                                                                                                       
+                  
+  Build order: DB first, then provider layer (this is the biggest risk — spike Replicate + OpenAI first as they have the best APIs). Endpoints once the provider interface is stable. FE panel can develop against 
+  mocked endpoints.
+                                                                                                                                                                                                                   
+  ---             
+  EPIC 9 — Text-to-Video Pipeline
+
+  ---
+  [BE] Script Generation Endpoint
+                                                                                                                                                                                                                   
+  Description: Build POST /projects/:id/generate-script that takes a text prompt and desired video length, calls OpenAI GPT-4 to generate a structured video script (scenes, voiceover text, visual descriptions,
+  caption text). Returns the script as JSON matching a VideoScript Zod schema.                                                                                                                                     
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Accepts { prompt, durationSeconds, style, language }
+  - Calls OpenAI Chat API with a system prompt that returns structured JSON                                                                                                                                        
+  - Returns { scenes: [{ sceneNumber, durationSeconds, voiceoverText, visualDescription, captionText }] }
+  - Total scene durations sum to ±10% of durationSeconds                                                                                                                                                           
+  - Validates response against VideoScript Zod schema                                                                                                                                                              
+  - Retries on malformed JSON (up to 2x)                                                                                                                                                                           
+                                                                                                                                                                                                                   
+  Dependencies: OpenAI provider from Epic 8                                                                                                                                                                        
+  Effort: M                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---             
+  [BE] Text-to-Video Orchestrator Worker
+                                                                                                                                                                                                                   
+  Description: Build a BullMQ job handler that orchestrates the full text-to-video pipeline: (1) generate script → (2) generate voiceover audio per scene (ElevenLabs) → (3) generate visuals per scene
+  (Replicate/Stability) → (4) assemble into a project document with tracks (video track, audio track, caption track) → (5) trigger a render job. This is the most complex worker in the system — it coordinates    
+  multiple sub-jobs and handles partial failures.
+                                                                                                                                                                                                                   
+  ⚠️  This is a long-running job (potentially minutes). Must support progress reporting and cancellation.                                                                                                           
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Accepts { projectId, prompt, durationSeconds, style, voiceId, outputFormat }
+  - Step 1: Generates script via GPT-4                                                                                                                                                                             
+  - Step 2: For each scene, enqueues voiceover generation (ElevenLabs) — parallel
+  - Step 3: For each scene, enqueues visual generation (image or video) — parallel with step 2                                                                                                                     
+  - Step 4: Assembles assets into a ProjectDoc with properly sequenced clips                                                                                                                                       
+  - Step 5: Saves project version and enqueues render job                                                                                                                                                          
+  - Reports progress: 10% script, 10-60% assets, 60-90% assembly, 90-100% render                                                                                                                                   
+  - Handles partial failure: if one scene's visual fails, substitutes a placeholder                                                                                                                                
+  - Cancellable via DELETE /generation-jobs/:jobId                                                                                                                                                                 
+                                                                                                                                                                                                                   
+  Dependencies: Script generation endpoint, AI providers (Replicate, ElevenLabs)                                                                                                                                   
+  Effort: L ⚠️  Multi-step orchestration with external API dependencies                                                                                                                                             
+                                                                                                                                                                                                                   
+  ---                                                                                                                                                                                                              
+  [FE] Text-to-Video Wizard Modal
+                                                                                                                                                                                                                   
+  Description: Build a multi-step modal: (1) Prompt input — describe the video, select length (15s/30s/60s/custom), format (16:9/9:16/1:1), (2) Style selection — cinematic, cartoon, documentary, social media,
+  (3) Voice selection — pick from ElevenLabs voices or "no voiceover", (4) Review — shows the generated script with scene breakdown, (5) Generate — progress view with per-scene status. On completion, opens the  
+  project in the editor with all tracks populated.
+                                                                                                                                                                                                                   
+  Acceptance Criteria:
+  - Step 1: Prompt textarea, duration picker, format selector
+  - Step 2: Style cards with preview thumbnails                                                                                                                                                                    
+  - Step 3: Voice selector with audio preview samples
+  - Step 4: Script review — editable scene text before committing                                                                                                                                                  
+  - Step 5: Progress view with per-scene progress bars                                                                                                                                                             
+  - Back/Next navigation between steps                                                                                                                                                                             
+  - "Generate Video" button on step 4 submits the job                                                                                                                                                              
+  - On completion: redirects to editor with the project loaded                                                                                                                                                     
+  - Cancel button at any stage; cancels the BullMQ job if in progress                                                                                                                                              
+  - Accessible from Dashboard ("Create with AI") and Editor ("AI" menu)                                                                                                                                            
+                                                                                                                                                                                                                   
+  Dependencies: Text-to-Video Orchestrator, Script generation endpoint                                                                                                                                             
+  Effort: M                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---                                                                                                                                                                                                              
+  Summary — Epic 9
+
+  ┌───────────────────────────────────┬──────┬────────┬────────────────────────────────────┐
+  │              Ticket               │ Area │ Effort │             Depends On             │
+  ├───────────────────────────────────┼──────┼────────┼────────────────────────────────────┤
+  │ Script generation endpoint        │ BE   │ M      │ OpenAI provider (Epic 8)           │
+  ├───────────────────────────────────┼──────┼────────┼────────────────────────────────────┤
+  │ Text-to-Video orchestrator worker │ BE   │ L      │ Script endpoint + all AI providers │                                                                                                                       
+  ├───────────────────────────────────┼──────┼────────┼────────────────────────────────────┤                                                                                                                       
+  │ Text-to-Video wizard modal        │ FE   │ M      │ Orchestrator endpoint              │                                                                                                                       
+  └───────────────────────────────────┴──────┴────────┴────────────────────────────────────┘                                                                                                                       
+                  
+  Build order: Script endpoint first (can be tested standalone). Orchestrator is the critical path — needs all providers working. FE wizard can develop steps 1-4 against mocked data while orchestrator is built. 
+  
+  ---                                                                                                                                                                                                              
+  EPIC 10 — Social Media Publishing
+                                                                                                                                                                                                                   
+  ---
+  [DB] Connected Accounts + Publish Jobs Tables                                                                                                                                                                    
+                                               
+  Description: Create connected_accounts table (user_id, platform, access_token_encrypted, refresh_token_encrypted, platform_user_id, platform_username, scopes, expires_at, created_at) and publish_jobs table
+  (job_id, render_job_id, platform, status, platform_post_id, metadata_json, error_message, scheduled_at, published_at, created_at).                                                                               
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - connected_accounts: unique constraint on (user_id, platform)
+  - Tokens encrypted at rest (AES-256-GCM with app-level encryption key)                                                                                                                                           
+  - publish_jobs: FK to render_jobs                                     
+  - platform ENUM: youtube, tiktok, instagram                                                                                                                                                                      
+  - Migration is reversible                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  Dependencies: None                                                                                                                                                                                               
+  Effort: S ⚠️  Token encryption requires careful key management                                                                                                                                                    
+  
+  ---                                                                                                                                                                                                              
+  [BE] OAuth Connection Endpoints (YouTube, TikTok, Instagram)
+                                                                                                                                                                                                                   
+  Description: Build GET /accounts/connect/:platform (redirects to platform OAuth), GET /accounts/connect/:platform/callback (stores tokens), GET /accounts (lists connected accounts), DELETE /accounts/:platform
+  (disconnects). Each platform has its own OAuth scopes: YouTube (upload, manage videos), TikTok (video.upload, video.publish), Instagram (content_publish).                                                       
+                  
+  ⚠️  TikTok and Instagram require app review/approval for publishing scopes. YouTube is the most straightforward to implement first.                                                                               
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - YouTube: requests youtube.upload + youtube.force-ssl scopes
+  - TikTok: requests video.upload + video.publish scopes                                                                                                                                                           
+  - Instagram: requests instagram_content_publish scope via Facebook Graph API
+  - Callback stores encrypted tokens in connected_accounts                                                                                                                                                         
+  - Token refresh handled automatically (refresh tokens before expiry)                                                                                                                                             
+  - GET /accounts returns [{ platform, username, connectedAt, isExpired }]
+  - DELETE /accounts/:platform revokes access token at provider and deletes row                                                                                                                                    
+                                                                                                                                                                                                                   
+  Dependencies: Connected Accounts DB migration                                                                                                                                                                    
+  Effort: L ⚠️  Three different OAuth implementations; TikTok/Instagram API review process                                                                                                                          
+                                                                                                                                                                                                                   
+  ---             
+  [BE] Publish Endpoint + Worker                                                                                                                                                                                   
+                                
+  Description: Build POST /renders/:jobId/publish that accepts { platform, title, description, tags, visibility, scheduledAt? }, validates the render is complete, checks the user has a connected account, and
+  enqueues a publish-video BullMQ job. The worker downloads the rendered video from S3, uploads it to the target platform via API, and updates the publish job with the post URL.                                  
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Validates render job is complete and output exists
+  - Validates user has connected the target platform                                                                                                                                                               
+  - For YouTube: uses YouTube Data API v3 videos.insert with snippet (title, description, tags, categoryId) and status (privacy)
+  - For TikTok: uses TikTok Content Posting API (chunk upload + publish)                                                                                                                                           
+  - For Instagram: uses Facebook Graph API (upload container + publish)                                                                                                                                            
+  - Returns { publishJobId } with 202                                                                                                                                                                              
+  - Worker updates publish_jobs.status and platform_post_id on success                                                                                                                                             
+  - Supports scheduled publishing (scheduledAt stored; worker defers until time)                                                                                                                                   
+  - Character limits enforced per platform (YouTube title 100, description 5000; TikTok description 2200)                                                                                                          
+                                                                                                                                                                                                                   
+  Dependencies: OAuth connection endpoints, render pipeline (Epic 5)                                                                                                                                               
+  Effort: L ⚠️  Platform-specific upload protocols differ significantly                                                                                                                                             
+                                                                                                                                                                                                                   
+  ---                                                                                                                                                                                                              
+  [FE] Publish Modal                                                                                                                                                                                               
+                    
+  Description: After a render completes, add a "Publish" button alongside "Download". Opens a modal showing connected platforms with status. For each platform: metadata form (title, description, tags/hashtags,
+  visibility/privacy, category, thumbnail). Schedule option. "Publish Now" or "Schedule" buttons.                                                                                                                  
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Shows connected platforms with green checkmark; disconnected with "Connect" button
+  - "Connect" button opens OAuth flow in popup window                                                                                                                                                              
+  - Metadata form per platform with character count and limit warnings
+  - Auto-populate title/description from project name (editable)                                                                                                                                                   
+  - Tags input with comma-separated entry                                                                                                                                                                          
+  - Visibility: Public / Unlisted / Private (YouTube); Public / Friends (TikTok)                                                                                                                                   
+  - Schedule date/time picker (optional)                                                                                                                                                                           
+  - "Publish Now" shows confirmation before submitting                                                                                                                                                             
+  - Publishing progress with status per platform                                                                                                                                                                   
+  - On success: shows direct link to published post                                                                                                                                                                
+  - Multi-platform: can select and publish to multiple platforms simultaneously
+                                                                                                                                                                                                                   
+  Dependencies: Publish endpoint, OAuth connection endpoints                                                                                                                                                       
+  Effort: L                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---             
+  [FE] Connected Accounts Settings Page
+                                       
+  Description: Build a /settings/accounts page showing all connected social accounts. Each account shows: platform icon, username, connection date, token status (active/expired). "Connect" button for unconnected
+   platforms. "Disconnect" button with confirmation. This page is also accessible from the Publish modal.                                                                                                          
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Lists YouTube, TikTok, Instagram with connection status
+  - Connected: shows username, connected date, "Disconnect" button                                                                                                                                                 
+  - Disconnected: shows "Connect" button opening OAuth flow       
+  - Expired token: shows warning with "Reconnect" button                                                                                                                                                           
+  - Confirmation dialog before disconnecting                                                                                                                                                                       
+  
+  Dependencies: OAuth endpoints                                                                                                                                                                                    
+  Effort: S       
+                                                                                                                                                                                                                   
+  ---             
+  Summary — Epic 10
+
+  ┌──────────────────────────────────────────┬──────┬────────┬───────────────────────────────────┐
+  │                  Ticket                  │ Area │ Effort │            Depends On             │
+  ├──────────────────────────────────────────┼──────┼────────┼───────────────────────────────────┤
+  │ Connected Accounts + Publish Jobs DB     │ DB   │ S      │ None                              │
+  ├──────────────────────────────────────────┼──────┼────────┼───────────────────────────────────┤
+  │ OAuth Connection Endpoints (3 platforms) │ BE   │ L      │ DB migration                      │                                                                                                                 
+  ├──────────────────────────────────────────┼──────┼────────┼───────────────────────────────────┤
+  │ Publish endpoint + worker                │ BE   │ L      │ OAuth endpoints + render pipeline │                                                                                                                 
+  ├──────────────────────────────────────────┼──────┼────────┼───────────────────────────────────┤                                                                                                                 
+  │ Publish modal                            │ FE   │ L      │ Publish endpoint                  │
+  ├──────────────────────────────────────────┼──────┼────────┼───────────────────────────────────┤                                                                                                                 
+  │ Connected Accounts settings page         │ FE   │ S      │ OAuth endpoints                   │
+  └──────────────────────────────────────────┴──────┴────────┴───────────────────────────────────┘                                                                                                                 
+  
+  Build order: Start with YouTube only (simplest API, no app review). DB + OAuth first. Publish worker in parallel with FE. TikTok and Instagram added incrementally. Recommend splitting this into Phase 1        
+  (YouTube only) and Phase 2 (TikTok + Instagram) to reduce risk.
+                                                                                                                                                                                                                   
+  ---             
+  EPIC 11 — Animations & Animated Transitions
+
+  ---
+  [Schema] Animation and Transition Types in project-schema
+                                                                                                                                                                                                                   
+  Description: Extend packages/project-schema/ with animation types. Add clipAnimationSchema (entry/exit animations per clip: fade, slide, zoom, bounce, etc.) and transitionSchema (between adjacent clips on same
+   track: crossfade, wipe, dissolve, slide). Each has type, durationFrames, easing, and type-specific parameters.                                                                                                  
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - ClipAnimation type: { type: 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom-in' | 'zoom-out' | 'bounce', durationFrames: number, easing: 'linear' | 'ease-in' | 'ease-out' | 
+  'ease-in-out' | 'spring' }                                                                                                                                                                                       
+  - Transition type: { type: 'crossfade' | 'wipe-left' | 'wipe-right' | 'dissolve' | 'slide-push', durationFrames: number, easing: string }
+  - VideoClip, ImageClip, AudioClip schemas extended with optional entryAnimation?, exitAnimation?                                                                                                                 
+  - Track schema extended with optional transitions?: Transition[] (each has afterClipId)                                                                                                                          
+  - Zod schemas + TypeScript types exported                                                                                                                                                                        
+  - Existing tests pass; new tests cover animation/transition variants                                                                                                                                             
+                                                                                                                                                                                                                   
+  Dependencies: None                                                                                                                                                                                               
+  Effort: S                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---             
+  [FE/Remotion] Implement Clip Animations in Remotion Compositions
+                                                                                                                                                                                                                   
+  Description: Update packages/remotion-comps/ layer components (VideoLayer, ImageLayer, TextOverlayLayer) to apply entry/exit animations using Remotion's interpolate() and spring(). Each animation type maps to
+  CSS transform/opacity interpolations. Animations apply within the clip's frame range (entry at start, exit at end).                                                                                              
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Fade: interpolates opacity 0→1 (entry) and 1→0 (exit) over durationFrames
+  - Slide variants: interpolate translateX/translateY from off-screen to position                                                                                                                                  
+  - Zoom: interpolate scale from 0→1 (in) or 1→0 (out)                           
+  - Bounce: uses Remotion spring() for natural bounce easing                                                                                                                                                       
+  - Easing options map to Remotion's Easing module          
+  - Animations stack correctly (entry + exit on same clip)                                                                                                                                                         
+  - No animation when entryAnimation/exitAnimation is undefined (backwards compatible)                                                                                                                             
+  - Storybook stories demonstrate each animation type                                                                                                                                                              
+                                                                                                                                                                                                                   
+  Dependencies: Animation schema types                                                                                                                                                                             
+  Effort: M                                                                                                                                                                                                        
+                  
+  ---                                                                                                                                                                                                              
+  [FE/Remotion] Implement Transitions Between Clips
+                                                   
+  Description: Implement track-level transitions in VideoComposition. When two adjacent clips on the same track have a transition, overlap them by transition.durationFrames and apply the visual effect.
+  Crossfade: blend opacity of outgoing and incoming clip. Wipe: use a clip-path or mask animation. Dissolve: similar to crossfade with noise texture.                                                              
+  
+  ⚠️  Transitions require clips to overlap by the transition duration. The composition must handle the overlap zone specially — rendering both clips simultaneously with the transition effect applied.             
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Crossfade: outgoing clip fades out while incoming fades in over overlap duration
+  - Wipe: clip-path animation reveals incoming clip from the specified direction                                                                                                                                   
+  - Dissolve: noise-based crossfade effect                                      
+  - Slide-push: outgoing slides out while incoming slides in                                                                                                                                                       
+  - Clips automatically overlap by transition.durationFrames in the composition                                                                                                                                    
+  - Transitions render correctly in both Player preview and SSR render                                                                                                                                             
+  - No transition when transitions array is empty or undefined                                                                                                                                                     
+  - Audio crossfade: volume ramp down/up for audio tracks                                                                                                                                                          
+                                                                                                                                                                                                                   
+  Dependencies: Animation schema types, Remotion composition updates                                                                                                                                               
+  Effort: L ⚠️  Overlapping clip rendering in Remotion requires careful Sequence nesting                                                                                                                            
+                                                                                                                                                                                                                   
+  ---                                                                                                                                                                                                              
+  [FE] Animation Inspector Panel                                                                                                                                                                                   
+                                
+  Description: When a clip is selected, add an "Animations" section to the right-sidebar inspector. Shows entry animation dropdown (none, fade, slide-left, etc.), exit animation dropdown, duration slider for
+  each, easing selector. Changes update the project document via Immer (live preview in Player).                                                                                                                   
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Entry animation: dropdown with all animation types + "None"
+  - Exit animation: same dropdown                                                                                                                                                                                  
+  - Duration slider: 0.1s – 2.0s (converted to frames using project FPS)
+  - Easing selector: linear, ease-in, ease-out, ease-in-out, spring                                                                                                                                                
+  - Changes reflected immediately in the Remotion Player preview                                                                                                                                                   
+  - Changes produce Immer patches (undoable)                                                                                                                                                                       
+  - Panel section collapsed by default; expands on click                                                                                                                                                           
+                                                                                                                                                                                                                   
+  Dependencies: Remotion animation implementation
+  Effort: S                                                                                                                                                                                                        
+                  
+  ---                                                                                                                                                                                                              
+  [FE] Transition Picker on Timeline
+                                    
+  Description: Between two adjacent clips on the same track, show a small "+" icon on hover. Clicking opens a transition picker dropdown. Selecting a transition adds it to the track's transitions array. The
+  timeline visually indicates transitions with a diamond/overlap marker between clips. Double-clicking the marker opens duration/easing controls.                                                                  
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - "+" icon appears on hover between adjacent clips on same track
+  - Transition picker shows: None, Crossfade, Wipe Left, Wipe Right, Dissolve, Slide Push                                                                                                                          
+  - Selected transition shown as a diamond icon between clips on timeline                
+  - Clips visually overlap by transition duration on the timeline                                                                                                                                                  
+  - Double-click transition marker opens duration/easing popover                                                                                                                                                   
+  - Removing transition restores clip positions (undo via Immer)                                                                                                                                                   
+  - Works for video, image, and audio tracks                                                                                                                                                                       
+                                                                                                                                                                                                                   
+  Dependencies: Remotion transition implementation                                                                                                                                                                 
+  Effort: M                                                                                                                                                                                                        
+                  
+  ---
+  [BE] Auto-Animation Generation Endpoint
+                                                                                                                                                                                                                   
+  Description: Build POST /projects/:id/auto-animate that analyzes the project's clips and automatically suggests/applies animations and transitions. Uses GPT-4 to analyze clip types, durations, and content (via
+   thumbnail descriptions) and returns recommended animations for each clip and transitions between adjacent clips. The endpoint can either return suggestions (dry-run) or apply them directly.                   
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Accepts { mode: 'suggest' | 'apply', style: 'energetic' | 'calm' | 'professional' | 'cinematic' }
+  - suggest mode: returns { clips: [{ clipId, entryAnimation, exitAnimation }], transitions: [{ afterClipId, transition }] } without modifying project                                                             
+  - apply mode: updates the project document with suggestions and creates a new version                                                               
+  - GPT-4 prompt includes clip count, types, durations, and style preference                                                                                                                                       
+  - Animations match the requested style (e.g., "energetic" = bounces + fast slides; "calm" = slow fades)                                                                                                          
+  - Rate-limited: 5 requests per project per hour                                                                                                                                                                  
+                                                                                                                                                                                                                   
+  Dependencies: Animation schema, OpenAI provider (Epic 8)                                                                                                                                                         
+  Effort: M                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---                                                                                                                                                                                                              
+  Summary — Epic 11
+
+  ┌────────────────────────────────────┬─────────────┬────────┬──────────────────────────┐
+  │               Ticket               │    Area     │ Effort │        Depends On        │
+  ├────────────────────────────────────┼─────────────┼────────┼──────────────────────────┤
+  │ Animation + Transition schemas     │ Schema      │ S      │ None                     │
+  ├────────────────────────────────────┼─────────────┼────────┼──────────────────────────┤
+  │ Clip animations in Remotion        │ FE/Remotion │ M      │ Schema                   │                                                                                                                         
+  ├────────────────────────────────────┼─────────────┼────────┼──────────────────────────┤                                                                                                                         
+  │ Transitions between clips          │ FE/Remotion │ L      │ Schema + animations      │                                                                                                                         
+  ├────────────────────────────────────┼─────────────┼────────┼──────────────────────────┤                                                                                                                         
+  │ Animation inspector panel          │ FE          │ S      │ Remotion animations      │
+  ├────────────────────────────────────┼─────────────┼────────┼──────────────────────────┤                                                                                                                         
+  │ Transition picker on timeline      │ FE          │ M      │ Remotion transitions     │
+  ├────────────────────────────────────┼─────────────┼────────┼──────────────────────────┤                                                                                                                         
+  │ Auto-animation generation endpoint │ BE          │ M      │ Schema + OpenAI provider │
+  └────────────────────────────────────┴─────────────┴────────┴──────────────────────────┘
+
+  Build order: Schema first (unblocks everything). Remotion clip animations next (simpler than transitions). Transitions are the hardest — spike the overlap rendering pattern early. FE panels can develop with   
+  mock data. Auto-animate endpoint is independent and can be built once the schema is stable.
+                                                                                                                                                                                                                   
+  ---             
+  EPIC 12 — Polish, Performance & Production Readiness
+
+  ---
+  [INFRA] Production Deployment Configuration
+                                                                                                                                                                                                                   
+  Description: Set up production deployment: Docker images for API, web-editor (static build + nginx), render-worker, media-worker. CI/CD pipeline (GitHub Actions) for build, test, lint, and deploy. Environment
+  variable management. Health check endpoints. Logging with structured JSON output.                                                                                                                                
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Multi-stage Dockerfiles for all 4 apps (build + slim runtime)
+  - docker-compose.prod.yml with production defaults                                                                                                                                                               
+  - GitHub Actions workflow: lint → test → build → push images
+  - GET /health endpoint on API returning { status, version, uptime }                                                                                                                                              
+  - Structured JSON logging (not console.log) in all apps                                                                                                                                                          
+  - Graceful shutdown handlers for all workers                                                                                                                                                                     
+                                                                                                                                                                                                                   
+  Dependencies: None                                                                                                                                                                                               
+  Effort: M                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---             
+  [BE] Rate Limiting, CORS, and Security Hardening
+                                                  
+  Description: Replace the existing placeholder CORS and rate-limit configs with production-ready settings. Add Helmet CSP headers, CORS whitelist per environment, per-route rate limits, request body size
+  limits, and SQL injection prevention audit.                                                                                                                                                                      
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - CORS whitelist from environment variable (no * in production)
+  - Helmet CSP configured for Remotion Player requirements (blob:, data:)                                                                                                                                          
+  - Per-route rate limits: auth endpoints (stricter), generation endpoints (moderate), CRUD (relaxed)
+  - Request body limit: 10MB for JSON, rejection for larger                                                                                                                                                        
+  - All SQL queries use parameterized queries (audit existing code)                                                                                                                                                
+  - HTTPS-only cookies in production                                                                                                                                                                               
+                                                                                                                                                                                                                   
+  Dependencies: Auth (Epic 7)                                                                                                                                                                                      
+  Effort: S                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---             
+  [FE] Error Boundaries + Offline Indicator
+                                                                                                                                                                                                                   
+  Description: Add React error boundaries around each major panel (Asset Browser, Timeline, Preview, Inspector) so a crash in one panel doesn't take down the entire editor. Add a network status indicator in the
+  TopBar that warns when the user goes offline and queues saves for when they reconnect.                                                                                                                           
+                  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - Error boundary per panel with "Something went wrong" fallback + retry button
+  - Errors logged to console with component stack                                                                                                                                                                  
+  - Network offline: TopBar shows "Offline — changes saved locally" banner
+  - Auto-save pauses when offline; resumes and flushes on reconnect                                                                                                                                                
+  - "Reconnected" toast when network returns                                                                                                                                                                       
+                                                                                                                                                                                                                   
+  Dependencies: None                                                                                                                                                                                               
+  Effort: S                                                                                                                                                                                                        
+                                                                                                                                                                                                                   
+  ---
+  [FE] Keyboard Shortcuts Summary + Help Modal                                                                                                                                                                     
+                                              
+  Description: Build a keyboard shortcuts help modal (triggered by ? key or Help menu). Lists all available shortcuts grouped by category: Playback, Timeline, Clips, General. This documents existing shortcuts
+  and new ones added across epics.                                                                                                                                                                                 
+  
+  Acceptance Criteria:                                                                                                                                                                                             
+  - ? key opens the modal (when not in a text input)
+  - Categories: Playback (Space, Left/Right, Home), Timeline (Ctrl+Z, Ctrl+Shift+Z, Delete), General (Ctrl+S save, Ctrl+E export)                                                                                  
+  - Styled consistently with existing modals (dark theme, SURFACE_ELEVATED)                                                      
+  - Dismissible via Escape or backdrop click                                                                                                                                                                       
+                                                                                                                                                                                                                   
+  Dependencies: None                                                                                                                                                                                               
+  Effort: XS                                                                                                                                                                                                       
+                  
+  ---
+  Summary — Epic 12
+                                                                                                                                                                                                                   
+  ┌──────────────────────────────────────┬───────┬────────┬───────────────┐
+  │                Ticket                │ Area  │ Effort │  Depends On   │                                                                                                                                        
+  ├──────────────────────────────────────┼───────┼────────┼───────────────┤
+  │ Production deployment config         │ INFRA │ M      │ None          │
+  ├──────────────────────────────────────┼───────┼────────┼───────────────┤
+  │ Security hardening                   │ BE    │ S      │ Auth (Epic 7) │
+  ├──────────────────────────────────────┼───────┼────────┼───────────────┤                                                                                                                                        
+  │ Error boundaries + offline indicator │ FE    │ S      │ None          │
+  ├──────────────────────────────────────┼───────┼────────┼───────────────┤                                                                                                                                        
+  │ Keyboard shortcuts help modal        │ FE    │ XS     │ None          │
+  └──────────────────────────────────────┴───────┴────────┴───────────────┘
+
+  ---                                                                                                                                                                                                              
+  Overall Summary Table
+                                                                                                                                                                                                                   
+  ┌──────┬────────────────────────────┬─────────┬────────────────┬─────────────────────────────┐
+  │ Epic │           Title            │ Tickets │  Total Effort  │          Key Risk           │                                                                                                                   
+  ├──────┼────────────────────────────┼─────────┼────────────────┼─────────────────────────────┤
+  │ 7    │ Auth & User Management     │ 8       │ ~M×4, S×4      │ OAuth provider setup        │                                                                                                                   
+  ├──────┼────────────────────────────┼─────────┼────────────────┼─────────────────────────────┤
+  │ 8    │ AI Generation Integrations │ 4       │ L×1, M×1, XS×1 │ Multiple external APIs      │                                                                                                                   
+  ├──────┼────────────────────────────┼─────────┼────────────────┼─────────────────────────────┤                                                                                                                   
+  │ 9    │ Text-to-Video Pipeline     │ 3       │ L×1, M×2       │ Multi-step orchestration    │                                                                                                                   
+  ├──────┼────────────────────────────┼─────────┼────────────────┼─────────────────────────────┤                                                                                                                   
+  │ 10   │ Social Publishing          │ 5       │ L×3, S×2       │ Platform API review process │
+  ├──────┼────────────────────────────┼─────────┼────────────────┼─────────────────────────────┤                                                                                                                   
+  │ 11   │ Animations & Transitions   │ 6       │ L×1, M×3, S×2  │ Remotion overlap rendering  │
+  ├──────┼────────────────────────────┼─────────┼────────────────┼─────────────────────────────┤                                                                                                                   
+  │ 12   │ Polish & Production        │ 4       │ M×1, S×2, XS×1 │ Deployment infra            │
+  └──────┴────────────────────────────┴─────────┴────────────────┴─────────────────────────────┘                                                                                                                   
+                  
+  Recommended Build Order                                                                                                                                                                                          
+                  
+  Phase 2A (Weeks 1–3):
+    [Epic 7]  Auth & User Management — unblocks everything                                                                                                                                                         
+    [Epic 12] Production deployment (parallel, INFRA-only)                                                                                                                                                         
+                                                                                                                                                                                                                   
+  Phase 2B (Weeks 3–6):                                                                                                                                                                                            
+    [Epic 8]  AI Generation Integrations — spike Replicate + OpenAI first                                                                                                                                          
+    [Epic 11] Animations & Transitions — schema + Remotion work (parallel with Epic 8 BE)                                                                                                                          
+                                                                                                                                                                                                                   
+  Phase 2C (Weeks 6–9):                                                                                                                                                                                            
+    [Epic 9]  Text-to-Video Pipeline — requires Epic 8 providers                                                                                                                                                   
+    [Epic 10] Social Publishing Phase 1 — YouTube only (parallel with Epic 9)                                                                                                                                      
+   
+  Phase 2D (Weeks 9–12):                                                                                                                                                                                           
+    [Epic 10] Social Publishing Phase 2 — TikTok + Instagram
+    [Epic 12] Security hardening, error boundaries, polish                                                                                                                                                         
+                                                                                                                                                                                                                   
+  Rationale: Auth is the #1 blocker — nothing goes to production without it. AI integrations (Epic 8) and animations (Epic 11) can be parallelized because they don't depend on each other. Text-to-Video (Epic 9) 
+  is the flagship differentiator but requires providers to be stable first. Social publishing is the hardest epic due to platform review processes — start YouTube early but expect TikTok/Instagram to take       
+  longer.

@@ -14,8 +14,15 @@ const envSchema = z.object({
   APP_S3_SECRET_ACCESS_KEY: z.string().min(1),
   APP_JWT_SECRET: z.string().min(32),
   APP_JWT_EXPIRES_IN: z.string().default('7d'),
+  APP_DEV_AUTH_BYPASS: z.enum(['true', 'false']).default('false'),
   APP_PORT: z.string().default('3001'),
   APP_CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  APP_GOOGLE_CLIENT_ID: z.string().default(''),
+  APP_GOOGLE_CLIENT_SECRET: z.string().default(''),
+  APP_GITHUB_CLIENT_ID: z.string().default(''),
+  APP_GITHUB_CLIENT_SECRET: z.string().default(''),
+  APP_OAUTH_REDIRECT_BASE: z.string().default('http://localhost:3001'),
+  APP_FRONTEND_URL: z.string().default('http://localhost:5173'),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -47,11 +54,25 @@ export const config = {
     secretAccessKey: env.APP_S3_SECRET_ACCESS_KEY,
   },
   auth: {
+    /** Reserved for OAuth token signing (subtask 8) — no longer used by session-based auth middleware. */
     jwtSecret: env.APP_JWT_SECRET,
     jwtExpiresIn: env.APP_JWT_EXPIRES_IN,
+    devAuthBypass: env.APP_DEV_AUTH_BYPASS === 'true',
   },
   server: {
     port: Number(env.APP_PORT),
     corsOrigin: env.APP_CORS_ORIGIN,
+  },
+  oauth: {
+    google: {
+      clientId: env.APP_GOOGLE_CLIENT_ID,
+      clientSecret: env.APP_GOOGLE_CLIENT_SECRET,
+    },
+    github: {
+      clientId: env.APP_GITHUB_CLIENT_ID,
+      clientSecret: env.APP_GITHUB_CLIENT_SECRET,
+    },
+    redirectBase: env.APP_OAUTH_REDIRECT_BASE,
+    frontendUrl: env.APP_FRONTEND_URL,
   },
 } as const;

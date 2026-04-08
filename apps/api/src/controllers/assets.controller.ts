@@ -29,7 +29,7 @@ export async function createUploadUrl(
     const result = await assetService.createUploadUrl(
       {
         projectId: req.params['id']!,
-        userId: req.user!.id,
+        userId: req.user!.userId,
         filename: body.filename,
         contentType: body.contentType,
         fileSizeBytes: body.fileSizeBytes,
@@ -84,7 +84,7 @@ export async function deleteAsset(
   next: NextFunction,
 ): Promise<void> {
   try {
-    await assetService.deleteAsset(req.params['id']!, req.user!.id);
+    await assetService.deleteAsset(req.params['id']!, req.user!.userId);
     res.status(204).end();
   } catch (err) {
     next(err);

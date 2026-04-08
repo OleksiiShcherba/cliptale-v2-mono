@@ -1,5 +1,7 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 
+import { useAuth } from '@/features/auth/hooks/useAuth';
 import { AssetBrowserPanel } from '@/features/asset-manager/components/AssetBrowserPanel';
 import { VersionHistoryPanel } from '@/features/version-history/components/VersionHistoryPanel';
 import { ExportModal } from '@/features/export/components/ExportModal';
@@ -42,6 +44,8 @@ export { PreviewSection } from './App.panels';
  *   timeline, bottom action bar. No sidebars.
  */
 export function App(): React.ReactElement {
+  const navigate = useNavigate();
+  const { logout } = useAuth();
   const projectInit = useProjectInit();
   const windowWidth = useWindowWidth();
   const isMobile = windowWidth < TABLET_BREAKPOINT;
@@ -54,6 +58,11 @@ export function App(): React.ReactElement {
   const [mobileTab, setMobileTab] = React.useState<'assets' | 'captions' | 'inspector'>('assets');
   const { canUndo, canRedo, handleUndo, handleRedo } = useUndoRedo();
   useKeyboardShortcuts({ onUndo: handleUndo, onRedo: handleRedo });
+
+  const handleLogout = React.useCallback((): void => {
+    logout();
+    navigate('/login', { replace: true });
+  }, [logout, navigate]);
 
   const handleToggleSettings = (): void => setIsSettingsOpen((prev) => !prev);
   const handleCloseSettings = (): void => setIsSettingsOpen(false);
@@ -156,6 +165,7 @@ export function App(): React.ReactElement {
             canRedo={canRedo}
             onUndo={handleUndo}
             onRedo={handleRedo}
+            onLogout={handleLogout}
           />
           <main style={styles.mobilePreviewArea} aria-label="Preview">
             <PreviewSection />
@@ -208,6 +218,7 @@ export function App(): React.ReactElement {
           canRedo={canRedo}
           onUndo={handleUndo}
           onRedo={handleRedo}
+          onLogout={handleLogout}
         />
         <div style={styles.editorRow}>
           <aside style={styles.sidebar} aria-label="Asset browser">

@@ -29,9 +29,10 @@ export interface AddToTimelineDropdownProps {
 }
 
 /**
- * Replaces the single "Add to Timeline" button with a dropdown that offers:
- * - "To New [type] Track" — always creates a fresh track
- * - Existing [type] tracks by name — appends the clip to the end of that track
+ * Adds an asset to the timeline. When no existing tracks of the matching type
+ * exist, renders a plain button that directly creates a new track. When at
+ * least one matching track exists, renders a dropdown offering both a new track
+ * option and the existing tracks.
  *
  * Closes automatically when the user clicks outside the component.
  */
@@ -61,10 +62,16 @@ export function AddToTimelineDropdown({
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [isOpen]);
 
+  const hasExistingTracks = existingTracks.length > 0;
+
   const handleTriggerClick = useCallback(() => {
     if (disabled) return;
+    if (!hasExistingTracks) {
+      addAssetToNewTrack(asset);
+      return;
+    }
     setIsOpen(prev => !prev);
-  }, [disabled]);
+  }, [disabled, hasExistingTracks, addAssetToNewTrack, asset]);
 
   const handleNewTrack = useCallback(() => {
     addAssetToNewTrack(asset);
@@ -90,20 +97,23 @@ export function AddToTimelineDropdown({
         onClick={handleTriggerClick}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        aria-haspopup="listbox"
-        aria-expanded={isOpen}
+        aria-haspopup={hasExistingTracks ? 'listbox' : undefined}
+        aria-expanded={hasExistingTracks ? isOpen : undefined}
         aria-label={`Add ${asset.filename} to timeline`}
         style={triggerStyle}
       >
         Add to Timeline
-        <span aria-hidden="true" style={{ fontSize: 10, lineHeight: 1 }}>▾</span>
+        {hasExistingTracks && (
+          <span aria-hidden="true" style={{ fontSize: 10, lineHeight: 1 }}>▾</span>
+        )}
       </button>
 
-      {isOpen && (
+      {isOpen && hasExistingTracks && (
         <div
           role="listbox"
           aria-label="Choose track"
           style={dropdownPanelStyle}
+          onMouseLeave={() => setHoveredItem(null)}
         >
           {/* New track option — always first */}
           <button
@@ -112,33 +122,26 @@ export function AddToTimelineDropdown({
             type="button"
             onClick={handleNewTrack}
             onMouseEnter={() => setHoveredItem('new')}
-            onMouseLeave={() => setHoveredItem(null)}
             style={hoveredItem === 'new' ? itemHoverStyle : itemStyle}
           >
             To New {typeLabel} Track
           </button>
 
-          {/* Existing tracks — shown only if at least one exists */}
-          {existingTracks.length > 0 && (
-            <>
-              <div role="separator" style={dividerStyle} />
-              <div style={sectionLabelStyle}>Existing {typeLabel} Tracks</div>
-              {existingTracks.map(track => (
-                <button
-                  key={track.id}
-                  role="option"
-                  aria-selected={false}
-                  type="button"
-                  onClick={() => handleExistingTrack(track)}
-                  onMouseEnter={() => setHoveredItem(track.id)}
-                  onMouseLeave={() => setHoveredItem(null)}
-                  style={hoveredItem === track.id ? itemHoverStyle : itemStyle}
-                >
-                  To Existing: {track.name}
-                </button>
-              ))}
-            </>
-          )}
+          <div role="separator" style={dividerStyle} />
+          <div style={sectionLabelStyle}>Existing {typeLabel} Tracks</div>
+          {existingTracks.map(track => (
+            <button
+              key={track.id}
+              role="option"
+              aria-selected={false}
+              type="button"
+              onClick={() => handleExistingTrack(track)}
+              onMouseEnter={() => setHoveredItem(track.id)}
+              style={hoveredItem === track.id ? itemHoverStyle : itemStyle}
+            >
+              To Existing: {track.name}
+            </button>
+          ))}
         </div>
       )}
     </div>

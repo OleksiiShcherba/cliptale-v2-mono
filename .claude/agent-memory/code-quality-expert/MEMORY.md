@@ -10,3 +10,4 @@
 - [setProject derives durationFrames — existing tests may break](ruling_setproject_durationframes_derivation.md) — toEqual(doc) assertions against getSnapshot() will fail if doc.durationFrames != computeProjectDuration result
 - [Ruling: components importing directly from feature api.ts](ruling_component_direct_api_import.md) — established pattern; do not flag unless component bypasses api.ts and calls fetch directly
 - [Recurring violation: UPPER_SNAKE_CASE constants inside function bodies](ruling_uppercase_constant_placement.md) — dev places module-level-style constants inside component bodies; always flag as ❌ per §9
+- [Integration tests still use JWT tokens after session-auth migration](ruling_integration_tests_session_auth.md) — integration tests send jwt.sign() tokens; new auth.middleware.ts does session lookup — all auth'd integration tests return 401 unless bypass or real sessions are used

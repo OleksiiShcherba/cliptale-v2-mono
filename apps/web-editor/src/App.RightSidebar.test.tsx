@@ -102,6 +102,35 @@ vi.mock('@/features/project/hooks/useProjectInit', () => ({
   useProjectInit: vi.fn().mockReturnValue({ status: 'ready', projectId: 'test-project-001' }),
 }));
 
+vi.mock('@/shared/hooks/useWindowWidth', () => ({
+  useWindowWidth: vi.fn().mockReturnValue(1440),
+}));
+
+vi.mock('@/features/preview/components/MobileInspectorTabs', () => ({
+  MobileInspectorTabs: () => React.createElement('nav', { 'data-testid': 'mobile-inspector-tabs' }),
+}));
+
+vi.mock('@/features/preview/components/MobileBottomBar', () => ({
+  MobileBottomBar: () => React.createElement('nav', { 'data-testid': 'mobile-bottom-bar' }),
+}));
+
+vi.mock('@/features/auth/hooks/useAuth', () => ({
+  useAuth: vi.fn(() => ({
+    user: { userId: 'test-user', email: 'test@example.com', displayName: 'Test User' },
+    isLoading: false,
+    setSession: vi.fn(),
+    logout: vi.fn(),
+  })),
+}));
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: vi.fn(() => vi.fn()),
+  };
+});
+
 import * as ephemeralStoreModule from '@/store/ephemeral-store';
 import * as projectStoreModule from '@/store/project-store';
 

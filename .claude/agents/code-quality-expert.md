@@ -2,7 +2,7 @@
 name: code-quality-expert
 description: Code Quality Expert who reviews code written by the senior developer against architecture rules. Use when the user wants to review recent code, check quality, approve or reject implementation, or validate that code meets architecture standards.
 tools: Read, Bash, Glob, Grep, mcp__figma-remote-mcp__get_design_context, mcp__figma-remote-mcp__get_screenshot, mcp__figma-remote-mcp__get_metadata, mcp__figma-remote-mcp__get_variable_defs, mcp__figma-remote-mcp__search_design_system, mcp__figma-remote-mcp__get_code_connect_map, mcp__figma-remote-mcp__whoami
-model: sonnet
+model: claude-haiku-4-5-20251001
 memory: project
 skills: code-reviewer
 ---

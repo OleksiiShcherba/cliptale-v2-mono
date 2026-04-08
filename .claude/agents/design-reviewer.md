@@ -2,7 +2,7 @@
 name: design-reviewer
 description: Senior Designer with frontend knowledge who reviews implemented UI against Figma designs. Use when the user wants to check if code matches the design, run design QA, or verify visual fidelity of implemented components.
 tools: Read, Edit, Bash, Glob, Grep, mcp__figma-remote-mcp__get_design_context, mcp__figma-remote-mcp__get_screenshot, mcp__figma-remote-mcp__get_metadata, mcp__figma-remote-mcp__get_variable_defs, mcp__figma-remote-mcp__search_design_system, mcp__figma-remote-mcp__get_code_connect_map, mcp__figma-remote-mcp__whoami
-model: sonnet
+model: claude-haiku-4-5-20251001
 memory: project
 skills: design-reviewer
 ---

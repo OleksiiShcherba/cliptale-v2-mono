@@ -108,14 +108,19 @@ regression-note: 2026-04-07 — RendersQueueModal feature broke the app; useList
 - Selector: `button:has-text("Upload Assets")` — renders at y≈620 in default layout
 - Status: CONFIRMED WORKING with visual screenshots 2026-04-07
 
-### 15. Delete track button
+### 15. Delete track button with confirmation dialog
 - Add a track via "+ Track" → select type (Video/Audio/etc.) from dropdown
 - Track header shows: drag handle, name, M (mute), L (lock), x (delete) buttons
 - Delete button: `button[aria-label="Delete track"]` — visible on every track header
-- Click delete button → track and its clips removed immediately; track counter decrements
-- Delete all tracks → "No tracks — drag a media file here to get started" empty state reappears
-- Multiple tracks each have their own delete button (count matches track count)
-- Selective delete: removing one track leaves others intact (verified Video 1 removed, Audio 1 remains)
+- Click delete button → opens DeleteTrackDialog confirmation (NOT immediate delete as of 2026-04-07)
+- Dialog: role="dialog", title="Delete Track" (id=delete-track-title), warning banner (id=delete-track-desc) showing track name in bold
+- Warning text: "Track **<name>** and all its clips will be removed from the timeline."
+- Secondary text: "You can undo this action with Ctrl+Z or restore a previous version from Version History."
+- Cancel button: aria-label="Cancel delete" — dismisses dialog, track stays
+- Confirm button: aria-label="Delete track <name>" — deletes track, dialog closes
+- Close X: aria-label="Close delete track dialog" — dismisses dialog without deleting
+- After confirm delete: track removed, "No tracks — drag a media file here to get started" empty state reappears
+- VISUAL BUG (noted 2026-04-07): DeleteTrackDialog rendered inside react-window virtualized list row (not via portal). The `position:fixed` overlay is affected by CSS transform on the row container — dialog is visually clipped to the timeline area, title/buttons partially outside viewport. Core functionality still works correctly.
 - Status: CONFIRMED WORKING with visual screenshots 2026-04-07
 
 ### 16. RendersQueueModal (Renders in Progress)
@@ -187,6 +192,15 @@ regression-note: 2026-04-07 — RendersQueueModal feature broke the app; useList
 - Track controls (drag handle, M/L/delete) all still render and work correctly at 36px row height
 - Status: CONFIRMED WORKING (2026-04-07)
 
+### 26. Add to Timeline plain button when no matching track exists (2026-04-07)
+- When no tracks of matching type exist: "Add to Timeline" button is plain (no ▾ arrow, no aria-haspopup)
+- Clicking directly calls addAssetToNewTrack — no dropdown shown, track created immediately
+- When ≥1 matching track exists: button shows "Add to Timeline ▾" (aria-haspopup="listbox"), dropdown opens on click
+- Dropdown shows "To New Video Track" + "To Existing: <track-name>" options
+- Test flow: upload video → click asset card → inspect button attributes → click → verify no dropdown, track appears
+- Selectors: asset card `getByRole('button', { name: /asset:.*test_video/i })`, button `getByRole('button', { name: /add.*timeline/i })`
+- Status: CONFIRMED WORKING (2026-04-07)
+
 ### 23. Add to Timeline dropdown with track selection
 - "Add to Timeline" button in AssetDetailPanel replaced by a dropdown trigger (button with "▾" arrow indicator)
 - Click trigger → listbox opens below; first option always "To New [Video|Audio] Track"
@@ -222,6 +236,24 @@ regression-note: 2026-04-07 — RendersQueueModal feature broke the app; useList
 - Backdrop click (data-testid="project-settings-backdrop") closes modal
 - Close button click closes modal; Settings button aria-pressed returns to false
 - Selecting Vertical preset adjusts preview area aspect ratio (portrait layout visible in player)
+- Status: CONFIRMED WORKING (2026-04-07)
+
+### 28. Remotion player pointer freezing fix — playhead sync on all control actions (2026-04-07)
+- Play button: sets `isPlayingRef.current = true` synchronously before starting rAF loop (prevents stale-ref race)
+- Pause button: sets `isPlayingRef.current = false` synchronously before calling stopRafLoop, then calls `updateTimelinePlayheadFrame(frame)` — frame counter AND timeline red line update immediately
+- Rewind button (aria-label="Rewind to start"): frame counter shows "0 / 300", timeline playhead returns to far-left position; rewind from paused state also confirmed correct
+- Step forward (aria-label="Step forward one frame"): frame counter advances from "0/300" to "1/300", timeline playhead moves right
+- Step back (aria-label="Step back one frame"): frame counter returns from "1/300" to "0/300"
+- Scrub slider (aria-label="Playback position"): clicking at ~25% shows frame "73/300" and timeline playhead advances to ~2 second mark
+- All interactions: no console errors, no page crash
+- Status: CONFIRMED WORKING (2026-04-07) with visual screenshots
+
+### 27. AddToTimelineDropdown hover glitch fix + DeleteTrackDialog createPortal (2026-04-07)
+- Hover behavior: `onMouseLeave` is on the dropdown panel container (not individual items); moving mouse between items does NOT reset hoveredItem until leaving the panel entirely
+- Dropdown panel: `role="listbox"`, items `role="option"`; item 1 highlighted on hover, switches correctly to item 2 on fast move; all items de-highlight when mouse leaves panel
+- DeleteTrackDialog portal: `createPortal(dialog, document.body)` in TrackHeader — DOM check confirms `dialog.parentElement === document.body` (isBodyChild=true, insideTrack=false)
+- Dialog title id=delete-track-title, desc id=delete-track-desc; Cancel, confirm "Delete Track", X close, backdrop click all work
+- Track is removed from timeline after confirm; "Not yet saved" → "Saved 2s ago" in header
 - Status: CONFIRMED WORKING (2026-04-07)
 
 ### 24. Resizable timeline panel (TimelineResizeHandle)

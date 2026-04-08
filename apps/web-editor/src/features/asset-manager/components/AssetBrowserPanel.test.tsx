@@ -277,4 +277,31 @@ describe('AssetBrowserPanel', () => {
     // AssetDetailPanel is hidden because selectedAssetId was reset to null
     expect(screen.queryByTestId('asset-detail-panel')).toBeNull();
   });
+
+  it('hides filter tabs when areFilterTabsHidden is true', () => {
+    render(<AssetBrowserPanel projectId="proj-001" areFilterTabsHidden />);
+    expect(screen.queryByRole('button', { name: /all/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /video/i })).toBeNull();
+  });
+
+  it('shows filter tabs by default', () => {
+    render(<AssetBrowserPanel projectId="proj-001" />);
+    expect(screen.getByRole('button', { name: /^all$/i })).toBeDefined();
+  });
+
+  it('shows all assets when areFilterTabsHidden is true (activeTab defaults to all)', () => {
+    // When tabs are hidden there is no way for the user to switch away from 'all',
+    // so every asset in the list must always be visible regardless of type.
+    const assets = [
+      makeAsset('vid-1', 'clip.mp4'),
+      makeAsset('aud-1', 'track.mp3'),
+      makeAsset('img-1', 'photo.png'),
+    ];
+    mockAssetsQuery(assets);
+    render(<AssetBrowserPanel projectId="proj-001" areFilterTabsHidden />);
+    // All three cards rendered — none filtered out by a non-all tab
+    expect(screen.getByTestId('asset-card-vid-1')).toBeDefined();
+    expect(screen.getByTestId('asset-card-aud-1')).toBeDefined();
+    expect(screen.getByTestId('asset-card-img-1')).toBeDefined();
+  });
 });

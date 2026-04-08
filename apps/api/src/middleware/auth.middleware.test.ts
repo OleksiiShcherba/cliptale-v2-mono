@@ -1,17 +1,23 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
 
-// NOTE: vi.mock is hoisted — the factory must NOT reference module-level variables.
-vi.mock('@/config.js', () => ({
-  config: { auth: { jwtSecret: 'unit-test-jwt-secret-must-be-32-chars!!' } },
+const { mockConfig, mockAuthService } = vi.hoisted(() => ({
+  mockConfig: {
+    config: {
+      auth: { devAuthBypass: false, jwtSecret: 'unused', jwtExpiresIn: '7d' },
+    },
+  },
+  mockAuthService: {
+    validateSession: vi.fn(),
+  },
 }));
 
-const TEST_SECRET = 'unit-test-jwt-secret-must-be-32-chars!!';
+vi.mock('@/config.js', () => mockConfig);
+vi.mock('@/services/auth.service.js', () => mockAuthService);
 
 import { UnauthorizedError } from '@/lib/errors.js';
 
-import { authMiddleware } from './auth.middleware.js';
+const { authMiddleware } = await import('./auth.middleware.js');
 
 function mockReq(headers: Record<string, string> = {}): Request {
   return { headers } as unknown as Request;
@@ -21,46 +27,50 @@ function mockNext(): NextFunction {
   return vi.fn() as unknown as NextFunction;
 }
 
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockConfig.config.auth.devAuthBypass = false;
+});
+
 describe('authMiddleware', () => {
-  describe('development bypass (NODE_ENV === "development")', () => {
-    beforeEach(() => {
-      process.env.NODE_ENV = 'development';
-    });
-
-    afterEach(() => {
-      process.env.NODE_ENV = 'test';
-    });
-
-    it('attaches hardcoded dev user and calls next() with no arguments regardless of headers', () => {
-      const req = mockReq() as Request & { user?: { id: string; email: string } };
+  describe('dev auth bypass (DEV_AUTH_BYPASS=true)', () => {
+    it('attaches hardcoded dev user and calls next() when bypass is enabled', async () => {
+      mockConfig.config.auth.devAuthBypass = true;
+      const req = mockReq() as Request & { user?: unknown };
       const next = mockNext();
 
-      authMiddleware(req, {} as Response, next);
+      await authMiddleware(req, {} as Response, next);
 
       expect(next).toHaveBeenCalledWith();
-      expect(req.user).toEqual({ id: 'dev-user-001', email: 'dev@cliptale.local' });
+      expect(req.user).toEqual({
+        userId: 'dev-user-001',
+        email: 'dev@cliptale.local',
+        displayName: 'Dev User',
+      });
     });
 
-    it('bypasses JWT verification even when Authorization header is absent', () => {
-      const req = mockReq() as Request & { user?: { id: string; email: string } };
+    it('skips session validation even when Authorization header is absent', async () => {
+      mockConfig.config.auth.devAuthBypass = true;
+      const req = mockReq() as Request & { user?: unknown };
       const next = mockNext();
 
-      authMiddleware(req, {} as Response, next);
+      await authMiddleware(req, {} as Response, next);
 
+      expect(mockAuthService.validateSession).not.toHaveBeenCalled();
       expect(next).not.toHaveBeenCalledWith(expect.any(Error));
     });
   });
 
   describe('missing / malformed Authorization header', () => {
-    it('calls next(UnauthorizedError) when Authorization header is absent', () => {
+    it('calls next(UnauthorizedError) when Authorization header is absent', async () => {
       const next = mockNext();
-      authMiddleware(mockReq(), {} as Response, next);
+      await authMiddleware(mockReq(), {} as Response, next);
       expect(next).toHaveBeenCalledWith(expect.any(UnauthorizedError));
     });
 
-    it('calls next(UnauthorizedError) when header does not start with "Bearer "', () => {
+    it('calls next(UnauthorizedError) when header does not start with "Bearer "', async () => {
       const next = mockNext();
-      authMiddleware(
+      await authMiddleware(
         mockReq({ authorization: 'Basic dXNlcjpwYXNz' }),
         {} as Response,
         next,
@@ -69,40 +79,14 @@ describe('authMiddleware', () => {
     });
   });
 
-  describe('invalid token', () => {
-    it('calls next(UnauthorizedError) for a garbage token string', () => {
-      const next = mockNext();
-      authMiddleware(
-        mockReq({ authorization: 'Bearer not.a.valid.jwt' }),
-        {} as Response,
-        next,
-      );
-      expect(next).toHaveBeenCalledWith(expect.any(UnauthorizedError));
-    });
-
-    it('calls next(UnauthorizedError) for an expired token', () => {
-      const token = jwt.sign(
-        { sub: 'user-1', email: 'a@b.com' },
-        TEST_SECRET,
-        { expiresIn: -10 },
+  describe('invalid session token', () => {
+    it('calls next(UnauthorizedError) when validateSession throws', async () => {
+      mockAuthService.validateSession.mockRejectedValue(
+        new UnauthorizedError('Invalid or expired session'),
       );
       const next = mockNext();
-      authMiddleware(
-        mockReq({ authorization: `Bearer ${token}` }),
-        {} as Response,
-        next,
-      );
-      expect(next).toHaveBeenCalledWith(expect.any(UnauthorizedError));
-    });
-
-    it('calls next(UnauthorizedError) for a token signed with a different secret', () => {
-      const token = jwt.sign(
-        { sub: 'user-1', email: 'a@b.com' },
-        'wrong-secret-also-32-chars-long!!',
-      );
-      const next = mockNext();
-      authMiddleware(
-        mockReq({ authorization: `Bearer ${token}` }),
+      await authMiddleware(
+        mockReq({ authorization: 'Bearer bad-token-hex' }),
         {} as Response,
         next,
       );
@@ -110,21 +94,29 @@ describe('authMiddleware', () => {
     });
   });
 
-  describe('valid token', () => {
-    it('attaches req.user and calls next() with no arguments for a valid token', () => {
-      const token = jwt.sign(
-        { sub: 'user-abc', email: 'hello@world.com' },
-        TEST_SECRET,
-      );
+  describe('valid session token', () => {
+    it('attaches req.user and calls next() for a valid token', async () => {
+      mockAuthService.validateSession.mockResolvedValue({
+        userId: 'user-abc',
+        email: 'hello@world.com',
+        displayName: 'Hello World',
+      });
       const req = mockReq({
-        authorization: `Bearer ${token}`,
-      }) as Request & { user?: { id: string; email: string } };
+        authorization: 'Bearer valid-session-token-hex',
+      }) as Request & { user?: unknown };
       const next = mockNext();
 
-      authMiddleware(req, {} as Response, next);
+      await authMiddleware(req, {} as Response, next);
 
-      expect(next).toHaveBeenCalledWith(); // no args = no error passed
-      expect(req.user).toEqual({ id: 'user-abc', email: 'hello@world.com' });
+      expect(next).toHaveBeenCalledWith();
+      expect(req.user).toEqual({
+        userId: 'user-abc',
+        email: 'hello@world.com',
+        displayName: 'Hello World',
+      });
+      expect(mockAuthService.validateSession).toHaveBeenCalledWith(
+        'valid-session-token-hex',
+      );
     });
   });
 });
