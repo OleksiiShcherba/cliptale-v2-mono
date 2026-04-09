@@ -7,9 +7,11 @@ import { s3Client } from '@/lib/s3.js';
 import { pool } from '@/lib/db.js';
 import { processIngestJob } from '@/jobs/ingest.job.js';
 import { processTranscribeJob } from '@/jobs/transcribe.job.js';
+import { processAiGenerateJob, type AiGenerateJobPayload } from '@/jobs/ai-generate.job.js';
 
 const QUEUE_MEDIA_INGEST = 'media-ingest';
 const QUEUE_TRANSCRIPTION = 'transcription';
+const QUEUE_AI_GENERATE = 'ai-generate';
 
 const connection = { url: config.redis.url };
 
@@ -59,11 +61,33 @@ transcriptionWorker.on('error', (err) => {
 
 console.log('[media-worker] Listening for jobs on queue:', QUEUE_TRANSCRIPTION);
 
+// ── AI generate worker (concurrency 2) ──────────────────────────────────────
+
+const aiGenerateWorker = new Worker<AiGenerateJobPayload>(
+  QUEUE_AI_GENERATE,
+  (job) => processAiGenerateJob(job, { s3: s3Client, pool, bucket: config.s3.bucket }),
+  { connection, concurrency: 2 },
+);
+
+aiGenerateWorker.on('completed', (job) => {
+  console.log(`[media-worker] ai-generate job ${job.id} completed`);
+});
+
+aiGenerateWorker.on('failed', (job, err) => {
+  console.error(`[media-worker] ai-generate job ${job?.id} failed:`, err.message);
+});
+
+aiGenerateWorker.on('error', (err) => {
+  console.error('[media-worker] ai-generate worker error:', err.message);
+});
+
+console.log('[media-worker] Listening for jobs on queue:', QUEUE_AI_GENERATE);
+
 // ── Graceful shutdown ─────────────────────────────────────────────────────────
 
 async function shutdown(signal: string): Promise<void> {
   console.log(`[media-worker] Received ${signal}. Closing workers gracefully...`);
-  await Promise.all([ingestWorker.close(), transcriptionWorker.close()]);
+  await Promise.all([ingestWorker.close(), transcriptionWorker.close(), aiGenerateWorker.close()]);
   console.log('[media-worker] Workers closed. Exiting.');
   process.exit(0);
 }

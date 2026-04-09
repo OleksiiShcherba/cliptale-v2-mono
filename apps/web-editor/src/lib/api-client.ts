@@ -2,6 +2,26 @@ import { config } from './config.js';
 
 const TOKEN_KEY = 'auth_token';
 
+/**
+ * Returns the stored auth token, or null if none is stored.
+ * Used by media stream URLs that need to pass the token as a query parameter
+ * since browser media elements (`<img>`, `<video>`) cannot attach headers.
+ */
+export function getAuthToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+/**
+ * Appends the auth token as a `?token=` query parameter to a URL.
+ * Returns the URL unchanged if no token is stored.
+ */
+export function buildAuthenticatedUrl(url: string): string {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}token=${encodeURIComponent(token)}`;
+}
+
 /** Builds headers including Authorization if a token is stored. */
 function buildHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };

@@ -1,7 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 import { buildClipForAsset, computeClipDurationFrames, getAssetPreviewUrl } from './utils';
 import type { Asset } from './types';
+
+beforeEach(() => {
+  localStorage.clear();
+});
+
+afterEach(() => {
+  localStorage.clear();
+});
 
 // Minimal asset fixture for getAssetPreviewUrl tests
 function makeAsset(overrides: Partial<Asset> = {}): Asset {
@@ -74,6 +82,37 @@ describe('getAssetPreviewUrl', () => {
   it('uses the provided apiBaseUrl correctly', () => {
     const asset = makeAsset({ id: 'img-999', contentType: 'image/png', thumbnailUri: null, status: 'ready' });
     expect(getAssetPreviewUrl(asset, 'https://api.example.com')).toBe('https://api.example.com/assets/img-999/stream');
+  });
+
+  it('appends auth token to thumbnailUri when token is in localStorage', () => {
+    localStorage.setItem('auth_token', 'test-token-123');
+    const asset = makeAsset({ thumbnailUri: 'http://api/assets/asset-001/thumbnail', contentType: 'video/mp4' });
+    const result = getAssetPreviewUrl(asset, 'http://localhost:3001');
+    expect(result).toBe('http://api/assets/asset-001/thumbnail?token=test-token-123');
+  });
+
+  it('appends auth token to stream URL for image assets when token is in localStorage', () => {
+    localStorage.setItem('auth_token', 'my-secure-token');
+    const asset = makeAsset({ id: 'img-456', contentType: 'image/png', thumbnailUri: null, status: 'ready' });
+    const result = getAssetPreviewUrl(asset, 'http://localhost:3001');
+    expect(result).toBe('http://localhost:3001/assets/img-456/stream?token=my-secure-token');
+  });
+
+  it('handles special characters in token by URL-encoding them', () => {
+    localStorage.setItem('auth_token', 'token+with/special=chars');
+    const asset = makeAsset({ id: 'img-789', contentType: 'image/jpeg', thumbnailUri: null, status: 'ready' });
+    const result = getAssetPreviewUrl(asset, 'http://localhost:3001');
+    // Token should be URL-encoded
+    expect(result).toContain('token=');
+    expect(result).not.toContain('+with/special=chars'); // Raw form should not appear
+  });
+
+  it('does not append token if URL already has query parameters', () => {
+    localStorage.setItem('auth_token', 'token123');
+    const asset = makeAsset({ thumbnailUri: 'http://api/assets/asset-001/thumbnail?v=1', contentType: 'video/mp4' });
+    const result = getAssetPreviewUrl(asset, 'http://localhost:3001');
+    // Should use & separator when URL already has query params
+    expect(result).toContain('?v=1&token=token123');
   });
 });
 

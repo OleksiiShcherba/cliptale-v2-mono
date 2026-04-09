@@ -21,9 +21,10 @@ function renderTabs(activeTab: MobileTab = 'assets', onTabChange = vi.fn()) {
 
 describe('MobileInspectorTabs', () => {
   describe('rendering', () => {
-    it('renders three tab buttons: Assets, Captions, Inspector', () => {
+    it('renders four tab buttons: Assets, AI, Captions, Inspector', () => {
       renderTabs();
       expect(screen.getByRole('tab', { name: 'Assets' })).toBeTruthy();
+      expect(screen.getByRole('tab', { name: 'AI' })).toBeTruthy();
       expect(screen.getByRole('tab', { name: 'Captions' })).toBeTruthy();
       expect(screen.getByRole('tab', { name: 'Inspector' })).toBeTruthy();
     });
@@ -42,7 +43,13 @@ describe('MobileInspectorTabs', () => {
     it('marks inactive tabs with aria-selected="false"', () => {
       renderTabs('captions');
       expect(screen.getByRole('tab', { name: 'Assets' }).getAttribute('aria-selected')).toBe('false');
+      expect(screen.getByRole('tab', { name: 'AI' }).getAttribute('aria-selected')).toBe('false');
       expect(screen.getByRole('tab', { name: 'Inspector' }).getAttribute('aria-selected')).toBe('false');
+    });
+
+    it('sets aria-selected="true" on "ai-generate" tab when activeTab is ai-generate', () => {
+      renderTabs('ai-generate');
+      expect(screen.getByRole('tab', { name: 'AI' }).getAttribute('aria-selected')).toBe('true');
     });
 
     it('sets aria-selected="true" on "assets" tab when activeTab is assets', () => {
@@ -62,6 +69,13 @@ describe('MobileInspectorTabs', () => {
       renderTabs('captions', onTabChange);
       fireEvent.click(screen.getByRole('tab', { name: 'Assets' }));
       expect(onTabChange).toHaveBeenCalledWith('assets');
+    });
+
+    it('calls onTabChange with "ai-generate" when AI tab is clicked', () => {
+      const onTabChange = vi.fn();
+      renderTabs('assets', onTabChange);
+      fireEvent.click(screen.getByRole('tab', { name: 'AI' }));
+      expect(onTabChange).toHaveBeenCalledWith('ai-generate');
     });
 
     it('calls onTabChange with "captions" when Captions tab is clicked', () => {

@@ -14,6 +14,9 @@ const DEV_USER = {
 /**
  * Validates the Bearer session token in the Authorization header and attaches `req.user`.
  * When `DEV_AUTH_BYPASS` is enabled, skips validation and attaches a hardcoded dev user.
+ *
+ * Also accepts a `?token=` query parameter as a fallback — this is required for browser
+ * media elements (`<img>`, `<video>`, Remotion `prefetch()`) that cannot attach headers.
  */
 export async function authMiddleware(
   req: Request,
@@ -26,11 +29,16 @@ export async function authMiddleware(
   }
 
   const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
+  const rawToken = authHeader?.startsWith('Bearer ')
+    ? authHeader.slice(7)
+    : typeof req.query['token'] === 'string'
+      ? req.query['token']
+      : null;
+
+  if (!rawToken) {
     return next(new UnauthorizedError('Missing or malformed Authorization header'));
   }
 
-  const rawToken = authHeader.slice(7);
   try {
     const user = await authService.validateSession(rawToken);
     req.user = user;

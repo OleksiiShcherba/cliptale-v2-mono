@@ -15,32 +15,10 @@ vi.mock('./SaveStatusBadge', () => ({
 }));
 
 import { TopBar } from './TopBar';
+import { defaultProps } from './TopBar.fixtures';
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const defaultProps = {
-  projectId: 'test-project-001',
-  isSettingsOpen: false,
-  onToggleSettings: vi.fn(),
-  isHistoryOpen: false,
-  onToggleHistory: vi.fn(),
-  isExportOpen: false,
-  onToggleExport: vi.fn(),
-  isRendersOpen: false,
-  onToggleRenders: vi.fn(),
-  activeRenderCount: 0,
-  canExport: true,
-  canUndo: false,
-  canRedo: false,
-  onUndo: vi.fn(),
-  onRedo: vi.fn(),
-  onLogout: vi.fn(),
-};
-
-// ---------------------------------------------------------------------------
-// Tests
+// Tests — structure, settings, history, undo/redo, renders, logout
 // ---------------------------------------------------------------------------
 
 describe('TopBar', () => {
@@ -128,54 +106,6 @@ describe('TopBar', () => {
     expect(btn.getAttribute('aria-pressed')).toBe('false');
   });
 
-  // ── Export button — enabled state (canExport: true) ───────────────────────
-
-  it('calls onToggleExport when the Export button is clicked and canExport is true', () => {
-    const onToggleExport = vi.fn();
-    render(<TopBar {...defaultProps} canExport={true} onToggleExport={onToggleExport} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Export video' }));
-    expect(onToggleExport).toHaveBeenCalledOnce();
-  });
-
-  it('does not set aria-disabled on the Export button when canExport is true', () => {
-    render(<TopBar {...defaultProps} canExport={true} />);
-    const btn = screen.getByRole('button', { name: 'Export video' });
-    expect(btn.getAttribute('aria-disabled')).toBe('false');
-  });
-
-  it('does not set a title tooltip on the Export button when canExport is true', () => {
-    render(<TopBar {...defaultProps} canExport={true} />);
-    const btn = screen.getByRole('button', { name: 'Export video' });
-    expect(btn.getAttribute('title')).toBeNull();
-  });
-
-  // ── Export button — disabled state (canExport: false) ─────────────────────
-
-  it('does not call onToggleExport when the Export button is clicked and canExport is false', () => {
-    const onToggleExport = vi.fn();
-    render(<TopBar {...defaultProps} canExport={false} onToggleExport={onToggleExport} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Export video' }));
-    expect(onToggleExport).not.toHaveBeenCalled();
-  });
-
-  it('sets aria-disabled="true" on the Export button when canExport is false', () => {
-    render(<TopBar {...defaultProps} canExport={false} />);
-    const btn = screen.getByRole('button', { name: 'Export video' });
-    expect(btn.getAttribute('aria-disabled')).toBe('true');
-  });
-
-  it('sets cursor: not-allowed style on the Export button when canExport is false', () => {
-    render(<TopBar {...defaultProps} canExport={false} />);
-    const btn = screen.getByRole('button', { name: 'Export video' });
-    expect((btn as HTMLButtonElement).style.cursor).toBe('not-allowed');
-  });
-
-  it('shows tooltip "Save your project first to export." on the Export button when canExport is false', () => {
-    render(<TopBar {...defaultProps} canExport={false} />);
-    const btn = screen.getByRole('button', { name: 'Export video' });
-    expect(btn.getAttribute('title')).toBe('Save your project first to export.');
-  });
-
   // ── Undo button behavior ──────────────────────────────────────────────────
 
   it('Undo button is aria-disabled when canUndo is false', () => {
@@ -232,20 +162,6 @@ describe('TopBar', () => {
     expect(onRedo).not.toHaveBeenCalled();
   });
 
-  // ── Integration: Export button disabled before first save ─────────────────
-
-  it('has aria-disabled="false" when canExport is true (version exists)', () => {
-    render(<TopBar {...defaultProps} canExport={true} />);
-    const btn = screen.getByRole('button', { name: 'Export video' });
-    expect(btn.getAttribute('aria-disabled')).toBe('false');
-  });
-
-  it('has aria-disabled="true" when canExport is false (no version yet)', () => {
-    render(<TopBar {...defaultProps} canExport={false} />);
-    const btn = screen.getByRole('button', { name: 'Export video' });
-    expect(btn.getAttribute('aria-disabled')).toBe('true');
-  });
-
   // ── Renders button ─────────────────────────────────────────────────────────
 
   it('renders the Renders button with aria-label "View renders queue"', () => {
@@ -274,7 +190,6 @@ describe('TopBar', () => {
 
   it('does not show the active renders badge when activeRenderCount is 0', () => {
     render(<TopBar {...defaultProps} activeRenderCount={0} />);
-    // No badge with accessible label for active renders
     expect(screen.queryByLabelText(/active render/)).toBeNull();
   });
 

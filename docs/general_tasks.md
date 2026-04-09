@@ -210,175 +210,545 @@
   Build order: DB → registration + login + OAuth (parallel) → replace auth bypass → FE pages (parallel). The auth guard is the final ticket — nothing works until it's wired.                                      
    
   ---                                                                                                                                                                                                              
-  EPIC 9 — External AI Platform Integration Layer
-                                                                                                                                                                                                                   
-  ▎ Provides the foundation for text-to-video, AI image/audio generation by connecting to popular platforms via their APIs.
-                                                                                                                                                                                                                   
-  Pages / Surfaces:
-  - AI Providers settings page (admin/user level) — configure API keys                                                                                                                                             
-  - AI Generation panel in editor sidebar — unified UI for all AI generation                                                                                                                                       
+  EPIC 9 — Unified AI Generation Layer (fal.ai)  ⚠️ REWORK OF ALREADY-IMPLEMENTED EPIC
+
+  ▎ STATUS: The original Epic 9 ("External AI Platform Integration Layer") was fully implemented but the
+  ▎ approach was rejected. This epic REWORKS the existing implementation. The next planner/executor
+  ▎ skill MUST understand this is NOT a greenfield epic — code already exists and must be DELETED,
+  ▎ MODIFIED, or REPLACED in place. Each ticket below is explicitly tagged [REWORK], [DELETE],
+  ▎ [REPLACE], or [NEW] to make the change boundary unambiguous.
+  ▎
+  ▎ WHY WE ARE REWORKING:
+  ▎ The original implementation forced clients to bring their own API keys for 8 different providers
+  ▎ (OpenAI, Runway, Stability AI, ElevenLabs, Kling, Pika, Suno, Replicate) and to understand which
+  ▎ provider does what. We want a true out-of-the-box product where the client never sees a
+  ▎ "provider" concept and never manages keys. We will use **fal.ai** as the single integration hub
+  ▎ (one server-side key, owned by us) and expose only the supported MODELS to the user. The fal.ai
+  ▎ MCP server is available locally and MUST be used during planning to fetch each model's exact
+  ▎ schema (endpoint, input fields, defaults, allowed values, output shape).
+  ▎
+  ▎ NEW PRODUCT GOALS:
+  ▎ 1. Hide AI provider selection from the user entirely. The word "provider" disappears from the UX.
+  ▎ 2. Use fal.ai as the unified backend for ALL listed models. Single server-side `APP_FAL_KEY`.
+  ▎ 3. Expose every configuration option fal.ai documents for each supported model, dynamically.
+  ▎ 4. Reuse the existing job-tracking, asset-creation, and BullMQ plumbing — only the provider/key
+  ▎    layer and the per-provider adapters get torn out.
+  ▎
+  ▎ SUPPORTED MODELS (use fal.ai MCP `get_model_schema` for each before writing FE forms):
+  ▎ • Image-to-video: `ltx-2-19b/image-to-video`, `kling-video/o3/standard/image-to-video`,
+  ▎   `pixverse/v6/image-to-video`, `wan/v2.2-a14b/image-to-video`
+  ▎ • Text-to-video: `kling-video/v2.5-turbo/pro/text-to-video`
+  ▎ • Image edit / blend: `nano-banana-2/edit`, `gpt-image-1.5/edit`
+  ▎ • Text-to-image: `nano-banana-2`, `gpt-image-1.5`
+  ▎
+  ▎ EXISTING CODE INVENTORY (everything in this list is already merged on master):
+  ▎ • DB migrations: `apps/api/src/db/migrations/009_ai_provider_configs.sql`,
+  ▎   `010_ai_generation_jobs.sql`, `012_add_result_url_to_ai_jobs.sql`
+  ▎ • API: `apps/api/src/services/aiProvider.service.ts`, `aiGeneration.service.ts`;
+  ▎   `apps/api/src/repositories/aiProvider.repository.ts`, `aiGenerationJob.repository.ts`;
+  ▎   `apps/api/src/controllers/aiProviders.controller.ts`, `aiGeneration.controller.ts`;
+  ▎   `apps/api/src/routes/aiProviders.routes.ts`, `aiGeneration.routes.ts`;
+  ▎   `apps/api/src/lib/encryption.ts`; `apps/api/src/queues/jobs/enqueue-ai-generate.ts`
+  ▎ • Worker: `apps/media-worker/src/jobs/ai-generate.job.ts`;
+  ▎   `apps/media-worker/src/providers/{openai,stability,replicate}-image.adapter.ts`,
+  ▎   `{runway,kling,pika}-video.adapter.ts`, `{elevenlabs,suno}-audio.adapter.ts`,
+  ▎   `apps/media-worker/src/providers/types.ts`
+  ▎ • Frontend: `apps/web-editor/src/features/ai-providers/**` (entire feature),
+  ▎   `apps/web-editor/src/features/ai-generation/**` (entire feature, retain shell)
+  ▎ • Env: `APP_AI_ENCRYPTION_KEY` in `.env.example`
+  ▎
+  ▎ WHAT SURVIVES, WHAT DIES:
+  ▎ • SURVIVES (modify in place): `ai_generation_jobs` table (add columns), `aiGeneration.service.ts`
+  ▎   (rewrite resolver), `aiGeneration.controller.ts` + routes, `enqueue-ai-generate.ts`,
+  ▎   `ai-generate.job.ts` (route to single fal adapter), the asset-creation flow on success,
+  ▎   the ai-generation FE feature shell (panel mounting + tab plumbing).
+  ▎ • DIES (delete completely): `ai_provider_configs` table, `aiProvider.service.ts`,
+  ▎   `aiProvider.repository.ts`, `aiProviders.controller.ts`, `aiProviders.routes.ts`,
+  ▎   `lib/encryption.ts`, all 8 per-provider adapter files + their tests, `providers/types.ts`,
+  ▎   `features/ai-providers/**`, `APP_AI_ENCRYPTION_KEY` env var.
+
+  Pages / Surfaces (after rework):
+  - AI Generation panel in editor sidebar — model picker grouped by capability (Image, Image→Video,
+    Text→Video, Image Edit/Blend), with a dynamic options form per model. NO provider settings page.
    
   ---                                                                                                                                                                                                              
-  [DB] AI Provider Configuration Schema
-                                                                                                                                                                                                                   
-  Description: Create ai_provider_configs table storing per-user API keys and preferences for external AI platforms (OpenAI, Runway, Stability AI, ElevenLabs, Kling, Pika, Suno).
+  [DB] [REWORK] Replace ai_provider_configs and Reshape ai_generation_jobs for fal.ai
+
+  Description: Remove the now-obsolete provider-config table and reshape the job table so it stores
+  the fal.ai model identifier and a freeform JSON options blob instead of a fixed provider/type ENUM.
+  This is a destructive migration on a still-pre-launch dev DB — drop old data, do not try to
+  preserve rows.
+
+  EXISTING FILES TO MODIFY/DELETE:
+  - DELETE behavior of: `apps/api/src/db/migrations/009_ai_provider_configs.sql` (write a new DOWN
+    migration `013_drop_ai_provider_configs.sql`)
+  - REPLACE schema from: `010_ai_generation_jobs.sql` and `012_add_result_url_to_ai_jobs.sql` via a
+    new migration `014_ai_jobs_fal_reshape.sql`
                                                                                                                                                                                                                    
   Acceptance Criteria:
-  - Table: config_id, user_id, provider (ENUM), api_key_encrypted, is_active, created_at, updated_at                                                                                                               
-  - provider ENUM: openai, runway, stability_ai, elevenlabs, kling, pika, suno, replicate                                                                                                                          
-  - API keys encrypted at rest using AES-256 (encryption key from env var)               
-  - UNIQUE constraint on (user_id, provider)                                                                                                                                                                       
-  - Migration is reversible                                                                                                                                                                                        
-                                                                                                                                                                                                                   
-  Dependencies: Users table (Epic 8)                                                                                                                                                                               
-  Effort: S                                                                                                                                                                                                        
-                                                                                                                                                                                                                   
+  - New migration `013_drop_ai_provider_configs.sql`: `DROP TABLE IF EXISTS ai_provider_configs;`
+  - New migration `014_ai_jobs_fal_reshape.sql` modifies `ai_generation_jobs`:
+    • DROP COLUMN `provider` (the ENUM)
+    • ADD COLUMN `model_id VARCHAR(128) NOT NULL` — e.g. `fal-ai/ltx-2-19b/image-to-video`
+    • ADD COLUMN `capability ENUM('text_to_image','image_edit','text_to_video','image_to_video')
+      NOT NULL` — used for grouping/filtering, derived at submit time
+    • Keep the existing `options JSON NULL` column — it will now hold the full per-model fal.ai
+      input payload verbatim (first_frame_image_url, last_frame_image_url, audio_enabled,
+      reference_images, etc.)
+    • Keep `prompt`, `status`, `progress`, `result_url`, `result_asset_id`, `error_message` as-is
+    • Remove the `text` value from the existing `type` ENUM if it still exists, or drop the `type`
+      column entirely in favor of `capability`
+  - Migration drops the obsolete ENUM constraints cleanly (recreate the table inside a transaction
+    if MySQL refuses an ALTER on the ENUM)
+  - Down section in each new migration documented as a comment
+  - All existing dev rows in `ai_generation_jobs` may be deleted (`TRUNCATE`) — pre-launch dev only
+  - Seed migration `011_seed_dev_user.sql` does NOT need to seed any provider configs — confirm it
+    doesn't, and remove the rows if it does
+
+  Dependencies: None (runs against existing schema)
+  Effort: S
+
   ---
-  [BE] AI Provider Configuration CRUD Endpoints                                                                                                                                                                    
-                                               
-  Description: Build POST /user/ai-providers, GET /user/ai-providers, PATCH /user/ai-providers/:provider, DELETE /user/ai-providers/:provider. API keys are write-only (never returned in GET — only isConfigured: 
-  true/false).                                                                                                                                                                                                     
-   
-  Acceptance Criteria:                                                                                                                                                                                             
-  - POST accepts { provider, apiKey }, encrypts and stores
-  - GET returns all providers with { provider, isActive, isConfigured, createdAt } — no key                                                                                                                        
-  - PATCH updates key or active status                                                     
-  - DELETE removes provider config                                                                                                                                                                                 
-  - Validates provider against allowed ENUM values                                                                                                                                                                 
-  - Auth middleware: user can only access own configs                                                                                                                                                              
-                                                                                                                                                                                                                   
-  Dependencies: AI provider DB schema                                                                                                                                                                              
+  [BE] [DELETE] Tear Out Per-Provider Key Storage Layer
+
+  Description: Delete the entire user-provided-API-key infrastructure now that fal.ai is the only
+  integration. This is a pure deletion ticket — no replacement code goes here. After this ticket the
+  product no longer has any concept of "AI provider configs". The single fal.ai key lives in env.
+
+  EXISTING FILES TO DELETE:
+  - `apps/api/src/services/aiProvider.service.ts` (+ `.test.ts`)
+  - `apps/api/src/repositories/aiProvider.repository.ts`
+  - `apps/api/src/controllers/aiProviders.controller.ts`
+  - `apps/api/src/routes/aiProviders.routes.ts`
+  - `apps/api/src/lib/encryption.ts` (+ `.test.ts`) — no longer needed; nothing else uses it
+  - `apps/api/src/__tests__/integration/ai-providers-endpoints.test.ts`
+
+  EXISTING FILES TO MODIFY:
+  - `apps/api/src/index.ts` — remove `aiProvidersRouter` import + `app.use(aiProvidersRouter)`
+  - `apps/api/src/config.ts` — remove `APP_AI_ENCRYPTION_KEY` from the Zod schema and exported
+    config object
+  - `.env.example` — delete the `APP_AI_ENCRYPTION_KEY` block (the entire "AI Encryption" section)
+  - `docker-compose.yml` — remove `APP_AI_ENCRYPTION_KEY` from any service env blocks
+  - Remove any imports of the deleted modules from anywhere in `apps/api/src/`
+
+  Acceptance Criteria:
+  - All listed files no longer exist on disk
+  - `grep -r "ai_provider_configs\|aiProvider\|AI_ENCRYPTION_KEY" apps/api/src` returns nothing
+  - `grep -r "encryption" apps/api/src/lib` returns nothing
+  - `pnpm --filter @cliptale/api typecheck` passes
+  - `pnpm --filter @cliptale/api test` passes (with the now-deleted tests gone, not stubbed)
+  - `/user/ai-providers` endpoints return 404 (route gone)
+
+  Dependencies: DB rework ticket above
   Effort: S
                                                                                                                                                                                                                    
-  ---             
-  [BE] Unified AI Generation Service + Job Queue
-                                                                                                                                                                                                                   
-  Description: Build a provider-agnostic AI generation service in apps/api/src/services/ai-generation.service.ts. It accepts generation requests (image, video, audio, text), resolves the user's configured
-  provider for that media type, enqueues a BullMQ job, and returns a jobId. The actual provider-specific logic lives in apps/media-worker/src/providers/.                                                          
-                  
-  Acceptance Criteria:                                                                                                                                                                                             
-  - POST /projects/:id/ai/generate accepts { type: 'image'|'video'|'audio'|'text', prompt, options }
-  - Resolves user's active provider for the requested type                                                                                                                                                         
-  - Returns 400 if no provider configured for that type   
-  - Enqueues ai-generate BullMQ job with { userId, projectId, type, prompt, provider, providerApiKey }                                                                                                             
-  - Returns { jobId, status: 'queued' } with 202                                                      
-  - GET /ai/jobs/:jobId returns status, progress, result URL when complete                                                                                                                                         
-                                                                                                                                                                                                                   
-  Dependencies: AI provider config endpoints, BullMQ infrastructure (exists)                                                                                                                                       
-  Effort: M                                                                                                                                                                                                        
-                                                                                                                                                                                                                   
-  ---                                                                                                                                                                                                              
-  [BE] Provider Adapters — Image Generation (OpenAI DALL-E, Stability AI, Replicate)                                                                                                                               
-                                                                                                                                                                                                                   
-  Description: Implement provider adapter modules in apps/media-worker/src/providers/ for image generation. Each adapter implements a common generateImage(prompt, options) interface. The worker job handler
-  routes to the correct adapter based on the job's provider field.                                                                                                                                                 
-                  
-  Acceptance Criteria:                                                                                                                                                                                             
-  - openai-image.adapter.ts — calls DALL-E 3 API, returns image URL
-  - stability-image.adapter.ts — calls Stability AI text-to-image, returns image URL                                                                                                                               
-  - replicate-image.adapter.ts — calls Replicate's SDXL/Flux model, returns image URL
-  - All adapters download generated image to object storage and create an asset row                                                                                                                                
-  - Common interface: { imageUrl, width, height, provider, model }                                                                                                                                                 
-  - Error handling with provider-specific error messages                                                                                                                                                           
-  - Unit tests per adapter with mocked API calls                                                                                                                                                                   
-                                                                                                                                                                                                                   
-  Dependencies: AI generation service
-  Effort: M                                                                                                                                                                                                        
-                  
-  ---                                                                                                                                                                                                              
-  [BE] Provider Adapters — Video Generation (Runway Gen-4, Kling, Pika)
-                                                                                                                                                                                                                   
-  Description: Implement video generation provider adapters. Video generation is async (generation takes 30s–5min), so adapters must handle polling or webhook-based completion.
-                                                                                                                                                                                                                   
-  Acceptance Criteria:
-  - runway-video.adapter.ts — calls Runway Gen-4 API, polls for completion, returns video URL                                                                                                                      
-  - kling-video.adapter.ts — calls Kling API, polls/webhook for completion                   
-  - pika-video.adapter.ts — calls Pika API, polls for completion          
-  - All adapters download generated video to object storage and create an asset row                                                                                                                                
-  - Progress updates written to ai_generation_jobs table during polling            
-  - Timeout after 10 minutes with graceful failure                                                                                                                                                                 
-  - Common interface: { videoUrl, durationSeconds, width, height, provider, model }
-                                                                                                                                                                                                                   
-  Dependencies: AI generation service                                                                                                                                                                              
-  Effort: L ⚠️  Each provider has different API patterns; Runway uses tasks, Kling uses callbacks                                                                                                                   
-                                                                                                                                                                                                                   
-  ---             
-  [BE] Provider Adapters — Audio Generation (ElevenLabs, Suno)                                                                                                                                                     
-                                                              
-  Description: Implement audio generation adapters for background music, SFX, and voice synthesis.
-                                                                                                                                                                                                                   
-  Acceptance Criteria:
-  - elevenlabs-audio.adapter.ts — text-to-speech + SFX generation                                                                                                                                                  
-  - suno-audio.adapter.ts — music generation from prompt                                                                                                                                                           
-  - All adapters download generated audio to object storage and create an asset row
-  - Common interface: { audioUrl, durationSeconds, provider, model }                                                                                                                                               
-  - Error handling + retry with exponential backoff                 
-                                                                                                                                                                                                                   
-  Dependencies: AI generation service
-  Effort: M                                                                                                                                                                                                        
-   
-  ---                                                                                                                                                                                                              
-  [FE] AI Providers Settings Page
-                                 
-  Description: Build a /settings/ai-providers page (accessible from user menu). Shows a card for each supported provider with: name, description, "Add API Key" input, active/inactive toggle, and connection test
-  button.                                                                                                                                                                                                          
-   
-  Acceptance Criteria:                                                                                                                                                                                             
-  - Lists all supported providers with icons and descriptions
-  - API key input (password type) — shows "Connected" badge when configured
-  - "Test Connection" button validates the key against the provider's API  
-  - Active/inactive toggle per provider                                                                                                                                                                            
-  - Delete button removes the provider config                                                                                                                                                                      
-  - Dark theme, consistent with editor design system                                                                                                                                                               
-                                                                                                                                                                                                                   
-  Dependencies: AI provider CRUD endpoints
-  Effort: M                                                                                                                                                                                                        
-                                                                                                                                                                                                                   
   ---
-  [FE] AI Generation Panel in Editor                                                                                                                                                                               
-                                    
-  Description: Add an "AI Generate" tab/panel in the editor sidebar. Shows generation options by type (Image / Video / Audio). User enters a prompt, selects options (size, duration, style), and clicks
-  "Generate". Result appears in the asset browser when complete.                                                                                                                                                   
-   
-  Acceptance Criteria:                                                                                                                                                                                             
-  - Tab or button in sidebar opens AI generation panel
-  - Type selector: Image / Video / Audio                                                                                                                                                                           
-  - Prompt text input (multiline, max 1000 chars)
-  - Type-specific options: image (size, style), video (duration 3s/5s/10s, aspect ratio), audio (duration, type: music/sfx/voice)                                                                                  
-  - "Generate" button calls POST /ai/generate, shows spinner                                                                                                                                                       
-  - Progress indicator while generation is in progress (polls job status)                                                                                                                                          
-  - On completion: asset appears in asset browser, can be added to timeline                                                                                                                                        
-  - Shows error message on failure with "Try Again" button                                                                                                                                                         
-  - Disabled state when no provider configured for the selected type (with link to settings)                                                                                                                       
-                                                                                                                                                                                                                   
-  Dependencies: AI generation service BE, AI providers settings page                                                                                                                                               
-  Effort: M       
-                                                                                                                                                                                                                   
+  [INFRA] [NEW] Add APP_FAL_KEY Config + fal.ai HTTP Client Wrapper
+
+  Description: Introduce a single server-side fal.ai API key (`APP_FAL_KEY`) and a thin HTTP client
+  wrapper that the worker will use to submit jobs and poll for results. The client lives in the
+  media-worker since that's where all generation work happens. No public-facing surface — this is
+  pure plumbing.
+
+  EXISTING FILES TO MODIFY:
+  - `.env.example` — add `APP_FAL_KEY=` under a new "fal.ai" section
+  - `docker-compose.yml` — pass `APP_FAL_KEY` to the `media-worker` and `api` services
+  - `apps/media-worker/src/config.ts` — add `APP_FAL_KEY` to the Zod schema (required string)
+  - `apps/api/src/config.ts` — add `APP_FAL_KEY` (required) — the API needs it to know fal is
+    configured for `/ai/models` endpoint health checks; do NOT expose it to the client
+
+  NEW FILES:
+  - `apps/media-worker/src/lib/fal-client.ts` — minimal wrapper around fal.ai's REST API:
+    `submitFalJob({ modelId, input }) -> { request_id }`,
+    `getFalJobStatus(requestId, modelId) -> { status, output? }`,
+    `pollFalJob(requestId, modelId, { timeoutMs, intervalMs }) -> output`.
+    Use `node:fetch`. No SDK dependency. Read key from injected config, never from process.env
+    directly.
+  - `apps/media-worker/src/lib/fal-client.test.ts` — unit tests with mocked fetch covering
+    submit, polling success, polling timeout, and error response handling
+
+  Acceptance Criteria:
+  - `APP_FAL_KEY` resolved through `apps/media-worker/src/config.ts` only — no other file reads
+    `process.env.APP_FAL_KEY`
+  - Wrapper sends `Authorization: Key <APP_FAL_KEY>` header on every request
+  - Polling has a configurable timeout (default 10 min) and interval (default 3 s)
+  - On non-2xx fal.ai responses, throws an error containing the fal request_id and the upstream
+    error body
+  - Unit tests cover happy path, timeout, and upstream error
+  - No fal.ai SDK added to package.json — use raw fetch
+
+  Dependencies: None
+  Effort: S
+
+  ---
+  [BE] [NEW] fal.ai Model Catalog Module
+
+  Description: Define the catalog of supported fal.ai models in code so the API can advertise them
+  to the frontend and validate `model_id` on submit. The catalog also includes the JSON-schema-style
+  description of each model's input fields, which the FE uses to render the dynamic options form.
+  ⚠️ The schemas MUST be sourced from fal.ai itself via the fal.ai MCP server (`get_model_schema`)
+  during planning — do NOT invent fields. The agent implementing this ticket should call the
+  `mcp__fal-ai__get_model_schema` tool for every model below and copy the input shape verbatim.
+
+  NEW FILES:
+  - `packages/api-contracts/src/fal-models.ts` — exports `FAL_MODELS`, a typed const array. Each
+    entry: `{ id, capability, label, description, inputSchema }`. `id` is the literal fal model
+    slug (e.g. `fal-ai/ltx-2-19b/image-to-video`). `capability` is one of
+    `text_to_image | image_edit | text_to_video | image_to_video`. `inputSchema` is a small
+    JSON-schema-ish object: `{ fields: [{ name, type, label, required, default?, enum?, min?,
+    max?, description? }] }`. Field types: `string | text | number | boolean | enum | image_url |
+    image_url_list`.
+  - `packages/api-contracts/src/fal-models.test.ts` — asserts every model has a non-empty schema,
+    every required field has a label, every enum field lists allowed values
+
+  MODELS TO REGISTER (use fal.ai MCP for exact schemas — these are the user-confirmed list):
+  - Image-to-video:
+    `fal-ai/ltx-2-19b/image-to-video`,
+    `fal-ai/kling-video/o3/standard/image-to-video`,
+    `fal-ai/pixverse/v6/image-to-video`,
+    `fal-ai/wan/v2.2-a14b/image-to-video`
+    (must expose every fal-supported control: first/last frame image, audio enabled, duration,
+    seed, etc.)
+  - Text-to-video: `fal-ai/kling-video/v2.5-turbo/pro/text-to-video`
+  - Image edit / blend: `fal-ai/nano-banana-2/edit`, `fal-ai/gpt-image-1.5/edit`
+    (must support multi-image inputs / blending, all fal controls)
+  - Text-to-image: `fal-ai/nano-banana-2`, `fal-ai/gpt-image-1.5`
+
+  Acceptance Criteria:
+  - The package exports `FAL_MODELS` and a type `FalModel`
+  - Every listed model is present with its real input schema (verified against fal.ai MCP)
+  - Tests pass; types compile; no runtime use of the catalog requires network access
+  - The schema for `image_url` / `image_url_list` fields makes it clear the FE will pass HTTPS URLs
+    (we will upload to our own S3 first then pass the public URL)
+
+  Dependencies: None (but planner MUST query fal.ai MCP before writing this ticket's schemas)
+  Effort: M ⚠️ The size depends on how many fields each model exposes; do NOT shortcut by
+  hardcoding only "prompt"
+
+  ---
+  [BE] [REWORK] Reshape aiGeneration Service + Controller for Model-Based Submission
+
+  Description: Rewrite the existing generation service so it no longer resolves a per-user
+  provider. Instead, it accepts a `modelId` from the catalog plus an `options` blob, validates the
+  options against the model's schema, and enqueues a fal-only job. Also rewrites the controller's
+  Zod request schema and adds a new endpoint to list available models.
+
+  EXISTING FILES TO MODIFY:
+  - `apps/api/src/services/aiGeneration.service.ts` — DELETE `TYPE_PROVIDER_MAP`, DELETE
+    `resolveProvider`, DELETE the `provider` parameter, DELETE the `aiProviderService.getDecryptedKey`
+    call. New shape: `submitGeneration(userId, projectId, { modelId, prompt?, options })`. Look up
+    the model in `FAL_MODELS`, infer `capability` from it, validate `options` against the model's
+    inputSchema (reject unknown keys, enforce required fields), then enqueue.
+  - `apps/api/src/services/aiGeneration.service.test.ts` — rewrite tests for the new shape; remove
+    all provider-resolution test cases
+  - `apps/api/src/controllers/aiGeneration.controller.ts` — rewrite `submitGenerationSchema` Zod
+    schema: `{ modelId: z.string(), prompt: z.string().optional(), options: z.record(z.unknown())
+    .default({}) }`. Add a new handler `listModels` returning the catalog (id, capability, label,
+    description, inputSchema) — no key information.
+  - `apps/api/src/routes/aiGeneration.routes.ts` — add `GET /ai/models` route returning the catalog
+    (auth-required). Keep existing `POST /projects/:id/ai/generate` and `GET /ai/jobs/:jobId`.
+  - `apps/api/src/repositories/aiGenerationJob.repository.ts` — update `createJob` to take
+    `modelId` + `capability` instead of `provider` + `type`; update SELECT shapes accordingly.
+    Remove `AiGenerationType` export.
+  - `apps/api/src/queues/jobs/enqueue-ai-generate.ts` — payload shape changes to
+    `{ jobId, userId, projectId, modelId, capability, prompt?, options }`. Remove `apiKey` and
+    `provider` fields.
+  - `apps/api/src/__tests__/integration/ai-providers-endpoints.test.ts` — DELETE (provider
+    endpoints are gone). If there's an integration test for `ai-generation`, update it to test the
+    new shape; otherwise add a small one covering submit + list-models.
+
+  Acceptance Criteria:
+  - `POST /projects/:id/ai/generate` body: `{ modelId, prompt?, options }`
+  - 400 when `modelId` is not in the catalog
+  - 400 when `options` contains unknown keys or violates inputSchema (missing required, wrong type,
+    enum mismatch)
+  - 202 with `{ jobId, status: 'queued' }` on success — same response shape as before
+  - `GET /ai/models` returns the catalog grouped by capability
+  - `GET /ai/jobs/:jobId` response shape unchanged (still returns status, progress, result_url)
+  - Service no longer imports anything from `aiProvider.*` (those files are deleted by the previous
+    ticket)
+  - All `aiGeneration.service.test.ts` tests pass under the new shape
+  - Typecheck + lint clean for the api package
+
+  Dependencies: DB rework, fal-models catalog, key teardown ticket
+  Effort: M
+
+  ---
+  [BE] [NEW] Asset Upload Helper for fal.ai Image Inputs
+
+  Description: Several supported models take image URLs as input (first frame, last frame, blend
+  references). The user supplies these from the editor's existing asset browser, where assets are
+  already uploaded to our S3 bucket. We need a small helper that resolves an internal `assetId`
+  to a public/presigned HTTPS URL that fal.ai can fetch from. No new upload UI — reuse existing
+  asset upload flow.
+
+  NEW/MODIFIED FILES:
+  - `apps/api/src/services/aiGeneration.service.ts` — before enqueueing, walk the `options` object
+    looking for any field whose schema type is `image_url` or `image_url_list`. If the value is an
+    internal asset ID (UUID matching a row in `project_assets_current`), replace it with a
+    short-lived presigned GET URL (e.g. 1 hour TTL). If the value already looks like an https URL,
+    pass it through.
+  - Reuse existing s3 client / presigner helper from `apps/api/src/lib/s3.ts` — do NOT create a
+    new one
+  - Add a unit test in `aiGeneration.service.test.ts` covering: asset ID → presigned URL,
+    https URL → passthrough, image_url_list of mixed values, asset not owned by user → 403
+
+  Acceptance Criteria:
+  - Asset ownership is enforced — a user cannot reference another user's asset
+  - Generated presigned URL uses GET, expires in ≤ 1 hour
+  - Walks the options tree using the inputSchema field types — does NOT rely on field name
+    matching
+  - Image URL fields with non-existent asset IDs return 404 with a clear message
+  - Tests cover all three input shapes
+
+  Dependencies: aiGeneration service rework, fal-models catalog
+  Effort: S
+
+  ---
+  [BE] [REPLACE] Single fal.ai Worker Adapter — Delete All 8 Provider Adapters
+
+  Description: Replace the per-provider adapter zoo with a single fal.ai job handler. The handler
+  receives the modelId, calls the fal client wrapper, polls for completion, downloads the result
+  artifact to our S3, creates an asset row, and updates the job. Capability determines how to
+  interpret the fal output (image vs video) and what content-type/extension to write.
+
+  EXISTING FILES TO DELETE:
+  - `apps/media-worker/src/providers/openai-image.adapter.ts` (+ test)
+  - `apps/media-worker/src/providers/stability-image.adapter.ts` (+ test)
+  - `apps/media-worker/src/providers/replicate-image.adapter.ts` (+ test)
+  - `apps/media-worker/src/providers/runway-video.adapter.ts` (+ test)
+  - `apps/media-worker/src/providers/kling-video.adapter.ts` (+ test)
+  - `apps/media-worker/src/providers/pika-video.adapter.ts` (+ test)
+  - `apps/media-worker/src/providers/elevenlabs-audio.adapter.ts` (+ test)
+  - `apps/media-worker/src/providers/suno-audio.adapter.ts` (+ test)
+  - `apps/media-worker/src/providers/types.ts` (its types are obsolete)
+
+  EXISTING FILES TO MODIFY:
+  - `apps/media-worker/src/jobs/ai-generate.job.ts` — DELETE `runAdapter`, `loadImageAdapter`,
+    `loadVideoAdapter`, `loadAudioAdapter`. New flow:
+      1. Pull `{ modelId, capability, prompt, options }` from job.data
+      2. Build the fal input by merging `{ prompt }` (if model accepts it) into `options`
+      3. `submitFalJob` → `pollFalJob` (use the new client wrapper)
+      4. Read the result URL from fal output (per-capability shape: image url for image/edit
+         models, video url for video models)
+      5. Download the artifact to our S3 under `ai-generations/<projectId>/<uuid>.<ext>`
+      6. Insert into `project_assets_current` (existing logic)
+      7. Update `ai_generation_jobs` (status, progress, result_url, result_asset_id)
+    Pass `falClient` and `falKey` via the `deps` object — don't read env in the handler.
+  - `apps/media-worker/src/jobs/ai-generate.job.test.ts` — rewrite for the new flow with a mocked
+    fal client
+  - `apps/media-worker/src/index.ts` — wire the fal client into the job deps; remove any old
+    provider env wiring
+
+  Acceptance Criteria:
+  - `apps/media-worker/src/providers/` directory no longer exists (or is empty)
+  - The handler routes purely on `capability`, never on a provider name
+  - Image/edit results saved as `image/png` or `image/jpeg` based on URL extension; video saved as
+    `video/mp4`
+  - Progress is updated at least at submit-success and at completion
+  - Failures from fal.ai (timeout, upstream error) result in job status `failed` with the upstream
+    message in `error_message`
+  - Existing asset-row creation logic in `processAiGenerateJob` is preserved unchanged
+  - All `ai-generate.job.test.ts` tests pass
+
+  Dependencies: fal client wrapper, aiGeneration service rework
+  Effort: M
+
+  ---
+  [FE] [DELETE] Remove ai-providers Feature Entirely
+
+  Description: The "AI Providers" settings UI has no place in the new model. Tear it out.
+
+  EXISTING FILES TO DELETE:
+  - Entire directory `apps/web-editor/src/features/ai-providers/` — `api.ts`, `api.test.ts`,
+    `types.ts`, `types.test.ts`, `hooks/`, `components/AiProvidersModal.tsx`,
+    `components/ProviderCard.tsx`, `components/aiProvidersModalStyles.ts`
+
+  EXISTING FILES TO MODIFY:
+  - Anywhere `AiProvidersModal` is mounted (likely `App.tsx` or `TopBar.tsx`) — remove the import
+    and the modal trigger button/menu item
+  - Remove any references to "AI Providers" from settings menus, top bar, sidebars
+  - Update any FE tests that reference the deleted modal
+
+  Acceptance Criteria:
+  - `grep -r "ai-providers\|AiProvidersModal\|AiProvider" apps/web-editor/src` returns nothing
+    (case-insensitive on the modal names)
+  - Web-editor typecheck + tests pass
+  - No "AI Providers" entry visible in the running app's settings menu
+
+  Dependencies: None (purely deletion)
+  Effort: XS
+
+  ---
+  [FE] [REWORK] Rebuild AI Generation Panel Around Models, Not Types
+
+  Description: Replace the existing Image/Video/Audio type selector with a model-first picker
+  driven by `GET /ai/models`. The user picks a capability tab (Text→Image, Image Edit, Text→Video,
+  Image→Video), sees the cards of available models in that capability, picks one, and is shown a
+  dynamic form rendered from that model's `inputSchema`. Submitting calls the existing
+  `POST /projects/:id/ai/generate` with `{ modelId, prompt, options }`. Result polling and asset
+  insertion already work — only the panel UX changes.
+
+  EXISTING FILES TO MODIFY (the ai-generation feature shell stays — its insides are rewritten):
+  - `apps/web-editor/src/features/ai-generation/api.ts` — replace `submitGeneration` body shape to
+    `{ modelId, prompt, options }`. Add `listModels()` calling `GET /ai/models`.
+  - `apps/web-editor/src/features/ai-generation/api.test.ts` — update for new shape
+  - `apps/web-editor/src/features/ai-generation/types.ts` — replace the old `GenerationType` /
+    provider types with `FalModel`, `FalCapability`, `FalFieldSchema`, `GenerationOptions`. Mirror
+    the contract from `packages/api-contracts/src/fal-models.ts`.
+  - `apps/web-editor/src/features/ai-generation/components/GenerationTypeSelector.tsx` →
+    RENAME conceptually to `CapabilityTabs.tsx`. Tabs: "Text → Image", "Edit / Blend Image",
+    "Text → Video", "Image → Video".
+  - `apps/web-editor/src/features/ai-generation/components/GenerationOptionsForm.tsx` → REWRITE as
+    a generic schema-driven form. Renders one input per `inputSchema.fields[i]` based on `type`:
+      • `string` → single-line text input
+      • `text` → textarea (also used for `prompt` if the field is named "prompt")
+      • `number` → numeric input with min/max
+      • `boolean` → toggle/switch
+      • `enum` → select dropdown
+      • `image_url` → asset picker (opens existing asset browser, returns the asset id —
+        the BE will resolve it to a presigned URL)
+      • `image_url_list` → multi-asset picker (for blend models)
+    Show field labels and descriptions from the schema. Mark required fields. Pre-fill defaults.
+  - `apps/web-editor/src/features/ai-generation/components/AiGenerationPanel.tsx` — orchestrate:
+    fetch models on mount, render capability tabs, render model cards inside the active tab,
+    render the dynamic form for the selected model, submit and show progress. Reuse existing
+    `GenerationProgress.tsx` (it already polls `/ai/jobs/:jobId`).
+  - `apps/web-editor/src/features/ai-generation/components/AiGenerationPanel.test.tsx` and the
+    other component tests — rewrite around the new flow
+  - `apps/web-editor/src/features/ai-generation/components/aiGenerationPanelStyles.ts` — update
+    selectors/styles for the new layout if needed
+  - `apps/web-editor/src/features/ai-generation/components/LeftSidebarTabs.tsx` — keep the AI tab
+    in place; only label/icon updates if needed
+  - REMOVE the "no provider configured → link to settings" empty state — there is no such error
+    anymore. fal.ai is always available (or the whole feature is hidden via a feature flag if
+    `APP_FAL_KEY` is missing — handled at app boot via a `/ai/models` 503).
+
+  NEW FILES:
+  - `apps/web-editor/src/features/ai-generation/components/ModelCard.tsx` — small card showing
+    model label + description; click to select
+  - `apps/web-editor/src/features/ai-generation/components/SchemaFieldInput.tsx` — the renderer
+    for one schema field (see types above). One file, branching by type.
+  - `apps/web-editor/src/features/ai-generation/components/AssetPickerField.tsx` — wraps the
+    existing asset browser to let the user pick one (or many) image assets and returns the
+    asset ID. Reuse `features/asset-manager` components — do not duplicate.
+  - Tests for each new component
+
+  Acceptance Criteria:
+  - Capability tabs match the four supported capabilities (no "Audio" anywhere — audio is dropped
+    from this rework, the user did not list audio models)
+  - Model cards inside each tab match the catalog returned by `/ai/models`
+  - Selecting a model renders a form with EVERY field from `inputSchema` — required fields are
+    marked, defaults are pre-filled, descriptions visible on hover/help-text
+  - Image fields open the asset browser; selecting an asset stores its asset ID in form state
+  - Submit posts `{ modelId, prompt?, options }` and transitions to the progress view
+  - On completion the result asset appears in the asset browser (existing behavior)
+  - On failure the error message from the BE is shown with a Retry button
+  - Dark theme, matches existing editor design system (use `docs/design-guide.md` tokens)
+  - Web-editor tests pass; no references to "provider" in the feature directory
+
+  Dependencies: aiGeneration service rework, fal-models catalog, asset upload helper
+  Effort: L ⚠️ The dynamic form is the meat of this ticket. Plan field types up front; do not
+  add hardcoded model-specific UI branches.
+
+  ---
+  [INT] [NEW] End-to-End Smoke Test — One Model Per Capability
+
+  Description: Add a smoke test that exercises the full flow against fal.ai's real API for one
+  representative model per capability, gated behind an env flag so CI doesn't burn quota. Catches
+  schema drift between our catalog and fal.ai's real input shape.
+
+  NEW FILES:
+  - `apps/api/src/__tests__/smoke/fal-generation.smoke.test.ts` — vitest, skipped unless
+    `APP_FAL_SMOKE=1` is set. For each of: `nano-banana-2` (text→image),
+    `nano-banana-2/edit` (edit), `kling-video/v2.5-turbo/pro/text-to-video` (text→video),
+    `pixverse/v6/image-to-video` (image→video) — submit a tiny request, poll for completion,
+    assert the result URL is a valid https URL pointing at a fal CDN
+
+  Acceptance Criteria:
+  - File exists, tests are clearly skipped without the env flag (no accidental quota burn)
+  - When run with `APP_FAL_SMOKE=1` and a real `APP_FAL_KEY`, all four pass against the live API
+  - README note added in the smoke directory explaining how to run
+
+  Dependencies: All other rework tickets
+  Effort: S ⚠️ Marked optional for first ship — but strongly recommended to prove the catalog
+  schemas match fal.ai before users hit them
+
   ---             
-  Summary — Epic 9
+  Summary — Epic 9 (Rework)
                                                                                                                                                                                                                    
-  ┌───────────────────────────────┬──────┬────────┬───────────────────────┐
-  │            Ticket             │ Area │ Effort │      Depends On       │                                                                                                                                        
-  ├───────────────────────────────┼──────┼────────┼───────────────────────┤
-  │ AI provider config DB schema  │ DB   │ S      │ Users table           │
-  ├───────────────────────────────┼──────┼────────┼───────────────────────┤
-  │ AI provider CRUD endpoints    │ BE   │ S      │ DB schema             │
-  ├───────────────────────────────┼──────┼────────┼───────────────────────┤                                                                                                                                        
-  │ Unified AI generation service │ BE   │ M      │ Provider config       │
-  ├───────────────────────────────┼──────┼────────┼───────────────────────┤                                                                                                                                        
-  │ Image generation adapters     │ BE   │ M      │ AI generation service │
-  ├───────────────────────────────┼──────┼────────┼───────────────────────┤                                                                                                                                        
-  │ Video generation adapters     │ BE   │ L      │ AI generation service │
-  ├───────────────────────────────┼──────┼────────┼───────────────────────┤                                                                                                                                        
-  │ Audio generation adapters     │ BE   │ M      │ AI generation service │
-  ├───────────────────────────────┼──────┼────────┼───────────────────────┤
-  │ AI providers settings page    │ FE   │ M      │ CRUD endpoints        │
-  ├───────────────────────────────┼──────┼────────┼───────────────────────┤                                                                                                                                        
-  │ AI generation panel in editor │ FE   │ M      │ AI generation service │
-  └───────────────────────────────┴──────┴────────┴───────────────────────┘                                                                                                                                        
-                  
-  Build order: DB → CRUD → unified service → adapters (parallel: image, video, audio). FE settings page can start once CRUD is done. FE generation panel once the unified service returns jobs. Video adapters are 
-  highest risk — spike Runway's API first.
+  ┌──────────────────────────────────────────────────┬───────┬────────┬──────────────────────────────┐
+  │                     Ticket                       │ Area  │ Effort │          Depends On          │
+  ├──────────────────────────────────────────────────┼───────┼────────┼──────────────────────────────┤
+  │ [REWORK] DB: drop ai_provider_configs, reshape   │ DB    │ S      │ None                         │
+  │          ai_generation_jobs                      │       │        │                              │
+  ├──────────────────────────────────────────────────┼───────┼────────┼──────────────────────────────┤
+  │ [DELETE] Tear out per-provider key storage       │ BE    │ S      │ DB rework                    │
+  ├──────────────────────────────────────────────────┼───────┼────────┼──────────────────────────────┤
+  │ [NEW] APP_FAL_KEY config + fal-client wrapper    │ INFRA │ S      │ None                         │
+  ├──────────────────────────────────────────────────┼───────┼────────┼──────────────────────────────┤
+  │ [NEW] fal.ai model catalog (api-contracts)       │ BE    │ M      │ fal.ai MCP for schemas       │
+  ├──────────────────────────────────────────────────┼───────┼────────┼──────────────────────────────┤
+  │ [REWORK] aiGeneration service + controller       │ BE    │ M      │ DB rework, catalog, key      │
+  │          (model-based submission)                │       │        │ teardown                     │
+  ├──────────────────────────────────────────────────┼───────┼────────┼──────────────────────────────┤
+  │ [NEW] Asset → presigned URL helper for fal       │ BE    │ S      │ aiGeneration rework, catalog │
+  │       image inputs                               │       │        │                              │
+  ├──────────────────────────────────────────────────┼───────┼────────┼──────────────────────────────┤
+  │ [REPLACE] Single fal.ai worker adapter; delete   │ BE    │ M      │ fal-client, aiGen rework     │
+  │           all 8 per-provider adapters            │       │        │                              │
+  ├──────────────────────────────────────────────────┼───────┼────────┼──────────────────────────────┤
+  │ [DELETE] Remove ai-providers FE feature          │ FE    │ XS     │ None                         │
+  ├──────────────────────────────────────────────────┼───────┼────────┼──────────────────────────────┤
+  │ [REWORK] AI generation panel — model picker +    │ FE    │ L      │ aiGen rework, catalog,       │
+  │          dynamic options form                    │       │        │ asset helper                 │
+  ├──────────────────────────────────────────────────┼───────┼────────┼──────────────────────────────┤
+  │ [NEW] Smoke test: one model per capability       │ INT   │ S      │ All other tickets            │
+  └──────────────────────────────────────────────────┴───────┴────────┴──────────────────────────────┘
+
+  📋 Backlog (recommended sequence):
+   1. DB rework
+   2. Tear out per-provider key storage  ─┐  parallelizable with #3 and #4
+   3. APP_FAL_KEY + fal-client wrapper    │
+   4. fal.ai model catalog                ─┘
+   5. aiGeneration service + controller rework  (depends on 1, 2, 4)
+   6. Asset → presigned URL helper               (depends on 5)
+   7. Single fal.ai worker adapter               (depends on 3, 5)
+   8. Remove ai-providers FE feature             (parallelizable with 1–7)
+   9. AI generation panel rework                 (depends on 5, 6 — can mock /ai/models earlier)
+  10. Smoke test                                 (last)
+
+  🔵 Backend First (unblocks frontend):
+  - DB rework, fal.ai model catalog, aiGeneration service rework. Once `/ai/models` returns the
+    catalog, the FE rework can start in parallel with the worker adapter.
+
+  🟢 Can Be Parallelised:
+  - Tickets [DELETE] Tear out per-provider key storage and [DELETE] Remove ai-providers FE feature
+    can run anytime — they only delete code.
+  - fal-client wrapper and fal-models catalog can be built simultaneously.
+  - FE panel rework can start against a mocked `/ai/models` response as soon as the catalog
+    structure is agreed.
+
+  Build order rationale: Start with the destructive cleanup (DB + key teardown) so the codebase
+  has only one source of truth before new code lands. Build the catalog next — it's the contract
+  shared by BE, worker, and FE. The aiGeneration service rework is the critical path for both the
+  worker adapter and the FE panel; once it's done, those two can land in parallel. Smoke test
+  comes last and gates the rollout. Largest risk is the dynamic schema-driven form on the FE —
+  plan field types ahead of time and resist hardcoding model-specific branches. Second-largest
+  risk is fal.ai schema drift between what the MCP reports today and what the live API accepts at
+  ship time — the smoke test exists to catch this.
+
+  ⚠️ Note for the next planner / executor skill:
+  This is a REWORK epic. Every ticket above is tagged [REWORK] / [DELETE] / [REPLACE] / [NEW].
+  Before writing code for any ticket, the executor MUST:
+  1. Read the "EXISTING FILES TO MODIFY/DELETE" list in the ticket and grep the codebase to
+     confirm those files still exist and still match the assumptions.
+  2. Use the fal.ai MCP server (`mcp__fal-ai__get_model_schema`, `mcp__fal-ai__search_models`,
+     `mcp__fal-ai__get_pricing`) to verify model schemas before writing the catalog or the FE form.
+  3. NEVER reintroduce the words "provider", "API key", "encryption", or "BYOK" into the AI
+     generation surface — those concepts are intentionally gone.
+  4. Audio generation is INTENTIONALLY out of scope for this rework. The user did not list any
+     audio models. Do not add audio back in "for completeness".
                                                                                                                                                                                                                    
   ---             
   EPIC 10 — Text-to-Video Pipeline

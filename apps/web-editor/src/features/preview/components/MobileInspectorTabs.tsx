@@ -12,8 +12,8 @@ const PRIMARY_LIGHT = '#4C1D95';
 // Types
 // ---------------------------------------------------------------------------
 
-/** The three selectable tabs in the mobile inspector panel. */
-export type MobileTab = 'assets' | 'captions' | 'inspector';
+/** The selectable tabs in the mobile inspector panel. */
+export type MobileTab = 'assets' | 'captions' | 'inspector' | 'ai-generate';
 
 /** Props for {@link MobileInspectorTabs}. */
 export interface MobileInspectorTabsProps {
@@ -38,6 +38,7 @@ export function MobileInspectorTabs({
 }: MobileInspectorTabsProps): React.ReactElement {
   const tabs: { id: MobileTab; label: string }[] = [
     { id: 'assets', label: 'Assets' },
+    { id: 'ai-generate', label: 'AI' },
     { id: 'captions', label: 'Captions' },
     { id: 'inspector', label: 'Inspector' },
   ];

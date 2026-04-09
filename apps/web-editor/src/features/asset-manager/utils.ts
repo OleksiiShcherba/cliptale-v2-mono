@@ -1,5 +1,7 @@
 import type { AudioClip, ImageClip, VideoClip } from '@ai-video-editor/project-schema';
 
+import { buildAuthenticatedUrl } from '@/lib/api-client';
+
 import type { Asset, AssetFilterTab } from './types';
 
 /** Formats bytes to a human-readable string (B / KB / MB / GB). */
@@ -64,9 +66,9 @@ export function buildClipForAsset(
  *                    build the stream endpoint URL.
  */
 export function getAssetPreviewUrl(asset: Asset, apiBaseUrl: string): string | null {
-  if (asset.thumbnailUri) return asset.thumbnailUri;
+  if (asset.thumbnailUri) return buildAuthenticatedUrl(asset.thumbnailUri);
   if (asset.contentType.startsWith('image/') && asset.status === 'ready') {
-    return `${apiBaseUrl}/assets/${asset.id}/stream`;
+    return buildAuthenticatedUrl(`${apiBaseUrl}/assets/${asset.id}/stream`);
   }
   return null;
 }

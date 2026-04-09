@@ -163,7 +163,7 @@ describe('App', () => {
 
     it('renders AssetBrowserPanel in a sidebar aside element', () => {
       render(<App />);
-      const sidebar = screen.getByRole('complementary', { name: 'Asset browser' });
+      const sidebar = screen.getByRole('complementary', { name: 'Left sidebar' });
       expect(sidebar).toBeTruthy();
       expect(sidebar.querySelector('[data-testid="asset-browser-panel"]')).toBeTruthy();
     });
@@ -202,7 +202,7 @@ describe('App', () => {
   describe('sidebar', () => {
     it('renders sidebar as an aside landmark with accessible label', () => {
       render(<App />);
-      const sidebar = screen.getByRole('complementary', { name: 'Asset browser' });
+      const sidebar = screen.getByRole('complementary', { name: 'Left sidebar' });
       expect(sidebar).toBeTruthy();
     });
   });

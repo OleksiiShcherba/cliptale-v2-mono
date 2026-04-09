@@ -23,6 +23,9 @@ const envSchema = z.object({
   APP_GITHUB_CLIENT_SECRET: z.string().default(''),
   APP_OAUTH_REDIRECT_BASE: z.string().default('http://localhost:3001'),
   APP_FRONTEND_URL: z.string().default('http://localhost:5173'),
+  APP_AI_ENCRYPTION_KEY: z.string().min(64).default(
+    'a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9',
+  ),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -58,6 +61,9 @@ export const config = {
     jwtSecret: env.APP_JWT_SECRET,
     jwtExpiresIn: env.APP_JWT_EXPIRES_IN,
     devAuthBypass: env.APP_DEV_AUTH_BYPASS === 'true',
+  },
+  encryption: {
+    key: env.APP_AI_ENCRYPTION_KEY,
   },
   server: {
     port: Number(env.APP_PORT),

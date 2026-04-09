@@ -37,6 +37,10 @@ export interface TopBarProps {
   isSettingsOpen: boolean;
   /** Called when the Settings button is clicked. */
   onToggleSettings: () => void;
+  /** Whether the AI Providers modal is open. */
+  isAiProvidersOpen: boolean;
+  /** Called when the AI Providers button is clicked. */
+  onToggleAiProviders: () => void;
   /** Called when the Sign Out button is clicked. */
   onLogout: () => void;
 }
@@ -65,6 +69,8 @@ export function TopBar({
   onRedo,
   isSettingsOpen,
   onToggleSettings,
+  isAiProvidersOpen,
+  onToggleAiProviders,
   onLogout,
 }: TopBarProps): React.ReactElement {
   const { saveStatus, lastSavedAt, hasEverEdited } = useAutosave(projectId);
@@ -146,6 +152,15 @@ export function TopBar({
           aria-pressed={isSettingsOpen}
         >
           Settings
+        </button>
+        <button
+          type="button"
+          style={isAiProvidersOpen ? styles.settingsButtonActive : styles.settingsButton}
+          onClick={onToggleAiProviders}
+          aria-label="Toggle AI providers"
+          aria-pressed={isAiProvidersOpen}
+        >
+          AI
         </button>
         <button
           type="button"

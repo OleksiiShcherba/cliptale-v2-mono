@@ -1,5 +1,5 @@
 import { renderHook } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import type { ProjectDoc } from '@ai-video-editor/project-schema';
 
@@ -72,9 +72,14 @@ function makeEphemeralState(overrides = {}) {
 describe('useRemotionPlayer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     mockUseQueries.mockReturnValue([]);
     mockGetProjectSnapshot.mockReturnValue(makeProjectDoc());
     mockGetEphemeralSnapshot.mockReturnValue(makeEphemeralState());
+  });
+
+  afterEach(() => {
+    localStorage.clear();
   });
 
   describe('returns correct projectDoc', () => {
@@ -248,6 +253,50 @@ describe('useRemotionPlayer', () => {
       expect(result.current.assetUrls).toEqual({
         'asset-a': 'http://localhost:3001/assets/asset-a/stream',
       });
+    });
+
+    it('appends auth token to stream URL when token exists in localStorage', () => {
+      localStorage.setItem('auth_token', 'test-auth-token-123');
+      const doc = makeProjectDoc({
+        clips: [
+          { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+        ] as ProjectDoc['clips'],
+      });
+      mockGetProjectSnapshot.mockReturnValue(doc);
+      mockUseQueries.mockReturnValue([
+        {
+          data: { id: 'asset-a', downloadUrl: 'https://example.com/presigned/video.mp4', status: 'ready' },
+          isLoading: false,
+          isError: false,
+        },
+      ] as ReturnType<typeof useQueries>);
+
+      const { result } = renderHook(() => useRemotionPlayer());
+
+      expect(result.current.assetUrls['asset-a']).toBe('http://localhost:3001/assets/asset-a/stream?token=test-auth-token-123');
+    });
+
+    it('does not append token when no token exists in localStorage', () => {
+      // Explicitly ensure localStorage is empty
+      expect(localStorage.getItem('auth_token')).toBeNull();
+
+      const doc = makeProjectDoc({
+        clips: [
+          { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+        ] as ProjectDoc['clips'],
+      });
+      mockGetProjectSnapshot.mockReturnValue(doc);
+      mockUseQueries.mockReturnValue([
+        {
+          data: { id: 'asset-a', downloadUrl: 'https://example.com/presigned/video.mp4', status: 'ready' },
+          isLoading: false,
+          isError: false,
+        },
+      ] as ReturnType<typeof useQueries>);
+
+      const { result } = renderHook(() => useRemotionPlayer());
+
+      expect(result.current.assetUrls['asset-a']).toBe('http://localhost:3001/assets/asset-a/stream');
     });
 
     it('stream URL uses the configured apiBaseUrl', () => {

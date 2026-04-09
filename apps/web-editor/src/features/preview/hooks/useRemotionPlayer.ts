@@ -8,6 +8,7 @@ import { getSnapshot as getProjectSnapshot, subscribe as subscribeProject } from
 import { getSnapshot as getEphemeralSnapshot, subscribe as subscribeEphemeral } from '@/store/ephemeral-store.js';
 import { getAsset } from '@/features/asset-manager/api.js';
 import { config } from '@/lib/config.js';
+import { buildAuthenticatedUrl } from '@/lib/api-client.js';
 
 type AssetUrls = Record<string, string>;
 
@@ -64,7 +65,7 @@ export function useRemotionPlayer(): UseRemotionPlayerResult {
   const assetUrls = useMemo(() => {
     const urls: AssetUrls = {};
     readyAssetIds.split(',').filter(Boolean).forEach((assetId) => {
-      urls[assetId] = `${config.apiBaseUrl}/assets/${assetId}/stream`;
+      urls[assetId] = buildAuthenticatedUrl(`${config.apiBaseUrl}/assets/${assetId}/stream`);
     });
     return urls;
   }, [readyAssetIds]);

@@ -19,8 +19,8 @@ import { UnauthorizedError } from '@/lib/errors.js';
 
 const { authMiddleware } = await import('./auth.middleware.js');
 
-function mockReq(headers: Record<string, string> = {}): Request {
-  return { headers } as unknown as Request;
+function mockReq(headers: Record<string, string> = {}, query: Record<string, string> = {}): Request {
+  return { headers, query } as unknown as Request;
 }
 
 function mockNext(): NextFunction {
@@ -117,6 +117,58 @@ describe('authMiddleware', () => {
       expect(mockAuthService.validateSession).toHaveBeenCalledWith(
         'valid-session-token-hex',
       );
+    });
+  });
+
+  describe('query parameter token fallback', () => {
+    it('authenticates using ?token= when no Authorization header is present', async () => {
+      mockAuthService.validateSession.mockResolvedValue({
+        userId: 'user-qp',
+        email: 'qp@test.com',
+        displayName: 'QP User',
+      });
+      const req = mockReq({}, { token: 'query-param-token-hex' }) as Request & { user?: unknown };
+      const next = mockNext();
+
+      await authMiddleware(req, {} as Response, next);
+
+      expect(next).toHaveBeenCalledWith();
+      expect(req.user).toEqual({
+        userId: 'user-qp',
+        email: 'qp@test.com',
+        displayName: 'QP User',
+      });
+      expect(mockAuthService.validateSession).toHaveBeenCalledWith('query-param-token-hex');
+    });
+
+    it('prefers Authorization header over query parameter when both are present', async () => {
+      mockAuthService.validateSession.mockResolvedValue({
+        userId: 'user-header',
+        email: 'h@test.com',
+        displayName: 'Header User',
+      });
+      const req = mockReq(
+        { authorization: 'Bearer header-token' },
+        { token: 'query-token' },
+      ) as Request & { user?: unknown };
+      const next = mockNext();
+
+      await authMiddleware(req, {} as Response, next);
+
+      expect(mockAuthService.validateSession).toHaveBeenCalledWith('header-token');
+    });
+
+    it('calls next(UnauthorizedError) when query token is invalid', async () => {
+      mockAuthService.validateSession.mockRejectedValue(new Error('bad'));
+      const next = mockNext();
+
+      await authMiddleware(
+        mockReq({}, { token: 'bad-token' }),
+        {} as Response,
+        next,
+      );
+
+      expect(next).toHaveBeenCalledWith(expect.any(UnauthorizedError));
     });
   });
 });

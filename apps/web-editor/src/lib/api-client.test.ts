@@ -4,7 +4,7 @@ vi.mock('./config.js', () => ({
   config: { apiBaseUrl: 'http://localhost:3001' },
 }));
 
-import { apiClient } from './api-client';
+import { apiClient, buildAuthenticatedUrl, getAuthToken } from './api-client';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -117,5 +117,82 @@ describe('apiClient', () => {
 
       Object.defineProperty(window, 'location', { writable: true, value: originalLocation });
     });
+  });
+});
+
+describe('getAuthToken', () => {
+  it('returns the stored auth token', () => {
+    localStorage.setItem('auth_token', 'my-token-123');
+    expect(getAuthToken()).toBe('my-token-123');
+  });
+
+  it('returns null when no token is stored', () => {
+    expect(getAuthToken()).toBeNull();
+  });
+
+  it('returns the most recently set token', () => {
+    localStorage.setItem('auth_token', 'token-1');
+    expect(getAuthToken()).toBe('token-1');
+    localStorage.setItem('auth_token', 'token-2');
+    expect(getAuthToken()).toBe('token-2');
+  });
+});
+
+describe('buildAuthenticatedUrl', () => {
+  it('appends token as ?token= query parameter when token exists', () => {
+    localStorage.setItem('auth_token', 'test-token');
+    const url = 'http://localhost:3001/assets/img-001/stream';
+    expect(buildAuthenticatedUrl(url)).toBe('http://localhost:3001/assets/img-001/stream?token=test-token');
+  });
+
+  it('returns URL unchanged when no token is stored', () => {
+    const url = 'http://localhost:3001/assets/img-001/stream';
+    expect(buildAuthenticatedUrl(url)).toBe(url);
+  });
+
+  it('uses & separator when URL already contains query parameters', () => {
+    localStorage.setItem('auth_token', 'token-xyz');
+    const url = 'http://localhost:3001/assets/img-001/thumbnail?v=1';
+    expect(buildAuthenticatedUrl(url)).toBe('http://localhost:3001/assets/img-001/thumbnail?v=1&token=token-xyz');
+  });
+
+  it('uses ? separator when URL has no existing query parameters', () => {
+    localStorage.setItem('auth_token', 'token-abc');
+    const url = 'http://localhost:3001/assets/img-002/stream';
+    const result = buildAuthenticatedUrl(url);
+    expect(result).toMatch(/\?token=/);
+    expect(result).not.toMatch(/&token=/);
+  });
+
+  it('URL-encodes the token value', () => {
+    localStorage.setItem('auth_token', 'token+with/special=chars&more');
+    const url = 'http://localhost:3001/assets/img-001/stream';
+    const result = buildAuthenticatedUrl(url);
+    // Raw token should not appear; it should be encoded
+    expect(result).not.toContain('token+with/special=chars&more');
+    expect(result).toContain('token=');
+  });
+
+  it('handles URLs with multiple existing query parameters', () => {
+    localStorage.setItem('auth_token', 'tok');
+    const url = 'http://localhost:3001/assets/img-001/stream?format=webp&quality=high';
+    const result = buildAuthenticatedUrl(url);
+    expect(result).toBe('http://localhost:3001/assets/img-001/stream?format=webp&quality=high&token=tok');
+  });
+
+  it('handles URLs with fragments', () => {
+    localStorage.setItem('auth_token', 'token-frag');
+    const url = 'http://localhost:3001/assets/img-001/stream#section';
+    const result = buildAuthenticatedUrl(url);
+    // Fragment should remain at the end
+    expect(result).toContain('?token=token-frag');
+    expect(result).toContain('#section');
+  });
+
+  it('preserves the URL scheme and host', () => {
+    localStorage.setItem('auth_token', 'token');
+    const url = 'https://secure.api.example.com/assets/img-001/stream';
+    const result = buildAuthenticatedUrl(url);
+    expect(result).toMatch(/^https:\/\/secure\.api\.example\.com\/assets\/img-001\/stream\?token=token/);
   });
 });

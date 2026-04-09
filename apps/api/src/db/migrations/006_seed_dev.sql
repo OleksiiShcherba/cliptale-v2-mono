@@ -1,3 +1,2 @@
 -- Migration: 006_seed_dev
 -- Reserved for future dev seed data.
--- The default text overlay clip was removed; the dev project starts empty.

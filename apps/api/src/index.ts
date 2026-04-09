@@ -11,6 +11,8 @@ import { clipsRouter } from '@/routes/clips.routes.js';
 import { projectsRouter } from '@/routes/projects.routes.js';
 import { versionsRouter } from '@/routes/versions.routes.js';
 import { rendersRouter } from '@/routes/renders.routes.js';
+import { aiProvidersRouter } from '@/routes/aiProviders.routes.js';
+import { aiGenerationRouter } from '@/routes/aiGeneration.routes.js';
 import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, ConflictError, UnprocessableEntityError } from '@/lib/errors.js';
 
 const app = express();
@@ -31,6 +33,8 @@ app.use(clipsRouter);
 app.use(projectsRouter);
 app.use(versionsRouter);
 app.use(rendersRouter);
+app.use(aiProvidersRouter);
+app.use(aiGenerationRouter);
 
 // Centralized error handler — maps typed errors to HTTP status codes.
 // Must be the last middleware registered.

@@ -186,7 +186,7 @@ describe('App mobile layout', () => {
 
   it('does not render the desktop asset browser sidebar when windowWidth < 768', () => {
     render(<App />);
-    expect(screen.queryByRole('complementary', { name: 'Asset browser' })).toBeNull();
+    expect(screen.queryByRole('complementary', { name: 'Left sidebar' })).toBeNull();
   });
 
   it('renders a main landmark with label "Preview" in mobile layout', () => {
@@ -204,7 +204,7 @@ describe('App mobile layout', () => {
   it('renders desktop asset browser sidebar when windowWidth >= 768', () => {
     mockUseWindowWidth.mockReturnValue(768);
     render(<App />);
-    expect(screen.getByRole('complementary', { name: 'Asset browser' })).toBeTruthy();
+    expect(screen.getByRole('complementary', { name: 'Left sidebar' })).toBeTruthy();
   });
 
   it('MobileBottomBar onAddClip switches tab to assets', () => {
