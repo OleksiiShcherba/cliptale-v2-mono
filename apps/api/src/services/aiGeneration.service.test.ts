@@ -1,231 +1,280 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+/**
+ * Unit tests for submitGeneration — happy path, validation errors,
+ * kling-o3 XOR, and DB prompt column derivation.
+ *
+ * Repository + queue modules are mocked via the colocated fixtures file.
+ * The real `FAL_MODELS` catalog is imported for authenticity.
+ */
+import { describe, it, expect, beforeEach } from 'vitest';
 
-// ── Hoisted mocks ────────────────────────────────────────────────────────────
+import { ValidationError } from '@/lib/errors.js';
 
-const { mockJobRepo, mockProviderService, mockEnqueue } = vi.hoisted(() => ({
-  mockJobRepo: {
-    createJob: vi.fn().mockResolvedValue(undefined),
-    getJobById: vi.fn(),
-    updateJobStatus: vi.fn(),
-    updateJobProgress: vi.fn(),
-    updateJobResult: vi.fn(),
-  },
-  mockProviderService: {
-    getDecryptedKey: vi.fn().mockResolvedValue('sk-decrypted-key'),
-    listProviders: vi.fn().mockResolvedValue([]),
-  },
-  mockEnqueue: vi.fn().mockResolvedValue('job-uuid-123'),
-}));
+import {
+  createJobMock,
+  enqueueMock,
+  FIXED_JOB_ID,
+  FIXED_PRESIGNED_URL,
+  getAssetByIdMock,
+  makeAssetRow,
+  resetMocks,
+  TEST_ASSET_ID,
+  TEST_PROJECT,
+  TEST_USER,
+} from './aiGeneration.service.fixtures.js';
 
-vi.mock('@/repositories/aiGenerationJob.repository.js', () => mockJobRepo);
-vi.mock('@/services/aiProvider.service.js', () => mockProviderService);
-vi.mock('@/queues/jobs/enqueue-ai-generate.js', () => ({
-  enqueueAiGenerateJob: mockEnqueue,
-}));
+// Import after fixtures so the service binds to the mocked modules.
+const { submitGeneration } = await import('./aiGeneration.service.js');
 
-import { submitGeneration, getJobStatus } from './aiGeneration.service.js';
+beforeEach(() => {
+  resetMocks();
+});
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── submitGeneration ─────────────────────────────────────────────────────────
 
-const USER_ID = 'user-abc';
-const PROJECT_ID = 'proj-123';
+describe('aiGeneration.service / submitGeneration', () => {
+  it('happy path: text-to-image model enqueues + persists and returns queued', async () => {
+    const result = await submitGeneration(TEST_USER, TEST_PROJECT, {
+      modelId: 'fal-ai/nano-banana-2',
+      prompt: 'a serene beach at dawn',
+      options: {},
+    });
 
-// ── Tests ────────────────────────────────────────────────────────────────────
+    expect(result).toEqual({ jobId: FIXED_JOB_ID, status: 'queued' });
 
-describe('aiGeneration.service', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+    expect(enqueueMock).toHaveBeenCalledTimes(1);
+    expect(enqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: TEST_USER,
+        projectId: TEST_PROJECT,
+        modelId: 'fal-ai/nano-banana-2',
+        capability: 'text_to_image',
+        prompt: 'a serene beach at dawn',
+        options: expect.objectContaining({ prompt: 'a serene beach at dawn' }),
+      }),
+    );
+
+    expect(createJobMock).toHaveBeenCalledTimes(1);
+    expect(createJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: FIXED_JOB_ID,
+        userId: TEST_USER,
+        projectId: TEST_PROJECT,
+        modelId: 'fal-ai/nano-banana-2',
+        capability: 'text_to_image',
+        prompt: 'a serene beach at dawn',
+      }),
+    );
   });
 
-  describe('submitGeneration', () => {
-    it('enqueues a job and creates a DB row when provider is specified', async () => {
-      const result = await submitGeneration(USER_ID, PROJECT_ID, {
-        type: 'image',
-        prompt: 'a sunset over the ocean',
-        provider: 'openai',
-      });
+  it('throws ValidationError for an unknown modelId', async () => {
+    await expect(
+      submitGeneration(TEST_USER, TEST_PROJECT, {
+        modelId: 'fal-ai/does-not-exist',
+        prompt: 'x',
+        options: {},
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
 
-      expect(result.status).toBe('queued');
-      expect(result.jobId).toBe('job-uuid-123');
-
-      expect(mockProviderService.getDecryptedKey).toHaveBeenCalledWith(
-        USER_ID,
-        'openai',
-      );
-      expect(mockEnqueue).toHaveBeenCalledWith(
-        expect.objectContaining({
-          userId: USER_ID,
-          projectId: PROJECT_ID,
-          type: 'image',
-          provider: 'openai',
-          apiKey: 'sk-decrypted-key',
-          prompt: 'a sunset over the ocean',
-        }),
-      );
-      expect(mockJobRepo.createJob).toHaveBeenCalledWith(
-        expect.objectContaining({
-          jobId: 'job-uuid-123',
-          userId: USER_ID,
-          projectId: PROJECT_ID,
-          type: 'image',
-          provider: 'openai',
-        }),
-      );
-    });
-
-    it('resolves the first active provider when none is specified', async () => {
-      mockProviderService.listProviders.mockResolvedValue([
-        { provider: 'stability_ai', isActive: true, isConfigured: true, createdAt: new Date() },
-      ]);
-
-      const result = await submitGeneration(USER_ID, PROJECT_ID, {
-        type: 'image',
-        prompt: 'a cat',
-      });
-
-      expect(result.jobId).toBe('job-uuid-123');
-      expect(mockProviderService.getDecryptedKey).toHaveBeenCalledWith(
-        USER_ID,
-        'stability_ai',
-      );
-    });
-
-    it('throws ValidationError when specified provider does not support the type', async () => {
-      await expect(
-        submitGeneration(USER_ID, PROJECT_ID, {
-          type: 'image',
-          prompt: 'test',
-          provider: 'elevenlabs',
-        }),
-      ).rejects.toThrow('does not support type');
-    });
-
-    it('throws NotFoundError when no active provider exists for the type', async () => {
-      mockProviderService.listProviders.mockResolvedValue([]);
-
-      await expect(
-        submitGeneration(USER_ID, PROJECT_ID, {
-          type: 'video',
-          prompt: 'test',
-        }),
-      ).rejects.toThrow('No active provider');
-    });
-
-    it('skips inactive providers when resolving', async () => {
-      mockProviderService.listProviders.mockResolvedValue([
-        { provider: 'runway', isActive: false, isConfigured: true, createdAt: new Date() },
-        { provider: 'kling', isActive: true, isConfigured: true, createdAt: new Date() },
-      ]);
-
-      await submitGeneration(USER_ID, PROJECT_ID, {
-        type: 'video',
-        prompt: 'test',
-      });
-
-      expect(mockProviderService.getDecryptedKey).toHaveBeenCalledWith(
-        USER_ID,
-        'kling',
-      );
-    });
-
-    it('passes options to the job payload', async () => {
-      const options = { size: '1024x1024', style: 'vivid' };
-
-      await submitGeneration(USER_ID, PROJECT_ID, {
-        type: 'image',
-        prompt: 'test',
-        provider: 'openai',
-        options,
-      });
-
-      expect(mockEnqueue).toHaveBeenCalledWith(
-        expect.objectContaining({ options }),
-      );
-    });
+    expect(enqueueMock).not.toHaveBeenCalled();
+    expect(createJobMock).not.toHaveBeenCalled();
   });
 
-  describe('getJobStatus', () => {
-    it('returns job status for the owner', async () => {
-      mockJobRepo.getJobById.mockResolvedValue({
-        jobId: 'job-1',
-        userId: USER_ID,
-        projectId: PROJECT_ID,
-        type: 'image',
-        provider: 'openai',
-        prompt: 'test',
-        options: null,
-        status: 'processing',
-        progress: 50,
-        resultAssetId: null,
-        errorMessage: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+  it('throws ValidationError when a required field is missing', async () => {
+    // nano-banana-2/edit requires both prompt AND image_urls — omit image_urls.
+    await expect(
+      submitGeneration(TEST_USER, TEST_PROJECT, {
+        modelId: 'fal-ai/nano-banana-2/edit',
+        prompt: 'merge these',
+        options: {},
+      }),
+    ).rejects.toThrow(/image_urls.*required/);
+  });
 
-      const result = await getJobStatus('job-1', USER_ID);
+  it('throws ValidationError for an unknown option key', async () => {
+    await expect(
+      submitGeneration(TEST_USER, TEST_PROJECT, {
+        modelId: 'fal-ai/nano-banana-2',
+        prompt: 'hello',
+        options: { not_a_real_field: 1 },
+      }),
+    ).rejects.toThrow(/Unknown field 'not_a_real_field'/);
+  });
 
-      expect(result).toEqual({
-        jobId: 'job-1',
-        status: 'processing',
-        progress: 50,
-        resultAssetId: null,
-        errorMessage: null,
-      });
+  it('throws ValidationError when a boolean field receives a number', async () => {
+    await expect(
+      submitGeneration(TEST_USER, TEST_PROJECT, {
+        modelId: 'fal-ai/nano-banana-2',
+        prompt: 'hello',
+        options: { limit_generations: 1 },
+      }),
+    ).rejects.toThrow(/limit_generations.*must be a boolean/);
+  });
+
+  it('throws ValidationError when an enum field receives an out-of-set value', async () => {
+    await expect(
+      submitGeneration(TEST_USER, TEST_PROJECT, {
+        modelId: 'fal-ai/nano-banana-2',
+        prompt: 'hello',
+        options: { resolution: '8K' },
+      }),
+    ).rejects.toThrow(/resolution.*must be one of/);
+  });
+
+  it('copies top-level prompt into options.prompt when the model accepts it', async () => {
+    await submitGeneration(TEST_USER, TEST_PROJECT, {
+      modelId: 'fal-ai/nano-banana-2',
+      prompt: 'sunrise',
+      options: {},
+    });
+    const enqueuePayload = enqueueMock.mock.calls[0]![0] as {
+      options: Record<string, unknown>;
+    };
+    expect(enqueuePayload.options['prompt']).toBe('sunrise');
+  });
+
+  it('does not overwrite an existing options.prompt with the top-level prompt', async () => {
+    await submitGeneration(TEST_USER, TEST_PROJECT, {
+      modelId: 'fal-ai/nano-banana-2',
+      prompt: 'top-level should be ignored',
+      options: { prompt: 'explicit options prompt' },
+    });
+    const enqueuePayload = enqueueMock.mock.calls[0]![0] as {
+      options: Record<string, unknown>;
+    };
+    expect(enqueuePayload.options['prompt']).toBe('explicit options prompt');
+  });
+
+  it('resolves an image_url asset id into a presigned URL before enqueue/persist', async () => {
+    getAssetByIdMock.mockResolvedValue(
+      makeAssetRow({ storageUri: 's3://test-bucket/assets/start.png' }),
+    );
+
+    await submitGeneration(TEST_USER, TEST_PROJECT, {
+      modelId: 'fal-ai/ltx-2-19b/image-to-video',
+      options: { image_url: TEST_ASSET_ID, prompt: 'x' },
     });
 
-    it('throws NotFoundError when job does not exist', async () => {
-      mockJobRepo.getJobById.mockResolvedValue(null);
+    expect(getAssetByIdMock).toHaveBeenCalledWith(TEST_ASSET_ID);
 
-      await expect(getJobStatus('nonexistent', USER_ID)).rejects.toThrow(
-        'not found',
-      );
+    expect(enqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          image_url: FIXED_PRESIGNED_URL,
+        }),
+      }),
+    );
+    expect(createJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          image_url: FIXED_PRESIGNED_URL,
+        }),
+      }),
+    );
+  });
+});
+
+// ── kling-o3 XOR ─────────────────────────────────────────────────────────────
+
+describe('aiGeneration.service / kling-o3 prompt XOR', () => {
+  const KLING = 'fal-ai/kling-video/o3/standard/image-to-video';
+  const IMG = 'https://example.com/start.jpg';
+
+  it('rejects when both prompt and multi_prompt are provided', async () => {
+    await expect(
+      submitGeneration(TEST_USER, TEST_PROJECT, {
+        modelId: KLING,
+        options: {
+          image_url: IMG,
+          prompt: 'hello',
+          multi_prompt: ['one', 'two'],
+        },
+      }),
+    ).rejects.toThrow(/exactly one of 'prompt' or 'multi_prompt', not both/);
+  });
+
+  it('rejects when neither prompt nor multi_prompt is provided', async () => {
+    await expect(
+      submitGeneration(TEST_USER, TEST_PROJECT, {
+        modelId: KLING,
+        options: { image_url: IMG },
+      }),
+    ).rejects.toThrow(/requires exactly one of 'prompt' or 'multi_prompt'/);
+  });
+
+  it('accepts exactly one: only options.prompt', async () => {
+    const result = await submitGeneration(TEST_USER, TEST_PROJECT, {
+      modelId: KLING,
+      options: { image_url: IMG, prompt: 'drone shot over hills' },
     });
+    expect(result.status).toBe('queued');
+    expect(enqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: 'drone shot over hills',
+        capability: 'image_to_video',
+      }),
+    );
+  });
 
-    it('throws NotFoundError when userId does not match', async () => {
-      mockJobRepo.getJobById.mockResolvedValue({
-        jobId: 'job-1',
-        userId: 'other-user',
-        status: 'queued',
-        progress: 0,
-        resultAssetId: null,
-        errorMessage: null,
-      });
-
-      await expect(getJobStatus('job-1', USER_ID)).rejects.toThrow(
-        'not found',
-      );
+  it('accepts exactly one: only options.multi_prompt', async () => {
+    const result = await submitGeneration(TEST_USER, TEST_PROJECT, {
+      modelId: KLING,
+      options: { image_url: IMG, multi_prompt: ['scene one', 'scene two'] },
     });
+    expect(result.status).toBe('queued');
+    expect(createJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: 'scene one' }),
+    );
+  });
 
-    it('returns completed job with result asset ID', async () => {
-      mockJobRepo.getJobById.mockResolvedValue({
-        jobId: 'job-1',
-        userId: USER_ID,
-        status: 'completed',
-        progress: 100,
-        resultAssetId: 'asset-abc',
-        errorMessage: null,
-      });
-
-      const result = await getJobStatus('job-1', USER_ID);
-
-      expect(result.status).toBe('completed');
-      expect(result.resultAssetId).toBe('asset-abc');
+  it('accepts exactly one: top-level prompt is merged into options.prompt', async () => {
+    const result = await submitGeneration(TEST_USER, TEST_PROJECT, {
+      modelId: KLING,
+      prompt: 'merged top-level',
+      options: { image_url: IMG },
     });
+    expect(result.status).toBe('queued');
+    expect(enqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({ prompt: 'merged top-level' }),
+      }),
+    );
+  });
+});
 
-    it('returns failed job with error message', async () => {
-      mockJobRepo.getJobById.mockResolvedValue({
-        jobId: 'job-1',
-        userId: USER_ID,
-        status: 'failed',
-        progress: 0,
-        resultAssetId: null,
-        errorMessage: 'API rate limit exceeded',
-      });
+// ── DB prompt column derivation ──────────────────────────────────────────────
 
-      const result = await getJobStatus('job-1', USER_ID);
+describe('aiGeneration.service / DB prompt column derivation', () => {
+  const KLING = 'fal-ai/kling-video/o3/standard/image-to-video';
+  const IMG = 'https://example.com/start.jpg';
 
-      expect(result.status).toBe('failed');
-      expect(result.errorMessage).toBe('API rate limit exceeded');
+  it('uses the top-level prompt when present', async () => {
+    await submitGeneration(TEST_USER, TEST_PROJECT, {
+      modelId: 'fal-ai/nano-banana-2',
+      prompt: 'top-level',
+      options: {},
     });
+    expect(createJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: 'top-level' }),
+    );
+  });
+
+  it('uses options.prompt when top-level is absent', async () => {
+    await submitGeneration(TEST_USER, TEST_PROJECT, {
+      modelId: 'fal-ai/nano-banana-2',
+      options: { prompt: 'from options' },
+    });
+    expect(createJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: 'from options' }),
+    );
+  });
+
+  it('uses multi_prompt[0] when only multi_prompt is set', async () => {
+    await submitGeneration(TEST_USER, TEST_PROJECT, {
+      modelId: KLING,
+      options: { image_url: IMG, multi_prompt: ['first shot', 'second'] },
+    });
+    expect(createJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: 'first shot' }),
+    );
   });
 });

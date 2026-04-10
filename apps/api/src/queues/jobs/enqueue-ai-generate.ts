@@ -1,17 +1,26 @@
 import { randomUUID } from 'node:crypto';
 
 import { aiGenerateQueue } from '@/queues/bullmq.js';
+import type { AiCapability } from '@/repositories/aiGenerationJob.repository.js';
+import type { AiProvider } from '@ai-video-editor/api-contracts';
 
-/** Payload sent to the ai-generate BullMQ worker. */
+/**
+ * Payload sent to the ai-generate BullMQ worker.
+ *
+ * The worker owns all provider API keys via its own config — the API layer
+ * never forwards credentials through the queue. `provider` is a discriminator
+ * so the worker can branch by provider without needing to re-derive it from
+ * the capability.
+ */
 export type AiGenerateJobPayload = {
   jobId: string;
   userId: string;
   projectId: string;
-  type: 'image' | 'video' | 'audio' | 'text';
-  provider: string;
-  apiKey: string;
+  modelId: string;
+  capability: AiCapability;
+  provider: AiProvider;
   prompt: string;
-  options: Record<string, unknown> | null;
+  options: Record<string, unknown>;
 };
 
 /**

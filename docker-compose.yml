@@ -58,10 +58,12 @@ services:
       APP_CORS_ORIGIN: http://localhost:5173
       APP_DEV_AUTH_BYPASS: 'false'
       APP_AI_ENCRYPTION_KEY: ${APP_AI_ENCRYPTION_KEY:-a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9}
+      APP_FAL_KEY: ${APP_FAL_KEY}
       NODE_ENV: development
     volumes:
       - ./apps/api/src:/app/apps/api/src
       - ./packages/project-schema:/app/packages/project-schema
+      - ./packages/api-contracts:/app/packages/api-contracts
     command: npx tsx watch --tsconfig apps/api/tsconfig.json apps/api/src/index.ts
 
   web-editor:
@@ -105,6 +107,8 @@ services:
       APP_S3_ACCESS_KEY_ID: ${APP_S3_ACCESS_KEY_ID}
       APP_S3_SECRET_ACCESS_KEY: ${APP_S3_SECRET_ACCESS_KEY}
       APP_OPENAI_API_KEY: ${APP_OPENAI_API_KEY}
+      APP_FAL_KEY: ${APP_FAL_KEY}
+      APP_ELEVENLABS_API_KEY: ${APP_ELEVENLABS_API_KEY}
     volumes:
       - ./apps/media-worker/src:/app/apps/media-worker/src
       - ./packages/project-schema:/app/packages/project-schema

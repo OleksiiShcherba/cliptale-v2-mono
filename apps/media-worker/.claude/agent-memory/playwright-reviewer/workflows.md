@@ -32,3 +32,22 @@ All confirmed at http://localhost:5173 as of 2026-04-07.
 - 19 tests in apps/web-editor/e2e/: app-shell.spec.ts, asset-manager.spec.ts, preview.spec.ts
 - All 19 pass consistently (as of 2026-04-07)
 - Tests use 1440x900 desktop viewport by default
+
+## Infrastructure Tests (2026-04-10)
+- Subtask 7 (ElevenLabs config): App boots cleanly, no JS errors, zero frontend impact
+  - Route `/` (app root): loads successfully, renders login page correctly
+  - Page title: "ClipTale Editor" 
+  - React app properly mounted (#root element)
+  - No console errors, no regressions detected
+  - Purely backend config change (media-worker config.ts + .env.example + docker-compose.yml)
+  - APPROVED for merge
+
+- Subtask 8 (elevenlabs-client.ts lib): App boots cleanly, Phase 1 AI Generate panel fully functional
+  - App boots successfully at http://localhost:5173 with no JS errors
+  - Login page renders correctly (Sign in form with email/password fields)
+  - After auth, editor loads: TopBar, Asset browser, Preview, Timeline all present
+  - AI Generate tab switches successfully and loads the panel
+  - AI Generate panel renders: Capability tabs (Images/Videos/Audio), Models list (Nano Banana 2, GPT Image 1.5)
+  - No UI regressions from backend-only library changes
+  - Pure function module, zero frontend impact
+  - APPROVED for merge

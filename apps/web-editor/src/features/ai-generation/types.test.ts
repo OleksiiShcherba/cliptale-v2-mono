@@ -1,11 +1,37 @@
 import { describe, it, expect } from 'vitest';
 
-import type { AiGenerationType, AiJobStatus, AiGenerationRequest, AiGenerationJob } from './types';
+import type {
+  AiGenerationJob,
+  AiGenerationRequest,
+  AiJobStatus,
+  FalCapability,
+  FalFieldType,
+  ListModelsResponse,
+} from './types';
 
 describe('ai-generation/types', () => {
-  it('AiGenerationType accepts all four valid generation types', () => {
-    const types: AiGenerationType[] = ['image', 'video', 'audio', 'text'];
-    expect(types).toHaveLength(4);
+  it('FalCapability accepts all four supported capabilities', () => {
+    const capabilities: FalCapability[] = [
+      'text_to_image',
+      'image_edit',
+      'text_to_video',
+      'image_to_video',
+    ];
+    expect(capabilities).toHaveLength(4);
+  });
+
+  it('FalFieldType enumerates every supported field kind', () => {
+    const fieldTypes: FalFieldType[] = [
+      'string',
+      'text',
+      'number',
+      'boolean',
+      'enum',
+      'image_url',
+      'image_url_list',
+      'string_list',
+    ];
+    expect(fieldTypes).toHaveLength(8);
   });
 
   it('AiJobStatus accepts all four valid statuses', () => {
@@ -13,29 +39,37 @@ describe('ai-generation/types', () => {
     expect(statuses).toHaveLength(4);
   });
 
-  it('AiGenerationRequest shape is structurally valid', () => {
+  it('AiGenerationRequest is structurally valid with minimum fields', () => {
     const request: AiGenerationRequest = {
-      type: 'image',
-      prompt: 'A sunset over mountains',
+      modelId: 'fal-ai/nano-banana-2',
+      options: {},
     };
-    expect(request.type).toBe('image');
-    expect(request.prompt).toBe('A sunset over mountains');
-    expect(request.options).toBeUndefined();
-    expect(request.provider).toBeUndefined();
+    expect(request.modelId).toBe('fal-ai/nano-banana-2');
+    expect(request.prompt).toBeUndefined();
+    expect(request.options).toEqual({});
   });
 
-  it('AiGenerationRequest accepts optional options and provider', () => {
+  it('AiGenerationRequest accepts optional top-level prompt', () => {
     const request: AiGenerationRequest = {
-      type: 'video',
-      prompt: 'A time-lapse of a city',
-      options: { duration: 5, aspectRatio: '16:9' },
-      provider: 'runway',
+      modelId: 'fal-ai/gpt-image-1.5',
+      prompt: 'A city at dusk',
+      options: { num_images: 2 },
     };
-    expect(request.options).toBeDefined();
-    expect(request.provider).toBe('runway');
+    expect(request.prompt).toBe('A city at dusk');
+    expect(request.options.num_images).toBe(2);
   });
 
-  it('AiGenerationJob shape is structurally valid with null fields', () => {
+  it('ListModelsResponse maps every capability to an array of models', () => {
+    const response: ListModelsResponse = {
+      text_to_image: [],
+      image_edit: [],
+      text_to_video: [],
+      image_to_video: [],
+    };
+    expect(Object.keys(response)).toHaveLength(4);
+  });
+
+  it('AiGenerationJob can hold a queued state with null fields', () => {
     const job: AiGenerationJob = {
       jobId: 'job-123',
       status: 'queued',
@@ -49,7 +83,7 @@ describe('ai-generation/types', () => {
     expect(job.errorMessage).toBeNull();
   });
 
-  it('AiGenerationJob can hold completed state with resultAssetId', () => {
+  it('AiGenerationJob can hold a completed state with a resultAssetId', () => {
     const job: AiGenerationJob = {
       jobId: 'job-456',
       status: 'completed',
@@ -62,7 +96,7 @@ describe('ai-generation/types', () => {
     expect(job.resultAssetId).toBe('asset-789');
   });
 
-  it('AiGenerationJob can hold failed state with errorMessage', () => {
+  it('AiGenerationJob can hold a failed state with an errorMessage', () => {
     const job: AiGenerationJob = {
       jobId: 'job-789',
       status: 'failed',

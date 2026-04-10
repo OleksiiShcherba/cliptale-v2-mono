@@ -9,7 +9,7 @@ regression-note: 2026-04-07 — RendersQueueModal feature broke the app; useList
 ## Route map
 - `/` — Main editor: two-column shell with AssetBrowserPanel (left), PreviewSection (center/right), TimelinePanel (bottom)
 
-## Confirmed working workflows (as of 2026-04-05, updated 2026-04-08 after left sidebar width sync)
+## Confirmed working workflows (as of 2026-04-05, updated 2026-04-10 after Phase 1 AI Generation UI regrouping)
 
 ### 1. App shell load
 - Navigate to `/`
@@ -326,3 +326,68 @@ regression-note: 2026-04-07 — RendersQueueModal feature broke the app; useList
 - E2E test flow: login → upload video → asset card appears with thumbnail → thumbnail URL includes `?token=<token>` → no 401 errors
 - Screenshots: (1) editor load, (2) upload in progress, (3) asset card with loaded thumbnail
 - Status: CONFIRMED WORKING (2026-04-08) — Playwright E2E test verified thumbnail loads without 401, query param token correctly appended
+
+### 33. AI Generation Panel — Model-First Schema-Driven Flow (2026-04-09, Epic 9 / Ticket 9)
+- Left sidebar tab: "AI Generate" (LeftSidebarTabs.tsx) switches between Asset Browser and AI Generation panel
+- Panel structure:
+  1. Header: "AI Generate" title + close button (onClose callback)
+  2. Body: Capability tabs (CapabilityTabs.tsx) with 4 tabs: "Text → Image", "Edit / Blend", "Text → Video", "Image → Video"
+  3. Model list: Filters from React Query `['ai-models']` endpoint per active capability (line 62: modelsForCapability filtered by activeCapability)
+  4. ModelCard: Button with model.label + model.description; clicking triggers form render via setSelectedModelId
+  5. GenerationOptionsForm: Schema-driven form iterates model.inputSchema.fields (max 13 fields per LTX-2 model), renders SchemaFieldInput per field type
+  6. Generate button: Disabled until hasAllRequired() returns true (checks all required fields have values)
+  7. Submit payload: { modelId, prompt?, options } extracted via splitPromptFromOptions() (extracts prompt from values when schema has prompt field)
+- State handling:
+  - optionValues: Controlled by panel, seeded from model.inputSchema field defaults on model selection (useEffect lines 75-81)
+  - Capability switch clears model selection (setSelectedModelId(null)) to prevent stale form state
+  - isGenerating: Managed by useAiGeneration hook (submit, poll, track state)
+- Response states (UI rendered per currentJob.status):
+  - idle: Model list + form + Generate button
+  - submitting: "Submitting…" spinner
+  - queued/processing: GenerationProgress component with progress bar + status label
+  - completed: "Generation complete!" + "Added to your Assets" + "View in Assets" button (calls onSwitchToAssets + reset) + "Generate Another" (calls reset)
+  - failed: Error message (currentJob.errorMessage or error) + "Retry" button (resubmit) + "Start Over" button (reset)
+- Loading states:
+  - isCatalogLoading: "Loading models…" spinner (while React Query fetches)
+  - isCatalogError: "Could not load AI models." + "Retry" button (calls refetchCatalog)
+  - isCatalogEmpty: "No models available. Check back later."
+  - modelsForCapability.length === 0: "No models for this capability."
+- Backend contracts:
+  - GET /ai/models: Returns ListModelsResponse (Record<FalCapability, FalModel[]>) from aiGeneration.service.listModels()
+  - POST /projects/:id/ai/generate: Accepts submitGenerationSchema (modelId, prompt?, options) → 202 Accepted with { jobId, status: 'queued' }
+  - GET /ai/jobs/:jobId: Returns AiGenerationJob (jobId, status, progress, resultAssetId, errorMessage) for polling
+- FAL_MODELS catalog: 9 models across 4 capabilities
+  - text_to_image: 2 models (FLUX & Stable Diffusion variants)
+  - image_edit: 2 models (FLUX inpaint)
+  - image_to_video: 4 models (LTX-2, Kling v1, Pika)
+  - text_to_video: 1 model (Kling O3)
+- Asset integration: On completion, backend auto-creates asset row (project_assets_current); AiGenerationPanel invalidates ['assets', projectId] query to trigger Asset Browser refresh
+- Status: CONFIRMED WORKING (2026-04-09) — Full source code review + visual screenshot verification (editor shell loads, left sidebar displays AI Generate tab)
+
+### 34. AI Generation UI — Two-Level Navigator (Images/Videos/Audio Groups + Capability Sub-Tabs, 2026-04-10, Epic 9 Phase 1)
+- **Change:** Replaced flat 4-tab capability selector with hierarchical two-level navigator
+- **Level 1 (Group buttons):** Images / Videos / Audio — displayed horizontally at top of capability panel
+  - Styling: 32px height, gap 4px, flex layout
+  - Inactive: transparent bg + BORDER (1px) + TEXT_SECONDARY text
+  - Active: SURFACE_ELEVATED bg + PRIMARY (1px) border + TEXT_PRIMARY text (font-weight 600)
+  - Click handler: onGroupChange() → sets activeGroup, clears selectedModelId, seeds activeCapability from getFirstCapabilityForGroup(nextGroup)
+- **Level 2 (Capability sub-tabs):** Dynamically populated per active group
+  - Images group: "Text → Image", "Edit / Blend" capability tabs
+  - Videos group: "Text → Video", "Image → Video" capability tabs
+  - Audio group: "Coming soon" placeholder (Phase 2 TBD)
+  - Tab styling: Reuses existing aiGenerationPanelStyles.tabButton + tabButtonActive styles
+- **Implementation:** Pure frontend refactor (no BE changes)
+  - Added AiGroup type ('images' | 'videos' | 'audio') and CAPABILITY_TO_GROUP map to packages/api-contracts/src/fal-models.ts
+  - Added group: 'images' | 'videos' field to FalModel type; populated all 9 catalog entries
+  - Rebuilt CapabilityTabs.tsx as two-level controlled component (activeGroup + activeCapability + onGroupChange + onCapabilityChange props)
+  - Updated AiGenerationPanel.tsx: added activeGroup state, handleGroupChange callback, GROUP_DEFAULT_CAPABILITY map, getFirstCapabilityForGroup() helper
+  - Updated CapabilityTabs.test.tsx (10 tests) + AiGenerationPanel.test.tsx (updated tests for group-switch + capability-within-group + audio placeholder)
+  - All 120 unit tests pass; no regression in 1548 web-editor tests
+- **E2E verified flows:**
+  1. AI Generate tab click → panel opens → Images group active by default → "Text → Image" capability tab shown → model list filters to text_to_image models
+  2. Click Videos group → capability tabs update to "Text → Video" + "Image → Video" → "Text → Video" seeds as default → model list shows Kling 2.5 Turbo Pro
+  3. Click Audio group → "Coming soon" placeholder renders → no capability tabs → no models listed
+  4. Return to Images group → model list re-populates with text_to_image + image_edit models → layout clean, no overflow
+- Screenshots captured: (1) initial load, (2) AI tab clicked, (3) group buttons visible, (4) capability tabs visible, (5) Videos group selected, (6) Audio "Coming soon" state
+- Backend integration: BE returns Record<FalCapability, FalModel[]> unchanged; FE adapts via CAPABILITY_TO_GROUP const (client-side mapping)
+- Status: CONFIRMED WORKING (2026-04-10) — Playwright E2E test with screenshots confirms two-level navigator structure, group/capability switching, audio placeholder, model filtering, and zero regressions in existing workflows

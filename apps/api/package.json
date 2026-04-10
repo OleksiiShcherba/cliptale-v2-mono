@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-video-editor/api-contracts": "file:../../packages/api-contracts",
     "@ai-video-editor/project-schema": "file:../../packages/project-schema",
     "@aws-sdk/client-s3": "^3.540.0",
     "@aws-sdk/s3-request-presigner": "^3.540.0",

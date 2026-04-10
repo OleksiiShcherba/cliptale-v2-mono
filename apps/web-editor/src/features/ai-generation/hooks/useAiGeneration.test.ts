@@ -43,12 +43,17 @@ describe('useAiGeneration', () => {
     const { result } = renderHook(() => useAiGeneration());
 
     await act(async () => {
-      await result.current.submit('proj-1', { type: 'image', prompt: 'A sunset' });
+      await result.current.submit('proj-1', {
+        modelId: 'fal-ai/nano-banana-2',
+        prompt: 'A sunset',
+        options: {},
+      });
     });
 
     expect(mockSubmitGeneration).toHaveBeenCalledWith('proj-1', {
-      type: 'image',
+      modelId: 'fal-ai/nano-banana-2',
       prompt: 'A sunset',
+      options: {},
     });
 
     // Let the polling kick in
@@ -66,7 +71,10 @@ describe('useAiGeneration', () => {
     const { result } = renderHook(() => useAiGeneration());
 
     await act(async () => {
-      await result.current.submit('proj-1', { type: 'image', prompt: '' });
+      await result.current.submit('proj-1', {
+        modelId: 'fal-ai/nano-banana-2',
+        options: {},
+      });
     });
 
     expect(result.current.error).toBe('Bad request');
@@ -79,7 +87,11 @@ describe('useAiGeneration', () => {
     const { result } = renderHook(() => useAiGeneration());
 
     await act(async () => {
-      await result.current.submit('proj-1', { type: 'image', prompt: 'test' });
+      await result.current.submit('proj-1', {
+        modelId: 'fal-ai/nano-banana-2',
+        prompt: 'test',
+        options: {},
+      });
     });
 
     expect(result.current.error).toBe('Failed to submit generation');
@@ -98,7 +110,11 @@ describe('useAiGeneration', () => {
     const { result } = renderHook(() => useAiGeneration());
 
     await act(async () => {
-      await result.current.submit('proj-1', { type: 'image', prompt: 'Test' });
+      await result.current.submit('proj-1', {
+        modelId: 'fal-ai/nano-banana-2',
+        prompt: 'Test',
+        options: {},
+      });
     });
 
     await act(async () => {

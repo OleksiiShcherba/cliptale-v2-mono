@@ -10,8 +10,6 @@ export const defaultProps: TopBarProps = {
   projectId: 'test-project-001',
   isSettingsOpen: false,
   onToggleSettings: vi.fn(),
-  isAiProvidersOpen: false,
-  onToggleAiProviders: vi.fn(),
   isHistoryOpen: false,
   onToggleHistory: vi.fn(),
   isExportOpen: false,

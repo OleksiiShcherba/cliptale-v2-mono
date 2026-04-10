@@ -2,7 +2,7 @@
 name: Known Working Workflows
 description: Confirmed working user journeys in ClipTale editor, verified by Playwright screenshots
 type: project
-updated: 2026-04-06
+updated: 2026-04-09
 ---
 
 All workflows start at http://localhost:5173/ (single-page app, all features on one route).
@@ -225,3 +225,40 @@ All workflows start at http://localhost:5173/ (single-page app, all features on 
 - Vertical drag test: mouse.down at (startX, 758) → move +100px downward → mouse.up → NO PATCH fires (vertical drag is ignored)
 - Key assertion: no PATCH request ever contains `trackId` field (PATCH only sends `startFrame`)
 - Confirmed: `useClipDrag.ts` commitDrag sends only startFrame; no `resolveTargetTrackId` calls remain
+
+## IMPORTANT UPDATES — Epic 9 Ticket 8 (verified 2026-04-09)
+
+**AI Providers Feature Completely Removed**
+As of 2026-04-09, the following changes are permanent:
+- **TopBar "AI" button is GONE** — no longer exists. TopBar buttons are now: Undo, Redo, SaveStatusBadge, Settings, History, Renders, Export, Sign Out
+- **AiProvidersModal deleted** — the entire `apps/web-editor/src/features/ai-providers/` directory removed (10 files)
+- **"No provider configured" notice is GONE** from AiGenerationPanel — IdlePhase no longer shows this notice
+- **Generate button enablement simplified** — now only checks `prompt.trim().length > 0 && !isGenerating` (no provider check)
+- **TopBar.ai.test.tsx deleted** — test file that exclusively tested the AI button
+- **4 provider-coupled tests removed** from AiGenerationPanel.test.tsx (`shows disabled notice when no provider is configured`, `shows the "Configure in AI Providers" link when onOpenProviders is given`, etc.)
+- **Zero lingering references** — grep confirms no "ai-providers", "AiProvidersModal", "hasProviderForType" matches in web-editor/src
+
+**Impact on future regression tests:**
+1. Do NOT look for "AI" button in TopBar screenshots — it no longer exists
+2. Do NOT expect "No provider configured" notice in AI Generate panel — it's gone
+3. Do NOT test provider selection flows — they no longer exist
+4. AI Generate panel now has only 3 props: `projectId`, `onClose`, `onSwitchToAssets`
+5. All other editor features (timeline, preview, asset browser, export, renders, history) unchanged
+
+## Workflow 23: Audio tab population — ElevenLabs audio generation (verified 2026-04-10)
+- Navigate to /?projectId=00000000-0000-0000-0000-000000000001
+- Click "Generate" button in sidebar to open AiGenerationPanel
+- See: AI Generate panel with 3 group tabs: "Images", "Videos", "Audio" (Audio tab is now active/clickable, no longer "Coming soon")
+- Click "Audio" tab → panel switches to audio capabilities
+- See: 4 audio capability sub-tabs visible at top: "Text to ...", "Voice Cl...", "Speech ...", "Music"
+- Sub-tabs are fully functional: clicking each loads the correct capability with proper heading and description
+- Tab 1 "Text to Speech" → "Text to Speech" heading + "Convert text to natural-sounding speech using ElevenLabs voices." description
+- Tab 2 "Voice Cloning" → "Voice Cloning" heading + "Clone a voice from an audio sample. The result is saved to your Voice Library and can be used in Text to Speech." description
+- Tab 3 "Speech to Speech" → Speech to Speech capability (not fully tested in this workflow, but selectable)
+- Tab 4 "Music" → "Music Generation" heading + "Generate background music or sound effects from a text description." description
+- All capabilities use unified AI model catalog (types: `Record<AiCapability, AiModel[]>`)
+- No "Coming soon" placeholder text visible anywhere in Audio tab
+- No JS errors; layout correct; tab navigation smooth
+- NEW: AssetPickerField now supports `mediaType: 'audio'` for audio_url inputs
+- NEW: SchemaFieldInput.tsx has audio_url and audio_upload field type handlers
+- All 1555 web-editor tests pass

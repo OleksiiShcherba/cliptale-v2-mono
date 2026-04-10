@@ -146,10 +146,6 @@ export function RightSidebar(): React.ReactElement | null {
 interface MobileTabContentProps {
   activeTab: 'assets' | 'captions' | 'inspector' | 'ai-generate';
   projectId: string;
-  /** Optional callback when the user wants to open the AI Providers settings. */
-  onOpenProviders?: () => void;
-  /** Whether the AI Providers modal is currently open. */
-  isProvidersModalOpen?: boolean;
   /** Optional callback to switch to the Assets tab. */
   onSwitchToAssets?: () => void;
 }
@@ -162,7 +158,7 @@ const MOBILE_EMPTY_TEXT_COLOR = '#8A8AA0';
  * - captions → CaptionEditorPanel (when a caption clip is selected)
  * - inspector → Image/Caption editor (when a clip is selected)
  */
-export function MobileTabContent({ activeTab, projectId, onOpenProviders, isProvidersModalOpen, onSwitchToAssets }: MobileTabContentProps): React.ReactElement | null {
+export function MobileTabContent({ activeTab, projectId, onSwitchToAssets }: MobileTabContentProps): React.ReactElement | null {
   const { selectedClipIds } = useEphemeralStore();
   const project = useProjectStore();
 
@@ -182,7 +178,7 @@ export function MobileTabContent({ activeTab, projectId, onOpenProviders, isProv
   }
 
   if (activeTab === 'ai-generate') {
-    return <AiGenerationPanel projectId={projectId} onOpenProviders={onOpenProviders} isProvidersModalOpen={isProvidersModalOpen} onSwitchToAssets={onSwitchToAssets} />;
+    return <AiGenerationPanel projectId={projectId} onSwitchToAssets={onSwitchToAssets} />;
   }
 
   if (activeTab === 'captions') {

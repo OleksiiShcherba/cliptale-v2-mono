@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-video-editor/api-contracts": "file:../../packages/api-contracts",
     "@ai-video-editor/editor-core": "file:../../packages/editor-core",
     "@ai-video-editor/project-schema": "file:../../packages/project-schema",
     "@ai-video-editor/remotion-comps": "file:../../packages/remotion-comps",

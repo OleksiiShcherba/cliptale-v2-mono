@@ -1,290 +1,139 @@
-import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
-const { mockListProviders, mockInvalidateQueries } = vi.hoisted(() => ({
-  mockListProviders: vi.fn(),
-  mockInvalidateQueries: vi.fn(),
+const { mockListModels } = vi.hoisted(() => ({
+  mockListModels: vi.fn(),
 }));
-
-vi.mock('@/features/ai-providers/api', () => ({
-  listProviders: mockListProviders,
-}));
-
-vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+vi.mock('@/features/ai-generation/api', () => ({
+  listModels: mockListModels,
 }));
 
 const { mockUseAiGeneration } = vi.hoisted(() => ({
   mockUseAiGeneration: vi.fn(),
 }));
-
 vi.mock('@/features/ai-generation/hooks/useAiGeneration', () => ({
   useAiGeneration: mockUseAiGeneration,
 }));
 
-import { AiGenerationPanel } from './AiGenerationPanel';
+const { mockGetAssets } = vi.hoisted(() => ({
+  mockGetAssets: vi.fn(),
+}));
+vi.mock('@/features/asset-manager/api', () => ({
+  getAssets: mockGetAssets,
+}));
 
-function defaultHookReturn() {
-  return {
-    submit: vi.fn(),
-    currentJob: null,
-    isGenerating: false,
-    error: null,
-    reset: vi.fn(),
-  };
-}
+import { AiGenerationPanel } from './AiGenerationPanel';
+import {
+  defaultHookReturn,
+  EMPTY_CATALOG,
+  FULL_CATALOG,
+  renderWithClient,
+} from './AiGenerationPanel.fixtures';
+
+/**
+ * Catalog-loading and capability-switching behavior for the AI Generation
+ * panel. Form submission lives in `AiGenerationPanel.form.test.tsx`, and
+ * job-state UI lives in `AiGenerationPanel.states.test.tsx`. The three
+ * suffix-split files share fixtures via `AiGenerationPanel.fixtures.tsx` per
+ * §9.7 split-test naming convention.
+ */
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockListProviders.mockResolvedValue([
-    { provider: 'openai', isActive: true, isConfigured: true, createdAt: '2026-01-01' },
-  ]);
   mockUseAiGeneration.mockReturnValue(defaultHookReturn());
+  mockGetAssets.mockResolvedValue([]);
+  mockListModels.mockResolvedValue(FULL_CATALOG);
 });
 
-describe('AiGenerationPanel', () => {
-  it('renders the panel with "AI Generate" heading', () => {
-    render(<AiGenerationPanel projectId="proj-1" />);
+afterEach(() => {
+  vi.clearAllMocks();
+});
+
+describe('AiGenerationPanel / catalog', () => {
+  it('renders the panel heading and testid', async () => {
+    renderWithClient(<AiGenerationPanel projectId="proj-1" />);
+    expect(screen.getByTestId('ai-generation-panel')).toBeTruthy();
     expect(screen.getByText('AI Generate')).toBeTruthy();
+    await waitFor(() => expect(mockListModels).toHaveBeenCalled());
   });
 
-  it('renders the close button when onClose is provided', () => {
+  it('shows a loading indicator while the catalog is pending', () => {
+    mockListModels.mockImplementation(() => new Promise(() => undefined));
+    renderWithClient(<AiGenerationPanel projectId="proj-1" />);
+    expect(screen.getByText(/loading models/i)).toBeTruthy();
+  });
+
+  it('shows an inline error + Retry when the catalog fails to load', async () => {
+    mockListModels.mockRejectedValueOnce(new Error('boom'));
+    renderWithClient(<AiGenerationPanel projectId="proj-1" />);
+    await waitFor(() =>
+      expect(screen.getByText(/could not load ai models/i)).toBeTruthy(),
+    );
+    expect(screen.getByRole('button', { name: /retry/i })).toBeTruthy();
+  });
+
+  it('renders empty state when the catalog is empty', async () => {
+    mockListModels.mockResolvedValueOnce(EMPTY_CATALOG);
+    renderWithClient(<AiGenerationPanel projectId="proj-1" />);
+    await waitFor(() =>
+      expect(screen.getByText(/no ai models available/i)).toBeTruthy(),
+    );
+  });
+
+  it('renders capability tabs and models for the active capability only', async () => {
+    renderWithClient(<AiGenerationPanel projectId="proj-1" />);
+    await waitFor(() => expect(screen.getByText('Nano Banana 2')).toBeTruthy());
+    // Non-active capability models must not leak into the list.
+    expect(screen.queryByText('Kling 2.5 Pro')).toBeNull();
+  });
+
+  it('switches to videos group and shows video capability tabs', async () => {
+    const user = userEvent.setup();
+    renderWithClient(<AiGenerationPanel projectId="proj-1" />);
+    await waitFor(() => expect(screen.getByText('Nano Banana 2')).toBeTruthy());
+
+    await user.click(screen.getByRole('tab', { name: /^videos$/i }));
+    // After switching to Videos group, the default video capability (text_to_video) should show
+    await waitFor(() => expect(screen.getByText('Kling 2.5 Pro')).toBeTruthy());
+    expect(screen.queryByText('Nano Banana 2')).toBeNull();
+  });
+
+  it('switches capability within the same group and clears the selected model', async () => {
+    const user = userEvent.setup();
+    renderWithClient(<AiGenerationPanel projectId="proj-1" />);
+    await waitFor(() => expect(screen.getByText('Nano Banana 2')).toBeTruthy());
+
+    await user.click(screen.getByRole('button', { name: /nano banana 2/i }));
+    expect(screen.getByLabelText('Prompt')).toBeTruthy();
+
+    await user.click(screen.getByRole('tab', { name: /edit \/ blend/i }));
+    expect(screen.queryByText('Nano Banana 2')).toBeNull();
+    expect(screen.getByText('Seedream 4 Edit')).toBeTruthy();
+  });
+
+  it('shows audio capability tabs and the TTS model when the audio group is selected', async () => {
+    const user = userEvent.setup();
+    renderWithClient(<AiGenerationPanel projectId="proj-1" />);
+    await waitFor(() => expect(screen.getByText('Nano Banana 2')).toBeTruthy());
+
+    await user.click(screen.getByRole('tab', { name: /^audio$/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /text to speech/i })).toBeTruthy(),
+    );
+    expect(screen.getAllByText('Text to Speech').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('calls onClose when the close button is clicked', async () => {
+    const user = userEvent.setup();
     const onClose = vi.fn();
-    render(<AiGenerationPanel projectId="proj-1" onClose={onClose} />);
-    const btn = screen.getByRole('button', { name: /close panel/i });
-    fireEvent.click(btn);
+    renderWithClient(<AiGenerationPanel projectId="proj-1" onClose={onClose} />);
+    await user.click(screen.getByRole('button', { name: /close panel/i }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('does not render close button when onClose is not provided', () => {
-    render(<AiGenerationPanel projectId="proj-1" />);
+  it('does not render the close button when onClose is omitted', () => {
+    renderWithClient(<AiGenerationPanel projectId="proj-1" />);
     expect(screen.queryByRole('button', { name: /close panel/i })).toBeNull();
-  });
-
-  it('renders the idle phase with type selector and prompt input', () => {
-    render(<AiGenerationPanel projectId="proj-1" />);
-    expect(screen.getByText('Image')).toBeTruthy();
-    expect(screen.getByText('Video')).toBeTruthy();
-    expect(screen.getByText('Audio')).toBeTruthy();
-    expect(screen.getByRole('textbox', { name: /generation prompt/i })).toBeTruthy();
-    expect(screen.getByText('Generate')).toBeTruthy();
-  });
-
-  it('shows character count for the prompt', () => {
-    render(<AiGenerationPanel projectId="proj-1" />);
-    expect(screen.getByText('0/1000')).toBeTruthy();
-  });
-
-  it('shows disabled notice when no provider is configured for selected type', async () => {
-    mockListProviders.mockResolvedValue([]);
-    render(<AiGenerationPanel projectId="proj-1" />);
-
-    // Wait for providers to load (next tick)
-    await vi.waitFor(() => {
-      expect(screen.getByText(/no provider configured/i)).toBeTruthy();
-    });
-  });
-
-  it('shows the "Configure in AI Providers" link when onOpenProviders is given', async () => {
-    mockListProviders.mockResolvedValue([]);
-    const onOpenProviders = vi.fn();
-    render(<AiGenerationPanel projectId="proj-1" onOpenProviders={onOpenProviders} />);
-
-    await vi.waitFor(() => {
-      const link = screen.getByText('Configure in AI Providers');
-      expect(link).toBeTruthy();
-      fireEvent.click(link);
-    });
-
-    expect(onOpenProviders).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders "Submitting..." when isGenerating but no currentJob yet', () => {
-    mockUseAiGeneration.mockReturnValue({
-      ...defaultHookReturn(),
-      isGenerating: true,
-      currentJob: null,
-    });
-    render(<AiGenerationPanel projectId="proj-1" />);
-    expect(screen.getByText('Submitting...')).toBeTruthy();
-  });
-
-  it('renders GenerationProgress when generating with a current job', () => {
-    mockUseAiGeneration.mockReturnValue({
-      ...defaultHookReturn(),
-      isGenerating: true,
-      currentJob: {
-        jobId: 'job-1',
-        status: 'processing',
-        progress: 60,
-        resultAssetId: null,
-        errorMessage: null,
-      },
-    });
-    render(<AiGenerationPanel projectId="proj-1" />);
-    expect(screen.getByRole('progressbar')).toBeTruthy();
-    expect(screen.getByText('Processing... 60%')).toBeTruthy();
-  });
-
-  it('renders success state with "Added to your Assets" and "Generate Another" button', () => {
-    mockUseAiGeneration.mockReturnValue({
-      ...defaultHookReturn(),
-      currentJob: {
-        jobId: 'job-1',
-        status: 'completed',
-        progress: 100,
-        resultAssetId: 'asset-1',
-        errorMessage: null,
-      },
-    });
-    render(<AiGenerationPanel projectId="proj-1" />);
-    expect(screen.getByText('Generation complete!')).toBeTruthy();
-    expect(screen.getByText('Added to your Assets')).toBeTruthy();
-    expect(screen.getByText('Generate Another')).toBeTruthy();
-  });
-
-  it('renders "View in Assets" button when onSwitchToAssets is provided', () => {
-    const onSwitchToAssets = vi.fn();
-    mockUseAiGeneration.mockReturnValue({
-      ...defaultHookReturn(),
-      currentJob: {
-        jobId: 'job-1',
-        status: 'completed',
-        progress: 100,
-        resultAssetId: 'asset-1',
-        errorMessage: null,
-      },
-    });
-    render(<AiGenerationPanel projectId="proj-1" onSwitchToAssets={onSwitchToAssets} />);
-    expect(screen.getByText('View in Assets')).toBeTruthy();
-  });
-
-  it('calls onSwitchToAssets and resets when "View in Assets" is clicked', () => {
-    const onSwitchToAssets = vi.fn();
-    const reset = vi.fn();
-    mockUseAiGeneration.mockReturnValue({
-      ...defaultHookReturn(),
-      reset,
-      currentJob: {
-        jobId: 'job-1',
-        status: 'completed',
-        progress: 100,
-        resultAssetId: 'asset-1',
-        errorMessage: null,
-      },
-    });
-    render(<AiGenerationPanel projectId="proj-1" onSwitchToAssets={onSwitchToAssets} />);
-    fireEvent.click(screen.getByText('View in Assets'));
-    expect(onSwitchToAssets).toHaveBeenCalledTimes(1);
-    expect(reset).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not render "View in Assets" when onSwitchToAssets is not provided', () => {
-    mockUseAiGeneration.mockReturnValue({
-      ...defaultHookReturn(),
-      currentJob: {
-        jobId: 'job-1',
-        status: 'completed',
-        progress: 100,
-        resultAssetId: 'asset-1',
-        errorMessage: null,
-      },
-    });
-    render(<AiGenerationPanel projectId="proj-1" />);
-    expect(screen.queryByText('View in Assets')).toBeNull();
-  });
-
-  it('renders failed state with "Try Again" button', () => {
-    mockUseAiGeneration.mockReturnValue({
-      ...defaultHookReturn(),
-      currentJob: {
-        jobId: 'job-1',
-        status: 'failed',
-        progress: 30,
-        resultAssetId: null,
-        errorMessage: 'Provider rate limit exceeded',
-      },
-    });
-    render(<AiGenerationPanel projectId="proj-1" />);
-    expect(screen.getByText('Provider rate limit exceeded')).toBeTruthy();
-    expect(screen.getByText('Try Again')).toBeTruthy();
-  });
-
-  it('renders error state when submit error occurs', () => {
-    mockUseAiGeneration.mockReturnValue({
-      ...defaultHookReturn(),
-      error: 'Network error',
-    });
-    render(<AiGenerationPanel projectId="proj-1" />);
-    expect(screen.getByText('Network error')).toBeTruthy();
-  });
-
-  it('calls reset when "Generate Another" is clicked', () => {
-    const reset = vi.fn();
-    mockUseAiGeneration.mockReturnValue({
-      ...defaultHookReturn(),
-      reset,
-      currentJob: {
-        jobId: 'job-1',
-        status: 'completed',
-        progress: 100,
-        resultAssetId: 'asset-1',
-        errorMessage: null,
-      },
-    });
-    render(<AiGenerationPanel projectId="proj-1" />);
-    fireEvent.click(screen.getByText('Generate Another'));
-    expect(reset).toHaveBeenCalledTimes(1);
-  });
-
-  it('has testid ai-generation-panel on root element', () => {
-    render(<AiGenerationPanel projectId="proj-1" />);
-    expect(screen.getByTestId('ai-generation-panel')).toBeTruthy();
-  });
-
-  it('refetches providers when isProvidersModalOpen flips from true to false', async () => {
-    mockListProviders.mockResolvedValue([]);
-    const { rerender } = render(
-      <AiGenerationPanel projectId="proj-1" isProvidersModalOpen={true} />,
-    );
-    // Should NOT fetch while modal is open (only the initial mount fetch before modal opened)
-    // The effect skips when isProvidersModalOpen is true
-    const callCountWhileOpen = mockListProviders.mock.calls.length;
-
-    // Now close the modal — should trigger a refetch
-    mockListProviders.mockResolvedValue([
-      { provider: 'openai', isActive: true, isConfigured: true, createdAt: '2026-01-01' },
-    ]);
-    rerender(<AiGenerationPanel projectId="proj-1" isProvidersModalOpen={false} />);
-
-    await vi.waitFor(() => {
-      expect(mockListProviders.mock.calls.length).toBeGreaterThan(callCountWhileOpen);
-    });
-  });
-
-  it('does not show "No provider configured" after modal closes and provider was added', async () => {
-    // Start with no providers
-    mockListProviders.mockResolvedValue([]);
-    const { rerender } = render(
-      <AiGenerationPanel projectId="proj-1" isProvidersModalOpen={false} />,
-    );
-
-    await vi.waitFor(() => {
-      expect(screen.getByText(/no provider configured/i)).toBeTruthy();
-    });
-
-    // Open modal
-    rerender(<AiGenerationPanel projectId="proj-1" isProvidersModalOpen={true} />);
-
-    // Close modal — provider was added
-    mockListProviders.mockResolvedValue([
-      { provider: 'openai', isActive: true, isConfigured: true, createdAt: '2026-01-01' },
-    ]);
-    rerender(<AiGenerationPanel projectId="proj-1" isProvidersModalOpen={false} />);
-
-    await vi.waitFor(() => {
-      expect(screen.queryByText(/no provider configured/i)).toBeNull();
-    });
   });
 });

@@ -16,7 +16,6 @@ import { useUndoRedo } from '@/features/version-history/hooks/useUndoRedo';
 import { useKeyboardShortcuts } from '@/features/version-history/hooks/useKeyboardShortcuts';
 import { useWindowWidth } from '@/shared/hooks/useWindowWidth';
 import { ProjectSettingsModal } from '@/features/project-settings/components/ProjectSettingsModal';
-import { AiProvidersModal } from '@/features/ai-providers/components/AiProvidersModal';
 import { AiGenerationPanel } from '@/features/ai-generation/components/AiGenerationPanel';
 import { LeftSidebarTabs } from '@/features/ai-generation/components/LeftSidebarTabs';
 import type { LeftSidebarTab } from '@/features/ai-generation/components/LeftSidebarTabs';
@@ -56,7 +55,6 @@ export function App(): React.ReactElement {
 
   const { timelineHeight, onResizePointerDown, onResizePointerMove, onResizePointerUp } = useTimelineResize();
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
-  const [isAiProvidersOpen, setIsAiProvidersOpen] = React.useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = React.useState(false);
   const [isExportOpen, setIsExportOpen] = React.useState(false);
   const [isRendersOpen, setIsRendersOpen] = React.useState(false);
@@ -72,8 +70,6 @@ export function App(): React.ReactElement {
 
   const handleToggleSettings = (): void => setIsSettingsOpen((prev) => !prev);
   const handleCloseSettings = (): void => setIsSettingsOpen(false);
-  const handleToggleAiProviders = (): void => setIsAiProvidersOpen((prev) => !prev);
-  const handleCloseAiProviders = (): void => setIsAiProvidersOpen(false);
   const handleToggleHistory = (): void => setIsHistoryOpen((prev) => !prev);
   const handleCloseHistory = (): void => setIsHistoryOpen(false);
   const handleToggleExport = (): void => setIsExportOpen((prev) => !prev);
@@ -161,8 +157,6 @@ export function App(): React.ReactElement {
             projectId={projectId}
             isSettingsOpen={isSettingsOpen}
             onToggleSettings={handleToggleSettings}
-            isAiProvidersOpen={isAiProvidersOpen}
-            onToggleAiProviders={handleToggleAiProviders}
             isHistoryOpen={isHistoryOpen}
             onToggleHistory={handleToggleHistory}
             isExportOpen={isExportOpen}
@@ -182,7 +176,7 @@ export function App(): React.ReactElement {
           </main>
           <MobileInspectorTabs activeTab={mobileTab} onTabChange={setMobileTab} />
           <div style={styles.mobileInspectorContent} aria-label={`${mobileTab} panel`}>
-            <MobileTabContent activeTab={mobileTab} projectId={projectId} onOpenProviders={handleToggleAiProviders} isProvidersModalOpen={isAiProvidersOpen} onSwitchToAssets={() => setMobileTab('assets')} />
+            <MobileTabContent activeTab={mobileTab} projectId={projectId} onSwitchToAssets={() => setMobileTab('assets')} />
           </div>
           <div style={styles.mobileTimeline}>
             <TimelinePanel {...timelinePanelProps} />
@@ -195,7 +189,6 @@ export function App(): React.ReactElement {
           />
         </div>
         {isSettingsOpen && <ProjectSettingsModal onClose={handleCloseSettings} />}
-        {isAiProvidersOpen && <AiProvidersModal onClose={handleCloseAiProviders} />}
         {isExportOpen && currentVersionId !== null && (
           <ExportModal versionId={currentVersionId} projectId={projectId} onClose={handleCloseExport} />
         )}
@@ -217,8 +210,6 @@ export function App(): React.ReactElement {
           projectId={projectId}
           isSettingsOpen={isSettingsOpen}
           onToggleSettings={handleToggleSettings}
-          isAiProvidersOpen={isAiProvidersOpen}
-          onToggleAiProviders={handleToggleAiProviders}
           isHistoryOpen={isHistoryOpen}
           onToggleHistory={handleToggleHistory}
           isExportOpen={isExportOpen}
@@ -238,7 +229,7 @@ export function App(): React.ReactElement {
             <LeftSidebarTabs activeTab={leftSidebarTab} onTabChange={setLeftSidebarTab} />
             {leftSidebarTab === 'assets' && <AssetBrowserPanel projectId={projectId} />}
             {leftSidebarTab === 'ai-generate' && (
-              <AiGenerationPanel projectId={projectId} onOpenProviders={handleToggleAiProviders} isProvidersModalOpen={isAiProvidersOpen} onSwitchToAssets={() => setLeftSidebarTab('assets')} />
+              <AiGenerationPanel projectId={projectId} onSwitchToAssets={() => setLeftSidebarTab('assets')} />
             )}
           </aside>
           <div style={styles.verticalDivider} aria-hidden="true" />
@@ -259,7 +250,6 @@ export function App(): React.ReactElement {
         <TimelinePanel height={timelineHeight} {...timelinePanelProps} />
       </div>
       {isSettingsOpen && <ProjectSettingsModal onClose={handleCloseSettings} />}
-      {isAiProvidersOpen && <AiProvidersModal onClose={handleCloseAiProviders} />}
       {isExportOpen && currentVersionId !== null && (
         <ExportModal versionId={currentVersionId} projectId={projectId} onClose={handleCloseExport} />
       )}

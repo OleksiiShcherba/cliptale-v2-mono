@@ -1,101 +1,112 @@
-import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
+
+import type { FalModel } from '@/features/ai-generation/types';
+
+const { mockGetAssets } = vi.hoisted(() => ({
+  mockGetAssets: vi.fn(),
+}));
+
+vi.mock('@/features/asset-manager/api', () => ({
+  getAssets: mockGetAssets,
+}));
 
 import { GenerationOptionsForm } from './GenerationOptionsForm';
 
+const MODEL: FalModel = {
+  id: 'fal-ai/nano-banana-2',
+  capability: 'text_to_image',
+  label: 'Nano Banana 2',
+  description: 'Test model',
+  inputSchema: {
+    fields: [
+      { name: 'prompt', type: 'text', label: 'Prompt', required: true },
+      { name: 'num_images', type: 'number', label: 'Number of Images', required: false },
+      {
+        name: 'resolution',
+        type: 'enum',
+        label: 'Resolution',
+        required: false,
+        enum: ['1K', '2K'],
+      },
+    ],
+  },
+};
+
+function renderWithClient(ui: ReactNode) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockGetAssets.mockResolvedValue([]);
+});
+
 describe('GenerationOptionsForm', () => {
-  describe('image options', () => {
-    it('renders size and style selects for image type', () => {
-      render(
-        <GenerationOptionsForm
-          type="image"
-          options={{ size: '1024x1024', style: 'vivid' }}
-          onChange={vi.fn()}
-        />,
-      );
-      expect(screen.getByText('Size')).toBeTruthy();
-      expect(screen.getByText('Style')).toBeTruthy();
-    });
-
-    it('calls onChange when size is changed', () => {
-      const onChange = vi.fn();
-      render(
-        <GenerationOptionsForm
-          type="image"
-          options={{ size: '1024x1024', style: 'vivid' }}
-          onChange={onChange}
-        />,
-      );
-      const selects = screen.getAllByRole('combobox');
-      fireEvent.change(selects[0], { target: { value: '1024x1792' } });
-      expect(onChange).toHaveBeenCalledWith(
-        expect.objectContaining({ size: '1024x1792' }),
-      );
-    });
+  it('renders one input per schema field in schema order', () => {
+    renderWithClient(
+      <GenerationOptionsForm
+        model={MODEL}
+        values={{}}
+        onChange={() => undefined}
+        projectId="p1"
+      />,
+    );
+    expect(screen.getByLabelText('Prompt')).toBeTruthy();
+    expect(screen.getByLabelText('Number of Images')).toBeTruthy();
+    expect(screen.getByLabelText('Resolution')).toBeTruthy();
   });
 
-  describe('video options', () => {
-    it('renders duration and aspect ratio selects for video type', () => {
-      render(
-        <GenerationOptionsForm
-          type="video"
-          options={{ duration: 5, aspectRatio: '16:9' }}
-          onChange={vi.fn()}
-        />,
-      );
-      expect(screen.getByText('Duration')).toBeTruthy();
-      expect(screen.getByText('Aspect Ratio')).toBeTruthy();
-    });
-
-    it('calls onChange when duration changes', () => {
-      const onChange = vi.fn();
-      render(
-        <GenerationOptionsForm
-          type="video"
-          options={{ duration: 5, aspectRatio: '16:9' }}
-          onChange={onChange}
-        />,
-      );
-      const selects = screen.getAllByRole('combobox');
-      fireEvent.change(selects[0], { target: { value: '10' } });
-      expect(onChange).toHaveBeenCalledWith(
-        expect.objectContaining({ duration: 10 }),
-      );
-    });
+  it('shows a required marker on required fields', () => {
+    renderWithClient(
+      <GenerationOptionsForm
+        model={MODEL}
+        values={{}}
+        onChange={() => undefined}
+        projectId="p1"
+      />,
+    );
+    // Only the "prompt" field is required, so there should be exactly one star.
+    const stars = screen.getAllByText('*');
+    expect(stars).toHaveLength(1);
   });
 
-  describe('audio options', () => {
-    it('renders type select and duration slider for audio type', () => {
-      render(
-        <GenerationOptionsForm
-          type="audio"
-          options={{ type: 'music', duration: 10 }}
-          onChange={vi.fn()}
-        />,
-      );
-      expect(screen.getByText('Type')).toBeTruthy();
-      expect(screen.getByRole('slider')).toBeTruthy();
-    });
+  it('merges field updates into the values record via onChange', async () => {
+    const user = userEvent.setup();
+    const handleChange = vi.fn();
+    renderWithClient(
+      <GenerationOptionsForm
+        model={MODEL}
+        values={{ prompt: 'existing' }}
+        onChange={handleChange}
+        projectId="p1"
+      />,
+    );
 
-    it('displays the current audio duration value', () => {
-      render(
-        <GenerationOptionsForm
-          type="audio"
-          options={{ type: 'music', duration: 30 }}
-          onChange={vi.fn()}
-        />,
-      );
-      expect(screen.getByText(/30s/)).toBeTruthy();
-    });
+    await user.selectOptions(screen.getByLabelText('Resolution'), '2K');
+
+    expect(handleChange).toHaveBeenCalledWith({ prompt: 'existing', resolution: '2K' });
   });
 
-  describe('text type', () => {
-    it('renders nothing for text type', () => {
-      const { container } = render(
-        <GenerationOptionsForm type="text" options={{}} onChange={vi.fn()} />,
-      );
-      expect(container.innerHTML).toBe('');
-    });
+  it('removes a field from values when onChange emits undefined', async () => {
+    const user = userEvent.setup();
+    const handleChange = vi.fn();
+    renderWithClient(
+      <GenerationOptionsForm
+        model={MODEL}
+        values={{ num_images: 3 }}
+        onChange={handleChange}
+        projectId="p1"
+      />,
+    );
+
+    const numInput = screen.getByLabelText('Number of Images');
+    await user.clear(numInput);
+
+    expect(handleChange).toHaveBeenLastCalledWith({});
   });
 });

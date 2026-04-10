@@ -3,6 +3,8 @@ import { z } from 'zod';
 const envSchema = z.object({
   APP_REDIS_URL: z.string().url(),
   APP_OPENAI_API_KEY: z.string().min(1),
+  APP_FAL_KEY: z.string().min(1),
+  APP_ELEVENLABS_API_KEY: z.string().min(1),
   APP_S3_BUCKET: z.string().min(1),
   APP_S3_ENDPOINT: z.string().optional(),
   APP_S3_REGION: z.string().default('us-east-1'),
@@ -28,6 +30,12 @@ const env = parsed.data;
 export const config = {
   openai: {
     apiKey: env.APP_OPENAI_API_KEY,
+  },
+  fal: {
+    key: env.APP_FAL_KEY,
+  },
+  elevenlabs: {
+    apiKey: env.APP_ELEVENLABS_API_KEY,
   },
   redis: {
     url: env.APP_REDIS_URL,

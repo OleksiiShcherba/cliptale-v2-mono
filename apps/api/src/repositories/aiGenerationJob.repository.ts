@@ -2,19 +2,37 @@ import type { RowDataPacket } from 'mysql2/promise';
 
 import { pool } from '@/db/connection.js';
 
-/** Job status lifecycle. */
+/** Job status lifecycle — matches the ENUM in migration 014. */
 export type AiJobStatus = 'queued' | 'processing' | 'completed' | 'failed';
 
-/** Generation type — matches the ENUM in migration 010. */
-export type AiGenerationType = 'image' | 'video' | 'audio' | 'text';
+/**
+ * All capability values accepted by the `ai_generation_jobs.capability` ENUM.
+ *
+ * Mirrors migration 015 which extends the original four fal.ai values with four
+ * ElevenLabs audio capabilities. Re-exported from the repository so the queue
+ * payload (and any other DB-adjacent consumer) can reference the DB-shaped type
+ * without reaching into the contracts package.
+ *
+ * fal.ai capabilities: text_to_image, image_edit, text_to_video, image_to_video
+ * ElevenLabs audio:    text_to_speech, voice_cloning, speech_to_speech, music_generation
+ */
+export type AiCapability =
+  | 'text_to_image'
+  | 'image_edit'
+  | 'text_to_video'
+  | 'image_to_video'
+  | 'text_to_speech'
+  | 'voice_cloning'
+  | 'speech_to_speech'
+  | 'music_generation';
 
-/** Full job record as stored in ai_generation_jobs. */
+/** Full job record as stored in ai_generation_jobs (migration 014). */
 export type AiGenerationJob = {
   jobId: string;
   userId: string;
   projectId: string;
-  type: AiGenerationType;
-  provider: string;
+  modelId: string;
+  capability: AiCapability;
   prompt: string;
   options: Record<string, unknown> | null;
   status: AiJobStatus;
@@ -30,8 +48,8 @@ type JobRow = RowDataPacket & {
   job_id: string;
   user_id: string;
   project_id: string;
-  type: AiGenerationType;
-  provider: string;
+  model_id: string;
+  capability: AiCapability;
   prompt: string;
   options: Record<string, unknown> | null;
   status: AiJobStatus;
@@ -48,8 +66,8 @@ function mapRow(row: JobRow): AiGenerationJob {
     jobId: row.job_id,
     userId: row.user_id,
     projectId: row.project_id,
-    type: row.type,
-    provider: row.provider,
+    modelId: row.model_id,
+    capability: row.capability,
     prompt: row.prompt,
     options: row.options,
     status: row.status,
@@ -67,21 +85,21 @@ export async function createJob(params: {
   jobId: string;
   userId: string;
   projectId: string;
-  type: AiGenerationType;
-  provider: string;
+  modelId: string;
+  capability: AiCapability;
   prompt: string;
   options: Record<string, unknown> | null;
 }): Promise<void> {
   await pool.execute(
     `INSERT INTO ai_generation_jobs
-       (job_id, user_id, project_id, type, provider, prompt, options)
+       (job_id, user_id, project_id, model_id, capability, prompt, options)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       params.jobId,
       params.userId,
       params.projectId,
-      params.type,
-      params.provider,
+      params.modelId,
+      params.capability,
       params.prompt,
       params.options ? JSON.stringify(params.options) : null,
     ],

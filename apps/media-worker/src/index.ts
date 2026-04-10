@@ -1,10 +1,17 @@
-import { Worker } from 'bullmq';
+import { Queue, Worker } from 'bullmq';
 import type { MediaIngestJobPayload, TranscriptionJobPayload } from '@ai-video-editor/project-schema';
 import OpenAI from 'openai';
 
 import { config } from '@/config.js';
 import { s3Client } from '@/lib/s3.js';
 import { pool } from '@/lib/db.js';
+import { submitFalJob, getFalJobStatus } from '@/lib/fal-client.js';
+import {
+  textToSpeech,
+  voiceClone,
+  speechToSpeech,
+  musicGeneration,
+} from '@/lib/elevenlabs-client.js';
 import { processIngestJob } from '@/jobs/ingest.job.js';
 import { processTranscribeJob } from '@/jobs/transcribe.job.js';
 import { processAiGenerateJob, type AiGenerateJobPayload } from '@/jobs/ai-generate.job.js';
@@ -16,6 +23,13 @@ const QUEUE_AI_GENERATE = 'ai-generate';
 const connection = { url: config.redis.url };
 
 const openaiClient = new OpenAI({ apiKey: config.openai.apiKey });
+
+// Worker-side producer for media-ingest — used by the ai-generate handler to
+// hand off newly written assets to FFprobe so they get duration/fps/thumbnail.
+const mediaIngestQueue = new Queue<MediaIngestJobPayload>(QUEUE_MEDIA_INGEST, { connection });
+mediaIngestQueue.on('error', (err) => {
+  console.error('[media-worker] mediaIngestQueue error:', err.message);
+});
 
 // ── Ingest worker (concurrency 2) ─────────────────────────────────────────────
 
@@ -65,7 +79,16 @@ console.log('[media-worker] Listening for jobs on queue:', QUEUE_TRANSCRIPTION);
 
 const aiGenerateWorker = new Worker<AiGenerateJobPayload>(
   QUEUE_AI_GENERATE,
-  (job) => processAiGenerateJob(job, { s3: s3Client, pool, bucket: config.s3.bucket }),
+  (job) => processAiGenerateJob(job, {
+    s3: s3Client,
+    pool,
+    bucket: config.s3.bucket,
+    falKey: config.fal.key,
+    fal: { submitFalJob, getFalJobStatus },
+    elevenlabsKey: config.elevenlabs.apiKey,
+    elevenlabs: { textToSpeech, voiceClone, speechToSpeech, musicGeneration },
+    ingestQueue: mediaIngestQueue,
+  }),
   { connection, concurrency: 2 },
 );
 
@@ -87,7 +110,12 @@ console.log('[media-worker] Listening for jobs on queue:', QUEUE_AI_GENERATE);
 
 async function shutdown(signal: string): Promise<void> {
   console.log(`[media-worker] Received ${signal}. Closing workers gracefully...`);
-  await Promise.all([ingestWorker.close(), transcriptionWorker.close(), aiGenerateWorker.close()]);
+  await Promise.all([
+    ingestWorker.close(),
+    transcriptionWorker.close(),
+    aiGenerateWorker.close(),
+    mediaIngestQueue.close(),
+  ]);
   console.log('[media-worker] Workers closed. Exiting.');
   process.exit(0);
 }
