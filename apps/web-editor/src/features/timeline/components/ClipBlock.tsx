@@ -8,8 +8,9 @@ import { WaveformSvg } from './WaveformSvg.js';
 const CLIP_COLORS: Record<Clip['type'], string> = {
   video:          '#7C3AED',
   audio:          '#4C1D95',
-  'text-overlay': '#10B981',
+  'text-overlay': '#F59E0B',
   image:          '#0EA5E9',
+  caption:        '#10B981',
 };
 
 const CLIP_SELECTED_BORDER_COLOR = '#F0F0FA';
@@ -84,6 +85,15 @@ interface ClipBlockProps {
     clipWidth: number,
     isLocked: boolean,
   ) => 'ew-resize' | null;
+}
+
+/** Returns a short human-readable label for the clip block. */
+function getClipLabel(clip: Clip): string {
+  if (clip.type === 'caption') {
+    const text = clip.words.map((w) => w.word).join(' ');
+    return text.length > 40 ? `${text.slice(0, 40)}…` : text || 'caption';
+  }
+  return clip.type;
 }
 
 /**
@@ -240,7 +250,7 @@ export function ClipBlock({
       )}
 
       {/* Clip label — always shown, sits above thumbnail/waveform */}
-      <span style={styles.label}>{clip.type}</span>
+      <span style={styles.label}>{getClipLabel(clip)}</span>
     </div>
   );
 }

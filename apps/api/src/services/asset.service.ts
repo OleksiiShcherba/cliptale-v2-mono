@@ -165,6 +165,44 @@ export async function deleteAsset(assetId: string, userId: string): Promise<void
   await assetRepository.deleteAssetById(assetId);
 }
 
+/**
+ * Renames an asset by setting its `display_name` field.
+ *
+ * Enforces ownership: throws NotFoundError if the asset does not exist or
+ * belongs to a different user — never reveals whether the asset exists on
+ * another account (same pattern as `deleteAsset`).
+ *
+ * The `displayName` argument is trimmed before storage. An empty string after
+ * trimming is treated as clearing the display name (sets column to null),
+ * which causes the UI to fall back to the original filename.
+ *
+ * @param assetId - Primary key of the asset to rename.
+ * @param userId - ID of the authenticated caller.
+ * @param displayName - New display name (1–255 characters, will be trimmed).
+ * @returns The updated asset fetched fresh from the database.
+ */
+export async function renameAsset(
+  assetId: string,
+  userId: string,
+  displayName: string,
+): Promise<Asset> {
+  const asset = await assetRepository.getAssetById(assetId);
+  if (!asset || asset.userId !== userId) {
+    throw new NotFoundError(`Asset "${assetId}" not found`);
+  }
+
+  const trimmed = displayName.trim();
+  // Store null when the trimmed value is empty so the UI falls back to filename.
+  await assetRepository.updateAssetDisplayName(assetId, trimmed || null);
+
+  const updated = await assetRepository.getAssetById(assetId);
+  // The asset was confirmed above; a null here would be a race-condition DB error.
+  if (!updated) {
+    throw new NotFoundError(`Asset "${assetId}" not found after update`);
+  }
+  return updated;
+}
+
 /** Parses bucket name and object key from a `s3://bucket/key` URI. */
 export function parseStorageUri(storageUri: string): { bucket: string; key: string } {
   const withoutScheme = storageUri.replace(/^s3:\/\//, '');

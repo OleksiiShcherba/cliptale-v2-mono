@@ -4,17 +4,36 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 
-import type { FalFieldSchema } from '@/features/ai-generation/types';
+import type { ElevenLabsVoice, FalFieldSchema } from '@/features/ai-generation/types';
 
-const { mockGetAssets } = vi.hoisted(() => ({
-  mockGetAssets: vi.fn(),
-}));
+const { mockGetAssets, mockListUserVoices, mockListAvailableVoices, mockGetVoiceSampleUrl } =
+  vi.hoisted(() => ({
+    mockGetAssets: vi.fn(),
+    mockListUserVoices: vi.fn(),
+    mockListAvailableVoices: vi.fn(),
+    mockGetVoiceSampleUrl: vi.fn(),
+  }));
 
 vi.mock('@/features/asset-manager/api', () => ({
   getAssets: mockGetAssets,
 }));
 
+vi.mock('@/features/ai-generation/api', () => ({
+  listUserVoices: mockListUserVoices,
+  listAvailableVoices: mockListAvailableVoices,
+  getVoiceSampleUrl: mockGetVoiceSampleUrl,
+}));
+
 import { SchemaFieldInput } from './SchemaFieldInput';
+
+const LIBRARY_VOICE: ElevenLabsVoice = {
+  voiceId: 'pNInz6obpgDQGcFmaJgB',
+  name: 'Adam',
+  category: 'premade',
+  description: null,
+  previewUrl: 'https://cdn.elevenlabs.io/adam-preview.mp3',
+  labels: { gender: 'male', accent: 'american' },
+};
 
 function renderWithClient(ui: ReactNode) {
   const client = new QueryClient({
@@ -26,6 +45,9 @@ function renderWithClient(ui: ReactNode) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetAssets.mockResolvedValue([]);
+  mockListUserVoices.mockResolvedValue([]);
+  mockListAvailableVoices.mockResolvedValue([LIBRARY_VOICE]);
+  mockGetVoiceSampleUrl.mockResolvedValue('https://s3.example.com/adam-preview.mp3');
 });
 
 describe('SchemaFieldInput', () => {
@@ -253,5 +275,110 @@ describe('SchemaFieldInput', () => {
 
     await user.click(screen.getByRole('button', { name: 'Remove Multi Prompt 1' }));
     expect(handleChange).toHaveBeenLastCalledWith(['second']);
+  });
+
+  it('renders VoicePickerField for voice_picker fields with "Select a voice…" trigger when no value', () => {
+    const field: FalFieldSchema = {
+      name: 'voice_id',
+      type: 'voice_picker',
+      label: 'Voice',
+      required: true,
+    };
+    renderWithClient(
+      <SchemaFieldInput
+        field={field}
+        value={undefined}
+        onChange={() => undefined}
+        projectId="p1"
+      />,
+    );
+    expect(screen.getByText('Voice')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /select a voice/i })).toBeTruthy();
+  });
+
+  it('renders VoicePickerField for voice_picker fields and shows resolved voice name', async () => {
+    const field: FalFieldSchema = {
+      name: 'voice_id',
+      type: 'voice_picker',
+      label: 'Voice',
+      required: false,
+    };
+    renderWithClient(
+      <SchemaFieldInput
+        field={field}
+        value={LIBRARY_VOICE.voiceId}
+        onChange={() => undefined}
+        projectId="p1"
+      />,
+    );
+    await screen.findByText('Adam');
+    expect(screen.queryByRole('button', { name: /select a voice/i })).toBeNull();
+  });
+
+  it('calls onChange with selected voiceId when voice is picked via VoicePickerField', async () => {
+    const user = userEvent.setup();
+    const handleChange = vi.fn();
+    const field: FalFieldSchema = {
+      name: 'voice_id',
+      type: 'voice_picker',
+      label: 'Voice',
+      required: true,
+    };
+    renderWithClient(
+      <SchemaFieldInput
+        field={field}
+        value={undefined}
+        onChange={handleChange}
+        projectId="p1"
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /select a voice/i }));
+    await screen.findByRole('dialog', { name: /select a voice/i });
+    await screen.findByRole('button', { name: /^Adam$/i });
+    await user.click(screen.getByRole('button', { name: /^Adam$/i }));
+    await user.click(screen.getByRole('button', { name: /use this voice/i }));
+    expect(handleChange).toHaveBeenCalledWith(LIBRARY_VOICE.voiceId);
+  });
+
+  it('calls onChange with undefined when the clear button is clicked on voice_picker', async () => {
+    const user = userEvent.setup();
+    const handleChange = vi.fn();
+    const field: FalFieldSchema = {
+      name: 'voice_id',
+      type: 'voice_picker',
+      label: 'Voice',
+      required: false,
+      description: 'Choose the output voice.',
+    };
+    renderWithClient(
+      <SchemaFieldInput
+        field={field}
+        value={LIBRARY_VOICE.voiceId}
+        onChange={handleChange}
+        projectId="p1"
+      />,
+    );
+    await screen.findByText('Adam');
+    expect(screen.getByText('Choose the output voice.')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /clear voice/i }));
+    expect(handleChange).toHaveBeenCalledWith(undefined);
+  });
+
+  it('treats a non-string value as undefined for voice_picker and renders the empty trigger', () => {
+    const field: FalFieldSchema = {
+      name: 'voice_id',
+      type: 'voice_picker',
+      label: 'Voice',
+      required: false,
+    };
+    renderWithClient(
+      <SchemaFieldInput
+        field={field}
+        value={42}
+        onChange={() => undefined}
+        projectId="p1"
+      />,
+    );
+    expect(screen.getByRole('button', { name: /select a voice/i })).toBeTruthy();
   });
 });

@@ -14,6 +14,7 @@ function makeAsset(status: Asset['status']): Asset {
     id: 'asset-1',
     projectId: 'project-1',
     filename: 'video.mp4',
+    displayName: null,
     contentType: 'video/mp4',
     downloadUrl: 'https://example.com/presigned/key',
     status,

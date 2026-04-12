@@ -15,6 +15,7 @@ export type Asset = {
   projectId: string;
   userId: string;
   filename: string;
+  displayName: string | null;
   contentType: string;
   fileSizeBytes: number;
   storageUri: string;
@@ -46,6 +47,7 @@ type AssetRow = RowDataPacket & {
   project_id: string;
   user_id: string;
   filename: string;
+  display_name: string | null;
   content_type: string;
   file_size_bytes: number;
   storage_uri: string;
@@ -67,6 +69,7 @@ function mapRowToAsset(row: AssetRow): Asset {
     projectId: row.project_id,
     userId: row.user_id,
     filename: row.filename,
+    displayName: row.display_name,
     contentType: row.content_type,
     fileSizeBytes: row.file_size_bytes,
     storageUri: row.storage_uri,
@@ -153,5 +156,22 @@ export async function updateAssetStatus(
      SET status = ?, error_message = ?
      WHERE asset_id = ?`,
     [status, errorMessage ?? null, assetId],
+  );
+}
+
+/**
+ * Sets the `display_name` column on an asset row.
+ * Pass `null` to clear a previously set display name.
+ * Silent no-op when no row matches `assetId`.
+ */
+export async function updateAssetDisplayName(
+  assetId: string,
+  displayName: string | null,
+): Promise<void> {
+  await pool.execute(
+    `UPDATE project_assets_current
+     SET display_name = ?
+     WHERE asset_id = ?`,
+    [displayName, assetId],
   );
 }

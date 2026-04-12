@@ -2,6 +2,8 @@ import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 
 import * as aiGenerationService from '@/services/aiGeneration.service.js';
+import * as voiceCatalogService from '@/services/voiceCatalog.service.js';
+import { ValidationError } from '@/lib/errors.js';
 
 /**
  * Zod schema for POST /projects/:id/ai/generate.
@@ -75,6 +77,41 @@ export function listModels(
   try {
     const result = aiGenerationService.listModels();
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** GET /ai/voices/available — returns all ElevenLabs library voices (Redis-cached, 1hr TTL). */
+export async function listAvailableVoices(
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const voices = await voiceCatalogService.listAvailableVoices();
+    res.json(voices);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** GET /ai/voices/:voiceId/sample?previewUrl=... — returns a presigned S3 URL for a voice sample. */
+export async function getVoiceSample(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const { voiceId } = req.params as { voiceId: string };
+    const previewUrl = req.query['previewUrl'];
+
+    if (typeof previewUrl !== 'string' || previewUrl.trim() === '') {
+      throw new ValidationError('previewUrl query parameter is required');
+    }
+
+    const signedUrl = await voiceCatalogService.getVoiceSampleUrl(voiceId, previewUrl);
+    res.json({ url: signedUrl });
   } catch (err) {
     next(err);
   }

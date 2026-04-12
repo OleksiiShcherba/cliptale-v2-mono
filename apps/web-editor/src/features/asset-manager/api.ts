@@ -35,3 +35,13 @@ export async function getAssets(projectId: string): Promise<Asset[]> {
   if (!res.ok) throw new Error(`Failed to get assets (${res.status})`);
   return res.json() as Promise<Asset[]>;
 }
+
+/** Update the display name of an asset. Returns the updated asset. */
+export async function updateAsset(assetId: string, displayName: string): Promise<Asset> {
+  const res = await apiClient.patch(`/assets/${assetId}`, { name: displayName });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to update asset (${res.status}): ${body}`);
+  }
+  return res.json() as Promise<Asset>;
+}

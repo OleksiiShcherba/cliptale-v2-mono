@@ -37,38 +37,67 @@ const OUTPUT_FORMAT = 'mp3_44100_128';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+/** Parameters for the `textToSpeech` function. */
 export type TextToSpeechParams = {
   apiKey: string;
   text: string;
+  /** Defaults to the ElevenLabs "Adam" voice when omitted. */
   voiceId?: string;
+  /** Voice stability (0–1); defaults to 0.5. */
   stability?: number;
+  /** Voice similarity boost (0–1); defaults to 0.75. */
   similarityBoost?: number;
 };
 
+/** Parameters for the `voiceClone` function (Instant Voice Clone). */
 export type VoiceCloneParams = {
   apiKey: string;
+  /** Display name for the cloned voice in ElevenLabs. */
   name: string;
   audioSampleBytes: Buffer;
   audioSampleFilename: string;
   description?: string;
 };
 
+/** Return value from `voiceClone` — the newly created ElevenLabs voice ID. */
 export type VoiceCloneResult = {
   voiceId: string;
 };
 
+/** Parameters for the `speechToSpeech` function. */
 export type SpeechToSpeechParams = {
   apiKey: string;
   sourceAudioBytes: Buffer;
   sourceAudioFilename: string;
+  /** Target ElevenLabs voice ID to convert the source audio into. */
   voiceId: string;
+  /** Voice stability (0–1); defaults to 0.5. */
   stability?: number;
 };
 
+/** Parameters for the `musicGeneration` (sound generation) function. */
 export type MusicGenerationParams = {
   apiKey: string;
+  /** Text prompt describing the desired music or sound effect. */
   prompt: string;
+  /** Target duration in seconds; omit to use ElevenLabs default. */
   durationSeconds?: number;
+};
+
+/** Typed representation of a single ElevenLabs voice from `GET /v1/voices`. */
+export type ElevenLabsVoice = {
+  /** ElevenLabs voice ID — pass to TTS/S2S as `voiceId`. */
+  voiceId: string;
+  /** Human-readable display name. */
+  name: string;
+  /** Voice category returned by ElevenLabs (e.g. `"premade"`, `"cloned"`). */
+  category: string;
+  /** Optional freeform description; `null` when the API omits the field. */
+  description: string | null;
+  /** URL to the ElevenLabs-hosted MP3 preview sample. */
+  previewUrl: string;
+  /** Key-value labels (accent, gender, age, etc.) — empty object when absent. */
+  labels: Record<string, string>;
 };
 
 // ── Functions ──────────────────────────────────────────────────────────────
@@ -197,6 +226,47 @@ export async function musicGeneration(params: MusicGenerationParams): Promise<Bu
   }
 
   return Buffer.from(await response.arrayBuffer());
+}
+
+/**
+ * Returns all available ElevenLabs voices (premade library + user-cloned).
+ * Maps the raw API response to the typed `ElevenLabsVoice` shape.
+ */
+export async function listAvailableVoices(apiKey: string): Promise<ElevenLabsVoice[]> {
+  const url = `${BASE_URL}/v1/voices`;
+
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'xi-api-key': apiKey,
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new ElevenLabsError(response.status, await response.text(), 'list-voices');
+  }
+
+  const body = (await response.json()) as { voices?: unknown[] };
+  if (!Array.isArray(body.voices)) {
+    throw new ElevenLabsError(200, JSON.stringify(body), 'list-voices', 'response missing voices array');
+  }
+
+  return body.voices.map((raw) => {
+    const v = raw as Record<string, unknown>;
+    return {
+      voiceId: String(v['voice_id'] ?? ''),
+      name: String(v['name'] ?? ''),
+      category: String(v['category'] ?? ''),
+      description: v['description'] != null ? String(v['description']) : null,
+      previewUrl: String(v['preview_url'] ?? ''),
+      labels: (v['labels'] != null && typeof v['labels'] === 'object')
+        ? Object.fromEntries(
+            Object.entries(v['labels'] as Record<string, unknown>).map(([k, val]) => [k, String(val)]),
+          )
+        : {},
+    };
+  });
 }
 
 // ── Error type ─────────────────────────────────────────────────────────────

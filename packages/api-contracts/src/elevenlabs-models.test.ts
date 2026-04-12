@@ -82,6 +82,38 @@ describe('elevenlabs-models catalog', () => {
     expect(fields.some((f) => f.name === 'voice_id' && f.required)).toBe(true);
   });
 
+  it('text_to_speech voice_id field uses type "voice_picker"', () => {
+    const model = ELEVENLABS_MODELS.find((m) => m.capability === 'text_to_speech');
+    expect(model).toBeDefined();
+    const voiceField = model!.inputSchema.fields.find((f) => f.name === 'voice_id');
+    expect(voiceField).toBeDefined();
+    expect(voiceField!.type).toBe('voice_picker');
+    expect(voiceField!.required).toBe(false);
+  });
+
+  it('speech_to_speech voice_id field uses type "voice_picker"', () => {
+    const model = ELEVENLABS_MODELS.find((m) => m.capability === 'speech_to_speech');
+    expect(model).toBeDefined();
+    const voiceField = model!.inputSchema.fields.find((f) => f.name === 'voice_id');
+    expect(voiceField).toBeDefined();
+    expect(voiceField!.type).toBe('voice_picker');
+    expect(voiceField!.required).toBe(true);
+  });
+
+  it('voice_cloning has no voice_picker fields (it creates voices, not selects them)', () => {
+    const model = ELEVENLABS_MODELS.find((m) => m.capability === 'voice_cloning');
+    expect(model).toBeDefined();
+    const voicePickerFields = model!.inputSchema.fields.filter((f) => f.type === 'voice_picker');
+    expect(voicePickerFields).toHaveLength(0);
+  });
+
+  it('music_generation has no voice_picker fields', () => {
+    const model = ELEVENLABS_MODELS.find((m) => m.capability === 'music_generation');
+    expect(model).toBeDefined();
+    const voicePickerFields = model!.inputSchema.fields.filter((f) => f.type === 'voice_picker');
+    expect(voicePickerFields).toHaveLength(0);
+  });
+
   it('music_generation has a "prompt" required field and optional "duration"', () => {
     const model = ELEVENLABS_MODELS.find((m) => m.capability === 'music_generation');
     expect(model).toBeDefined();

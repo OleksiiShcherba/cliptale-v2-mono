@@ -60,6 +60,8 @@ export type AssetApiResponse = {
   id: string;
   projectId: string;
   filename: string;
+  /** User-provided display name. When set, the UI shows this instead of `filename`. */
+  displayName: string | null;
   contentType: string;
   /** Presigned HTTPS GET URL for direct download — never a raw s3:// URI. */
   downloadUrl: string;
@@ -80,6 +82,7 @@ async function toAssetApiResponse(asset: Asset, s3: S3Client, baseUrl: string): 
     id: asset.assetId,
     projectId: asset.projectId,
     filename: asset.filename,
+    displayName: asset.displayName,
     contentType: asset.contentType,
     downloadUrl: await presignDownloadUrl(asset.storageUri, s3),
     status: asset.status,

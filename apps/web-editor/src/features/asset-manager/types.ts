@@ -9,6 +9,8 @@ export type Asset = {
   id: string;
   projectId: string;
   filename: string;
+  /** User-provided display name. When null, fall back to `filename` for display. */
+  displayName: string | null;
   contentType: string;
   /** Presigned HTTPS GET URL — never a raw s3:// URI. */
   downloadUrl: string;

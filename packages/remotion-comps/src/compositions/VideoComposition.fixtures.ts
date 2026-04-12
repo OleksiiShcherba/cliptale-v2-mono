@@ -100,3 +100,29 @@ export const CLIP_TEXT = {
   color: '#FFFFFF',
   position: 'bottom' as const,
 };
+
+/** Fixture caption track with `muted: false`. */
+export const TRACK_CAPTION = {
+  id: 'track-caption-001',
+  type: 'caption' as const,
+  name: 'Caption 1',
+  muted: false,
+  locked: false,
+};
+
+/** Fixture caption clip with two words, placed at frame 0 on `TRACK_CAPTION`. */
+export const CLIP_CAPTION = {
+  id: 'clip-caption-001',
+  type: 'caption' as const,
+  trackId: TRACK_CAPTION.id,
+  startFrame: 0,
+  durationFrames: 60,
+  words: [
+    { word: 'Hello', startFrame: 0, endFrame: 15 },
+    { word: 'world', startFrame: 16, endFrame: 30 },
+  ],
+  activeColor: '#FFFFFF',
+  inactiveColor: 'rgba(255,255,255,0.35)',
+  fontSize: 24,
+  position: 'bottom' as const,
+};

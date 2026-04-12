@@ -7,7 +7,7 @@
 import React from 'react';
 import type { PlayerRef } from '@remotion/player';
 
-import type { AudioClip, ImageClip, TextOverlayClip, VideoClip } from '@ai-video-editor/project-schema';
+import type { AudioClip, CaptionClip, ImageClip, TextOverlayClip, VideoClip } from '@ai-video-editor/project-schema';
 
 import { AssetBrowserPanel } from '@/features/asset-manager/components/AssetBrowserPanel';
 import { AiGenerationPanel } from '@/features/ai-generation/components/AiGenerationPanel';
@@ -87,6 +87,20 @@ export function RightSidebar(): React.ReactElement | null {
         <aside style={styles.rightSidebar} aria-label="Inspector">
           <CaptionEditorPanel
             clip={selectedClip as TextOverlayClip}
+            onClose={() => setSelectedClips([])}
+          />
+        </aside>
+      </>
+    );
+  }
+
+  if (selectedClip.type === 'caption') {
+    return (
+      <>
+        <div style={styles.rightSidebarDivider} aria-hidden="true" />
+        <aside style={styles.rightSidebar} aria-label="Inspector">
+          <CaptionEditorPanel
+            clip={selectedClip as CaptionClip}
             onClose={() => setSelectedClips([])}
           />
         </aside>
@@ -195,6 +209,15 @@ export function MobileTabContent({ activeTab, projectId, onSwitchToAssets }: Mob
       );
     }
 
+    if (selectedClip?.type === 'caption') {
+      return (
+        <CaptionEditorPanel
+          clip={selectedClip as CaptionClip}
+          onClose={() => setSelectedClips([])}
+        />
+      );
+    }
+
     return emptyPanel('No caption clip selected', 'Select a caption clip to edit it');
   }
 
@@ -216,6 +239,15 @@ export function MobileTabContent({ activeTab, projectId, onSwitchToAssets }: Mob
       return (
         <CaptionEditorPanel
           clip={selectedClip as TextOverlayClip}
+          onClose={() => setSelectedClips([])}
+        />
+      );
+    }
+
+    if (selectedClip?.type === 'caption') {
+      return (
+        <CaptionEditorPanel
+          clip={selectedClip as CaptionClip}
           onClose={() => setSelectedClips([])}
         />
       );

@@ -87,6 +87,19 @@ const numberField = (
   max,
 });
 
+const voicePickerField = (
+  name: string,
+  label: string,
+  description: string,
+  required: boolean,
+): FalFieldSchema => ({
+  name,
+  type: 'voice_picker',
+  label,
+  required,
+  description,
+});
+
 // ── Catalog ───────────────────────────────────────────────────────────────────
 
 export const ELEVENLABS_MODELS: readonly ElevenLabsModel[] = [
@@ -101,10 +114,10 @@ export const ELEVENLABS_MODELS: readonly ElevenLabsModel[] = [
     inputSchema: {
       fields: [
         textField('text', 'Text', 'The text to convert to speech.'),
-        stringField(
+        voicePickerField(
           'voice_id',
-          'Voice ID',
-          'ElevenLabs voice ID. Leave blank to use the default voice.',
+          'Voice',
+          'Select an ElevenLabs voice. Leave unset to use the default voice.',
           false,
         ),
         numberField('stability', 'Stability', 'Voice stability (0–1).', 0.5, 0, 1),
@@ -173,10 +186,10 @@ export const ELEVENLABS_MODELS: readonly ElevenLabsModel[] = [
           required: true,
           description: 'Upload the audio clip whose voice you want to change (MP3 or WAV).',
         },
-        stringField(
+        voicePickerField(
           'voice_id',
-          'Target Voice ID',
-          'ElevenLabs voice ID for the output voice.',
+          'Target Voice',
+          'Select the ElevenLabs voice for the output audio.',
           true,
         ),
         numberField('stability', 'Stability', 'Voice stability for the output (0–1).', 0.5, 0, 1),

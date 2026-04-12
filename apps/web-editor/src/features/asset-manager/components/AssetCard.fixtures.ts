@@ -6,6 +6,7 @@ export function makeAsset(overrides: Partial<Asset> = {}): Asset {
     id: 'asset-001',
     projectId: 'proj-001',
     filename: 'clip.mp4',
+    displayName: null,
     contentType: 'video/mp4',
     downloadUrl: 'https://example.com/presigned/clip.mp4',
     status: 'ready',

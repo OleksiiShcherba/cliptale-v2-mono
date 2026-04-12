@@ -17,6 +17,8 @@ vi.mock('remotion', () => ({
   getRemotionEnvironment: () => ({ isRendering: false }),
   Img: (props: Record<string, unknown>) =>
     React.createElement('img', { 'data-testid': 'image-layer', ...props }),
+  useVideoConfig: () => ({ fps: 30, durationInFrames: 300, width: 1920, height: 1080 }),
+  useCurrentFrame: () => 0,
 }));
 
 // Mock project-schema package to avoid build artifact dependency in tests.
@@ -28,10 +30,12 @@ import {
   TRACK_VIDEO,
   TRACK_AUDIO,
   TRACK_OVERLAY,
+  TRACK_CAPTION,
   CLIP_VIDEO,
   CLIP_AUDIO,
   CLIP_IMAGE,
   CLIP_TEXT,
+  CLIP_CAPTION,
 } from './VideoComposition.fixtures.js';
 
 describe('VideoComposition', () => {
@@ -109,6 +113,17 @@ describe('VideoComposition', () => {
         <VideoComposition projectDoc={doc} assetUrls={{}} />
       );
       expect(queryAllByTestId('sequence')).toHaveLength(0);
+    });
+
+    it('renders a Sequence for a caption clip', () => {
+      const doc = makeProjectDoc({
+        tracks: [TRACK_CAPTION],
+        clips: [CLIP_CAPTION],
+      });
+      const { getAllByTestId } = render(
+        <VideoComposition projectDoc={doc} assetUrls={{}} />
+      );
+      expect(getAllByTestId('sequence')).toHaveLength(1);
     });
 
     it('passes opacity from image clip to ImageLayer', () => {
@@ -269,6 +284,58 @@ describe('VideoComposition', () => {
       // The original array order must be preserved.
       expect(doc.clips[0].id).toBe(CLIP_AUDIO.id);
       expect(doc.clips[1].id).toBe(CLIP_VIDEO.id);
+    });
+  });
+
+  describe('caption clip rendering', () => {
+    it('renders caption clip words inside CaptionLayer', () => {
+      const doc = makeProjectDoc({
+        tracks: [TRACK_CAPTION],
+        clips: [CLIP_CAPTION],
+      });
+      const { getByText } = render(
+        <VideoComposition projectDoc={doc} assetUrls={{}} />
+      );
+      // CaptionLayer renders each word as a span; both words must be in the DOM.
+      expect(getByText('Hello')).toBeTruthy();
+      expect(getByText('world')).toBeTruthy();
+    });
+
+    it('renders a Sequence with correct from and durationInFrames for a caption clip', () => {
+      const captionClip = { ...CLIP_CAPTION, startFrame: 15, durationFrames: 45 };
+      const doc = makeProjectDoc({
+        tracks: [TRACK_CAPTION],
+        clips: [captionClip],
+      });
+      const { getByTestId } = render(
+        <VideoComposition projectDoc={doc} assetUrls={{}} />
+      );
+      const seq = getByTestId('sequence');
+      expect(seq.getAttribute('data-from')).toBe('15');
+      expect(seq.getAttribute('data-duration')).toBe('45');
+    });
+
+    it('does not render caption clip when its track is muted', () => {
+      const mutedTrack = { ...TRACK_CAPTION, muted: true };
+      const doc = makeProjectDoc({
+        tracks: [mutedTrack],
+        clips: [CLIP_CAPTION],
+      });
+      const { queryAllByTestId } = render(
+        <VideoComposition projectDoc={doc} assetUrls={{}} />
+      );
+      expect(queryAllByTestId('sequence')).toHaveLength(0);
+    });
+
+    it('renders both a caption clip and a text-overlay clip on separate tracks', () => {
+      const doc = makeProjectDoc({
+        tracks: [TRACK_CAPTION, TRACK_OVERLAY],
+        clips: [CLIP_CAPTION, CLIP_TEXT],
+      });
+      const { getAllByTestId } = render(
+        <VideoComposition projectDoc={doc} assetUrls={{}} />
+      );
+      expect(getAllByTestId('sequence')).toHaveLength(2);
     });
   });
 

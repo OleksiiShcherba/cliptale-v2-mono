@@ -3,6 +3,8 @@ import { describe, it, expect } from 'vitest';
 import type {
   MediaIngestJobPayload,
   TranscriptionJobPayload,
+  CaptionWord,
+  CaptionSegment,
   RenderPreset,
   RenderVideoJobPayload,
 } from './job-payloads.js';
@@ -114,6 +116,79 @@ describe('RenderVideoJobPayload', () => {
 
     expect(payload.preset.key).toBe('vertical');
     expect(payload.preset.height).toBeGreaterThan(payload.preset.width);
+  });
+});
+
+describe('CaptionSegment', () => {
+  it('should accept a segment without words (backward-compatible with existing DB rows)', () => {
+    const segment: CaptionSegment = {
+      start: 0.0,
+      end: 2.5,
+      text: 'Hello world',
+    };
+
+    expect(segment.start).toBe(0.0);
+    expect(segment.end).toBe(2.5);
+    expect(segment.text).toBe('Hello world');
+    expect(segment.words).toBeUndefined();
+  });
+
+  it('should accept a segment with an empty words array', () => {
+    const segment: CaptionSegment = {
+      start: 0.0,
+      end: 2.5,
+      text: 'Hello world',
+      words: [],
+    };
+
+    expect(segment.words).toEqual([]);
+  });
+
+  it('should accept a segment with word-level timestamps', () => {
+    const words: CaptionWord[] = [
+      { word: 'Hello', start: 0.0, end: 0.5 },
+      { word: 'world', start: 0.6, end: 1.1 },
+    ];
+
+    const segment: CaptionSegment = {
+      start: 0.0,
+      end: 1.1,
+      text: 'Hello world',
+      words,
+    };
+
+    expect(segment.words).toHaveLength(2);
+    expect(segment.words![0].word).toBe('Hello');
+    expect(segment.words![0].start).toBe(0.0);
+    expect(segment.words![0].end).toBe(0.5);
+    expect(segment.words![1].word).toBe('world');
+  });
+
+  it('should accept words with floating-point timestamps', () => {
+    const segment: CaptionSegment = {
+      start: 1.234,
+      end: 3.567,
+      text: 'The quick brown',
+      words: [
+        { word: 'The', start: 1.234, end: 1.456 },
+        { word: 'quick', start: 1.5, end: 1.8 },
+        { word: 'brown', start: 1.9, end: 3.567 },
+      ],
+    };
+
+    expect(segment.words).toHaveLength(3);
+    expect(segment.words![2].word).toBe('brown');
+    expect(segment.words![2].end).toBe(3.567);
+  });
+});
+
+describe('CaptionWord', () => {
+  it('should represent a single word with start and end timestamps', () => {
+    const word: CaptionWord = { word: 'fox', start: 2.1, end: 2.4 };
+
+    expect(word.word).toBe('fox');
+    expect(word.start).toBe(2.1);
+    expect(word.end).toBe(2.4);
   });
 });
 

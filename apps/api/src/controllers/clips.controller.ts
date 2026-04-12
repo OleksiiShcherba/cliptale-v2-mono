@@ -9,7 +9,7 @@ import * as clipService from '@/services/clip.service.js';
 export const createClipSchema = z.object({
   clipId: z.string().uuid(),
   trackId: z.string().uuid(),
-  type: z.enum(['video', 'audio', 'text-overlay', 'image']),
+  type: z.enum(['video', 'audio', 'text-overlay', 'image', 'caption']),
   assetId: z.string().uuid().nullable().optional(),
   startFrame: z.number().int().nonnegative(),
   durationFrames: z.number().int().positive(),

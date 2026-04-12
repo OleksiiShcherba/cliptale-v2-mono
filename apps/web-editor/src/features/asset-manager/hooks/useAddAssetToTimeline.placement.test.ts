@@ -54,6 +54,7 @@ function makeAsset(overrides: Partial<Asset> = {}): Asset {
     id: 'asset-001',
     projectId: TEST_PROJECT_ID,
     filename: 'test.mp4',
+    displayName: null,
     contentType: 'video/mp4',
     downloadUrl: 'https://example.com/presigned/test.mp4',
     status: 'ready',

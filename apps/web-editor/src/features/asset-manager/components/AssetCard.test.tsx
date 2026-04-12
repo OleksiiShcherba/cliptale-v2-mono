@@ -28,9 +28,21 @@ describe('AssetCard', () => {
   });
 
   describe('renders', () => {
-    it('renders the asset filename', () => {
-      render(<AssetCard asset={makeAsset()} isSelected={false} onSelect={onSelect} />);
+    it('renders the asset filename when displayName is null', () => {
+      render(<AssetCard asset={makeAsset({ displayName: null })} isSelected={false} onSelect={onSelect} />);
       expect(screen.getByText('clip.mp4')).toBeDefined();
+    });
+
+    it('renders the displayName instead of filename when displayName is set', () => {
+      render(
+        <AssetCard
+          asset={makeAsset({ filename: 'clip.mp4', displayName: 'My Great Clip' })}
+          isSelected={false}
+          onSelect={onSelect}
+        />,
+      );
+      expect(screen.getByText('My Great Clip')).toBeDefined();
+      expect(screen.queryByText('clip.mp4')).toBeNull();
     });
 
     it('renders a Video type label for video/mp4 content type', () => {

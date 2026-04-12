@@ -1,5 +1,5 @@
 import React from 'react';
-import { AbsoluteFill, Sequence } from 'remotion';
+import { AbsoluteFill, Sequence, useVideoConfig } from 'remotion';
 
 import type { ProjectDoc } from '@ai-video-editor/project-schema';
 
@@ -7,6 +7,7 @@ import { VideoLayer } from '../layers/VideoLayer.js';
 import { AudioLayer } from '../layers/AudioLayer.js';
 import { ImageLayer } from '../layers/ImageLayer.js';
 import { TextOverlayLayer } from '../layers/TextOverlayLayer.js';
+import { CaptionLayer } from '../layers/CaptionLayer.js';
 import { prepareClipsForComposition } from './VideoComposition.utils.js';
 
 interface VideoCompositionProps {
@@ -29,6 +30,7 @@ interface VideoCompositionProps {
 export function VideoComposition({ projectDoc, assetUrls }: VideoCompositionProps): React.ReactElement {
   // Pre-processing is in a pure utility — not in the composition (§5).
   const clips = prepareClipsForComposition(projectDoc);
+  const { fps } = useVideoConfig();
 
   return (
     <AbsoluteFill style={{ background: '#000' }}>
@@ -78,11 +80,25 @@ export function VideoComposition({ projectDoc, assetUrls }: VideoCompositionProp
 
         if (clip.type === 'text-overlay') {
           return (
-            <Sequence key={clip.id} from={clip.startFrame} durationInFrames={clip.durationFrames}>
+            <Sequence key={clip.id} from={clip.startFrame} durationInFrames={clip.durationFrames} premountFor={fps}>
               <TextOverlayLayer
                 text={clip.text}
                 fontSize={clip.fontSize}
                 color={clip.color}
+                position={clip.position}
+              />
+            </Sequence>
+          );
+        }
+
+        if (clip.type === 'caption') {
+          return (
+            <Sequence key={clip.id} from={clip.startFrame} durationInFrames={clip.durationFrames} premountFor={fps}>
+              <CaptionLayer
+                words={clip.words}
+                activeColor={clip.activeColor}
+                inactiveColor={clip.inactiveColor}
+                fontSize={clip.fontSize}
                 position={clip.position}
               />
             </Sequence>

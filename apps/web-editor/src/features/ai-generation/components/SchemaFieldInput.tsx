@@ -2,6 +2,7 @@ import type { FalFieldSchema } from '@/features/ai-generation/types';
 
 import { aiGenerationPanelStyles as s } from './aiGenerationPanelStyles';
 import { AssetPickerField } from './AssetPickerField';
+import { VoicePickerField } from './VoicePickerField';
 
 /** Props for the SchemaFieldInput dispatcher. */
 export interface SchemaFieldInputProps {
@@ -230,6 +231,17 @@ export function SchemaFieldInput({ field, value, onChange, projectId }: SchemaFi
         </div>
       );
     }
+
+    case 'voice_picker':
+      return (
+        <VoicePickerField
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(voiceId) => onChange(voiceId)}
+          label={field.label}
+          required={field.required}
+          description={field.description}
+        />
+      );
 
     default: {
       // Exhaustiveness guard — compile-time error if a new FalFieldType is

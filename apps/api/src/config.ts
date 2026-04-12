@@ -24,6 +24,7 @@ const envSchema = z.object({
   APP_OAUTH_REDIRECT_BASE: z.string().default('http://localhost:3001'),
   APP_FRONTEND_URL: z.string().default('http://localhost:5173'),
   APP_FAL_KEY: z.string().min(1),
+  APP_ELEVENLABS_API_KEY: z.string().min(1),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -78,5 +79,8 @@ export const config = {
   },
   fal: {
     key: env.APP_FAL_KEY,
+  },
+  elevenlabs: {
+    apiKey: env.APP_ELEVENLABS_API_KEY,
   },
 } as const;

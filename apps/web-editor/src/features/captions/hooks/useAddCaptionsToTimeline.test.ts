@@ -1,7 +1,12 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+import type { ProjectDoc, Track, Clip } from '@ai-video-editor/project-schema';
+
+import * as projectStore from '@/store/project-store';
+
 import { useAddCaptionsToTimeline } from './useAddCaptionsToTimeline';
+import { makeProject, TEST_SEGMENTS } from './useAddCaptionsToTimeline.fixtures';
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -12,40 +17,15 @@ vi.mock('@/store/project-store', () => ({
 
 // Stable UUID for assertions.
 vi.mock('crypto', () => ({
-  // Provide a predictable sequence for UUID generation.
   randomUUID: vi.fn()
     .mockReturnValueOnce('track-uuid-0000')
     .mockReturnValue('clip-uuid-xxxx'),
 }));
 
-import type { ProjectDoc, Track, Clip } from '@ai-video-editor/project-schema';
-
-import * as projectStore from '@/store/project-store';
-
 const mockGetSnapshot = vi.mocked(projectStore.getSnapshot);
 const mockSetProject = vi.mocked(projectStore.setProject);
 
-const TEST_SEGMENTS = [
-  { start: 0.0, end: 2.5, text: 'Hello world' },
-  { start: 2.5, end: 5.0, text: 'Second line' },
-];
-
-function makeProject(fps = 30, overrides: Partial<ProjectDoc> = {}): ProjectDoc {
-  return {
-    schemaVersion: 1,
-    id: 'proj-001',
-    title: 'Test',
-    fps,
-    durationFrames: 300,
-    width: 1920,
-    height: 1080,
-    tracks: [] as Track[],
-    clips: [] as Clip[],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...overrides,
-  } as unknown as ProjectDoc;
-}
+// ── Core behavior ─────────────────────────────────────────────────────────────
 
 describe('useAddCaptionsToTimeline', () => {
   beforeEach(() => {
@@ -64,7 +44,7 @@ describe('useAddCaptionsToTimeline', () => {
     expect(captionsTrack?.type).toBe('overlay');
   });
 
-  it('creates TextOverlayClips with correct frame math at 30fps', () => {
+  it('creates TextOverlayClips with correct frame math at 30fps for segments without words', () => {
     mockGetSnapshot.mockReturnValue(makeProject(30));
 
     const { result } = renderHook(() => useAddCaptionsToTimeline());

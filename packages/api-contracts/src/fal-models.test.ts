@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { FAL_MODELS } from './fal-models.js';
+import { FAL_MODELS, type FalFieldType } from './fal-models.js';
 
 describe('fal-models catalog', () => {
   it('has exactly 9 models', () => {
@@ -86,5 +86,45 @@ describe('fal-models catalog', () => {
     expect(ltx).toBeDefined();
     const fieldNames = ltx!.inputSchema.fields.map((f) => f.name);
     expect(fieldNames).not.toContain('video_size');
+  });
+
+  it('no fal model uses the voice_picker field type (voice_picker is ElevenLabs-only)', () => {
+    for (const model of FAL_MODELS) {
+      for (const field of model.inputSchema.fields) {
+        expect(field.type, `${model.id}.${field.name}`).not.toBe('voice_picker');
+      }
+    }
+  });
+});
+
+describe('FalFieldType union', () => {
+  it('includes voice_picker as a valid type', () => {
+    // This test verifies the type union assignment compiles and is exhaustive.
+    // If 'voice_picker' were removed from FalFieldType, this line would cause a
+    // TypeScript compile error (type 'voice_picker' is not assignable to FalFieldType).
+    const voicePickerType: FalFieldType = 'voice_picker';
+    expect(voicePickerType).toBe('voice_picker');
+  });
+
+  it('includes all expected field types', () => {
+    const expectedTypes: FalFieldType[] = [
+      'string',
+      'text',
+      'number',
+      'boolean',
+      'enum',
+      'image_url',
+      'image_url_list',
+      'string_list',
+      'audio_url',
+      'audio_upload',
+      'voice_picker',
+    ];
+    // Verify each expected type is assignable (compile-time check covered by TypeScript;
+    // this runtime loop documents the full set for readers).
+    for (const t of expectedTypes) {
+      expect(typeof t).toBe('string');
+    }
+    expect(expectedTypes).toHaveLength(11);
   });
 });

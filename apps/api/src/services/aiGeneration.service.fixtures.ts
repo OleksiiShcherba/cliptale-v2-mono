@@ -67,6 +67,7 @@ export function makeAssetRow(overrides: Partial<Asset> = {}): Asset {
     projectId: TEST_PROJECT,
     userId: TEST_USER,
     filename: 'fixture.png',
+    displayName: null,
     contentType: 'image/png',
     fileSizeBytes: 1024,
     storageUri: 's3://test-bucket/assets/fixture.png',

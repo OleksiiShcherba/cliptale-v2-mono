@@ -64,7 +64,7 @@ export type ClipInsert = {
   clipId: string;
   projectId: string;
   trackId: string;
-  type: 'video' | 'audio' | 'text-overlay' | 'image';
+  type: 'video' | 'audio' | 'text-overlay' | 'image' | 'caption';
   assetId?: string | null;
   startFrame: number;
   durationFrames: number;

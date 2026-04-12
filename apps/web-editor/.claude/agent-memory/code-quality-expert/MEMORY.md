@@ -8,6 +8,6 @@
 - [Monorepo package imports misplaced in test files](project_monorepo_import_in_tests.md) — @ai-video-editor/* imports (group 3) placed after @/ imports (group 4) in test files is a recurring §9 violation
 - [Fixture file exported functions require JSDoc](project_fixture_jsdoc.md) — .fixtures.ts exported functions need per-function JSDoc per §9; file-level block comment alone is not sufficient
 - [Vitest vi.mock + import ordering gray area](project_vitest_mock_import_order.md) — vi.mock hoisting forces @/ imports after relative imports; flag as §9 warning not violation, note Vitest constraint
-- [Styles companion file naming is a §9 violation](project_styles_companion_naming.md) — PascalCase.styles.ts is not a valid §9 naming pattern; utility/constants extraction must use camelCase.ts
+- [Styles companion file naming is NOT a §9 violation](project_styles_companion_naming.md) — .styles.ts is an established pattern used across 9 files; do not flag as violations
 - [Stale vi.mock for @/lib/constants after DEV_PROJECT_ID removal](project_stale_constants_mock.md) — 6 test files have dead-code mocks after hooks no longer import constants; §9 violation flagged 2026-04-05
 - [interface used instead of type for hook result and state shapes](project_interface_vs_type_in_hooks.md) — hook result/state shapes declared with `interface` are a §9 violation; only *Props shapes use `interface`

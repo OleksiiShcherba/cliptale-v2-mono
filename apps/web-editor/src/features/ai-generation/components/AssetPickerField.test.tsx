@@ -20,6 +20,7 @@ const IMAGE_ASSET: Asset = {
   id: 'asset-img-1',
   projectId: 'proj-1',
   filename: 'sunset.jpg',
+  displayName: null,
   contentType: 'image/jpeg',
   downloadUrl: 'https://example.com/sunset.jpg',
   status: 'ready',

@@ -13,6 +13,11 @@ export const createUploadUrlSchema = z.object({
   fileSizeBytes: z.number().int().positive(),
 });
 
+/** Zod schema for the PATCH /assets/:id request body. Exported for use in route middleware. */
+export const patchAssetSchema = z.object({
+  name: z.string().trim().min(1).max(255),
+});
+
 type CreateUploadUrlBody = z.infer<typeof createUploadUrlSchema>;
 
 /**
@@ -135,6 +140,28 @@ export async function thumbnailAsset(
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.status(200);
     result.body.pipe(res);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * PATCH /assets/:id
+ * Sets the display name of an asset. The authenticated caller must own the asset.
+ * Body is pre-validated by `validateBody(patchAssetSchema)` in the route.
+ * Returns the updated asset as an `AssetApiResponse`.
+ */
+export async function patchAsset(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const { name } = req.body as { name: string };
+    await assetService.renameAsset(req.params['id']!, req.user!.userId, name);
+    const asset = await assetResponseService.getAssetResponse(req.params['id']!, s3Client, baseUrl);
+    res.json(asset);
   } catch (err) {
     next(err);
   }

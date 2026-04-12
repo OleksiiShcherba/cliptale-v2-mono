@@ -48,9 +48,27 @@ export const imageClipSchema = z.object({
   opacity: z.number().min(0).max(1).default(1),
 });
 
+export const captionClipSchema = z.object({
+  id: z.string().uuid(),
+  type: z.literal('caption'),
+  trackId: z.string().uuid(),
+  startFrame: z.number().int().nonnegative(),
+  durationFrames: z.number().int().positive(),
+  words: z.array(z.object({
+    word: z.string(),
+    startFrame: z.number().int().nonnegative(),
+    endFrame: z.number().int().nonnegative(),
+  })),
+  activeColor: z.string().default('#FFFFFF'),
+  inactiveColor: z.string().default('rgba(255,255,255,0.35)'),
+  fontSize: z.number().positive().default(24),
+  position: z.enum(['top', 'center', 'bottom']).default('bottom'),
+});
+
 export const clipSchema = z.discriminatedUnion('type', [
   videoClipSchema,
   audioClipSchema,
   textOverlayClipSchema,
   imageClipSchema,
+  captionClipSchema,
 ]);

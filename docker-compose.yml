@@ -59,6 +59,7 @@ services:
       APP_DEV_AUTH_BYPASS: 'false'
       APP_AI_ENCRYPTION_KEY: ${APP_AI_ENCRYPTION_KEY:-a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9}
       APP_FAL_KEY: ${APP_FAL_KEY}
+      APP_ELEVENLABS_API_KEY: ${APP_ELEVENLABS_API_KEY}
       NODE_ENV: development
     volumes:
       - ./apps/api/src:/app/apps/api/src

@@ -1,8 +1,18 @@
+/** A single word-level timestamp entry from Whisper verbose_json output. */
+export type CaptionWord = {
+  word: string;
+  start: number;
+  end: number;
+};
+
 /** A single Whisper transcript segment with timing and text. */
 export type CaptionSegment = {
   start: number;
   end: number;
   text: string;
+  /** Optional word-level timestamps from Whisper verbose_json output. Present only for
+   * segments transcribed after word-level extraction was added. */
+  words?: CaptionWord[];
 };
 
 /**

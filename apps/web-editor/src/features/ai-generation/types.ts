@@ -27,6 +27,38 @@ export { CAPABILITY_TO_GROUP, AUDIO_CAPABILITY_TO_GROUP, AI_MODELS } from '@ai-v
 import type { AiCapability, AiModel } from '@ai-video-editor/api-contracts';
 
 /**
+ * A single ElevenLabs voice from GET /ai/voices/available.
+ * Shape mirrors the server-side `ElevenLabsVoice` in `apps/api/src/lib/elevenlabs-catalog.ts`.
+ */
+export type ElevenLabsVoice = {
+  /** ElevenLabs voice_id — pass to TTS/S2S as the voice identifier. */
+  voiceId: string;
+  /** Human-readable display name. */
+  name: string;
+  /** Category returned by ElevenLabs (e.g. `"premade"`, `"cloned"`). */
+  category: string;
+  /** Optional freeform description; null when absent. */
+  description: string | null;
+  /** URL to the ElevenLabs-hosted MP3 preview sample. */
+  previewUrl: string;
+  /** Key-value labels (accent, gender, age, etc.). */
+  labels: Record<string, string>;
+};
+
+/**
+ * A cloned voice from the authenticated user's voice library (GET /ai/voices).
+ * Shape mirrors the server-side `UserVoice` in `apps/api/src/repositories/voice.repository.ts`.
+ */
+export type UserVoice = {
+  voiceId: string;
+  userId: string;
+  label: string;
+  /** The ElevenLabs voice_id to pass to TTS/S2S. */
+  elevenLabsVoiceId: string;
+  createdAt: string;
+};
+
+/**
  * Response shape of GET /ai/models — mirrors the BE
  * `aiGeneration.service.ts#listModels` return type.
  */

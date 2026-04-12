@@ -118,11 +118,18 @@ export async function processTranscribeJob(
       ...(language ? { language } : {}),
     }) as unknown as OpenAI.Audio.TranscriptionVerbose;
 
-    const segments: CaptionSegment[] = (transcription.segments ?? []).map((seg) => ({
-      start: seg.start,
-      end: seg.end,
-      text: seg.text.trim(),
-    }));
+    type SegmentWithWords = OpenAI.Audio.TranscriptionSegment & {
+      words?: OpenAI.Audio.TranscriptionWord[];
+    };
+
+    const segments: CaptionSegment[] = ((transcription.segments ?? []) as SegmentWithWords[]).map(
+      (seg) => ({
+        start: seg.start,
+        end: seg.end,
+        text: seg.text.trim(),
+        words: (seg.words ?? []).map((w) => ({ word: w.word, start: w.start, end: w.end })),
+      }),
+    );
 
     await insertCaptionTrack(pool, {
       captionTrackId: randomUUID(),

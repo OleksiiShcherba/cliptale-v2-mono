@@ -4,49 +4,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { CaptionEditorPanel } from './CaptionEditorPanel';
 
-// ── Mock useCaptionEditor ────────────────────────────────────────────────────
-
 vi.mock('@/features/captions/hooks/useCaptionEditor', () => ({
   useCaptionEditor: vi.fn(),
 }));
 
 import * as useCaptionEditorModule from '@/features/captions/hooks/useCaptionEditor';
-import type { TextOverlayClip } from '@ai-video-editor/project-schema';
+
+import { makeClip, makeHandlers } from './CaptionEditorPanel.fixtures';
 
 const mockUseCaptionEditor = vi.mocked(useCaptionEditorModule.useCaptionEditor);
-
-// ── Fixtures ─────────────────────────────────────────────────────────────────
-
-const CLIP_ID = '00000000-0000-0000-0000-000000000020';
-const TRACK_ID = '00000000-0000-0000-0000-000000000010';
-
-function makeClip(overrides: Partial<TextOverlayClip> = {}): TextOverlayClip {
-  return {
-    id: CLIP_ID,
-    type: 'text-overlay',
-    trackId: TRACK_ID,
-    startFrame: 10,
-    durationFrames: 50,
-    text: 'Hello world',
-    fontSize: 24,
-    color: '#FFFFFF',
-    position: 'bottom',
-    ...overrides,
-  };
-}
-
-function makeHandlers() {
-  return {
-    setText: vi.fn(),
-    setStartFrame: vi.fn(),
-    setEndFrame: vi.fn(),
-    setFontSize: vi.fn(),
-    setColor: vi.fn(),
-    setPosition: vi.fn(),
-  };
-}
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('CaptionEditorPanel', () => {
   let handlers: ReturnType<typeof makeHandlers>;
@@ -110,7 +76,7 @@ describe('CaptionEditorPanel', () => {
     it('end frame input shows computed value (startFrame + durationFrames)', () => {
       render(<CaptionEditorPanel clip={makeClip({ startFrame: 10, durationFrames: 50 })} />);
       const input = screen.getByRole('spinbutton', { name: 'End frame' }) as HTMLInputElement;
-      expect(input.value).toBe('60'); // 10 + 50
+      expect(input.value).toBe('60');
     });
 
     it('font size input shows clip.fontSize', () => {
@@ -176,7 +142,7 @@ describe('CaptionEditorPanel', () => {
     });
   });
 
-  describe('close button (task 4)', () => {
+  describe('close button', () => {
     it('does not render a close button when onClose is not provided', () => {
       render(<CaptionEditorPanel clip={makeClip()} />);
       expect(screen.queryByRole('button', { name: /close caption editor/i })).toBeNull();

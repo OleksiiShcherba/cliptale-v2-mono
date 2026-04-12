@@ -1,4 +1,4 @@
-import type { AudioClip, ImageClip, TextOverlayClip, VideoClip } from '@ai-video-editor/project-schema';
+import type { AudioClip, CaptionClip, ImageClip, TextOverlayClip, VideoClip } from '@ai-video-editor/project-schema';
 
 export const CLIP_ID = '00000000-0000-0000-0000-000000000020';
 export const TRACK_ID = '00000000-0000-0000-0000-000000000010';
@@ -64,8 +64,25 @@ export function makeAudioClip(overrides: Partial<AudioClip> = {}): AudioClip {
   };
 }
 
+/** Creates a minimal CaptionClip for use in App component tests. */
+export function makeCaptionClip(overrides: Partial<CaptionClip> = {}): CaptionClip {
+  return {
+    id: CLIP_ID,
+    type: 'caption',
+    trackId: TRACK_ID,
+    startFrame: 0,
+    durationFrames: 30,
+    words: [],
+    activeColor: '#FFFFFF',
+    inactiveColor: 'rgba(255,255,255,0.35)',
+    fontSize: 24,
+    position: 'bottom',
+    ...overrides,
+  };
+}
+
 /** Creates a minimal ProjectDoc with optional clips for use in App component tests. */
-export function makeProjectDoc(clips: Array<AudioClip | ImageClip | TextOverlayClip | VideoClip> = []) {
+export function makeProjectDoc(clips: Array<AudioClip | CaptionClip | ImageClip | TextOverlayClip | VideoClip> = []) {
   return {
     schemaVersion: 1,
     id: 'proj-001',

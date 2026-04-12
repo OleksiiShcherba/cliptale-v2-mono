@@ -7,35 +7,7 @@ import {
   musicGeneration,
   ElevenLabsError,
 } from './elevenlabs-client.js';
-
-// ── Constants ────────────────────────────────────────────────────────────────
-
-const API_KEY = 'el-test-key';
-const VOICE_ID = 'voice-abc-123';
-const AUDIO_BYTES = Buffer.from([0x49, 0x44, 0x33]); // fake mp3 header
-const FILENAME = 'sample.mp3';
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function audioResponse(bytes: Uint8Array = AUDIO_BYTES, init: ResponseInit = {}): Response {
-  return new Response(bytes, {
-    status: 200,
-    headers: { 'Content-Type': 'audio/mpeg' },
-    ...init,
-  });
-}
-
-function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  });
-}
-
-function errorResponse(status: number, body = 'upstream error'): Response {
-  return new Response(body, { status });
-}
+import { API_KEY, VOICE_ID, AUDIO_BYTES, FILENAME, audioResponse, jsonResponse } from './elevenlabs-client.fixtures.js';
 
 // ── textToSpeech ─────────────────────────────────────────────────────────────
 
@@ -89,19 +61,7 @@ describe('elevenlabs-client / textToSpeech', () => {
     await textToSpeech({ apiKey: API_KEY, text: 'hi' });
 
     const [calledUrl] = vi.mocked(fetch).mock.calls[0]!;
-    // URL contains some non-empty voice ID (the default)
     expect(String(calledUrl)).toMatch(/\/v1\/text-to-speech\/\w+/);
-  });
-
-  it('throws ElevenLabsError with operation and status on non-2xx', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(errorResponse(429, 'rate limit exceeded'));
-
-    const err = await textToSpeech({ apiKey: API_KEY, text: 'hi', voiceId: VOICE_ID }).catch(
-      (e: unknown) => e,
-    );
-    expect(err).toBeInstanceOf(ElevenLabsError);
-    expect((err as ElevenLabsError).statusCode).toBe(429);
-    expect((err as ElevenLabsError).message).toMatch(/text-to-speech/);
   });
 });
 
@@ -132,7 +92,6 @@ describe('elevenlabs-client / voiceClone', () => {
     expect((calledInit as RequestInit).method).toBe('POST');
     const headers = (calledInit as RequestInit).headers as Record<string, string>;
     expect(headers['xi-api-key']).toBe(API_KEY);
-    // multipart — no manual Content-Type header (fetch sets boundary automatically)
     expect(headers['Content-Type']).toBeUndefined();
   });
 
@@ -155,22 +114,6 @@ describe('elevenlabs-client / voiceClone', () => {
     const filesBlob = fd.get('files');
     expect(filesBlob).toBeInstanceOf(Blob);
     expect((filesBlob as Blob).type).toBe('audio/mpeg');
-  });
-
-  it('throws ElevenLabsError when response is missing voice_id', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({}));
-
-    await expect(
-      voiceClone({ apiKey: API_KEY, name: 'X', audioSampleBytes: AUDIO_BYTES, audioSampleFilename: FILENAME }),
-    ).rejects.toThrow(/voice-cloning.*missing voice_id/);
-  });
-
-  it('throws ElevenLabsError on non-2xx response', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(errorResponse(400, 'invalid audio file'));
-
-    await expect(
-      voiceClone({ apiKey: API_KEY, name: 'X', audioSampleBytes: AUDIO_BYTES, audioSampleFilename: FILENAME }),
-    ).rejects.toThrow(ElevenLabsError);
   });
 });
 
@@ -225,14 +168,6 @@ describe('elevenlabs-client / speechToSpeech', () => {
     expect(voiceSettings.stability).toBe(0.7);
     expect(voiceSettings.similarity_boost).toBe(0.75);
   });
-
-  it('throws ElevenLabsError on non-2xx', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(errorResponse(422, 'voice not found'));
-
-    await expect(
-      speechToSpeech({ apiKey: API_KEY, sourceAudioBytes: AUDIO_BYTES, sourceAudioFilename: FILENAME, voiceId: VOICE_ID }),
-    ).rejects.toThrow(/speech-to-speech.*422/);
-  });
 });
 
 // ── musicGeneration ──────────────────────────────────────────────────────────
@@ -278,13 +213,4 @@ describe('elevenlabs-client / musicGeneration', () => {
     expect(body.text).toBe('ambient');
     expect(Object.prototype.hasOwnProperty.call(body, 'duration_seconds')).toBe(false);
   });
-
-  it('throws ElevenLabsError on non-2xx', async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(errorResponse(503, 'service unavailable'));
-
-    await expect(
-      musicGeneration({ apiKey: API_KEY, prompt: 'test' }),
-    ).rejects.toThrow(ElevenLabsError);
-  });
 });
-

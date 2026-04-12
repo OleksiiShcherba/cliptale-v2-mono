@@ -1,6 +1,6 @@
 import React from 'react';
 
-import type { TextOverlayClip } from '@ai-video-editor/project-schema';
+import type { CaptionClip, TextOverlayClip } from '@ai-video-editor/project-schema';
 
 import { useCaptionEditor } from '@/features/captions/hooks/useCaptionEditor';
 
@@ -19,19 +19,20 @@ const PRIMARY = '#7C3AED';
 // ---------------------------------------------------------------------------
 
 export interface CaptionEditorPanelProps {
-  clip: TextOverlayClip;
+  clip: TextOverlayClip | CaptionClip;
   onClose?: () => void;
 }
 
 /**
- * Inspector panel for a selected `TextOverlayClip`.  Renders editable fields
- * for all caption properties: text, start/end frame, font size, color, and
- * vertical position.  All mutations go through `useCaptionEditor` which writes
- * directly to the project store — no local component state for clip values.
+ * Inspector panel for a selected `TextOverlayClip` or `CaptionClip`.
+ *
+ * - `text-overlay` clips: text, start/end frame, font size, single color, position.
+ * - `caption` clips: start/end frame, font size, active/inactive word colors, position.
+ *
+ * All mutations go through `useCaptionEditor` — no local component state for clip values.
  */
 export function CaptionEditorPanel({ clip, onClose }: CaptionEditorPanelProps): React.ReactElement {
-  const { setText, setStartFrame, setEndFrame, setFontSize, setColor, setPosition } =
-    useCaptionEditor(clip);
+  const editors = useCaptionEditor(clip);
 
   const endFrame = clip.startFrame + clip.durationFrames;
 
@@ -50,20 +51,22 @@ export function CaptionEditorPanel({ clip, onClose }: CaptionEditorPanelProps): 
         )}
       </div>
 
-      {/* Text */}
-      <div style={styles.field}>
-        <label htmlFor="caption-text" style={styles.label}>
-          TEXT
-        </label>
-        <textarea
-          id="caption-text"
-          value={clip.text}
-          onChange={(e) => setText(e.target.value)}
-          rows={3}
-          style={styles.textarea}
-          aria-label="Caption text"
-        />
-      </div>
+      {/* Text — text-overlay clips only */}
+      {clip.type === 'text-overlay' && editors.type === 'text-overlay' && (
+        <div style={styles.field}>
+          <label htmlFor="caption-text" style={styles.label}>
+            TEXT
+          </label>
+          <textarea
+            id="caption-text"
+            value={clip.text}
+            onChange={(e) => editors.setText(e.target.value)}
+            rows={3}
+            style={styles.textarea}
+            aria-label="Caption text"
+          />
+        </div>
+      )}
 
       {/* Start frame */}
       <div style={styles.row}>
@@ -76,7 +79,7 @@ export function CaptionEditorPanel({ clip, onClose }: CaptionEditorPanelProps): 
             type="number"
             min={0}
             value={clip.startFrame}
-            onChange={(e) => setStartFrame(Number(e.target.value))}
+            onChange={(e) => editors.setStartFrame(Number(e.target.value))}
             style={styles.input}
             aria-label="Start frame"
           />
@@ -92,7 +95,7 @@ export function CaptionEditorPanel({ clip, onClose }: CaptionEditorPanelProps): 
             type="number"
             min={clip.startFrame + 1}
             value={endFrame}
-            onChange={(e) => setEndFrame(Number(e.target.value))}
+            onChange={(e) => editors.setEndFrame(Number(e.target.value))}
             style={styles.input}
             aria-label="End frame"
           />
@@ -109,27 +112,63 @@ export function CaptionEditorPanel({ clip, onClose }: CaptionEditorPanelProps): 
           type="number"
           min={1}
           value={clip.fontSize}
-          onChange={(e) => setFontSize(Number(e.target.value))}
+          onChange={(e) => editors.setFontSize(Number(e.target.value))}
           style={styles.input}
           aria-label="Font size"
         />
       </div>
 
-      {/* Color */}
-      <div style={styles.field}>
-        <label htmlFor="caption-color" style={styles.label}>
-          COLOR
-        </label>
-        <input
-          id="caption-color"
-          type="text"
-          value={clip.color}
-          onChange={(e) => setColor(e.target.value)}
-          style={styles.input}
-          placeholder="#FFFFFF"
-          aria-label="Text color (hex)"
-        />
-      </div>
+      {/* Color — text-overlay clips only */}
+      {clip.type === 'text-overlay' && editors.type === 'text-overlay' && (
+        <div style={styles.field}>
+          <label htmlFor="caption-color" style={styles.label}>
+            COLOR
+          </label>
+          <input
+            id="caption-color"
+            type="text"
+            value={clip.color}
+            onChange={(e) => editors.setColor(e.target.value)}
+            style={styles.input}
+            placeholder="#FFFFFF"
+            aria-label="Text color (hex)"
+          />
+        </div>
+      )}
+
+      {/* Active / inactive word colors — caption clips only */}
+      {clip.type === 'caption' && editors.type === 'caption' && (
+        <>
+          <div style={styles.field}>
+            <label htmlFor="caption-active-color" style={styles.label}>
+              ACTIVE WORD COLOR
+            </label>
+            <input
+              id="caption-active-color"
+              type="text"
+              value={clip.activeColor}
+              onChange={(e) => editors.setActiveColor(e.target.value)}
+              style={styles.input}
+              placeholder="#FFFFFF"
+              aria-label="Active word color (hex)"
+            />
+          </div>
+          <div style={styles.field}>
+            <label htmlFor="caption-inactive-color" style={styles.label}>
+              INACTIVE WORD COLOR
+            </label>
+            <input
+              id="caption-inactive-color"
+              type="text"
+              value={clip.inactiveColor}
+              onChange={(e) => editors.setInactiveColor(e.target.value)}
+              style={styles.input}
+              placeholder="rgba(255,255,255,0.35)"
+              aria-label="Inactive word color (hex)"
+            />
+          </div>
+        </>
+      )}
 
       {/* Position */}
       <div style={styles.field}>
@@ -139,7 +178,7 @@ export function CaptionEditorPanel({ clip, onClose }: CaptionEditorPanelProps): 
         <select
           id="caption-position"
           value={clip.position}
-          onChange={(e) => setPosition(e.target.value as 'top' | 'center' | 'bottom')}
+          onChange={(e) => editors.setPosition(e.target.value as 'top' | 'center' | 'bottom')}
           style={styles.select}
           aria-label="Vertical position"
         >

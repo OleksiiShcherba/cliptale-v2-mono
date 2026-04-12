@@ -29,6 +29,17 @@ router.get('/assets/:id', authMiddleware, assetsController.getAsset);
 // Deletes the asset if it is not referenced by any clip. Returns 204 No Content.
 router.delete('/assets/:id', authMiddleware, assetsController.deleteAsset);
 
+// PATCH /assets/:id
+// Sets the display name of an asset. The caller must own the asset.
+// Returns the updated AssetApiResponse on success.
+router.patch(
+  '/assets/:id',
+  authMiddleware,
+  aclMiddleware('editor'),
+  validateBody(assetsController.patchAssetSchema),
+  assetsController.patchAsset,
+);
+
 // POST /assets/:id/finalize
 // Called by the client after the XHR PUT to S3 completes.
 // Verifies storage, transitions pending → processing, enqueues media-ingest job.

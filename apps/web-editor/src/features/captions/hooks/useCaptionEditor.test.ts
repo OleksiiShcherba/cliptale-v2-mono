@@ -1,59 +1,20 @@
 import { renderHook, act } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useCaptionEditor } from './useCaptionEditor';
-
-// ── Mocks ─────────────────────────────────────────────────────────────────────
 
 vi.mock('@/store/project-store', () => ({
   getSnapshot: vi.fn(),
   setProject: vi.fn(),
 }));
 
+import type { Clip, ProjectDoc, TextOverlayClip } from '@ai-video-editor/project-schema';
 import * as projectStore from '@/store/project-store';
-import type { ProjectDoc, Track, Clip, TextOverlayClip } from '@ai-video-editor/project-schema';
+
+import { CLIP_ID, makeClip, makeProject } from './useCaptionEditor.fixtures';
 
 const mockGetSnapshot = vi.mocked(projectStore.getSnapshot);
 const mockSetProject = vi.mocked(projectStore.setProject);
-
-// ── Fixtures ───────────────────────────────────────────────────────────────────
-
-const CLIP_ID = '00000000-0000-0000-0000-000000000020';
-const TRACK_ID = '00000000-0000-0000-0000-000000000010';
-
-function makeClip(overrides: Partial<TextOverlayClip> = {}): TextOverlayClip {
-  return {
-    id: CLIP_ID,
-    type: 'text-overlay',
-    trackId: TRACK_ID,
-    startFrame: 10,
-    durationFrames: 50,
-    text: 'Hello',
-    fontSize: 24,
-    color: '#FFFFFF',
-    position: 'bottom',
-    ...overrides,
-  };
-}
-
-function makeProject(clips: Clip[] = [], overrides: Partial<ProjectDoc> = {}): ProjectDoc {
-  return {
-    schemaVersion: 1,
-    id: 'proj-001',
-    title: 'Test',
-    fps: 30,
-    durationFrames: 300,
-    width: 1920,
-    height: 1080,
-    tracks: [{ id: TRACK_ID, type: 'overlay', name: 'Captions', muted: false, locked: false }] as Track[],
-    clips,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...overrides,
-  } as unknown as ProjectDoc;
-}
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('useCaptionEditor', () => {
   beforeEach(() => {
@@ -107,7 +68,7 @@ describe('useCaptionEditor', () => {
       mockGetSnapshot.mockReturnValue(makeProject([clip]));
 
       const { result } = renderHook(() => useCaptionEditor(clip));
-      act(() => result.current.setEndFrame(40)); // endFrame=40, startFrame=10 → durationFrames=30
+      act(() => result.current.setEndFrame(40));
 
       const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
       const updatedClip = updated.clips.find((c) => c.id === CLIP_ID) as TextOverlayClip;
@@ -119,7 +80,7 @@ describe('useCaptionEditor', () => {
       mockGetSnapshot.mockReturnValue(makeProject([clip]));
 
       const { result } = renderHook(() => useCaptionEditor(clip));
-      act(() => result.current.setEndFrame(5)); // endFrame=5, startFrame=10 → durationFrames=max(1,-5)=1
+      act(() => result.current.setEndFrame(5));
 
       const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
       const updatedClip = updated.clips.find((c) => c.id === CLIP_ID) as TextOverlayClip;
@@ -131,7 +92,7 @@ describe('useCaptionEditor', () => {
       mockGetSnapshot.mockReturnValue(makeProject([clip]));
 
       const { result } = renderHook(() => useCaptionEditor(clip));
-      act(() => result.current.setEndFrame(10)); // endFrame=10, startFrame=10 → durationFrames=max(1,0)=1
+      act(() => result.current.setEndFrame(10));
 
       const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
       const updatedClip = updated.clips.find((c) => c.id === CLIP_ID) as TextOverlayClip;
@@ -139,14 +100,12 @@ describe('useCaptionEditor', () => {
     });
 
     it('reads startFrame from the latest snapshot (not stale closure)', () => {
-      // Simulate the case where startFrame was updated between renders
       const clip = makeClip({ startFrame: 5, durationFrames: 10 });
-      // Snapshot has startFrame=20 (updated by a prior action)
       const updatedClip = makeClip({ startFrame: 20, durationFrames: 10 });
       mockGetSnapshot.mockReturnValue(makeProject([updatedClip]));
 
       const { result } = renderHook(() => useCaptionEditor(clip));
-      act(() => result.current.setEndFrame(30)); // uses snapshot startFrame=20 → durationFrames=10
+      act(() => result.current.setEndFrame(30));
 
       const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
       const resultClip = updated.clips.find((c) => c.id === CLIP_ID) as TextOverlayClip;
@@ -183,40 +142,20 @@ describe('useCaptionEditor', () => {
   });
 
   describe('setPosition', () => {
-    it('updates position to "top"', () => {
-      const clip = makeClip({ position: 'bottom' });
+    it.each([
+      ['top' as const, 'bottom' as const],
+      ['center' as const, 'bottom' as const],
+      ['bottom' as const, 'top' as const],
+    ])('updates position to "%s"', (target, initial) => {
+      const clip = makeClip({ position: initial });
       mockGetSnapshot.mockReturnValue(makeProject([clip]));
 
       const { result } = renderHook(() => useCaptionEditor(clip));
-      act(() => result.current.setPosition('top'));
+      act(() => result.current.setPosition(target));
 
       const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
       const updatedClip = updated.clips.find((c) => c.id === CLIP_ID) as TextOverlayClip;
-      expect(updatedClip.position).toBe('top');
-    });
-
-    it('updates position to "center"', () => {
-      const clip = makeClip({ position: 'bottom' });
-      mockGetSnapshot.mockReturnValue(makeProject([clip]));
-
-      const { result } = renderHook(() => useCaptionEditor(clip));
-      act(() => result.current.setPosition('center'));
-
-      const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
-      const updatedClip = updated.clips.find((c) => c.id === CLIP_ID) as TextOverlayClip;
-      expect(updatedClip.position).toBe('center');
-    });
-
-    it('updates position to "bottom"', () => {
-      const clip = makeClip({ position: 'top' });
-      mockGetSnapshot.mockReturnValue(makeProject([clip]));
-
-      const { result } = renderHook(() => useCaptionEditor(clip));
-      act(() => result.current.setPosition('bottom'));
-
-      const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
-      const updatedClip = updated.clips.find((c) => c.id === CLIP_ID) as TextOverlayClip;
-      expect(updatedClip.position).toBe('bottom');
+      expect(updatedClip.position).toBe(target);
     });
   });
 
@@ -237,6 +176,25 @@ describe('useCaptionEditor', () => {
       const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
       const other = updated.clips.find((c) => c.id === otherId) as TextOverlayClip;
       expect(other.text).toBe('Other');
+    });
+  });
+
+  describe('return type discriminant for text-overlay', () => {
+    it('returns type === "text-overlay" for a TextOverlayClip', () => {
+      const clip = makeClip();
+      mockGetSnapshot.mockReturnValue(makeProject([clip]));
+
+      const { result } = renderHook(() => useCaptionEditor(clip));
+      expect(result.current.type).toBe('text-overlay');
+    });
+
+    it('exposes setText and setColor for a TextOverlayClip', () => {
+      const clip = makeClip();
+      mockGetSnapshot.mockReturnValue(makeProject([clip]));
+
+      const { result } = renderHook(() => useCaptionEditor(clip));
+      expect(typeof (result.current as { setText?: unknown }).setText).toBe('function');
+      expect(typeof (result.current as { setColor?: unknown }).setColor).toBe('function');
     });
   });
 });

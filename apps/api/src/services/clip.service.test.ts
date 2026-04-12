@@ -84,6 +84,18 @@ describe('clip.service', () => {
 
       expect(mockInsertClip).toHaveBeenCalledWith(params);
     });
+
+    it('creates a caption clip when type is caption', async () => {
+      mockInsertClip.mockResolvedValue(undefined);
+      const params = {
+        ...baseInsert,
+        type: 'caption' as const,
+      };
+
+      await createClip(params);
+
+      expect(mockInsertClip).toHaveBeenCalledWith(params);
+    });
   });
 
   describe('patchClip', () => {

@@ -5,12 +5,7 @@ import { getAssetPreviewUrl, getTypeLabel } from '@/features/asset-manager/utils
 import { config } from '@/lib/config';
 import { TranscribeButton } from '@/features/captions/components/TranscribeButton';
 
-const STATUS_BG: Record<string, string> = {
-  ready: '#10B981',
-  processing: '#F59E0B',
-  error: '#EF4444',
-  pending: '#8A8AA0',
-};
+import { STATUS_BG } from './assetDetailPanel.styles';
 
 /** Returns an SVG icon element representing the media type. Used as thumbnail placeholder. */
 function TypeIcon({ contentType }: { contentType: string }): React.ReactElement {
@@ -128,7 +123,7 @@ export function AssetCard({ asset, isSelected, onSelect }: AssetCardProps): Reac
       role="button"
       tabIndex={0}
       aria-pressed={isSelected}
-      aria-label={`Asset: ${asset.filename}, status: ${asset.status}`}
+      aria-label={`Asset: ${asset.displayName ?? asset.filename}, status: ${asset.status}`}
       draggable={isDraggable}
       onDragStart={isDraggable ? handleDragStart : undefined}
       onClick={() => onSelect(asset.id)}
@@ -189,7 +184,8 @@ export function AssetCard({ asset, isSelected, onSelect }: AssetCardProps): Reac
           <span
             style={{
               fontSize: 12,
-              fontWeight: 500,
+              fontWeight: 400,
+              lineHeight: '16px',
               color: '#F0F0FA',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
@@ -197,18 +193,19 @@ export function AssetCard({ asset, isSelected, onSelect }: AssetCardProps): Reac
               fontFamily: 'Inter, sans-serif',
             }}
           >
-            {asset.filename}
+            {asset.displayName ?? asset.filename}
           </span>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, color: '#8A8AA0', fontFamily: 'Inter, sans-serif' }}>
+            <span style={{ fontSize: 11, fontWeight: 400, lineHeight: '16px', color: '#8A8AA0', fontFamily: 'Inter, sans-serif' }}>
               {getTypeLabel(asset.contentType)}
             </span>
             <span
               aria-label={`Status: ${asset.status}`}
               style={{
                 fontSize: 11,
-                fontWeight: 500,
+                fontWeight: 400,
+                lineHeight: '16px',
                 color: '#F0F0FA',
                 backgroundColor: badgeBg,
                 borderRadius: 9999,

@@ -1,41 +1,11 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 
-import { ClipBlock } from './ClipBlock';
 import type { Clip } from '@ai-video-editor/project-schema';
 
-const videoClip: Clip & { layer?: number } = {
-  id: 'clip-001',
-  type: 'video',
-  assetId: 'asset-001',
-  trackId: 'track-001',
-  startFrame: 10,
-  durationFrames: 60,
-  trimInFrame: 0,
-  volume: 1,
-  opacity: 1,
-};
-
-const audioClip: Clip & { layer?: number } = {
-  id: 'clip-002',
-  type: 'audio',
-  assetId: 'asset-002',
-  trackId: 'track-001',
-  startFrame: 0,
-  durationFrames: 90,
-  trimInFrame: 0,
-  volume: 1,
-};
-
-const defaultProps = {
-  pxPerFrame: 4,
-  isSelected: false,
-  isLocked: false,
-  laneHeight: 36,
-  scrollOffsetX: 0,
-  onClick: vi.fn(),
-};
+import { ClipBlock } from './ClipBlock';
+import { audioClip, defaultProps, videoClip } from './ClipBlock.fixtures';
 
 describe('ClipBlock', () => {
   it('renders a button with aria-label', () => {
@@ -48,21 +18,18 @@ describe('ClipBlock', () => {
   it('positions correctly using startFrame * pxPerFrame when scrollOffsetX is 0', () => {
     const { container } = render(<ClipBlock clip={videoClip} {...defaultProps} scrollOffsetX={0} />);
     const block = container.firstChild as HTMLElement;
-    // left = 10 * 4 - 0 = 40px
     expect(block.style.left).toBe('40px');
   });
 
   it('shifts left position by scrollOffsetX', () => {
     const { container } = render(<ClipBlock clip={videoClip} {...defaultProps} scrollOffsetX={20} />);
     const block = container.firstChild as HTMLElement;
-    // left = 10 * 4 - 20 = 20px
     expect(block.style.left).toBe('20px');
   });
 
   it('sizes correctly using durationFrames * pxPerFrame', () => {
     const { container } = render(<ClipBlock clip={videoClip} {...defaultProps} />);
     const block = container.firstChild as HTMLElement;
-    // width = 60 * 4 = 240px
     expect(block.style.width).toBe('240px');
   });
 
@@ -71,7 +38,6 @@ describe('ClipBlock', () => {
       <ClipBlock clip={videoClip} {...defaultProps} isSelected={true} />,
     );
     const block = container.firstChild as HTMLElement;
-    // jsdom converts hex to rgb; check that a non-transparent border is set
     expect(block.style.border).not.toContain('transparent');
     expect(block.style.border).toContain('solid');
   });
@@ -160,7 +126,6 @@ describe('ClipBlock', () => {
     const layeredClip = { ...videoClip, layer: 1 };
     const { container } = render(<ClipBlock clip={layeredClip} {...defaultProps} />);
     const block = container.firstChild as HTMLElement;
-    // layer 1 → top = 4px
     expect(block.style.top).toBe('4px');
   });
 
@@ -172,7 +137,6 @@ describe('ClipBlock', () => {
 
   it('has minimum width of 2px for very short clips', () => {
     const shortClip = { ...videoClip, durationFrames: 0 };
-    // durationFrames: 0 → Math.max(2, 0 * 4) = 2
     const { container } = render(
       <ClipBlock clip={shortClip as Clip & { layer?: number }} {...defaultProps} />,
     );
@@ -180,16 +144,11 @@ describe('ClipBlock', () => {
     expect(parseInt(block.style.width)).toBeGreaterThanOrEqual(2);
   });
 
-  // ---------------------------------------------------------------------------
-  // Drag-related tests
-  // ---------------------------------------------------------------------------
-
   it('uses ghostLeft for position when provided instead of startFrame * pxPerFrame', () => {
     const { container } = render(
       <ClipBlock clip={videoClip} {...defaultProps} ghostLeft={200} scrollOffsetX={0} />,
     );
     const block = container.firstChild as HTMLElement;
-    // left = ghostLeft (200) - scrollOffsetX (0) = 200px
     expect(block.style.left).toBe('200px');
   });
 
@@ -198,7 +157,6 @@ describe('ClipBlock', () => {
       <ClipBlock clip={videoClip} {...defaultProps} ghostLeft={200} scrollOffsetX={50} />,
     );
     const block = container.firstChild as HTMLElement;
-    // left = ghostLeft (200) - scrollOffsetX (50) = 150px
     expect(block.style.left).toBe('150px');
   });
 
@@ -230,7 +188,6 @@ describe('ClipBlock', () => {
   });
 
   it('does not bind pointerDown handler when onPointerDown is not provided', () => {
-    // Should render without errors and not throw
     const { container } = render(<ClipBlock clip={videoClip} {...defaultProps} />);
     const block = container.firstChild as HTMLElement;
     expect(block).toBeDefined();

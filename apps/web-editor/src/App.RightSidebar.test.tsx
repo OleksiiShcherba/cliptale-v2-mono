@@ -135,7 +135,7 @@ import * as ephemeralStoreModule from '@/store/ephemeral-store';
 import * as projectStoreModule from '@/store/project-store';
 
 import { App } from './App.js';
-import { CLIP_ID, makeTextOverlayClip, makeImageClip, makeVideoClip, makeAudioClip, makeProjectDoc } from './App.fixtures';
+import { CLIP_ID, makeTextOverlayClip, makeImageClip, makeVideoClip, makeAudioClip, makeCaptionClip, makeProjectDoc } from './App.fixtures';
 
 const mockUseEphemeralStore = vi.mocked(ephemeralStoreModule.useEphemeralStore);
 const mockUseProjectStore = vi.mocked(projectStoreModule.useProjectStore);
@@ -302,6 +302,31 @@ describe('RightSidebar', () => {
     mockUseProjectStore.mockReturnValue(
       makeProjectDoc([clip]) as ReturnType<typeof mockUseProjectStore>,
     );
+    render(<App />);
+    expect(screen.getByTestId('caption-editor-panel').getAttribute('data-clip-id')).toBe(CLIP_ID);
+  });
+
+  // --- caption clip ---
+
+  it('renders CaptionEditorPanel in Inspector when a caption clip is selected', () => {
+    const clip = makeCaptionClip({ id: CLIP_ID });
+    mockUseEphemeralStore.mockReturnValue(makeSingleSelectState(CLIP_ID));
+    mockUseProjectStore.mockReturnValue({
+      ...makeProjectDoc([]),
+      clips: [clip],
+    } as unknown as ReturnType<typeof mockUseProjectStore>);
+    render(<App />);
+    expect(screen.getByRole('complementary', { name: 'Inspector' })).toBeTruthy();
+    expect(screen.getByTestId('caption-editor-panel')).toBeTruthy();
+  });
+
+  it('passes the correct clip id to CaptionEditorPanel when a caption clip is selected', () => {
+    const clip = makeCaptionClip({ id: CLIP_ID });
+    mockUseEphemeralStore.mockReturnValue(makeSingleSelectState(CLIP_ID));
+    mockUseProjectStore.mockReturnValue({
+      ...makeProjectDoc([]),
+      clips: [clip],
+    } as unknown as ReturnType<typeof mockUseProjectStore>);
     render(<App />);
     expect(screen.getByTestId('caption-editor-panel').getAttribute('data-clip-id')).toBe(CLIP_ID);
   });

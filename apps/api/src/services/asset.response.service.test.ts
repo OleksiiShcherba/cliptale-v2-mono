@@ -70,6 +70,7 @@ function baseAsset() {
     projectId: 'proj-123',
     userId: 'user-456',
     filename: 'video.mp4',
+    displayName: null as string | null,
     contentType: 'video/mp4',
     fileSizeBytes: 1_000_000,
     storageUri: 's3://test-bucket/projects/proj-123/assets/asset-resp-001/video.mp4',
@@ -175,6 +176,24 @@ describe('asset.service — getAssetResponse', () => {
     vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(null);
 
     await expect(getAssetResponse('nonexistent', mockS3, 'http://localhost:3001')).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it('returns null displayName when the asset has no display name set', async () => {
+    vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(makeAsset({ displayName: null }));
+
+    const result = await getAssetResponse('asset-resp-001', mockS3, 'http://localhost:3001');
+
+    expect(result.displayName).toBeNull();
+  });
+
+  it('returns the display name string when the asset has a display name', async () => {
+    vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(
+      makeAsset({ displayName: 'My Custom Name' }),
+    );
+
+    const result = await getAssetResponse('asset-resp-001', mockS3, 'http://localhost:3001');
+
+    expect(result.displayName).toBe('My Custom Name');
   });
 });
 

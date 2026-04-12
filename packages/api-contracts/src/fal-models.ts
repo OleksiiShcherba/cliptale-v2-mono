@@ -24,7 +24,7 @@
  *  - `FAL_MODELS`     — the catalog const (`readonly FalModel[]`, length 9)
  *  - `FalModel`       — single catalog entry type
  *  - `FalCapability`  — union of the 4 supported capability values
- *  - `FalFieldType`   — union of the 10 supported field types (incl. audio_url, audio_upload)
+ *  - `FalFieldType`   — union of the 11 supported field types (incl. audio_url, audio_upload, voice_picker)
  *  - `FalFieldSchema` — per-field descriptor (name, type, default, enum, etc.)
  *  - `FalInputSchema` — wrapper around a model's field list
  *  - `AiProvider`     — discriminator: 'fal' | 'elevenlabs'
@@ -61,7 +61,8 @@ export type FalFieldType =
   | 'image_url_list'
   | 'string_list'
   | 'audio_url'
-  | 'audio_upload';
+  | 'audio_upload'
+  | 'voice_picker';
 
 export type FalFieldSchema = {
   name: string;

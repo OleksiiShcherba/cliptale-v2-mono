@@ -35,7 +35,22 @@ vi.mock('node:crypto', () => ({
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
+const MOCK_WORDS_SEG0 = [
+  { word: 'Hello', start: 0.0, end: 0.8 },
+  { word: 'world', start: 0.9, end: 1.4 },
+];
+
+const MOCK_WORDS_SEG1 = [
+  { word: 'Another', start: 2.5, end: 3.0 },
+  { word: 'line', start: 3.1, end: 3.5 },
+];
+
 const MOCK_SEGMENTS = [
+  { id: 0, seek: 0, start: 0.0, end: 2.5, text: '  Hello world  ', words: MOCK_WORDS_SEG0, tokens: [], temperature: 0, avg_logprob: 0, compression_ratio: 0, no_speech_prob: 0 },
+  { id: 1, seek: 0, start: 2.5, end: 5.0, text: '  Another line  ', words: MOCK_WORDS_SEG1, tokens: [], temperature: 0, avg_logprob: 0, compression_ratio: 0, no_speech_prob: 0 },
+];
+
+const MOCK_SEGMENTS_NO_WORDS = [
   { id: 0, seek: 0, start: 0.0, end: 2.5, text: '  Hello world  ', tokens: [], temperature: 0, avg_logprob: 0, compression_ratio: 0, no_speech_prob: 0 },
   { id: 1, seek: 0, start: 2.5, end: 5.0, text: '  Another line  ', tokens: [], temperature: 0, avg_logprob: 0, compression_ratio: 0, no_speech_prob: 0 },
 ];
@@ -116,11 +131,60 @@ describe('transcribe.job', () => {
       );
       expect(insertCall).toBeDefined();
       const params = insertCall![1] as unknown[];
-      const segmentsJson = JSON.parse(params[4] as string) as { start: number; end: number; text: string }[];
+      const segmentsJson = JSON.parse(params[4] as string) as {
+        start: number;
+        end: number;
+        text: string;
+        words: { word: string; start: number; end: number }[];
+      }[];
       expect(segmentsJson).toEqual([
-        { start: 0.0, end: 2.5, text: 'Hello world' },
-        { start: 2.5, end: 5.0, text: 'Another line' },
+        { start: 0.0, end: 2.5, text: 'Hello world', words: MOCK_WORDS_SEG0 },
+        { start: 2.5, end: 5.0, text: 'Another line', words: MOCK_WORDS_SEG1 },
       ]);
+    });
+
+    it('extracts words[] from Whisper response when present', async () => {
+      await processTranscribeJob(makeJob(), deps);
+
+      const insertCall = mockDbExecute.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].includes('INSERT IGNORE'),
+      );
+      const params = insertCall![1] as unknown[];
+      const segmentsJson = JSON.parse(params[4] as string) as {
+        words: { word: string; start: number; end: number }[];
+      }[];
+
+      expect(segmentsJson[0]!.words).toEqual([
+        { word: 'Hello', start: 0.0, end: 0.8 },
+        { word: 'world', start: 0.9, end: 1.4 },
+      ]);
+      expect(segmentsJson[1]!.words).toEqual([
+        { word: 'Another', start: 2.5, end: 3.0 },
+        { word: 'line', start: 3.1, end: 3.5 },
+      ]);
+    });
+
+    it('stores an empty words[] when seg.words is undefined (graceful fallback)', async () => {
+      mockTranscriptionsCreate.mockResolvedValueOnce({
+        task: 'transcribe',
+        language: 'en',
+        duration: 5.0,
+        text: 'Hello world Another line',
+        segments: MOCK_SEGMENTS_NO_WORDS,
+      });
+
+      await processTranscribeJob(makeJob(), deps);
+
+      const insertCall = mockDbExecute.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].includes('INSERT IGNORE'),
+      );
+      const params = insertCall![1] as unknown[];
+      const segmentsJson = JSON.parse(params[4] as string) as {
+        words: { word: string; start: number; end: number }[];
+      }[];
+
+      expect(segmentsJson[0]!.words).toEqual([]);
+      expect(segmentsJson[1]!.words).toEqual([]);
     });
 
     it('passes language to Whisper when provided', async () => {

@@ -12,6 +12,14 @@ vi.mock('@/lib/config', () => ({
   config: { apiBaseUrl: 'http://localhost:3001' },
 }));
 
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+}));
+
+vi.mock('@/features/asset-manager/api', () => ({
+  updateAsset: vi.fn(),
+}));
+
 vi.mock('./AddToTimelineDropdown', () => ({
   AddToTimelineDropdown: ({ asset, projectId, disabled }: { asset: Asset; projectId: string; disabled?: boolean }) =>
     React.createElement('button', {
@@ -28,6 +36,10 @@ vi.mock('@/features/captions/components/TranscribeButton', () => ({
     React.createElement('button', { 'data-testid': 'transcribe-button', 'data-asset-id': assetId }, 'Transcribe'),
 }));
 
+vi.mock('./AssetPreviewModal', () => ({
+  AssetPreviewModal: () => React.createElement('div', { 'data-testid': 'asset-preview-modal' }),
+}));
+
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
 function makeAsset(overrides: Partial<Asset> = {}): Asset {
@@ -35,6 +47,7 @@ function makeAsset(overrides: Partial<Asset> = {}): Asset {
     id: 'asset-001',
     projectId: 'proj-001',
     filename: 'clip.mp4',
+    displayName: null,
     contentType: 'video/mp4',
     downloadUrl: 'https://example.com/presigned/clip.mp4',
     status: 'ready',
@@ -120,47 +133,6 @@ describe('AssetDetailPanel', () => {
     });
   });
 
-  describe('preview thumbnail', () => {
-    it('renders an img element when thumbnailUri is provided', () => {
-      render(<AssetDetailPanel asset={makeAsset({ thumbnailUri: 'https://example.com/thumb.jpg' })} projectId="proj-001" />);
-      const img = screen.getByRole('img') as HTMLImageElement;
-      expect(img).toBeDefined();
-      expect(img.src).toBe('https://example.com/thumb.jpg');
-    });
-
-    it('renders "No preview" text for video asset when thumbnailUri is null', () => {
-      render(<AssetDetailPanel asset={makeAsset({ contentType: 'video/mp4', thumbnailUri: null })} projectId="proj-001" />);
-      expect(screen.getByText('No preview')).toBeDefined();
-    });
-
-    it('renders "No preview" text for audio asset when thumbnailUri is null', () => {
-      render(<AssetDetailPanel asset={makeAsset({ contentType: 'audio/mpeg', thumbnailUri: null })} projectId="proj-001" />);
-      expect(screen.getByText('No preview')).toBeDefined();
-    });
-
-    it('renders an img element for a ready image asset using the stream URL', () => {
-      const { container } = render(
-        <AssetDetailPanel
-          asset={makeAsset({ id: 'img-001', contentType: 'image/png', thumbnailUri: null, status: 'ready' })}
-          projectId="proj-001"
-        />,
-      );
-      const img = container.querySelector('img');
-      expect(img).not.toBeNull();
-      expect((img as HTMLImageElement).src).toContain('/assets/img-001/stream');
-    });
-
-    it('renders "No preview" for a processing image asset', () => {
-      render(
-        <AssetDetailPanel
-          asset={makeAsset({ contentType: 'image/png', thumbnailUri: null, status: 'processing' })}
-          projectId="proj-001"
-        />,
-      );
-      expect(screen.getByText('No preview')).toBeDefined();
-    });
-  });
-
   describe('existing content', () => {
     it('renders the filename', () => {
       render(<AssetDetailPanel asset={makeAsset({ filename: 'my-video.mp4' })} projectId="proj-001" />);
@@ -241,27 +213,6 @@ describe('AssetDetailPanel', () => {
       render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" onDelete={onDelete} />);
       fireEvent.click(screen.getByRole('button', { name: /delete asset/i }));
       expect(onDelete).toHaveBeenCalledOnce();
-    });
-  });
-
-  describe('status badge overlay (task 5)', () => {
-    it('status badge is inside the preview container (overlaid)', () => {
-      const { container } = render(
-        <AssetDetailPanel asset={makeAsset({ status: 'ready', thumbnailUri: null })} projectId="proj-001" />,
-      );
-      const badge = screen.getByLabelText(/status: ready/i);
-      // The badge should be a descendant of the preview container (position: relative wrapper)
-      // Check that it has position: absolute style set
-      expect(badge.style.position).toBe('absolute');
-    });
-
-    it('status badge is positioned at bottom-right of preview', () => {
-      render(
-        <AssetDetailPanel asset={makeAsset({ status: 'processing' })} projectId="proj-001" />,
-      );
-      const badge = screen.getByLabelText(/status: processing/i);
-      expect(badge.style.bottom).toBe('8px');
-      expect(badge.style.right).toBe('8px');
     });
   });
 });
