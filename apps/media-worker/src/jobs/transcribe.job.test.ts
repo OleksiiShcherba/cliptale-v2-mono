@@ -35,6 +35,9 @@ vi.mock('node:crypto', () => ({
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
+// Whisper returns word timings as a single top-level `words` array
+// (when `timestamp_granularities: ['word']` is requested), not nested
+// inside segments. The job code buckets words into segments by start time.
 const MOCK_WORDS_SEG0 = [
   { word: 'Hello', start: 0.0, end: 0.8 },
   { word: 'world', start: 0.9, end: 1.4 },
@@ -45,12 +48,9 @@ const MOCK_WORDS_SEG1 = [
   { word: 'line', start: 3.1, end: 3.5 },
 ];
 
-const MOCK_SEGMENTS = [
-  { id: 0, seek: 0, start: 0.0, end: 2.5, text: '  Hello world  ', words: MOCK_WORDS_SEG0, tokens: [], temperature: 0, avg_logprob: 0, compression_ratio: 0, no_speech_prob: 0 },
-  { id: 1, seek: 0, start: 2.5, end: 5.0, text: '  Another line  ', words: MOCK_WORDS_SEG1, tokens: [], temperature: 0, avg_logprob: 0, compression_ratio: 0, no_speech_prob: 0 },
-];
+const MOCK_TOP_LEVEL_WORDS = [...MOCK_WORDS_SEG0, ...MOCK_WORDS_SEG1];
 
-const MOCK_SEGMENTS_NO_WORDS = [
+const MOCK_SEGMENTS = [
   { id: 0, seek: 0, start: 0.0, end: 2.5, text: '  Hello world  ', tokens: [], temperature: 0, avg_logprob: 0, compression_ratio: 0, no_speech_prob: 0 },
   { id: 1, seek: 0, start: 2.5, end: 5.0, text: '  Another line  ', tokens: [], temperature: 0, avg_logprob: 0, compression_ratio: 0, no_speech_prob: 0 },
 ];
@@ -67,6 +67,7 @@ const mockTranscriptionsCreate = vi.fn().mockResolvedValue({
   duration: 5.0,
   text: 'Hello world Another line',
   segments: MOCK_SEGMENTS,
+  words: MOCK_TOP_LEVEL_WORDS,
 });
 
 const mockOpenAI = {
@@ -120,6 +121,7 @@ describe('transcribe.job', () => {
         duration: 5.0,
         text: 'Hello world Another line',
         segments: MOCK_SEGMENTS,
+        words: MOCK_TOP_LEVEL_WORDS,
       });
     });
 
@@ -164,13 +166,13 @@ describe('transcribe.job', () => {
       ]);
     });
 
-    it('stores an empty words[] when seg.words is undefined (graceful fallback)', async () => {
+    it('stores an empty words[] when transcription.words is undefined (graceful fallback)', async () => {
       mockTranscriptionsCreate.mockResolvedValueOnce({
         task: 'transcribe',
         language: 'en',
         duration: 5.0,
         text: 'Hello world Another line',
-        segments: MOCK_SEGMENTS_NO_WORDS,
+        segments: MOCK_SEGMENTS,
       });
 
       await processTranscribeJob(makeJob(), deps);
@@ -185,6 +187,17 @@ describe('transcribe.job', () => {
 
       expect(segmentsJson[0]!.words).toEqual([]);
       expect(segmentsJson[1]!.words).toEqual([]);
+    });
+
+    it('requests word-level timestamps from Whisper', async () => {
+      await processTranscribeJob(makeJob(), deps);
+
+      expect(mockTranscriptionsCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          response_format: 'verbose_json',
+          timestamp_granularities: ['word', 'segment'],
+        }),
+      );
     });
 
     it('passes language to Whisper when provided', async () => {

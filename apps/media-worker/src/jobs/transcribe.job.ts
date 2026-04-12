@@ -115,21 +115,24 @@ export async function processTranscribeJob(
       file: createReadStream(tmpInput) as unknown as File,
       model: WHISPER_MODEL,
       response_format: 'verbose_json',
+      timestamp_granularities: ['word', 'segment'],
       ...(language ? { language } : {}),
     }) as unknown as OpenAI.Audio.TranscriptionVerbose;
 
-    type SegmentWithWords = OpenAI.Audio.TranscriptionSegment & {
-      words?: OpenAI.Audio.TranscriptionWord[];
-    };
+    // Whisper returns word-level timing as a flat top-level `words` array
+    // (only when `timestamp_granularities: ['word']` is requested), not
+    // nested inside segments. We bucket each word into the segment whose
+    // time window contains its start.
+    const allWords = transcription.words ?? [];
 
-    const segments: CaptionSegment[] = ((transcription.segments ?? []) as SegmentWithWords[]).map(
-      (seg) => ({
-        start: seg.start,
-        end: seg.end,
-        text: seg.text.trim(),
-        words: (seg.words ?? []).map((w) => ({ word: w.word, start: w.start, end: w.end })),
-      }),
-    );
+    const segments: CaptionSegment[] = (transcription.segments ?? []).map((seg) => ({
+      start: seg.start,
+      end: seg.end,
+      text: seg.text.trim(),
+      words: allWords
+        .filter((w) => w.start >= seg.start && w.start < seg.end)
+        .map((w) => ({ word: w.word, start: w.start, end: w.end })),
+    }));
 
     await insertCaptionTrack(pool, {
       captionTrackId: randomUUID(),

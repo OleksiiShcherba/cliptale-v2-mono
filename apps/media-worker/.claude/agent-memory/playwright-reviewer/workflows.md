@@ -51,3 +51,15 @@ All confirmed at http://localhost:5173 as of 2026-04-07.
   - No UI regressions from backend-only library changes
   - Pure function module, zero frontend impact
   - APPROVED for merge
+
+## Transcription Word-level Highlighting (2026-04-12)
+- Backend fix in transcribe.job.ts confirms Whisper API requests word-level timestamps: `timestamp_granularities: ['word', 'segment']`
+- Words correctly bucketed into segments from top-level `transcription.words` array
+- useAddCaptionsToTimeline correctly creates CaptionClip (not TextOverlayClip) when segment.words[] is non-empty
+- CaptionLayer renders progressively-reveal text with activeColor on currentFrame >= word.startFrame
+- E2E workflow tested: upload audio → trigger transcription → wait for "Add Captions to Timeline" button → add captions → playback
+- Transcription completed successfully within 90s for test_audio.mp3
+- Captions added to timeline successfully
+- Playback initiated with captions visible
+- All code paths work correctly, no regressions detected
+- APPROVED: Feature is production-ready
