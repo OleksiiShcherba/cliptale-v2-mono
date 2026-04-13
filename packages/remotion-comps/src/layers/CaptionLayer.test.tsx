@@ -173,6 +173,10 @@ describe('CaptionLayer', () => {
     });
   });
 
+  // NOTE: `clipStartFrame` offset regression tests for the second-clip
+  // word-highlighting bug live in the sibling file
+  // `CaptionLayer.regression.test.tsx` (extracted per §9.7 300-line file cap).
+
   describe('styling', () => {
     it('applies textShadow matching TextOverlayLayer', () => {
       mockedFrame = 0;

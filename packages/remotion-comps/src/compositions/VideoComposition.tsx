@@ -96,6 +96,7 @@ export function VideoComposition({ projectDoc, assetUrls }: VideoCompositionProp
             <Sequence key={clip.id} from={clip.startFrame} durationInFrames={clip.durationFrames} premountFor={fps}>
               <CaptionLayer
                 words={clip.words}
+                clipStartFrame={clip.startFrame}
                 activeColor={clip.activeColor}
                 inactiveColor={clip.inactiveColor}
                 fontSize={clip.fontSize}

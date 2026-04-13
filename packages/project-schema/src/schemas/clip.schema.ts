@@ -48,6 +48,18 @@ export const imageClipSchema = z.object({
   opacity: z.number().min(0).max(1).default(1),
 });
 
+/**
+ * Caption clip — a group of spoken words with per-word timing, rendered by
+ * `CaptionLayer` inside a `<Sequence from={startFrame}>`.
+ *
+ * **Word frame semantic:** `word.startFrame` and `word.endFrame` are
+ * **absolute** frames in the composition timeline (as produced by
+ * `useAddCaptionsToTimeline` from Whisper `start`/`end` seconds × fps), not
+ * clip-local offsets. `CaptionLayer` reconstructs the absolute frame via its
+ * `clipStartFrame` prop so `<Sequence>`-local `useCurrentFrame()` values can
+ * be compared correctly. Any producer/consumer touching `word.startFrame`
+ * must preserve this absolute-frame contract.
+ */
 export const captionClipSchema = z.object({
   id: z.string().uuid(),
   type: z.literal('caption'),
@@ -56,7 +68,9 @@ export const captionClipSchema = z.object({
   durationFrames: z.number().int().positive(),
   words: z.array(z.object({
     word: z.string(),
+    /** Absolute composition frame at which this word becomes active. See captionClipSchema JSDoc. */
     startFrame: z.number().int().nonnegative(),
+    /** Absolute composition frame at which this word ends. See captionClipSchema JSDoc. */
     endFrame: z.number().int().nonnegative(),
   })),
   activeColor: z.string().default('#FFFFFF'),

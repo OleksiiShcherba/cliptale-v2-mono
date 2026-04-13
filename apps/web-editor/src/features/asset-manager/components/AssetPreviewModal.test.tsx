@@ -167,52 +167,113 @@ describe('AssetPreviewModal', () => {
   });
 
   describe('media src wiring', () => {
-    it('passes an authenticated URL (with token query param) to the <video> src', () => {
+    it('points the <video> src at the API stream endpoint for the asset id', () => {
       render(
         <AssetPreviewModal
-          asset={makeAsset({ contentType: 'video/mp4', downloadUrl: 'https://cdn.example/clip.mp4' })}
+          asset={makeAsset({
+            id: 'asset-001',
+            contentType: 'video/mp4',
+            downloadUrl: 'https://cdn.example/clip.mp4',
+          })}
           onClose={vi.fn()}
         />,
       );
       const video = screen.getByTestId('asset-preview-video') as HTMLVideoElement;
-      // buildAuthenticatedUrl mock appends ?token=test
-      expect(video.getAttribute('src')).toBe('https://cdn.example/clip.mp4?token=test');
+      // stream URL has no pre-existing query string, buildAuthenticatedUrl appends ?token=test
+      expect(video.getAttribute('src')).toBe(
+        'http://localhost:3001/assets/asset-001/stream?token=test',
+      );
     });
 
-    it('appends token to an existing query string in the <video> src', () => {
+    it('uses the <video> src for a different asset id', () => {
       render(
         <AssetPreviewModal
-          asset={makeAsset({ contentType: 'video/mp4', downloadUrl: 'https://cdn.example/clip.mp4?expires=123' })}
+          asset={makeAsset({
+            id: 'asset-042',
+            contentType: 'video/mp4',
+            downloadUrl: 'https://cdn.example/clip.mp4',
+          })}
           onClose={vi.fn()}
         />,
       );
       const video = screen.getByTestId('asset-preview-video') as HTMLVideoElement;
-      // buildAuthenticatedUrl mock appends &token=test when ? already present
-      expect(video.getAttribute('src')).toBe('https://cdn.example/clip.mp4?expires=123&token=test');
+      expect(video.getAttribute('src')).toBe(
+        'http://localhost:3001/assets/asset-042/stream?token=test',
+      );
     });
 
-    it('passes an authenticated URL (with token query param) to the <audio> src', () => {
+    it('ignores the presigned downloadUrl for the <video> src', () => {
       render(
         <AssetPreviewModal
-          asset={makeAsset({ contentType: 'audio/mpeg', downloadUrl: 'https://cdn.example/song.mp3' })}
+          asset={makeAsset({
+            id: 'asset-001',
+            contentType: 'video/mp4',
+            downloadUrl: 'https://minio-internal:9000/bucket/clip.mp4?X-Amz-Signature=deadbeef',
+          })}
+          onClose={vi.fn()}
+        />,
+      );
+      const video = screen.getByTestId('asset-preview-video') as HTMLVideoElement;
+      expect(video.getAttribute('src')).not.toContain('minio-internal');
+      expect(video.getAttribute('src')).not.toContain('X-Amz-Signature');
+      expect(video.getAttribute('src')).toBe(
+        'http://localhost:3001/assets/asset-001/stream?token=test',
+      );
+    });
+
+    it('points the <audio> src at the API stream endpoint for the asset id', () => {
+      render(
+        <AssetPreviewModal
+          asset={makeAsset({
+            id: 'asset-001',
+            contentType: 'audio/mpeg',
+            filename: 'song.mp3',
+            downloadUrl: 'https://cdn.example/song.mp3',
+          })}
           onClose={vi.fn()}
         />,
       );
       const audio = screen.getByTestId('asset-preview-audio') as HTMLAudioElement;
-      // buildAuthenticatedUrl mock appends ?token=test
-      expect(audio.getAttribute('src')).toBe('https://cdn.example/song.mp3?token=test');
+      expect(audio.getAttribute('src')).toBe(
+        'http://localhost:3001/assets/asset-001/stream?token=test',
+      );
     });
 
-    it('appends token to an existing query string in the <audio> src', () => {
+    it('uses the <audio> src for a different asset id', () => {
       render(
         <AssetPreviewModal
-          asset={makeAsset({ contentType: 'audio/mpeg', downloadUrl: 'https://cdn.example/song.mp3?expires=456' })}
+          asset={makeAsset({
+            id: 'asset-099',
+            contentType: 'audio/wav',
+            filename: 'voice.wav',
+            downloadUrl: 'https://cdn.example/voice.wav',
+          })}
           onClose={vi.fn()}
         />,
       );
       const audio = screen.getByTestId('asset-preview-audio') as HTMLAudioElement;
-      // buildAuthenticatedUrl mock appends &token=test when ? already present
-      expect(audio.getAttribute('src')).toBe('https://cdn.example/song.mp3?expires=456&token=test');
+      expect(audio.getAttribute('src')).toBe(
+        'http://localhost:3001/assets/asset-099/stream?token=test',
+      );
+    });
+
+    it('ignores the presigned downloadUrl for the <audio> src', () => {
+      render(
+        <AssetPreviewModal
+          asset={makeAsset({
+            id: 'asset-001',
+            contentType: 'audio/mpeg',
+            downloadUrl: 'https://minio-internal:9000/bucket/song.mp3?X-Amz-Signature=deadbeef',
+          })}
+          onClose={vi.fn()}
+        />,
+      );
+      const audio = screen.getByTestId('asset-preview-audio') as HTMLAudioElement;
+      expect(audio.getAttribute('src')).not.toContain('minio-internal');
+      expect(audio.getAttribute('src')).not.toContain('X-Amz-Signature');
+      expect(audio.getAttribute('src')).toBe(
+        'http://localhost:3001/assets/asset-001/stream?token=test',
+      );
     });
 
     it('uses getAssetPreviewUrl for image assets (already authenticated via buildAuthenticatedUrl)', () => {

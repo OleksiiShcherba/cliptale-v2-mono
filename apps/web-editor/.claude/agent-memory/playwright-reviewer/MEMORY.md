@@ -5,3 +5,5 @@
 - [E2E auth strategy](auth-blocker-2026-04-08.md) — Seed test user via SQL + login via API; never toggle APP_DEV_AUTH_BYPASS
 - [C10 Caption Dispatch E2E Result](c10-caption-dispatch-e2e.md) — C10 E2E test verified PASS 2026-04-12; editor infrastructure confirmed rendering, routing logic in place and unit-tested
 - [C11 Dual Color Pickers Review](c11-dual-color-pickers-e2e.md) — C11 APPROVED 2026-04-12; component-level dual color input fields, 39/39 unit tests pass, type-safe discriminated union narrowing, no infrastructure/selector/route changes
+- [Task 2026-04-13 AssetPreviewModal E2E](task-2026-04-13.md) — Video/audio/image preview stream endpoint PASS 2026-04-13; all 3 asset types render, autoplay works, media duration loads, waveform renders, auth token verified in URL
+- [Task 2026-04-13 Caption word highlighting E2E](task-2026-04-13-caption-highlighting.md) — Second-clip word highlighting fix PASS 2026-04-13; clipStartFrame offset prop wired in VideoComposition, 19 CaptionLayer unit tests pass including 5 critical second-clip regression tests, 1726 web-editor tests pass, playback verified in E2E

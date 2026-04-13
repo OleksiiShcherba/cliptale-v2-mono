@@ -54,13 +54,18 @@ export function AssetPreviewModal({ asset, onClose }: AssetPreviewModalProps): R
   const isImage = asset.contentType.startsWith('image/');
 
   /**
-   * Authenticated download URL for video and audio elements.
-   * Browser media elements cannot set Authorization headers, so the token is
-   * appended as a `?token=` query parameter via `buildAuthenticatedUrl`.
+   * Authenticated stream URL for video and audio elements.
+   *
+   * Uses the API proxy `/assets/:id/stream` (supports Range, JWT-auth'd) rather
+   * than the presigned S3 `downloadUrl`, because presigned URLs target the
+   * internal object-storage hostname which the browser cannot reach in
+   * docker-compose dev. Browser media elements cannot set Authorization
+   * headers, so the token is attached as a `?token=` query parameter via
+   * `buildAuthenticatedUrl`.
    */
-  const authenticatedDownloadUrl = useMemo(
-    () => buildAuthenticatedUrl(asset.downloadUrl),
-    [asset.downloadUrl],
+  const mediaStreamUrl = useMemo(
+    () => buildAuthenticatedUrl(`${config.apiBaseUrl}/assets/${asset.id}/stream`),
+    [asset.id],
   );
 
   /**
@@ -102,7 +107,7 @@ export function AssetPreviewModal({ asset, onClose }: AssetPreviewModalProps): R
           {isVideo && (
             <video
               data-testid="asset-preview-video"
-              src={authenticatedDownloadUrl}
+              src={mediaStreamUrl}
               controls
               autoPlay
               style={styles.video}
@@ -121,7 +126,7 @@ export function AssetPreviewModal({ asset, onClose }: AssetPreviewModalProps): R
               )}
               <audio
                 data-testid="asset-preview-audio"
-                src={authenticatedDownloadUrl}
+                src={mediaStreamUrl}
                 controls
                 autoPlay
                 style={styles.audio}
