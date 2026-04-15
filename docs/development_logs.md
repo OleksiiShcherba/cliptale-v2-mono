@@ -265,3 +265,498 @@ checked by design-reviewer - YES
 design-reviewer notes: Reviewed on 2026-04-13. Pure rendering-arithmetic fix with zero visual surface change. `clipStartFrame` prop reconstruction of absolute frame (line 64: `clipStartFrame + useCurrentFrame()`) fixes the bug but alters no style, color, layout, typography, spacing, shadow, or position. All visual attributes (fontSize 24, activeColor #FFFFFF, inactiveColor rgba(255,255,255,0.35), textShadow, padding, position styles, fontFamily Inter 600) remain unchanged. The fix restores correct color-switching behavior for captions after the first clip without modifying what the user sees. Per `feedback_design_reviewer_backend` memory (backend-only fixes with zero UI surface change), this is APPROVED. (Follow-up note: the test-file split is a test-only reorganization with no production-code change, so this approval remains valid.)
 checked by playwright-reviewer: YES
 playwright-reviewer notes: Verified 2026-04-13 follow-up split on 2026-04-13. Production code (`CaptionLayer.tsx` line 64, `VideoComposition.tsx` line 99, `clip.schema.ts` captions JSDoc) remains unchanged since prior APPROVED review — test reorganization only. Unit tests all pass: 49/49 across 4 files (CaptionLayer.regression.test.tsx 5 new tests + CaptionLayer.test.tsx 14 tests + VideoComposition.test.tsx 23 tests + VideoComposition.utils.test.ts 7 tests). File split complies with §9.7 300-line cap (CaptionLayer.test.tsx 200 lines, CaptionLayer.regression.test.tsx 155 lines). E2E sanity check: editor loads at http://localhost:5173 without JS errors; no regression in app stability. Second-clip caption word-highlighting behavior locked in by regression tests and verified intact at unit level. Follow-up reorganization approved.
+
+---
+
+## [2026-04-14]
+
+### Task: EPIC 10 STAGE 1 — Design Tooling Migration (Figma → Google Stitch)
+**Subtask:** 0. Write this mini-epic back into `docs/general_tasks.md`
+
+**What was done:**
+- Prepended a new "EPIC 10 — STAGE 1 — Design Tooling Migration (Figma → Google Stitch)" section in `docs/general_tasks.md`, positioned immediately above the existing "EPIC 10 — Text-to-Video Pipeline" header.
+- Section contains: goal, scope boundaries (config + Stitch cloud + docs only, no code), high-level subtask list (0–9) referencing `docs/active_task.md` for detail, dependencies, effort (M), status (Ready for task-executor).
+- Explicitly preserved all four existing Epic 10 implementation tickets (LLM storyboard generator, Text-to-Video orchestrator, Auto-caption for TTV, Text-to-Video wizard modal) — reclassified as STAGE 3.
+- Files modified: `docs/general_tasks.md` (insertion only; no deletions).
+- Tests written: none. Pure markdown backlog edit — not a code-testable change. Verification is a visual diff plus confirmation that subsequent Epic 10 content is byte-identical.
+
+**Notes:**
+- This subtask has no ⚠️ escalation marker in `active_task.md`, so it was executed without stopping for user input per the plan.
+- The section references `docs/active_task.md` as the source of truth for subtask detail rather than duplicating the full plan, to avoid drift between the two files as the mini-epic progresses.
+- Next subtask (1) IS marked ⚠️ — the executor must stop and present the Stitch MCP server comparison to the user before installing anything.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask 0: Write this mini-epic back into `docs/general_tasks.md`</summary>
+
+- What: Add a new section at the top of Epic 10 titled "STAGE 1 — Design Tooling Migration (Figma → Stitch)" that references this `active_task.md` and lists the subtasks below at a high level. Do not remove or re-order the existing Epic 10 tickets; they become STAGE 3 onward.
+- Where: `docs/general_tasks.md` lines 1–2 (immediately above the existing "EPIC 10 — Text-to-Video Pipeline" header)
+- Why: Keeps the project backlog consistent with the active plan so future task-planner runs see this work.
+- Depends on: none
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-14. Approved as documentation-only. Zero UI surface change — pure markdown backlog reorganization with no visual, spacing, typography, or color decisions. No design-guide or Figma validation needed per approved pattern for docs-only changes.
+checked by playwright-reviewer: YES
+playwright-reviewer notes: Verified 2026-04-14. Markdown-only change — docs files only. No code, TypeScript, routes, or components touched. git diff shows 63 additions to docs only. npx tsc emits only pre-existing errors in unrelated test files. New EPIC 10 STAGE 1 section properly prepended above existing Epic 10 header with all four existing tickets preserved and reclassified as STAGE 3. Zero UI surface to test. APPROVED.
+
+---
+
+## [2026-04-14]
+
+### Task: EPIC 10 STAGE 1 — Design Tooling Migration (Figma → Google Stitch)
+**Subtask:** 1. Research & select the Stitch MCP server implementation
+
+**What was done:**
+- Fetched README files and GitHub/npm metadata for all four candidate community repos and for the official Google-maintained implementation.
+- Confirmed (OQ-5): A first-party Google Stitch MCP server EXISTS. It is `StitchProxy` inside `@google/stitch-sdk` (repo: `google-labs-code/stitch-sdk`, published by `google-wombot@google.com`, Apache-2.0, actively maintained — last push 2026-04-11, 1 504 stars).
+- Confirmed the official Google docs page (`https://stitch.withgoogle.com/docs/mcp/setup/`) is a JavaScript-rendered SPA and could not be scraped via curl; content is not accessible without a real browser session.
+- Confirmed `davideast/stitch-mcp` (780 stars, Apache-2.0, last push 2026-04-02) is authored by a `@google-labs-code` employee (David East, company: `@google-labs-code`, bio: "Working on @google-labs-code. Stitch and Jules") and wraps the official `@google/stitch-sdk`. It is not an independent community fork — it is the Google Labs-adjacent CLI/proxy layer.
+- Produced the comparison table below.
+- **Stopped without installing anything.** Waiting for user to pick from options A, B, or a recommendation.
+
+**Comparison table (verified from actual READMEs and npm registry — not from planning-session WebFetch):**
+
+| Attribute | A: `@google/stitch-sdk` (StitchProxy) | B: `davideast/stitch-mcp` | C: `Kargatharaakash/stitch-mcp` | D: `oogleyskr/stitch-mcp-server` | E: `piyushcreates/stitch-mcp` |
+|---|---|---|---|---|---|
+| **Author / org** | `google-labs-code` (Google) | David East (`@google-labs-code` employee) | Aakash Kargathara (community) | Community (unknown) | Community (unknown) |
+| **Stars** | 1 504 | 780 | 95 | 4 | 0 |
+| **Last pushed** | 2026-04-11 | 2026-04-02 | 2026-02-13 | 2026-03-26 | 2026-02-10 |
+| **Language** | TypeScript | TypeScript | JavaScript (plain) | TypeScript | Python |
+| **npm package** | `@google/stitch-sdk` v0.1.0 | `@_davideast/stitch-mcp` v0.5.3 | `stitch-mcp` v1.3.2 | (no npm package) | (no npm package) |
+| **Transport** | stdio (via `StdioServerTransport`) | stdio (`proxy` subcommand) | stdio | stdio | stdio |
+| **Tool count** | 7 upstream (list/get/generate/edit/variants + build_site/get_screen_code/get_screen_image via davideast's virtual layer) | 7 upstream + 3 virtual (`build_site`, `get_screen_code`, `get_screen_image`) | 9 (list_projects, get_project, list_screens, get_screen, extract_design_context, fetch_screen_code, fetch_screen_image, generate_screen_from_text, create_project) | 36 across 9 categories | 6 (direct Stitch API proxy) |
+| **Auth** | `STITCH_API_KEY` (env) OR `STITCH_ACCESS_TOKEN` OR gcloud ADC | `STITCH_API_KEY` (env) OR gcloud OAuth (wizard via `init`; also supports `STITCH_USE_SYSTEM_GCLOUD=1`) | `GOOGLE_CLOUD_PROJECT` + gcloud ADC (application-default login) | `STITCH_API_KEY` OR `STITCH_ACCESS_TOKEN` OR gcloud CLI | `STITCH_API_KEY` (env only) |
+| **MCP config snippet (for Claude Code)** | Custom script wrapping `StitchProxy` (requires a small wrapper .ts or .js file to write) | `npx @_davideast/stitch-mcp proxy` | `npx -y stitch-mcp` with `GOOGLE_CLOUD_PROJECT` env | Clone + `npm install` + local path | Clone + `python3 /path/to/stitch_mcp.py` |
+| **Claude Code compatibility** | Yes (stdio) | Explicitly listed as supported client | Yes (stdio) | Yes (stdio) | Yes (stdio, Python 3.10+) |
+| **License** | Apache-2.0 | Apache-2.0 | Apache-2.0 (README says MIT, package.json says Apache — discrepancy; filed as informational) | Apache-2.0 (from README badge; no `license` field in package.json) | None declared |
+| **Maintenance signal** | Google org, active CI, 23 open issues (triaged), Dependabot PRs | 0.5.x release cadence, 11 open issues, maintained by Google Labs employee | Last release 2026-02-13; 0 open issues; likely unmaintained | 1 commit total on 2026-03-26; 2 open issues; likely stale | 1 commit on 2026-02-10; 0 activity since |
+| **Extra features** | `StitchToolClient`, Vercel AI SDK integration, programmatic SDK | `init` wizard (handles gcloud install + auth), `serve`, `site`, `view`, `doctor`, `snapshot`, local Vite dev server | extract_design_context (reads fonts/colors/layouts) | Design analysis, dark-mode generation, responsive variants, component variants, accessibility audit, PM issue generation, trending designs | Thin proxy only |
+
+**OQ-5 Answer (first-party server):** Confirmed YES. `google-labs-code/stitch-sdk` (published under the `@google` npm scope by `google-wombot@google.com`) ships `StitchProxy` — a proper `StdioServerTransport`-based MCP proxy. However, it is a library component, not a standalone npx-runnable server. Using it directly requires writing a small wrapper script. The `davideast/stitch-mcp` CLI (`npx @_davideast/stitch-mcp proxy`) provides exactly that wrapper plus auth automation and is authored by a member of the same Google Labs Code team.
+
+**Recommendation (for user decision only — not enacted):** Option B (`davideast/stitch-mcp`) is the best fit for this project because:
+1. It IS the first-party-adjacent tool — built by a Google Labs Code employee, wrapping `@google/stitch-sdk`, explicitly lists Claude Code as a supported client.
+2. The `init` wizard handles gcloud auth automatically (critical for subtask 2).
+3. The `proxy` subcommand produces a clean `npx @_davideast/stitch-mcp proxy` MCP config entry — zero local install step.
+4. Actively maintained (last push 2026-04-02, versioned releases).
+5. Apache-2.0 license.
+6. The `STITCH_USE_SYSTEM_GCLOUD=1` env var allows using the user's existing gcloud login without the bundled gcloud — which matters if the user already has `gcloud auth application-default login` done (subtask 2 will confirm).
+
+Option A (`@google/stitch-sdk` StitchProxy directly) is viable if the user wants zero third-party code, but requires writing and maintaining a small wrapper script. Option C (Kargatharaakash) is simpler but less maintained and has a license discrepancy. Options D and E should not be used.
+
+**Notes:**
+- The WebFetch-synthesized install recipe from the planning session (`npx -y stitch-mcp`, `gcloud beta services mcp enable stitch.googleapis.com`) appears to be a blend of Option C's package name with Option B's auth flow. Specifically: `gcloud beta services mcp enable stitch.googleapis.com` is from Option B/A's auth path (confirmed in davideast README). The `npx -y stitch-mcp` command installs Option C (Kargatharaakash), NOT Option B. Do not blindly follow that recipe for Option B.
+- Verified install command for Option B (from actual README): add `{ "command": "npx", "args": ["@_davideast/stitch-mcp", "proxy"] }` to MCP config. Auth: run `npx @_davideast/stitch-mcp init` interactively OR set `STITCH_API_KEY` env var directly OR set `STITCH_USE_SYSTEM_GCLOUD=1` if gcloud ADC is already configured.
+- The official docs page (stitch.withgoogle.com/docs/mcp/setup/) requires a logged-in browser session and could not be read by curl; its contents are behind a JS SPA. The README of `davideast/stitch-mcp` and the `@google/stitch-sdk` docs cover the same auth flow and are verified verbatim.
+- No files outside this log were changed during this subtask. `active_task.md` updated to mark subtask 1 complete.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask 1: Research & select the Stitch MCP server implementation</summary>
+
+- What: Fetch the READMEs of the four candidate repos and the official Google page. Compare: maintenance recency, tool count, auth model, transport, Claude Code compatibility, licensing. Produce a short comparison table and a recommendation. STOP and ask the user to pick before installing anything.
+- Where: Write findings into a new scratch section in this file ("Stitch MCP candidate comparison") and escalate to user.
+- Why: Multiple community implementations exist; picking the wrong one wastes time and may require a redo when the first-party Google server stabilizes.
+- Depends on: none
+
+</details>
+
+checked by code-reviewer - OK
+code-reviewer notes: Research & documentation-only subtask (markdown comparison table with no code/config/test changes). Scope: comparing five Stitch MCP implementations and recommending one. Files touched: docs/development_logs.md only. Per architecture-rules.md §1 ("authoritative source of truth for where code belongs"), code-quality-expert reviews code placement, structure, naming, patterns, and security — not research documentation or tool selection decisions. This subtask is out of scope for code review (it is an architectural escalation task per feedback_escalate_architecture memory, not a code quality task). Verdict: out of scope (documentation research, zero code surface).
+checked by qa-reviewer - NOT
+checked by design-reviewer - NOT
+checked by playwright-reviewer: NOT
+
+---
+
+## [2026-04-14]
+
+### Task: EPIC 10 STAGE 1 — Design Tooling Migration (Figma → Google Stitch)
+**Subtask:** 3. Install the Stitch MCP server via `update-config` skill
+
+**What was done:**
+- Verified the real `@_davideast/stitch-mcp` README via `gh api repos/davideast/stitch-mcp/readme` (authoritative, not WebFetch). Confirmed: package name is `@_davideast/stitch-mcp` (underscore-prefixed scope), proxy entry point is `npx @_davideast/stitch-mcp proxy`, auth can be `STITCH_API_KEY` env var which skips OAuth and gcloud entirely. This cleared the planner's "possibly hallucinated install recipe" warning.
+- Confirmed with user (escalation resolved 2026-04-14):
+  - OQ-1 / Subtask 1 decision: Option B — `davideast/stitch-mcp` (confirmed).
+  - OQ-2 / GCP project: **skipped** — API-key auth path bypasses gcloud/ADC/GCP project creation entirely. No new GCP project needed.
+  - Subtask 5 path: **hybrid** — user will build empty Stitch project + design system tokens in the Stitch web UI manually; agent will fetch/populate docs and attempt any supported MCP-driven screen generation for the 4 key screens.
+- User provided live `STITCH_API_KEY` in chat (plaintext). Key was used ONLY to populate `~/.claude.json` via atomic write; never echoed to any file under the repo, never committed, never logged, never printed in plain diffs. When showing the diff for verification, the key was redacted via sed.
+- Security heads-up: the key now lives in the conversation transcript. User has been advised to rotate it at stitch.withgoogle.com after setup if desired.
+- Backup of `~/.claude.json` saved before edit: `~/.claude.json.backup-pre-stitch-20260414-200927`.
+- Edit strategy: Python JSON round-trip with atomic write (tempfile + `os.replace`) instead of string surgery. Chosen over Edit tool because (a) the same file contains a live `fal-ai` Bearer token on line 619 that must not be exposed in any Edit tool old_string, (b) JSON round-trip provides schema-level safety for the whole file vs byte-level string replacement, (c) atomic write guarantees no corruption on interruption.
+- Preflight assertions in the Python script: `fal-ai` present, `figma-remote-mcp` present, `stitch` absent. Post-mutation verification: SHA-256 hashes of `fal-ai` and `figma-remote-mcp` blocks computed before and after mutation — confirmed byte-identical. Re-parsed the resulting file as JSON to confirm validity.
+- Diff verification (with both secrets redacted via sed): only 11 new lines added in the `stitch` block and a trailing newline at EOF. No other lines touched.
+
+**Files created or modified:**
+- `~/.claude.json` — added `projects["/home/oleksii/Work/ClipTale/cliptale.com-v2"].mcpServers.stitch` entry (lines 622–632 in the new file). Shape:
+  ```json
+  "stitch": {
+    "command": "npx",
+    "args": ["-y", "@_davideast/stitch-mcp", "proxy"],
+    "env": { "STITCH_API_KEY": "<REDACTED>" }
+  }
+  ```
+- `~/.claude.json.backup-pre-stitch-20260414-200927` — full backup of pre-edit state. Kept on disk for recovery until user confirms everything works.
+
+**Tests written and what they cover:**
+- None. This subtask is config-only (user-level `~/.claude.json` mutation). No code path was introduced or modified. The planner explicitly scopes the entire EPIC 10 STAGE 1 as "config + design creation + markdown rewrites only. No code changes."
+- In lieu of tests, the Python edit script contains inline assertions (preflight + post-hash verification + re-parse) that function as one-shot correctness checks.
+
+**Notes:**
+- **Subtask 4 (connectivity verification) requires a Claude Code session restart.** MCP servers load at session start. Until the user restarts Claude Code, the `mcp__stitch__*` tool namespace will not be available in the model's tool list, and no proxy handshake can be tested from inside this session.
+- `figma-remote-mcp` was intentionally NOT removed — subtask 6 removes it only after subtask 4 verifies Stitch is actually working, per the planner's strict 4 → 6 dependency ordering.
+- `fal-ai` was NOT touched. Hash-verified identical before and after.
+- The `update-config` skill was invoked as required by the planner's `update-config skill is REQUIRED` rule. The skill's workflow (read before write, merge don't replace, validate JSON) was followed via the Python script's assertions.
+- If this subtask is rejected and needs to roll back: `cp ~/.claude.json.backup-pre-stitch-20260414-200927 ~/.claude.json`.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask 3: Install the Stitch MCP server via `update-config` skill</summary>
+
+- What: Use the `update-config` skill to edit `~/.claude.json` — specifically the `projects["/home/oleksii/Work/ClipTale/cliptale.com-v2"].mcpServers` block. Add the selected Stitch server entry next to the existing `fal-ai` entry. **Do NOT touch `fal-ai`** (it contains a live Bearer token the user depends on). **Do NOT remove `figma-remote-mcp` yet** — subtask 6 does that after verification.
+- Where: `~/.claude.json` lines 610–622 (project mcpServers block). Use `update-config` skill only.
+- Why: Gets the new MCP server registered without losing the fallback.
+- Depends on: 2
+
+</details>
+
+checked by code-reviewer - YES
+code-reviewer notes: Reviewer gate skipped per user decision 2026-04-14. Config-only subtask (single JSON edit to `~/.claude.json`). No source code, no tests, no architecture-rules.md-covered surface. Pattern: config-only subtasks do not require code review.
+checked by qa-reviewer - YES
+qa-reviewer notes: Reviewer gate skipped per user decision 2026-04-14. Config-only subtask — no executable code added, no test surface. Inline preflight/posthash/reparse assertions in the Python edit script served as one-shot correctness checks.
+checked by design-reviewer - YES
+design-reviewer notes: Reviewer gate skipped per user decision 2026-04-14. Config-only subtask with zero UI surface. No Figma/Stitch design fidelity validation applicable to a user-level MCP server registration.
+checked by playwright-reviewer: YES
+playwright-reviewer notes: Reviewer gate skipped per user decision 2026-04-14. Config-only subtask — no UI workflow to regress. Verification of MCP connectivity is deferred to subtask 4, which requires a fresh Claude Code session (MCP tools load at session start).
+
+---
+
+## [2026-04-14]
+
+### Task: EPIC 10 STAGE 1 — Design Tooling Migration (Figma → Google Stitch)
+**Subtask:** 4. Verify Stitch MCP connectivity
+
+**What was done:**
+- Observed that `mcp__stitch__*` tools were NOT present in the current Claude Code session's deferred tool list, even though `~/.claude.json` has the stitch entry under `projects["/home/oleksii/Work/ClipTale/cliptale.com-v2"].mcpServers` (hash-verified intact from subtask 3). Root cause: project-level `mcpServers` are re-read on session start; the Claude Code session running this agent was launched before subtask 3's edit landed OR has cached the pre-edit tool list. `claude mcp list` only surfaces the user-scoped `plugin:figma:figma` HTTP server (consistent with previous runs), so that command is not an appropriate health probe for project-scoped stdio servers.
+- Verified the stitch server out-of-band by spawning it with the exact command + env that `~/.claude.json` registers (`npx -y @_davideast/stitch-mcp proxy` with `STITCH_API_KEY` from the config) and driving a full MCP stdio handshake from a short Python script. Secret hygiene: the API key was loaded from `~/.claude.json` into the subprocess env only; never printed, never echoed to any file, never committed.
+- MCP handshake results (captured live, not synthesized):
+  - `initialize` → OK. Server announces `serverInfo = { name: "stitch-proxy", version: "1.0.0" }`, `protocolVersion: 2024-11-05`, `capabilities: { tools }`.
+  - `notifications/initialized` → sent.
+  - `tools/list` → OK. Server exposes **12 tools**: `create_project`, `get_project`, `list_projects`, `list_screens`, `get_screen`, `generate_screen_from_text`, `edit_screens`, `generate_variants`, `create_design_system`, `update_design_system`, `list_design_systems`, `apply_design_system`.
+  - `tools/call list_projects {}` → OK (non-error response). Returned a real project entry: `{ name: "projects/4209061398031290155", title: "AI Remotion Editor Architecture", visibility: "PRIVATE", createTime: "2026-04-09T20:49:26Z", updateTime: "2026-04-14T18:04:34Z", projectType: "TEXT_TO_UI_PRO", thumbnailScreenshot: { name: "projects/4209061398031290155/files/5dad36b6a4914babb9fe34d188ffe71e", downloadUrl: "https://lh3.googleusercontent.com/aida/..." } }`.
+- Auth is working. The `STITCH_API_KEY` added in subtask 3 is valid and authorized against the live Stitch API.
+
+**Findings that change subtask 5 / subtask 7 planning (MUST read before starting subtask 5):**
+1. **Live tool list ≠ subtask 1 research.** Subtask 1's README-based research documented "7 upstream + 3 virtual (`build_site`, `get_screen_code`, `get_screen_image`)" for Option B. The actually-running proxy exposes 12 tools and **none of them are `build_site`, `get_screen_code`, or `get_screen_image`**. The virtual davideast-layer tools named in the README are not active in this server build. New tools present (not in research): `edit_screens`, `generate_variants`, `create_design_system`, `update_design_system`, `list_design_systems`, `apply_design_system`. Subtask 5's path 5a (agent-led) was scoped against `create_project + generate_screen_from_text` — both of which ARE present and usable.
+2. **An existing Stitch project already exists for the user.** `list_projects` returned `projects/4209061398031290155` titled "AI Remotion Editor Architecture", last updated TODAY (2026-04-14 18:04 UTC). Given the ClipTale tech stack ("AI video editor built with Remotion") this is almost certainly the user's in-progress project. Subtask 5's plan assumes a fresh `create_project` call. **This needs to be added to subtask 5's ⚠️ escalation**: ask the user whether to (a) reuse the existing project and retitle it "ClipTale", (b) reuse as-is and layer ClipTale assets on top, or (c) create a new project and leave the existing one alone.
+3. **Stitch has a first-class design system concept after all.** Subtask 1 research concluded "Stitch has no equivalent concept [to Figma variables] per initial research; confirm during subtask 1" and subtask 7 planned to DELETE the §3 "Figma Variable IDs" table from `docs/design-guide.md` entirely. The presence of `create_design_system` / `update_design_system` / `list_design_systems` / `apply_design_system` tools strongly contradicts that assumption. Subtask 7 should plan to **replace** the variable-IDs table with a Stitch design-system-ID table (populated from `list_design_systems`), not delete it. Before doing that, the next agent should call `list_design_systems` on the existing project to see whether one already exists.
+4. **The `davideast/stitch-mcp` wrapper behaves as a thin proxy to `@google/stitch-sdk`'s upstream API.** The 12 tools match the upstream Stitch API surface rather than the README's documented wrapper-extended set, confirming subtask 1's "Option B is essentially the first-party flow" reading.
+
+**Why the session's deferred-tool list didn't include `mcp__stitch__*` (non-blocker but worth recording):**
+- Claude Code's MCP loader reads project-scoped `mcpServers` at Claude CLI session launch. Subtask 3 edited `~/.claude.json` at 20:09 UTC on 2026-04-14; any agent session started before that time will not see the new tools, and a subagent spawned from such a parent inherits the parent's tool manifest. This session's `ToolSearch` for `stitch` / `mcp` / `select:mcp__stitch__list_projects` all returned empty, confirming the loader did not pick up the edit. No follow-up is needed for this session specifically — once the user restarts Claude Code, the tools will appear automatically. The stdio handshake above proves the server side is healthy regardless.
+
+**Files created or modified:**
+- None. Subtask 4 is a pure runtime connectivity probe. `docs/active_task.md` will be updated to mark subtask 4 done in a separate edit after this log entry lands.
+
+**Tests written and what they cover:**
+- None. No code was added. The one-shot Python handshake script served as the connectivity probe (initialize → tools/list → tools/call list_projects). The probe was deliberately not persisted to the repo: it reads the live `STITCH_API_KEY` out of `~/.claude.json` and has no business inside the tracked codebase.
+
+**Notes:**
+- Subtask 4's dependency (subtask 3) is satisfied — the config edit landed correctly and the server launches, authenticates, and responds to real tool calls.
+- **Subtask 6 (remove figma-remote-mcp) is now unblocked** by the connectivity verification, but it should STILL wait for subtask 5 per the planner's strict `5 → 6 → 7` dependency ordering. Do not remove figma-remote-mcp until the new Stitch source of truth actually exists (at minimum the project is picked/created and the design-system doc is captured).
+- **Subtask 5 has a ⚠️ escalation marker** plus the two new ⚠️-worthy findings above (existing project, design-system-concept-exists). The next agent MUST stop and escalate before running any Stitch create/generate tools.
+- `~/.claude.json.backup-pre-stitch-20260414-200927` backup is still present and can still roll back subtask 3 if needed.
+- No changes to `figma-remote-mcp`, `fal-ai`, or any other MCP server entry.
+- No changes to the repo working tree. `git status` for repo files unchanged since the start of this session except for the in-progress edits to `docs/development_logs.md` and `docs/active_task.md` that this subtask is writing now.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask 4: Verify Stitch MCP connectivity</summary>
+
+- What: After the MCP server is registered, confirm Claude Code actually sees the new tools. In a follow-up turn (MCP tools load on session start), call the simplest read-only Stitch tool available (e.g. `list_projects` or equivalent) and confirm a non-error response. If auth fails, loop back to subtask 2/3 with the error message.
+- Where: Runtime check; no file changes unless debugging.
+- Why: Catches config errors before doing any destructive removal of Figma.
+- Depends on: 3
+
+</details>
+
+checked by code-reviewer - YES
+code-reviewer notes: Reviewer gate skipped per `feedback_reviewer_gate_config_only` memory. Subtask 4 is a pure runtime connectivity probe — ZERO file edits (no source code, no tests, no config changes, no repo docs except this log entry itself). The memory's scope ("config-only") is strictly broader than "zero-edit verification"; a fortiori the gate skip applies. Nothing to code-review.
+checked by qa-reviewer - YES
+qa-reviewer notes: Reviewer gate skipped per `feedback_reviewer_gate_config_only` memory. No test surface introduced or modified. The one-shot MCP handshake script (Python) was intentionally not persisted to the repo (it reads a live API key from `~/.claude.json` and has no place in the tracked codebase). The handshake results — `initialize` OK, `tools/list` returning 12 tools, `list_projects` returning a real non-error response — are logged verbatim above and function as the one-shot correctness evidence.
+checked by design-reviewer - YES
+design-reviewer notes: Reviewer gate skipped per `feedback_reviewer_gate_config_only` memory. Zero UI surface — pure MCP stdio handshake against a cloud API. No visual change, no Figma/Stitch design-guide fidelity check applicable.
+checked by playwright-reviewer: YES
+playwright-reviewer notes: Reviewer gate skipped per `feedback_reviewer_gate_config_only` memory. No UI workflow to regress — subtask 4 neither loads the web editor nor touches any React code. Editor dev server state is unchanged from subtask 3's reviewer entry.
+
+---
+
+## [2026-04-14]
+
+### Task: EPIC 10 STAGE 1 — Design Tooling Migration (Figma → Google Stitch)
+**Subtask:** 5. Create a Stitch project for ClipTale and recreate the design system
+
+**What was done:**
+- Verified `mcp__stitch__*` tool namespace is now loaded in the current Claude Code session (subtask 4's finding that the prior session lacked them is resolved — the restart took effect). Loaded the following tools via `ToolSearch`: `mcp__stitch__create_project`, `mcp__stitch__create_design_system`, `mcp__stitch__update_design_system`, `mcp__stitch__generate_screen_from_text`, `mcp__stitch__list_screens`, `mcp__stitch__get_screen`, `mcp__stitch__get_project`, `mcp__stitch__list_projects`.
+- Followed the planner's execution plan verbatim (path 5a, agent-led, fresh project). Did NOT touch the existing `projects/4209061398031290155` ("AI Remotion Editor Architecture") per the decision captured in subtask 4's findings and the locked-in plan on subtask 5.
+- **Step 1 (create project)** — `mcp__stitch__create_project { title: "ClipTale" }` → returned `{ name: "projects/1905176480942766690", origin: "STITCH", projectType: "PROJECT_DESIGN", title: "ClipTale", visibility: "PRIVATE" }`. Project ID captured: **`1905176480942766690`**.
+- **Step 2 (create design system)** — `mcp__stitch__create_design_system` against project `1905176480942766690` with payload seeded from `docs/design-guide.md` §3:
+  - `displayName`: `"ClipTale Dark"`
+  - `theme.colorMode`: `DARK`
+  - `theme.headlineFont` / `bodyFont` / `labelFont`: `INTER`
+  - `theme.roundness`: `ROUND_EIGHT` (mirrors `radius-md` 8px, the dominant UI radius)
+  - `theme.customColor`: `#7C3AED` + `theme.overridePrimaryColor`: `#7C3AED` + `theme.colorVariant`: `VIBRANT`
+  - `theme.spacing`: 8 tokens `space-1..space-16` mapping to 4/8/12/16/24/32/48/64 px (the full 4px grid from §3)
+  - `theme.typography`: 8 tokens (display / heading-1 / heading-2 / heading-3 / body / body-sm / label / caption) populated with the exact size/weight/lineHeight/letterSpacing values from §3
+  - `theme.designMd`: inlined full token-reference markdown so the Stitch design-system asset is self-describing even for consumers that don't read `spacing`/`typography` maps
+  - Returned `{ name: "assets/17601109738921479972", version: "1" }`. Design-system asset ID captured: **`assets/17601109738921479972`** v1.
+- **Step 3 (apply design system)** — `mcp__stitch__update_design_system { name: "assets/17601109738921479972", projectId: "1905176480942766690", designSystem: <same payload> }` → returned a session resource `projects/1905176480942766690/sessions/17739712842510608337`, confirming the design system is now applied to the ClipTale project. Performed per the `create_design_system` tool description, which explicitly instructs to call `update_design_system` immediately after creation.
+- **Step 4 (generate 4 key screens, DESKTOP device)** — `mcp__stitch__generate_screen_from_text` called four times against project `1905176480942766690`. Prompts crafted from `docs/design-guide.md` §8 "Epic & Screen Inventory" (the region-level Key Regions tables) plus §3 token values inlined so the Stitch agent would use the ClipTale palette even if the design system's `spacing`/`typography` maps are not currently consumed by the generator (see caveat below). One transient network error on the Landing Page attempt (see blockers), escalated to user, retry authorized, retry succeeded. All four completions returned `screenMetadata.status: "COMPLETE"` with `agentType: "PRO_AGENT"` (`figaro_agent`). Screen IDs captured:
+
+  | # | Screen (ClipTale name) | Stitch `screen.id` | Stitch `screen.title` | Dimensions (width × height) | Screenshot path |
+  |---|---|---|---|---|---|
+  | 1 | Landing Page / Desktop | `1ee6b7019af146848c614a3862e3c694` | `ClipTale Landing Page` | 2560 × 7958 | `projects/1905176480942766690/files/bddac26fb0964f16b85340df1ff9559c` |
+  | 2 | Dashboard / Desktop | `42945722fe52447f81e5be244f7cbb33` | `ClipTale Dashboard` | 2880 × 2048 | `projects/1905176480942766690/files/35657098c75745c7bcaa77f6f3e6c6e0` |
+  | 3 | Main Editor / Desktop | `d0c1501471194e73b4a3de0ba9ac92e8` | `ClipTale Video Editor` | 2880 × 2048 | `projects/1905176480942766690/files/eaa4575eaf9143f4a75fc8cb3b163ad2` |
+  | 4 | Asset Browser / Desktop | `3d7bcc0c282a40f0a1a5d933988da383` | `Asset Browser` | 2560 × 2048 | `projects/1905176480942766690/files/c931f2034c354b428ff8bf6a89b8cb62` |
+
+  Full screen resource names (for subtask 7's `docs/design-guide.md` §6 rewrite):
+  - `projects/1905176480942766690/screens/1ee6b7019af146848c614a3862e3c694`
+  - `projects/1905176480942766690/screens/42945722fe52447f81e5be244f7cbb33`
+  - `projects/1905176480942766690/screens/d0c1501471194e73b4a3de0ba9ac92e8`
+  - `projects/1905176480942766690/screens/3d7bcc0c282a40f0a1a5d933988da383`
+
+- **Step 5 (confirm via list_screens after errored call)** — After the Landing Page first attempt errored, called `mcp__stitch__list_screens { projectId: "1905176480942766690" }` and got `{}` (zero screens). This proved the error did not partially persist and made the single retry safe (no duplicate risk). After all four screens completed, did NOT repeat `list_screens` because each `generate_screen_from_text` response self-reports a populated screen resource name — relying on those four live responses rather than an extra round-trip.
+
+**Blockers hit & resolved:**
+- **First attempt on Landing Page** returned `Error calling generate_screen_from_text: Network failure connecting to Stitch API: fetch failed`. Per the planner's "If any Stitch tool call errors, stop and escalate the raw error to the user" rule (subtask 5 plan, step 6), I stopped, ran `list_screens` to prove no duplicate, and escalated three options to the user (A: retry once, B: shorter prompt, C: stop + defer). User answered "proceed" → retried once → success on second attempt. No parameter guessing — same `projectId`, `deviceType: DESKTOP`, and same `prompt` content. Root cause: transient upstream network blip, not a schema/auth/parameter error (three prior calls on the same MCP session had succeeded).
+
+**Findings / caveats that subtask 7 MUST read before rewriting `docs/design-guide.md`:**
+1. **`spacing` and `typography` maps are not echoed by `create_design_system` / `update_design_system` responses.** I sent both (8 spacing tokens + 8 typography tokens with exact px values from design-guide §3) and the server's response body contains only `displayName`, `colorMode`, `colorVariant`, `customColor`, `designMd`, `headlineFont`, `bodyFont`, `labelFont`, `overridePrimaryColor`, `roundness`. Three possibilities: (a) Stitch persists them but does not echo in the response shape, (b) Stitch silently drops them at this endpoint, (c) they are stored but attached at a different layer. **Subtask 7 should call `mcp__stitch__list_design_systems` (or fetch the asset directly) to confirm whether spacing/typography round-trip**; if they don't, subtask 7 should keep the authoritative values in `docs/design-guide.md` §3 tables and make the Stitch design-system-ID reference point at them, NOT rely on the Stitch asset alone.
+2. **The inlined `designMd` is the load-bearing source of truth inside the Stitch asset.** Because the echo omits spacing/typography, I front-loaded the full token reference into the `designMd` markdown field (`# ClipTale Dark Theme` with colors, timeline clip colors, typography token list with sizes/weights, spacing grid, radius scale, breakpoints, implementation notes). This field IS echoed back by both create and update endpoints, confirming it is persisted. All four `generate_screen_from_text` responses also echo the same `designMd` back as the screen's theme block, which is a positive signal that the generator reads the design-system markdown when producing screens.
+3. **Screen dimensions are larger than the 1440×900 design target.** Stitch generated the desktop screens at 2× or 2.1× scale (Dashboard/Editor = 2880×2048, Landing/Asset Browser = 2560×2048, Landing tall at 7958 due to the long marketing scroll). This is Stitch's internal render resolution and does NOT override the design-guide's fixed-1440×900 editor constraint. Subtask 7 should document that the logical design target remains 1440×900 and that Stitch's rendered artboards are 2× scale (consistent with Figma's 2× export convention).
+4. **`screenshot.downloadUrl` fields are Google CDN URLs with `lh3.googleusercontent.com/aida/...` prefixes**, stable for session but likely expire; `htmlCode.downloadUrl` is a `contribution.usercontent.google.com` URL with an embedded access token. These URLs are NOT safe to paste into `docs/design-guide.md` — they will rot. Subtask 7 should reference screens by the stable resource names (`projects/<pid>/screens/<sid>`) and tool call patterns, not by ephemeral download URLs.
+5. **Generated screen `agentType` is `PRO_AGENT` aka `figaro_agent`** — the ClipTale Stitch project is provisioned with the Pro generation agent. Good to know for subtask 7's "How to Query Stitch via MCP" section.
+6. **Spacing on the colorMode for the design system may cascade wrong.** The `overridePrimaryColor` echoed back matches the input `#7C3AED` and the generated screens did use the primary purple where expected, so at least the single-color path is working end-to-end. No follow-up needed on color fidelity.
+
+**Files created or modified:**
+- `docs/development_logs.md` — this entry appended. No other files in the repo touched.
+- `docs/active_task.md` — subtask 5 marked complete (separate edit after this log entry lands).
+- Stitch cloud (not repo):
+  - Project `projects/1905176480942766690` ("ClipTale")
+  - Design-system asset `assets/17601109738921479972` v1 ("ClipTale Dark")
+  - Four screens under that project (IDs listed in the table above)
+
+**Tests written and what they cover:**
+- None. This subtask is docs + Stitch cloud API work only, per the planner's "No code changes. This task is config + design creation + markdown rewrites only" scope statement. No test surface introduced or modified.
+- In lieu of tests, the four live MCP tool responses (captured inline in this log entry) function as one-shot correctness evidence: each returned `screenMetadata.status: "COMPLETE"` and a populated screen resource name. The create/update responses similarly returned typed success payloads with stable resource names.
+
+**Notes:**
+- **Do NOT remove `figma-remote-mcp` yet.** Subtask 6 is next and will do that. The Stitch source of truth now exists (this subtask), so the dependency chain 5 → 6 → 7 is unblocked.
+- **Do NOT start subtask 7 yet either.** Subtask 6 must remove Figma MCP first per the planner's strict ordering.
+- The planner's original subtask 7 plan assumed deleting the §3 "Figma Variable IDs" table entirely. Subtask 4's findings and this subtask's caveat #1 above mean subtask 7 should instead REPLACE that table with a Stitch design-system-ID reference (design-system asset `assets/17601109738921479972` v1). Subtask 7 should also run `list_design_systems` on project `1905176480942766690` before rewriting to confirm whether spacing/typography round-trip.
+- The Landing Page screen is ~8000px tall — Stitch laid out all seven marketing sections as one long scrollable page. That matches the `docs/design-guide.md` §8 Marketing epic description (hero + 8 feature cards + comparison table + 3-tier pricing + CTA banner + footer). Dashboard/Editor/Asset Browser all fit the 2048px height cap, consistent with their fixed-viewport nature.
+- No secret was exposed during this subtask. The `STITCH_API_KEY` remained in `~/.claude.json` and was consumed only by the MCP server process. No tokens in any repo file, commit, or log entry.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask 5: Create a Stitch project for ClipTale and recreate the design system</summary>
+
+- Path: 5a (agent-led) — use Stitch MCP tools to drive project creation, design-system seeding, screen generation.
+- Existing project: create fresh. Do NOT reuse `projects/4209061398031290155`. Call `create_project` with `title: "ClipTale"`.
+- Claude Code restart confirmed; verify tools via `ToolSearch` first.
+- Execution plan: (1) verify tools, (2) create_project, (3) capture ID to dev log, (4) create_design_system seeded from §3 tokens, (5) generate 4 screens (Landing / Dashboard / Main Editor / Asset Browser, Desktop), (6) stop & escalate on any error, (7) no other repo files touched, (8) close subtask via docs-only reviewer pattern or full gate if unsure.
+- Where: Stitch cloud (new project). `docs/development_logs.md` is the only repo file touched.
+- Why: Without a Stitch project that mirrors ClipTale's visual language, Stage 2 design work won't inherit the brand, and every subsequent Epic 10 ticket will regress the design system.
+- Depends on: 4
+
+</details>
+
+checked by code-reviewer - YES
+code-reviewer notes: Reviewed on 2026-04-14. Subtask 5 is a docs + Stitch cloud-API entry with zero source code touched. Log entry is internally consistent (project ID 1905176480942766690 appears in all four screen resource names). All four screen IDs and design-system asset ID captured. Caveats for subtask 6/7 are properly flagged. APPROVED.
+checked by qa-reviewer - YES
+qa-reviewer notes: Zero source code or test surface touched in subtask 5 — pure Stitch cloud API + docs appends (development_logs.md only). Live MCP tool responses serve as one-shot correctness evidence: all four screens returned status COMPLETE with stable resource names. Existing test suite state unchanged. Precedent: config-only gate pattern from subtasks 3/4.
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-14. Design tokens sent to Stitch faithfully match design-guide.md §3 (colors, typography, spacing, radius, font), §9 (dark theme, timeline clip colors), and §8 (all 4 screens at Desktop breakpoint). No implementation UI code — pure design-tooling setup. Caveat #1 (spacing/typography echo omission) is correctly deferred to subtask 7. APPROVED.
+checked by playwright-reviewer: YES
+playwright-reviewer notes: Reviewed on 2026-04-14. Subtask 5 is a docs-only + Stitch cloud-API entry with zero UI/route/component changes to web-editor (only `docs/development_logs.md` and `docs/active_task.md` modified in repo). No React/TS/CSS/frontend code touched; all work occurred in Stitch cloud. No E2E workflow could have regressed. APPROVED per config-only reviewer gate precedent (subtasks 3/4).
+
+---
+
+## [2026-04-14]
+
+### Task: EPIC 10 STAGE 1 — Design Tooling Migration (Figma → Google Stitch)
+**Subtask:** 6. Remove Figma MCP from this project's config
+
+**What was done:**
+- Created a new backup of `~/.claude.json` before any edit: `~/.claude.json.backup-pre-figma-removal-20260414-210708`.
+- Removed `figma-remote-mcp` entry from `~/.claude.json` under `projects["/home/oleksii/Work/ClipTale/cliptale.com-v2"].mcpServers` using a Python JSON round-trip with atomic write (same pattern as subtask 3). Remaining servers: `fal-ai` and `stitch`.
+- Hash-verified that `fal-ai` (hash `c934caf1ba0aef43`) and `stitch` (hash `68c68e1faa666577`) blocks are byte-identical before and after the mutation. No secrets exposed.
+- Removed three permission entries from `.claude/settings.local.json`: `mcp__figma-remote-mcp__get_design_context`, `mcp__figma-remote-mcp__get_metadata`, `mcp__figma-remote-mcp__get_screenshot`. All three removed in a single Python JSON round-trip with atomic write. Remaining allow list: `Bash(*)`, `Edit(*)`, `Write(*)`, `Skill(update-config)`, `mcp__fal-ai__search_docs`, `WebFetch(domain:fal.ai)`, `mcp__fal-ai__get_model_schema`, the backup-Bash entry, and `Read(//home/oleksii/**)`.
+
+**Files created or modified:**
+- `~/.claude.json` — deleted `figma-remote-mcp` block from `mcpServers`. `fal-ai` and `stitch` left byte-identical.
+- `~/.claude.json.backup-pre-figma-removal-20260414-210708` — full backup of pre-edit state.
+- `.claude/settings.local.json` — removed 3 Figma MCP permission entries.
+
+**Tests written and what they cover:**
+- None. This subtask is config-only (two JSON file edits; no source code, no tests). Inline Python assertions (preflight presence checks, post-hash verification, JSON re-parse) serve as one-shot correctness checks — same pattern approved in subtask 3.
+
+**Notes:**
+- The subtask 3 backup (`~/.claude.json.backup-pre-stitch-20260414-200927`) remains untouched on disk alongside the new backup.
+- `figma-remote-mcp` is now fully removed from this project's config. Agents in this project will no longer be offered `mcp__figma-remote-mcp__*` tools. Any remaining references to Figma tools in agent `.md` files or user-level skills are inert dead references — subtask 8 will inventory them.
+- `docs/design-guide.md` was NOT touched in this subtask — that is subtask 7's scope.
+- No secrets exposed. The `fal-ai` Bearer token was never printed, diffed, or logged.
+- Config-only subtask; reviewer gate skipped per `feedback_reviewer_gate_config_only` memory (same pattern as subtasks 3 and 4).
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask 6: Remove Figma MCP from this project's config</summary>
+
+- What: Use the `update-config` skill for both edits:
+  1. `~/.claude.json` lines 611–614: delete the `figma-remote-mcp` entry from `projects["/home/oleksii/Work/ClipTale/cliptale.com-v2"].mcpServers`. Leave `fal-ai` intact.
+  2. `.claude/settings.local.json` lines 6–8: remove the three `mcp__figma-remote-mcp__get_design_context`, `mcp__figma-remote-mcp__get_metadata`, `mcp__figma-remote-mcp__get_screenshot` permission entries.
+- Why: Now that Stitch is verified working and the design system is recreated, Figma is no longer the source of truth. Leaving it connected invites accidental dual-sourcing.
+- Depends on: 4 (Stitch verified), 5 (design system recreated)
+
+</details>
+
+checked by code-reviewer - YES
+code-reviewer notes: Reviewer gate skipped per `feedback_reviewer_gate_config_only` memory. Config-only subtask — two JSON file edits (`~/.claude.json` MCP server removal, `.claude/settings.local.json` permission removal). No source code, no tests, no architecture-rules.md-covered surface. Inline Python assertions (preflight + post-hash + re-parse) verify correctness.
+checked by qa-reviewer - YES
+qa-reviewer notes: Reviewer gate skipped per `feedback_reviewer_gate_config_only` memory. No test surface introduced or modified. Config-only — two JSON file edits with inline assertions. No executable code added.
+checked by design-reviewer - YES
+design-reviewer notes: Reviewer gate skipped per `feedback_reviewer_gate_config_only` memory. Config-only subtask with zero UI surface. No Figma/Stitch design-guide fidelity validation applicable.
+checked by playwright-reviewer: YES
+playwright-reviewer notes: Reviewer gate skipped per `feedback_reviewer_gate_config_only` memory. No UI workflow to regress — config-only subtask (two JSON file edits). No React/TS/CSS/frontend code touched.
+
+---
+
+## [2026-04-14]
+
+### Task: EPIC 10 STAGE 1 — Design Tooling Migration (Figma → Google Stitch)
+**Subtask:** 7. Rewrite `docs/design-guide.md` for Stitch
+
+**What was done:**
+- Before rewriting, verified current Stitch cloud state with two live MCP read-only calls against project `1905176480942766690`:
+  1. `mcp__stitch__list_design_systems { projectId: "1905176480942766690" }` — confirmed asset `assets/17601109738921479972` v1 ("ClipTale Dark") is live and applied. Echoed fields: `colorMode=DARK`, `colorVariant=VIBRANT`, `customColor=#7C3AED`, `overridePrimaryColor=#7C3AED`, `roundness=ROUND_EIGHT`, `headlineFont/bodyFont/labelFont=INTER`, plus the full inlined `designMd` markdown blob. **Subtask 5 caveat #1 CONFIRMED:** the `spacing` and `typography` maps are NOT echoed back — only top-level theme fields and `designMd` round-trip. §3 of `docs/design-guide.md` is therefore kept as authoritative.
+  2. `mcp__stitch__list_screens { projectId: "1905176480942766690" }` — returned **5 screens**, not 4. The five: Dashboard (`42945722fe52447f81e5be244f7cbb33`, 2880×2048), Landing Page canonical (`1ee6b7019af146848c614a3862e3c694`, 2560×7958), **Landing Page duplicate (`0c21f70dd06c45a4b43ca0aca934e049`, 2560×7482)**, Main Editor / ClipTale Video Editor (`d0c1501471194e73b4a3de0ba9ac92e8`, 2880×2048), Asset Browser (`3d7bcc0c282a40f0a1a5d933988da383`, 2560×2048). **New finding: subtask 5's "transient network error" on the first Landing Page attempt DID persist a screen** — Stitch returned the error to the caller but created a screen server-side anyway. The user-authorized retry then created a second one. Both are live in the project today.
+- Rewrote `docs/design-guide.md` in place (301 lines → 289 lines). Preserved every major section from the original but swapped the data from Figma to Stitch:
+  - **Header** — replaced "Auto-generated by the `figma-design-generator` skill on 2026-03-29" with "Rewritten 2026-04-14 during EPIC 10 STAGE 1 — Design Tooling Migration".
+  - **§1 "Figma File" → "Stitch Project"** — now lists the MCP server name, project resource name, project ID, title, origin, type, visibility, and creation date. Also notes the previous Figma file key as deprecated.
+  - **§2 Breakpoints** — unchanged (tech-stack constants).
+  - **§3 Design System** — colors / typography / spacing / radius token tables kept verbatim (these are the authoritative values). Replaced the "Figma Variable IDs" table with a new **"Stitch Design System Asset"** subsection showing the resource name `assets/17601109738921479972` v1, the applied-to project, and the echoed theme fields. Explicit callout that §3 tables remain authoritative and that Stitch does not round-trip spacing/typography maps. Kept the §3 contents even though the original planner assumed they'd be deleted — the subtask-4 finding (Stitch DOES have a design-system concept) and subtask-5 caveat #1 (echo is incomplete) together argued for replacement, not deletion.
+  - **§4 Component Naming Conventions** — unchanged.
+  - **§5 "Figma Pages & Node IDs" → "Stitch Project Structure"** — shrunk because Stitch has no "page" concept (flat screen list). Documents the screen-level fields (`name`, `deviceType`, `width`/`height`, `title`, `screenshot.downloadUrl`, `htmlCode.downloadUrl`) and reasserts the logical 1440×900 editor target despite Stitch's 2× render scale. Notes the 5-screen current state.
+  - **§6 "Key Screen Node IDs" → "Stitch Screen IDs"** — rebuilt from the subtask 5 log entries plus the live `list_screens` response. Includes BOTH Landing Page variants with a ⚠️ row on the duplicate pointing at §10 OQ-S1. Full resource-name list included for copy-paste into `mcp__stitch__get_screen` calls. Notes that all screens are currently DESKTOP-only and were generated by `PRO_AGENT` (`figaro_agent`).
+  - **§7 "How to Query Figma via MCP" → "How to Query Stitch via MCP"** — full rewrite with the actual 12 live tool names (verified via subtask 4's stdio probe and this subtask's preflight ToolSearch call): read-only (`list_projects`, `get_project`, `list_screens`, `get_screen`, `list_design_systems`), design-system mutation (`create_design_system`, `update_design_system`, `apply_design_system`), project/screen mutation+generation (`create_project`, `generate_screen_from_text`, `edit_screens`, `generate_variants`). Three concrete query examples (get screen, list screens, list design systems), a practical agent pattern, auth note (STITCH_API_KEY lives in `~/.claude.json`, never in repo), and the PRO_AGENT disclosure. Explicit warning that `screenshot.downloadUrl` / `htmlCode.downloadUrl` are ephemeral Google CDN URLs (`lh3.googleusercontent.com/aida/...`, `contribution.usercontent.google.com/...`) and must NOT be persisted in code or docs.
+  - **§8 Epic & Screen Inventory** — kept the epic structure, the per-epic screen descriptions, and the key-regions tables. Stripped the Figma page IDs (`1:3`, `1:4`, `1:5`, `1:6`, `1:7`, `1:8`) because Stitch has no page-level identifier. Added columns showing which breakpoints have Stitch screens and which don't — ported screens get the screen ID; un-ported screens point at §10 OQ-S2 / OQ-S3 for follow-up.
+  - **§9 Implementation Notes** — unchanged except for one added bullet: "Stitch render scale ≠ logical target. When reading a Stitch screen's `width`/`height`, divide by ~2 to get the logical pixel target. Never hard-code the raw Stitch dimensions."
+  - **§10 "Questions & Gaps"** — updated the fallback instructions (steps 1–4) to point at Stitch MCP tools and project ID `1905176480942766690`. Added four new Stitch-specific open questions: OQ-S1 (duplicate Landing Page screen), OQ-S2 (tablet/mobile variants missing), OQ-S3 (secondary screens not yet ported: Upload Modal / AI Captions / Export Modal / Version History / Share Modal / Flow Diagrams), OQ-S4 (spacing/typography echo omission).
+  - **Footer** — replaced "Generated by `figma-design-generator` skill" with "Rewritten during EPIC 10 STAGE 1 — Design Tooling Migration, 2026-04-14."
+
+**Files created or modified:**
+- `docs/design-guide.md` — full in-place rewrite. Replaced 301 lines with a Stitch-native 289-line version. Every data point that referenced Figma (file key, variable IDs, node IDs, MCP query patterns, page IDs in §8, fallback instructions in §10) is gone. Every new data point is sourced from either the live Stitch API (subtask 4 + subtask 5 + this subtask's preflight calls) or the unchanged §3 token tables.
+- `docs/development_logs.md` — this entry appended.
+- `docs/active_task.md` — subtask 7 marked complete (separate edit after this log entry lands).
+
+**Tests written and what they cover:**
+- None. This subtask is a markdown-only documentation rewrite of one file. No source code, no config, no executable surface. The active_task.md scope explicitly states "No code changes. This task is config + design creation + markdown rewrites only." Inline verification: two live Stitch MCP read-only calls (`list_design_systems` and `list_screens`) performed against the project before rewriting — the rewrite's data matches the live responses verbatim.
+
+**Notes:**
+- **New finding surfaced during preflight:** the "transient network error" from subtask 5's Landing Page first attempt was NOT actually transient — it persisted a screen server-side despite returning an error to the caller. `list_screens` now shows both the errored-attempt screen (`0c21f70dd06c45a4b43ca0aca934e049`, 2560×7482) and the retry screen (`1ee6b7019af146848c614a3862e3c694`, 2560×7958). This is documented as OQ-S1 in the rewritten §10 and is flagged with a ⚠️ row in §6. The subtask-5 log entry (which captured only the retry) is NOT edited retroactively — history stays intact; the new finding is recorded here.
+- **Confirmed subtask 5 caveat #1:** `list_design_systems` response body still omits the `spacing` and `typography` maps that were sent at `create_design_system` time. Only the top-level theme fields and the inlined `designMd` markdown round-trip. This validates the decision to keep §3's token tables as authoritative and to treat the Stitch echo as a secondary pointer, not a source of truth.
+- **Dependency ordering respected:** subtask 5 (Stitch project exists) and subtask 6 (Figma MCP removed) both completed before this subtask started. The rewrite now points every design-touching agent at the live Stitch source of truth. If an agent still reaches for `mcp__figma-remote-mcp__*` tools, those calls will fail at the config layer (tool not registered) rather than at the docs layer (docs say something false) — clean failure mode.
+- **Out of scope (intentional):** did NOT touch `.claude/agents/*.md` frontmatter `tools:` references to `mcp__figma-remote-mcp__*` — that is subtask 8's audit scope and per `feedback_escalate_architecture` the user must decide drop/replace/deprecate per agent. Did NOT delete the duplicate Landing Page screen in Stitch — requires user approval. Did NOT regenerate tablet/mobile variants — deferred per §10 OQ-S2.
+- **No code changes, no secrets exposed.** The `STITCH_API_KEY` and `fal-ai` Bearer token remained untouched in `~/.claude.json`. Zero `.ts`/`.tsx`/`.sql` files touched. `git status` for repo files will show only `docs/design-guide.md`, `docs/development_logs.md`, and `docs/active_task.md`.
+- **Reviewer gate plan:** this subtask edits a repo-tracked markdown file (`docs/design-guide.md`), so the `feedback_reviewer_gate_config_only` precedent does NOT apply — that memory is scoped to `~/.claude.json` / `settings.json` / `.mcp.json` edits only. Will launch all four reviewers in parallel per the standard task-executor gate.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask 7: Rewrite `docs/design-guide.md` for Stitch</summary>
+
+- What: Do a full rewrite preserving every SECTION of the current file but swapping the data:
+  - §1 "Figma File" → "Stitch Project" with the project ID/URL from subtask 5
+  - §3 "Design System" — keep the token tables verbatim (those are the actual values, not Figma-specific)
+  - §3 "Figma Variable IDs" table — delete entirely (Stitch has no equivalent concept per initial research; confirm during subtask 1)
+  - §5 "Figma Pages & Node IDs" → "Stitch Project Structure" with whatever identifiers Stitch uses (projects / screens / nodes — TBD from subtask 1 research)
+  - §6 "Key Screen Node IDs" → "Stitch Screen IDs" populated from subtask 5 output
+  - §7 "How to Query Figma via MCP" → "How to Query Stitch via MCP" with the actual tool names from the selected MCP server (likely `list_screens`, `get_screen`, `extract_design_context`, etc.)
+  - §10 "Questions & Gaps" — update the Figma fallback instructions to Stitch equivalents
+  - Update the header: change "Auto-generated by the `figma-design-generator` skill on 2026-03-29" to a fresh generated-on line noting this manual rewrite during EPIC 10 STAGE 1.
+- Where: `docs/design-guide.md` (replace in place; don't leave a `.old` copy)
+- Why: This file is read by every design-touching agent in the repo. Stale Figma references will cause runtime errors once Figma MCP is gone.
+- Depends on: 5, 6
+
+</details>
+
+checked by code-reviewer - YES
+code-reviewer notes: Documentation-only subtask (markdown rewrite of single file with no code/config changes). Verified: (1) all Figma references (file key KwzjofZgWKvEQuz9bXzEYT, variable IDs, node IDs 13:2/6:2/1:3-1:9, mcp__figma-remote-mcp__* tools, page IDs, Figma-specific §10 fallback instructions) removed or replaced with Stitch equivalents; (2) all 5 screen IDs from live list_screens response (project 1905176480942766690) match §6 entries with correct dimensions and titles; design-system asset ID assets/17601109738921479972 v1 correctly documented; (3) §3 token tables (colors/typography/spacing/radius) preserved verbatim — verified as authoritative per log; (4) new OQ-S1..S4 internally consistent with rest of file and log findings; (5) scope confirmed: only docs/design-guide.md, docs/development_logs.md, docs/active_task.md touched — no .ts/.tsx/.sql or ~/.claude.json/settings changes. No architecture-rules.md-covered surface (documentation is out of scope for code-quality-expert per rules §1-12 which address code, not prose). Verdict: compliant.
+checked by qa-reviewer - YES
+qa-reviewer notes: Docs-only subtask with zero executable surface (zero TS, zero React, zero SQL, zero config added per active_task.md §23). No unit or integration tests required. Verified: (1) no code imports design-guide.md as a resource (no requires, imports, or dynamic file paths); (2) design-guide references in comments are guides for dev context, not executable imports; (3) no scripts parse or consume design-guide.md; (4) design-guide.md rewrite touches only structure/data, not design tokens themselves (§3 colors/spacing/typography preserved); (5) smoke test on remotion-comps package passes (49/49 tests pass); (6) pre-existing typecheck failures (web-editor TS errors) are unrelated to markdown changes; (7) pre-existing API integration test DB connection failures are unrelated. No regression detected. APPROVED.
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-14. Verified faithfulness to live Stitch API state documented in subtask 7 preflight:
+- §1 Project IDs and metadata match documented responses (projects/1905176480942766690)
+- §3 Token tables (colors/typography/spacing/radius) preserved verbatim from original Figma-era file; Design System Asset fields (resource assets/17601109738921479972 v1, echoed theme: colorMode=DARK, colorVariant=VIBRANT, customColor=#7C3AED, overridePrimaryColor=#7C3AED, roundness=ROUND_EIGHT, headlineFont/bodyFont/labelFont=INTER, designMd blob) match list_design_systems response
+- §6 Stitch Screen IDs — all 5 screens with correct IDs, dimensions, deviceType, titles; duplicate Landing Page OQ-S1 flagged and explained; canonical ID 1ee6b7019af146848c614a3862e3c694, duplicate 0c21f70dd06c45a4b43ca0aca934e049
+- §7 Tool list — 12 tools present and correct (read-only: list_projects, get_project, list_screens, get_screen, list_design_systems; mutation: create_design_system, update_design_system, apply_design_system; generation: create_project, generate_screen_from_text, edit_screens, generate_variants)
+- Figma references removed/appropriately contextualized: deprecated Figma file key noted only as "previous source of truth"; no stray VariableID, Style ID patterns, or Figma node IDs remain
+- §10 Questions & Gaps — OQ-S1..S4 actionable and correctly deferred to post-Stage-1 follow-ups
+- §9 Implementation Notes — Stitch render-scale caveat added (line 336: "divide by ~2 to get logical pixel target")
+All checks passed. Design faithfulness verified.
+checked by playwright-reviewer: YES
+playwright-reviewer notes: Docs-only subtask 7; zero UI/TS/CSS/React surface touched (git diff shows only docs/design-guide.md, docs/development_logs.md, docs/active_task.md). No workflow to regress. APPROVED per zero-code-change precedent.
+
+---
+
+## [2026-04-14]
+
+### Task: EPIC 10 STAGE 1 — Design Tooling Migration (Figma → Google Stitch)
+**Subtask:** 8. Audit & report on Figma-dependent agents and skills (report only, do not modify)
+
+**What was done:**
+- Read all five project agent files (`.claude/agents/*.md`) and verified which have dead `mcp__figma-remote-mcp__*` tool entries.
+- Read the user-level skills that reference Figma: `figma-design-generator`, `design-reviewer` skill, `task-design-sync`, and all 7 sub-skills of the `figma-power` plugin (cached at `/home/oleksii/.claude-personal/plugins/cache/temp_git_1775757601289_i8ntyt/`).
+- Confirmed via `grep` that `figma-remote-mcp` has been removed from `settings.local.json` (subtask 6 outcome) and that the only remaining in-repo Figma references are in: `docs/development_logs.md` (historical entries), `docs/active_task.md` (planning notes), `docs/design-guide.md` (a single deprecation note), and the four agent `.md` files.
+- Produced a full inventory with severity ratings and a recommendation table for user decision.
+
+**Inventory of dead references:**
+
+| Item | Location | Dead tool count | Still functional? | Severity |
+|------|----------|-----------------|-------------------|----------|
+| `design-reviewer.md` agent | `.claude/agents/` | 7 | Partially (design cross-check dead) | HIGH |
+| `senior-dev.md` agent | `.claude/agents/` | 9 | Yes for code; design lookups dead | MEDIUM |
+| `qa-engineer.md` agent | `.claude/agents/` | 7 | Yes (tools were supplemental) | LOW |
+| `code-quality-expert.md` agent | `.claude/agents/` | 7 | Yes (tools were supplemental) | LOW |
+| `playwright-reviewer.md` agent | `.claude/agents/` | 0 | Yes — unaffected | NONE |
+| `figma-design-generator` skill | user-level | entire skill | No | HIGH |
+| `design-reviewer` skill | user-level | Steps 4 + 7C dead | Steps 2, 3, 5 only | HIGH |
+| `task-design-sync` skill | user-level | entire skill | No | HIGH |
+| `figma-power` plugin (7 sub-skills) | user-level cached | entire plugin | No | HIGH |
+
+**Notes:**
+- No files were edited. This is a report-only subtask per `feedback_escalate_architecture`.
+- OQ-4 in `active_task.md` has been resolved with the full inventory and a recommendation (option a/b/c per item). Waiting for user decision before any agent edits are made.
+- The `design-reviewer` agent + skill are the highest-priority items — they directly affect every future task-executor run's reviewer gate.
+- User-level skills (`figma-design-generator`, `task-design-sync`, `figma-power` plugin) are out of scope to modify in this repo; their disposition is the user's call.
+- Recommendation per item: `design-reviewer.md` agent + skill → (b) Stitch equivalents; `senior-dev.md` → (b) Stitch equivalents; `qa-engineer.md` + `code-quality-expert.md` → (a) drop dead entries; user-level skills → (c) mark deprecated.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask 8: Audit & report on Figma-dependent agents and skills (report only, do not modify)</summary>
+
+- What: Produce an inventory of every place in the repo that references Figma. `.claude/agents/*.md` files. User-level skills that assume Figma. Do NOT edit any of these files.
+- Where: Report in chat + append to this file under "Open Questions / Blockers" → OQ-4.
+- Why: Without this audit, the next task-executor session will hit silent failures when agents reach for tools that no longer exist.
+- Depends on: 6
+
+</details>
+
+checked by code-reviewer - NOT
+checked by qa-reviewer - NOT
+checked by design-reviewer - NOT
+checked by playwright-reviewer: NOT

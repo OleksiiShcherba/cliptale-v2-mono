@@ -1,4 +1,31 @@
-  Epics 8–13 — Phase 2 Breakdown                                                                                                                                                                                            
+  Epics 8–13 — Phase 2 Breakdown
+
+  EPIC 10 — STAGE 1 — Design Tooling Migration (Figma → Google Stitch)
+
+  ▎ Hard prerequisite for Epic 10 (and referenced by Epics 11–13). Replaces Figma with Google Stitch as the canonical design source of truth for this repo. Active plan lives in `docs/active_task.md`.
+
+  Goal: Remove Figma MCP from this project's config, install a Stitch MCP server, recreate the current ClipTale design system (tokens + representative screens) inside a new Stitch project, and rewrite `docs/design-guide.md` so every design-touching agent points at Stitch instead of Figma.
+
+  Scope: Config + Stitch cloud work + markdown rewrites only. No code changes. No touching of the four existing Epic 10 implementation tickets below — those become STAGE 3 onward.
+
+  High-level subtasks (full detail in `docs/active_task.md`):
+  - 0. Write this mini-epic back into `general_tasks.md` (this section).
+  - 1. ⚠️ Research & select the Stitch MCP server implementation (escalate to user).
+  - 2. ⚠️ Confirm GCP + Stitch prerequisites with the user.
+  - 3. Install the Stitch MCP server via the `update-config` skill (keep Figma MCP temporarily).
+  - 4. Verify Stitch MCP connectivity end-to-end.
+  - 5. ⚠️ Create a Stitch project for ClipTale and recreate the design system (agent-led vs user-led — escalate).
+  - 6. Remove Figma MCP from `~/.claude.json` and `.claude/settings.local.json`.
+  - 7. Rewrite `docs/design-guide.md` for Stitch (preserve section structure, swap data).
+  - 8. ⚠️ Audit & report on Figma-dependent agents/skills (report-only; user decides fate).
+  - 9. Hand-off & verification — smoke test, dev-log update, mark mini-epic complete.
+
+  Dependencies: None — unblocks Epic 10 STAGE 2 (the design work in Stitch) and STAGE 3 (the four implementation tickets below).
+  Effort: M (mostly research + creative work in Stitch + one large docs rewrite).
+  Status: Ready for task-executor (active plan in `docs/active_task.md`).
+
+  ---
+
   EPIC 10 — Text-to-Video Pipeline
                                   
   ▎ End-to-end: user types a prompt → system generates a complete video with audio, captions, and transitions.
