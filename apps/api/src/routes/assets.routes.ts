@@ -21,6 +21,11 @@ router.post(
 // Returns all assets for a project as a JSON array (empty array if none).
 router.get('/projects/:id/assets', authMiddleware, assetsController.getProjectAssets);
 
+// GET /assets
+// Returns the authenticated user's `ready` assets for the wizard gallery.
+// Registered BEFORE `/assets/:id` so Express doesn't match the id route for `/assets`.
+router.get('/assets', authMiddleware, assetsController.listAssets);
+
 // GET /assets/:id
 // Returns the current state of an asset — used by the FE polling hook.
 router.get('/assets/:id', authMiddleware, assetsController.getAsset);

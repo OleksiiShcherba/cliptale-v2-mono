@@ -10,6 +10,7 @@ import { LoginPage } from '@/features/auth/components/LoginPage';
 import { RegisterPage } from '@/features/auth/components/RegisterPage';
 import { ForgotPasswordPage } from '@/features/auth/components/ForgotPasswordPage';
 import { ResetPasswordPage } from '@/features/auth/components/ResetPasswordPage';
+import { GenerateWizardPage } from '@/features/generate-wizard/components/GenerateWizardPage';
 
 // ---------------------------------------------------------------------------
 // Global CSS reset — applied programmatically so no separate CSS file is needed.
@@ -36,6 +37,14 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <App />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/generate',
+    element: (
+      <ProtectedRoute>
+        <GenerateWizardPage />
       </ProtectedRoute>
     ),
   },

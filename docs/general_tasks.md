@@ -1,444 +1,301 @@
-  Epics 8–13 — Phase 2 Breakdown
+● EPIC: Video Generation By Prompt — Step 1 (Script & Media)
 
-  EPIC 10 — STAGE 1 — Design Tooling Migration (Figma → Google Stitch)
+  Goal: Build the first step of the prompt-to-video wizard where a creator writes a story prompt, embeds media reference tokens (video/image/audio) inline, optionally runs AI Enhance to rewrite the prompt, browses their existing asset gallery on the right side, and continues to Step 2 (Video Road Map).
 
-  ▎ Hard prerequisite for Epic 10 (and referenced by Epics 11–13). Replaces Figma with Google Stitch as the canonical design source of truth for this repo. Active plan lives in `docs/active_task.md`.
+  Persona: Authenticated ClipTale creators (role: user) who already have assets in their library.
 
-  Goal: Remove Figma MCP from this project's config, install a Stitch MCP server, recreate the current ClipTale design system (tokens + representative screens) inside a new Stitch project, and rewrite `docs/design-guide.md` so every design-touching agent points at Stitch instead of Figma.
-
-  Scope: Config + Stitch cloud work + markdown rewrites only. No code changes. No touching of the four existing Epic 10 implementation tickets below — those become STAGE 3 onward.
-
-  High-level subtasks (full detail in `docs/active_task.md`):
-  - 0. Write this mini-epic back into `general_tasks.md` (this section).
-  - 1. ⚠️ Research & select the Stitch MCP server implementation (escalate to user).
-  - 2. ⚠️ Confirm GCP + Stitch prerequisites with the user.
-  - 3. Install the Stitch MCP server via the `update-config` skill (keep Figma MCP temporarily).
-  - 4. Verify Stitch MCP connectivity end-to-end.
-  - 5. ⚠️ Create a Stitch project for ClipTale and recreate the design system (agent-led vs user-led — escalate).
-  - 6. Remove Figma MCP from `~/.claude.json` and `.claude/settings.local.json`.
-  - 7. Rewrite `docs/design-guide.md` for Stitch (preserve section structure, swap data).
-  - 8. ⚠️ Audit & report on Figma-dependent agents/skills (report-only; user decides fate).
-  - 9. Hand-off & verification — smoke test, dev-log update, mark mini-epic complete.
-
-  Dependencies: None — unblocks Epic 10 STAGE 2 (the design work in Stitch) and STAGE 3 (the four implementation tickets below).
-  Effort: M (mostly research + creative work in Stitch + one large docs rewrite).
-  Status: Ready for task-executor (active plan in `docs/active_task.md`).
+  Constraints: Auth required. Depends on existing asset/upload pipeline (asset.service.ts, media-worker ingest). New generation_draft is a sibling of ProjectDoc — not a full project until Step 3 commits.
 
   ---
+  Pages / Surfaces
 
-  EPIC 10 — Text-to-Video Pipeline
-                                  
-  ▎ End-to-end: user types a prompt → system generates a complete video with audio, captions, and transitions.
-                                                                                                                                                                                                                   
-  Pages / Surfaces:
-  - Text-to-Video wizard modal — multi-step prompt → configure → generate                                                                                                                                          
-  - Generation progress page — shows each step completing                                                                                                                                                          
-   
-  ---                                                                                                                                                                                                              
-  [BE] Text-to-Video Orchestrator Service
-                                                                                                                                                                                                                   
-  Description: Build a high-level orchestrator in apps/api/src/services/text-to-video.service.ts that takes a text prompt and generates a full video project. Steps: (1) Use OpenAI/Claude to generate a
-  script/storyboard (scene descriptions, narration text, caption text), (2) Generate video clips per scene via video provider, (3) Generate narration audio via TTS, (4) Generate background music, (5) Assemble   
-  all assets into a ProjectDoc with tracks, clips, and captions. Each step is a BullMQ job in a chain.
-                                                                                                                                                                                                                   
-  Acceptance Criteria:
-  - POST /projects/:id/text-to-video accepts { prompt, duration, format, style }
-  - Step 1: LLM generates structured storyboard JSON { scenes: [{ description, narration, duration }] }
-  - Step 2: Video generation jobs enqueued per scene (parallel)                                        
-  - Step 3: TTS job generates narration audio per scene                                                                                                                                                            
-  - Step 4: Background music generation job (single track, full duration)                                                                                                                                          
-  - Step 5: Assembly job creates ProjectDoc with all assets placed on timeline                                                                                                                                     
-  - Returns { jobId } — status endpoint shows current step + overall progress                                                                                                                                      
-  - Timeout: 15 minutes total; individual steps timeout at 5 minutes                                                                                                                                               
-                                                                                                                                                                                                                   
-  Dependencies: AI generation adapters (Epic 9), Whisper captions (Epic 3)                                                                                                                                         
-  Effort: L ⚠️  Multi-step orchestration with failure recovery is complex; consider Temporal for durable workflows                                                                                                  
-                                                                                                                                                                                                                   
-  ---                                                                                                                                                                                                              
-  [BE] LLM Script/Storyboard Generator                                                                                                                                                                             
-                                                                                                                                                                                                                   
-  Description: Build a service that takes a user's text prompt and generates a structured storyboard using an LLM (OpenAI GPT-4 or Claude). The storyboard defines scenes with visual descriptions, narration text,
-   suggested duration, and transition hints.                                                                                                                                                                       
-                  
-  Acceptance Criteria:                                                                                                                                                                                             
-  - Calls LLM with a system prompt that produces structured JSON output
-  - Output schema: { title, scenes: [{ sceneNumber, visualDescription, narrationText, durationSeconds, transitionHint }], totalDurationSeconds }                                                                   
-  - Validates LLM output against Zod schema (retry once on parse failure)                                                                       
-  - Respects user-specified total duration (distributes across scenes)                                                                                                                                             
-  - Supports style hints: "cinematic", "corporate", "social media", "educational"                                                                                                                                  
-                                                                                                                                                                                                                   
-  Dependencies: None (uses OpenAI/Anthropic API directly)                                                                                                                                                          
-  Effort: M                                                                                                                                                                                                        
-                                                                                                                                                                                                                   
-  ---             
-  [BE] Auto-Caption Generation for Text-to-Video                                                                                                                                                                   
-                                                
-  Description: After narration audio is generated, automatically run Whisper transcription to produce word-level captions. Place captions on a dedicated overlay track in the assembled ProjectDoc.
-                                                                                                                                                                                                                   
-  Acceptance Criteria:
-  - Whisper transcription runs automatically on generated narration audio                                                                                                                                          
-  - Captions added as text-overlay clips on a dedicated "Captions" track                                                                                                                                           
-  - Caption timing matches narration audio (word-level alignment)       
-  - Caption style defaults: white text, black outline, bottom-center position                                                                                                                                      
-                                                                                                                                                                                                                   
-  Dependencies: Whisper transcription (Epic 3), TTS audio generation                                                                                                                                               
-  Effort: S                                                                                                                                                                                                        
-                                                                                                                                                                                                                   
-  ---             
-  [FE] Text-to-Video Wizard Modal
-                                                                                                                                                                                                                   
-  Description: Build a multi-step wizard modal triggered from the editor's "AI" menu or a prominent "Create Video from Text" button. Steps: (1) Enter prompt + style, (2) Configure duration/format/resolution, (3)
-   Review generated storyboard (editable), (4) Generate → progress view.                                                                                                                                           
-                  
-  Acceptance Criteria:                                                                                                                                                                                             
-  - Step 1: Multiline prompt input + style dropdown (cinematic/corporate/social/educational)
-  - Step 2: Duration slider (15s–5min), format dropdown (16:9, 9:16, 1:1), resolution from project settings                                                                                                        
-  - Step 3: Shows LLM-generated storyboard — each scene card shows description + narration + duration; user can edit text or reorder scenes
-  - Step 4: "Generate Video" button → progress view showing each step with status icons                                                                                                                            
-  - Progress updates in real-time (polls job status every 3s)                                                                                                                                                      
-  - On completion: project loads the assembled video in the editor, user can edit further                                                                                                                          
-  - Cancel button available at any step; cancels in-progress generation jobs                                                                                                                                       
-  - Error handling per step with "Retry" option                                                                                                                                                                    
-                                                                                                                                                                                                                   
-  Dependencies: Text-to-video orchestrator BE                                                                                                                                                                      
-  Effort: L                                                                                                                                                                                                        
-                                                                                                                                                                                                                   
-  ---             
-  Summary — Epic 10
-                   
-  ┌────────────────────────────┬──────┬────────┬────────────────────────────────────────────┐
-  │           Ticket           │ Area │ Effort │                 Depends On                 │                                                                                                                      
-  ├────────────────────────────┼──────┼────────┼────────────────────────────────────────────┤
-  │ LLM storyboard generator   │ BE   │ M      │ None                                       │                                                                                                                      
-  ├────────────────────────────┼──────┼────────┼────────────────────────────────────────────┤
-  │ Text-to-video orchestrator │ BE   │ L      │ AI adapters (Epic 9), storyboard generator │
-  ├────────────────────────────┼──────┼────────┼────────────────────────────────────────────┤                                                                                                                      
-  │ Auto-caption for TTV       │ BE   │ S      │ Orchestrator, Whisper (Epic 3)             │
-  ├────────────────────────────┼──────┼────────┼────────────────────────────────────────────┤                                                                                                                      
-  │ Text-to-video wizard modal │ FE   │ L      │ Orchestrator BE                            │
-  └────────────────────────────┴──────┴────────┴────────────────────────────────────────────┘                                                                                                                      
-                  
-  Build order: Storyboard generator first (can be tested independently). Orchestrator is the critical path — needs all AI adapters from Epic 9. FE wizard can start with mocked responses while orchestrator is    
-  being built.    
-                                                                                                                                                                                                                   
-  ---             
-  EPIC 11 — Social Media Publishing
-                                                                                                                                                                                                                   
-  ▎ Direct publish to YouTube, TikTok, and Instagram from the export flow.
-                                                                                                                                                                                                                   
-  Pages / Surfaces:
-  - Social accounts settings page — connect/disconnect accounts                                                                                                                                                    
-  - Publish modal — metadata form + platform selection (extends Export modal)
-  - Publish history/status page                                              
-                                                                                                                                                                                                                   
-  ---                                                                                                                                                                                                              
-  [DB] Social Accounts + Publish Jobs Schema                                                                                                                                                                       
-                                                                                                                                                                                                                   
-  Description: Create social_accounts (OAuth tokens per platform per user) and publish_jobs (track publish attempts) tables.
-                                                                                                                                                                                                                   
-  Acceptance Criteria:
-  - social_accounts: account_id, user_id, platform (ENUM: youtube, tiktok, instagram), platform_user_id, access_token_encrypted, refresh_token_encrypted, token_expires_at, display_name, avatar_url, created_at   
-  - publish_jobs: job_id, user_id, render_job_id, platform, status (ENUM: queued, uploading, processing, published, failed), platform_post_id, platform_url, metadata_json, error_message, created_at, updated_at  
-  - UNIQUE on (user_id, platform, platform_user_id)                                                                                                                                                              
-  - Migration reversible                                                                                                                                                                                           
-                  
-  Dependencies: Users table (Epic 8)                                                                                                                                                                               
-  Effort: S       
-                                                                                                                                                                                                                   
-  ---             
-  [BE] YouTube OAuth + Upload Integration
-                                                                                                                                                                                                                   
-  Description: Build YouTube Data API v3 integration: OAuth2 connect flow, video upload, metadata (title, description, tags, category, visibility, thumbnail). Uses resumable upload for large files.
-                                                                                                                                                                                                                   
-  Acceptance Criteria:
-  - GET /auth/youtube → Google OAuth with YouTube scope                                                                                                                                                            
-  - GET /auth/youtube/callback → stores tokens in social_accounts                                                                                                                                                  
-  - POST /publish/youtube accepts { renderJobId, title, description, tags[], categoryId, visibility, thumbnailAssetId? }
-  - Validates render job is complete, downloads from S3                                                                                                                                                            
-  - Uses YouTube resumable upload protocol for videos >5MB                                                                                                                                                         
-  - Sets title (max 100 chars), description (max 5000 chars), tags, category                                                                                                                                       
-  - Uploads custom thumbnail if provided                                                                                                                                                                           
-  - Returns { publishJobId } — polls via GET /publish/:jobId                                                                                                                                                       
-  - Handles quota errors (10,000 units/day) with clear error message                                                                                                                                               
-  - Token refresh when access token expires                                                                                                                                                                        
-                                                                                                                                                                                                                   
-  Dependencies: Social accounts DB, render pipeline (Epic 5)                                                                                                                                                       
-  Effort: L ⚠️  YouTube API quota limits are strict; resumable upload adds complexity                                                                                                                               
-                                                                                                                                                                                                                   
-  ---                                                                                                                                                                                                              
-  [BE] TikTok Content Posting API Integration                                                                                                                                                                      
-                                             
-  Description: Build TikTok Content Posting API integration. TikTok uses a different flow: init upload → upload chunks → create post with metadata.
-                                                                                                                                                                                                                   
-  Acceptance Criteria:
-  - GET /auth/tiktok → TikTok OAuth                                                                                                                                                                                
-  - GET /auth/tiktok/callback → stores tokens                                                                                                                                                                      
-  - POST /publish/tiktok accepts { renderJobId, caption, allowComments, allowDuet, allowStitch, visibility }
-  - Uploads video via TikTok's chunk-based upload API                                                                                                                                                              
-  - Sets caption (max 2200 chars), privacy settings                                                                                                                                                                
-  - Handles TikTok's async publishing (video goes through review)                                                                                                                                                  
-  - Returns { publishJobId } with status tracking                                                                                                                                                                  
-  - Token refresh with TikTok's refresh flow                                                                                                                                                                       
-                                                                                                                                                                                                                   
-  Dependencies: Social accounts DB, render pipeline                                                                                                                                                                
-  Effort: L ⚠️  TikTok API review process can take up to 5 days; different SDK patterns                                                                                                                             
-                                                                                                                                                                                                                   
-  ---                                                                                                                                                                                                              
-  [BE] Instagram Graph API Integration                                                                                                                                                                             
-                                      
-  Description: Build Instagram Graph API integration for Reels and feed posts. Instagram requires a Facebook Page linked to an Instagram Professional account.
-                                                                                                                                                                                                                   
-  Acceptance Criteria:                                                                                                                                                                                             
-  - GET /auth/instagram → Facebook OAuth with Instagram scope                                                                                                                                                      
-  - GET /auth/instagram/callback → stores tokens                                                                                                                                                                   
-  - POST /publish/instagram accepts { renderJobId, caption, mediaType: 'reel'|'feed', coverTimestamp? }
-  - For Reels: uses container-based creation flow (create container → upload → publish)                
-  - Caption max 2200 chars, hashtags counted as part of caption                                                                                                                                                    
-  - Handles Instagram's async processing (container status polling)                                                                                                                                                
-  - Returns { publishJobId } with status tracking                                                                                                                                                                  
-  - Validates aspect ratio requirements per media type                                                                                                                                                             
-                                                                                                                                                                                                                   
-  Dependencies: Social accounts DB, render pipeline                                                                                                                                                                
-  Effort: L ⚠️  Instagram API requires Facebook Business account; complex container-based upload
-                                                                                                                                                                                                                   
-  ---             
-  [FE] Social Accounts Settings Page                                                                                                                                                                               
-                                    
-  Description: Build /settings/social-accounts page showing connected platforms. Each platform card shows: icon, name, connected account info, connect/disconnect buttons.
-                                                                                                                                                                                                                   
-  Acceptance Criteria:                                                                                                                                                                                             
-  - Cards for YouTube, TikTok, Instagram                                                                                                                                                                           
-  - "Connect" button initiates OAuth flow                                                                                                                                                                          
-  - Connected accounts show display name + avatar
-  - "Disconnect" button with confirmation dialog 
-  - Status indicators: connected (green), disconnected (gray), token expired (yellow warning)                                                                                                                      
-  - Dark theme, consistent with design system                                                
-                                                                                                                                                                                                                   
-  Dependencies: OAuth endpoints for all platforms
-  Effort: M                                                                                                                                                                                                        
-                  
-  ---                                                                                                                                                                                                              
-  [FE] Publish Modal (extends Export)
-                                     
-  Description: After a render completes, add a "Publish" button alongside "Download". Opens a publish modal where users select target platforms, fill in per-platform metadata, and submit. Each platform has a
-  metadata form section.                                                                                                                                                                                           
-  
-  **Acceptance                                                                                                                                                                                                              
-  ---             
-  EPIC 12 — Animations & Animated Transitions
+  - Generate Wizard shell (/generate) — top stepper, two-column body, footer actions
+  - Step 1 — Script & Media — prompt editor (left) + media gallery (right) + Pro Tip card
+  - Asset Picker Modal — opened by "Insert Video/Image/Audio" buttons; filtered subset of gallery
+  - Upload Dropzone — opened by gallery upload icon; reuses existing ingest pipeline
 
   ---
-  [Schema] Animation and Transition Types in project-schema
-                                                                                                                                                                                                                   
-  Description: Extend packages/project-schema/ with animation types. Add clipAnimationSchema (entry/exit animations per clip: fade, slide, zoom, bounce, etc.) and transitionSchema (between adjacent clips on same
-   track: crossfade, wipe, dissolve, slide). Each has type, durationFrames, easing, and type-specific parameters.                                                                                                  
-                  
-  Acceptance Criteria:                                                                                                                                                                                             
-  - ClipAnimation type: { type: 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom-in' | 'zoom-out' | 'bounce', durationFrames: number, easing: 'linear' | 'ease-in' | 'ease-out' | 
-  'ease-in-out' | 'spring' }                                                                                                                                                                                       
-  - Transition type: { type: 'crossfade' | 'wipe-left' | 'wipe-right' | 'dissolve' | 'slide-push', durationFrames: number, easing: string }
-  - VideoClip, ImageClip, AudioClip schemas extended with optional entryAnimation?, exitAnimation?                                                                                                                 
-  - Track schema extended with optional transitions?: Transition[] (each has afterClipId)                                                                                                                          
-  - Zod schemas + TypeScript types exported                                                                                                                                                                        
-  - Existing tests pass; new tests cover animation/transition variants                                                                                                                                             
-                                                                                                                                                                                                                   
-  Dependencies: None                                                                                                                                                                                               
-  Effort: S                                                                                                                                                                                                        
-                                                                                                                                                                                                                   
-  ---             
-  [FE/Remotion] Implement Clip Animations in Remotion Compositions
-                                                                                                                                                                                                                   
-  Description: Update packages/remotion-comps/ layer components (VideoLayer, ImageLayer, TextOverlayLayer) to apply entry/exit animations using Remotion's interpolate() and spring(). Each animation type maps to
-  CSS transform/opacity interpolations. Animations apply within the clip's frame range (entry at start, exit at end).                                                                                              
-                  
-  Acceptance Criteria:                                                                                                                                                                                             
-  - Fade: interpolates opacity 0→1 (entry) and 1→0 (exit) over durationFrames
-  - Slide variants: interpolate translateX/translateY from off-screen to position                                                                                                                                  
-  - Zoom: interpolate scale from 0→1 (in) or 1→0 (out)                           
-  - Bounce: uses Remotion spring() for natural bounce easing                                                                                                                                                       
-  - Easing options map to Remotion's Easing module          
-  - Animations stack correctly (entry + exit on same clip)                                                                                                                                                         
-  - No animation when entryAnimation/exitAnimation is undefined (backwards compatible)                                                                                                                             
-  - Storybook stories demonstrate each animation type                                                                                                                                                              
-                                                                                                                                                                                                                   
-  Dependencies: Animation schema types                                                                                                                                                                             
-  Effort: M                                                                                                                                                                                                        
-                  
-  ---                                                                                                                                                                                                              
-  [FE/Remotion] Implement Transitions Between Clips
-                                                   
-  Description: Implement track-level transitions in VideoComposition. When two adjacent clips on the same track have a transition, overlap them by transition.durationFrames and apply the visual effect.
-  Crossfade: blend opacity of outgoing and incoming clip. Wipe: use a clip-path or mask animation. Dissolve: similar to crossfade with noise texture.                                                              
-  
-  ⚠️  Transitions require clips to overlap by the transition duration. The composition must handle the overlap zone specially — rendering both clips simultaneously with the transition effect applied.             
-                  
-  Acceptance Criteria:                                                                                                                                                                                             
-  - Crossfade: outgoing clip fades out while incoming fades in over overlap duration
-  - Wipe: clip-path animation reveals incoming clip from the specified direction                                                                                                                                   
-  - Dissolve: noise-based crossfade effect                                      
-  - Slide-push: outgoing slides out while incoming slides in                                                                                                                                                       
-  - Clips automatically overlap by transition.durationFrames in the composition                                                                                                                                    
-  - Transitions render correctly in both Player preview and SSR render                                                                                                                                             
-  - No transition when transitions array is empty or undefined                                                                                                                                                     
-  - Audio crossfade: volume ramp down/up for audio tracks                                                                                                                                                          
-                                                                                                                                                                                                                   
-  Dependencies: Animation schema types, Remotion composition updates                                                                                                                                               
-  Effort: L ⚠️  Overlapping clip rendering in Remotion requires careful Sequence nesting                                                                                                                            
-                                                                                                                                                                                                                   
-  ---                                                                                                                                                                                                              
-  [FE] Animation Inspector Panel                                                                                                                                                                                   
-                                
-  Description: When a clip is selected, add an "Animations" section to the right-sidebar inspector. Shows entry animation dropdown (none, fade, slide-left, etc.), exit animation dropdown, duration slider for
-  each, easing selector. Changes update the project document via Immer (live preview in Player).                                                                                                                   
-  
-  Acceptance Criteria:                                                                                                                                                                                             
-  - Entry animation: dropdown with all animation types + "None"
-  - Exit animation: same dropdown                                                                                                                                                                                  
-  - Duration slider: 0.1s – 2.0s (converted to frames using project FPS)
-  - Easing selector: linear, ease-in, ease-out, ease-in-out, spring                                                                                                                                                
-  - Changes reflected immediately in the Remotion Player preview                                                                                                                                                   
-  - Changes produce Immer patches (undoable)                                                                                                                                                                       
-  - Panel section collapsed by default; expands on click                                                                                                                                                           
-                                                                                                                                                                                                                   
-  Dependencies: Remotion animation implementation
-  Effort: S                                                                                                                                                                                                        
-                  
-  ---                                                                                                                                                                                                              
-  [FE] Transition Picker on Timeline
-                                    
-  Description: Between two adjacent clips on the same track, show a small "+" icon on hover. Clicking opens a transition picker dropdown. Selecting a transition adds it to the track's transitions array. The
-  timeline visually indicates transitions with a diamond/overlap marker between clips. Double-clicking the marker opens duration/easing controls.                                                                  
-  
-  Acceptance Criteria:                                                                                                                                                                                             
-  - "+" icon appears on hover between adjacent clips on same track
-  - Transition picker shows: None, Crossfade, Wipe Left, Wipe Right, Dissolve, Slide Push                                                                                                                          
-  - Selected transition shown as a diamond icon between clips on timeline                
-  - Clips visually overlap by transition duration on the timeline                                                                                                                                                  
-  - Double-click transition marker opens duration/easing popover                                                                                                                                                   
-  - Removing transition restores clip positions (undo via Immer)                                                                                                                                                   
-  - Works for video, image, and audio tracks                                                                                                                                                                       
-                                                                                                                                                                                                                   
-  Dependencies: Remotion transition implementation                                                                                                                                                                 
-  Effort: M                                                                                                                                                                                                        
-                  
-  ---
-  [BE] Auto-Animation Generation Endpoint
-                                                                                                                                                                                                                   
-  Description: Build POST /projects/:id/auto-animate that analyzes the project's clips and automatically suggests/applies animations and transitions. Uses GPT-4 to analyze clip types, durations, and content (via
-   thumbnail descriptions) and returns recommended animations for each clip and transitions between adjacent clips. The endpoint can either return suggestions (dry-run) or apply them directly.                   
-                  
-  Acceptance Criteria:                                                                                                                                                                                             
-  - Accepts { mode: 'suggest' | 'apply', style: 'energetic' | 'calm' | 'professional' | 'cinematic' }
-  - suggest mode: returns { clips: [{ clipId, entryAnimation, exitAnimation }], transitions: [{ afterClipId, transition }] } without modifying project                                                             
-  - apply mode: updates the project document with suggestions and creates a new version                                                               
-  - GPT-4 prompt includes clip count, types, durations, and style preference                                                                                                                                       
-  - Animations match the requested style (e.g., "energetic" = bounces + fast slides; "calm" = slow fades)                                                                                                          
-  - Rate-limited: 5 requests per project per hour                                                                                                                                                                  
-                                                                                                                                                                                                                   
-  Dependencies: Animation schema, OpenAI provider (Epic 8)                                                                                                                                                         
-  Effort: M                                                                                                                                                                                                        
-                                                                                                                                                                                                                   
-  ---                                                                                                                                                                                                              
-  Summary — Epic 11
+  Tickets
 
-  ┌────────────────────────────────────┬─────────────┬────────┬──────────────────────────┐
-  │               Ticket               │    Area     │ Effort │        Depends On        │
-  ├────────────────────────────────────┼─────────────┼────────┼──────────────────────────┤
-  │ Animation + Transition schemas     │ Schema      │ S      │ None                     │
-  ├────────────────────────────────────┼─────────────┼────────┼──────────────────────────┤
-  │ Clip animations in Remotion        │ FE/Remotion │ M      │ Schema                   │                                                                                                                         
-  ├────────────────────────────────────┼─────────────┼────────┼──────────────────────────┤                                                                                                                         
-  │ Transitions between clips          │ FE/Remotion │ L      │ Schema + animations      │                                                                                                                         
-  ├────────────────────────────────────┼─────────────┼────────┼──────────────────────────┤                                                                                                                         
-  │ Animation inspector panel          │ FE          │ S      │ Remotion animations      │
-  ├────────────────────────────────────┼─────────────┼────────┼──────────────────────────┤                                                                                                                         
-  │ Transition picker on timeline      │ FE          │ M      │ Remotion transitions     │
-  ├────────────────────────────────────┼─────────────┼────────┼──────────────────────────┤                                                                                                                         
-  │ Auto-animation generation endpoint │ BE          │ M      │ Schema + OpenAI provider │
-  └────────────────────────────────────┴─────────────┴────────┴──────────────────────────┘
-
-  Build order: Schema first (unblocks everything). Remotion clip animations next (simpler than transitions). Transitions are the hardest — spike the overlap rendering pattern early. FE panels can develop with   
-  mock data. Auto-animate endpoint is independent and can be built once the schema is stable.
-                                                                                                                                                                                                                   
-  ---             
-  EPIC 13 — Polish, Performance & Production Readiness
+  🔵 Backend First
 
   ---
-  [INFRA] Production Deployment Configuration
-                                                                                                                                                                                                                   
-  Description: Set up production deployment: Docker images for API, web-editor (static build + nginx), render-worker, media-worker. CI/CD pipeline (GitHub Actions) for build, test, lint, and deploy. Environment
-  variable management. Health check endpoints. Logging with structured JSON output.                                                                                                                                
-                  
-  Acceptance Criteria:                                                                                                                                                                                             
-  - Multi-stage Dockerfiles for all 4 apps (build + slim runtime)
-  - docker-compose.prod.yml with production defaults                                                                                                                                                               
-  - GitHub Actions workflow: lint → test → build → push images
-  - GET /health endpoint on API returning { status, version, uptime }                                                                                                                                              
-  - Structured JSON logging (not console.log) in all apps                                                                                                                                                          
-  - Graceful shutdown handlers for all workers                                                                                                                                                                     
-                                                                                                                                                                                                                   
-  Dependencies: None                                                                                                                                                                                               
-  Effort: M                                                                                                                                                                                                        
-                                                                                                                                                                                                                   
-  ---             
-  [BE] Rate Limiting, CORS, and Security Hardening
-                                                  
-  Description: Replace the existing placeholder CORS and rate-limit configs with production-ready settings. Add Helmet CSP headers, CORS whitelist per environment, per-route rate limits, request body size
-  limits, and SQL injection prevention audit.                                                                                                                                                                      
-  
-  Acceptance Criteria:                                                                                                                                                                                             
-  - CORS whitelist from environment variable (no * in production)
-  - Helmet CSP configured for Remotion Player requirements (blob:, data:)                                                                                                                                          
-  - Per-route rate limits: auth endpoints (stricter), generation endpoints (moderate), CRUD (relaxed)
-  - Request body limit: 10MB for JSON, rejection for larger                                                                                                                                                        
-  - All SQL queries use parameterized queries (audit existing code)                                                                                                                                                
-  - HTTPS-only cookies in production                                                                                                                                                                               
-                                                                                                                                                                                                                   
-  Dependencies: Auth (Epic 7)                                                                                                                                                                                      
-  Effort: S                                                                                                                                                                                                        
-                                                                                                                                                                                                                   
-  ---             
-  [FE] Error Boundaries + Offline Indicator
-                                                                                                                                                                                                                   
-  Description: Add React error boundaries around each major panel (Asset Browser, Timeline, Preview, Inspector) so a crash in one panel doesn't take down the entire editor. Add a network status indicator in the
-  TopBar that warns when the user goes offline and queues saves for when they reconnect.                                                                                                                           
-                  
-  Acceptance Criteria:                                                                                                                                                                                             
-  - Error boundary per panel with "Something went wrong" fallback + retry button
-  - Errors logged to console with component stack                                                                                                                                                                  
-  - Network offline: TopBar shows "Offline — changes saved locally" banner
-  - Auto-save pauses when offline; resumes and flushes on reconnect                                                                                                                                                
-  - "Reconnected" toast when network returns                                                                                                                                                                       
-                                                                                                                                                                                                                   
-  Dependencies: None                                                                                                                                                                                               
-  Effort: S                                                                                                                                                                                                        
-                                                                                                                                                                                                                   
+  [DB] Create generation_drafts table + Zod schema for PromptDoc
+
+  Description
+  Persistent store for an in-progress generation wizard. Holds the prompt as a structured document (text segments + media-reference tokens) so it survives page reloads and can be picked up at Step 2. Add a prompt_doc JSON column validated by a new Zod schema in packages/project-schema/src/schemas/promptDoc.schema.ts.
+
+  Acceptance Criteria
+  - Migration apps/api/src/db/migrations/0NN_generation_drafts.sql creates generation_drafts(id PK, user_id FK, prompt_doc JSON NOT NULL, status ENUM('draft','step2','step3','completed'), created_at, updated_at)
+  - Index on (user_id, updated_at DESC) for "resume latest draft"
+  - PromptDoc Zod schema in packages/project-schema/: { blocks: Array<{ type: 'text', value: string } | { type: 'media-ref', mediaType: 'video'|'image'|'audio', assetId: string, label: string }> }
+  - PromptDoc exported from packages/project-schema/src/index.ts
+  - Schema rejects unknown block types and missing assetId
+  - Migration runs cleanly on a fresh DB and can be rolled back
+
+  Dependencies None
+  Effort S
+
   ---
-  [FE] Keyboard Shortcuts Summary + Help Modal                                                                                                                                                                     
-                                              
-  Description: Build a keyboard shortcuts help modal (triggered by ? key or Help menu). Lists all available shortcuts grouped by category: Playback, Timeline, Clips, General. This documents existing shortcuts
-  and new ones added across epics.                                                                                                                                                                                 
-  
-  Acceptance Criteria:                                                                                                                                                                                             
-  - ? key opens the modal (when not in a text input)
-  - Categories: Playback (Space, Left/Right, Home), Timeline (Ctrl+Z, Ctrl+Shift+Z, Delete), General (Ctrl+S save, Ctrl+E export)                                                                                  
-  - Styled consistently with existing modals (dark theme, SURFACE_ELEVATED)                                                      
-  - Dismissible via Escape or backdrop click                                                                                                                                                                       
-                                                                                                                                                                                                                   
-  Dependencies: None                                                                                                                                                                                               
-  Effort: XS                                                                                                                                                                                                       
-                  
+  [BE] generation-drafts repository + service + CRUD endpoints
+
+  Description
+  Standard layered CRUD (routes → controllers → services → repositories) for generation_drafts. Supports create, get-by-id, list-mine, update (full PromptDoc replacement), and delete. Service enforces ownership via acl.middleware.
+
+  Acceptance Criteria
+  - apps/api/src/routes/generationDrafts.routes.ts with: POST /generation-drafts, GET /generation-drafts/:id, GET /generation-drafts?mine=true, PUT /generation-drafts/:id, DELETE /generation-drafts/:id
+  - Controller is thin — parse → call service → return
+  - Service validates prompt_doc against PromptDoc Zod schema before writing
+  - Repository handles all SQL; throws NotFoundError when missing
+  - All endpoints return 401 if unauthenticated, 403 if not owner, 404 if not found, 422 on schema validation failure
+  - OpenAPI spec in packages/api-contracts/ updated and TS client regenerated
+  - Unit tests for the service (happy + 3 error paths)
+
+  Dependencies DB ticket above
+  Effort M
+
   ---
-  Summary — Epic 13
-                                                                                                                                                                                                                   
-  ┌──────────────────────────────────────┬───────┬────────┬───────────────┐
-  │                Ticket                │ Area  │ Effort │  Depends On   │                                                                                                                                        
-  ├──────────────────────────────────────┼───────┼────────┼───────────────┤
-  │ Production deployment config         │ INFRA │ M      │ None          │
-  ├──────────────────────────────────────┼───────┼────────┼───────────────┤
-  │ Security hardening                   │ BE    │ S      │ Auth (Epic 7) │
-  ├──────────────────────────────────────┼───────┼────────┼───────────────┤                                                                                                                                        
-  │ Error boundaries + offline indicator │ FE    │ S      │ None          │
-  ├──────────────────────────────────────┼───────┼────────┼───────────────┤                                                                                                                                        
-  │ Keyboard shortcuts help modal        │ FE    │ XS     │ None          │
-  └──────────────────────────────────────┴───────┴────────┴───────────────┘
+  [BE] GET /assets — gallery listing with type filter and pagination
+
+  Description
+  The right-side Media Gallery panel needs a paginated, type-filterable feed of the user's ready assets, grouped client-side into Videos / Images / Audio. Endpoint must return only assets where ingest finished (status='ready').
+
+  Acceptance Criteria
+  - GET /assets?type=video|image|audio|all&cursor=...&limit=... in assets.routes.ts
+  - Returns { items: AssetSummary[], nextCursor: string|null, totals: { videos, images, audio, bytesUsed } }
+  - AssetSummary includes id, type, label, durationSeconds?, thumbnailUrl, createdAt
+  - Service filters by req.user.id and status='ready'
+  - Cursor pagination via (updated_at, id); default limit=24, max 100
+  - Unauthorized → 401; unknown type → 422
+  - Repository unit-tested against a seeded DB
+
+  Dependencies None (existing assets table)
+  Effort S
+
+  ---
+  [INT] AI prompt-enhance endpoint backed by OpenAI
+
+  Description
+  "AI Enhance" button rewrites the user's prompt while preserving inline media-ref tokens. Add POST /generation-drafts/:id/enhance which sends the current PromptDoc to the LLM with a system prompt that forbids mutating media-ref blocks and returns a new PromptDoc. Long requests run via BullMQ (ai-enhance queue) with polling, matching how transcription works.
+
+  ⚠️  Token preservation is the trickiest part — the LLM must round-trip media-ref blocks exactly. Implement as: serialize blocks with sentinels (e.g. {{MEDIA_1}}), send text only, splice tokens back into the LLM result.
+
+  Acceptance Criteria
+  - POST /generation-drafts/:id/enhance enqueues a job and returns { jobId }
+  - GET /generation-drafts/:id/enhance/:jobId returns { status: 'queued'|'running'|'done'|'failed', result?: PromptDoc, error? }
+  - Job handler in apps/media-worker/src/jobs/enhancePrompt.job.ts (new file) — calls OpenAI, replaces sentinels, validates result against PromptDoc Zod schema
+  - All media-ref blocks present in input MUST be present in output (verified by test)
+  - Failed enhancement does not mutate the stored draft
+  - Rate limit: 10 requests / user / hour (return 429)
+  - Unit tests cover: token preservation, schema-invalid LLM output, OpenAI 5xx retry
+
+  Dependencies Generation drafts CRUD
+  Effort L
+
+  ---
+  🟢 Can Be Parallelised (Frontend)
+
+  ---
+  [FE] Generate wizard route + layout shell with stepper
+
+  Description
+  New route /generate rendering the wizard shell: top stepper (Step 1 active), two-column body slot, bottom footer slot. Lives under apps/web-editor/src/features/generate-wizard/. Stepper is a presentational component reading current step from a local useState (Step 1 only for now; Step 2/3 routes ship in later epics).
+
+  Acceptance Criteria
+  - Folder features/generate-wizard/{components,hooks,api.ts,types.ts} created per architecture rules
+  - GenerateWizardPage.tsx mounted at /generate
+  - WizardStepper.tsx displays 3 steps with active/inactive states matching design tokens (primary, surface-elevated, border)
+  - Layout uses 12-col grid, left col = 8 / right col = 4 at lg
+  - Sidebar nav highlights "Generate" entry as active
+  - Matches design at 1280×900 viewport pixel-for-pixel for spacing/colors
+  - No business logic in the page component
+
+  Dependencies None (can use mock data)
+  Effort S
+
+  ---
+  [FE] PromptEditor — contenteditable rich text with media-ref token chips
+
+  Description
+  Core text editor for the prompt. Supports plain typing plus inline non-editable "chips" representing media-ref tokens (video=blue, image=warning/amber, audio=success/green) per design. Backed by a tiny custom contenteditable controller (no full WYSIWYG framework — too heavy). Emits PromptDoc on change.
+
+  ⚠️  Caret/selection management around non-editable chips is the main complexity — chips must be deletable with Backspace and skip on arrow keys.
+
+  Acceptance Criteria
+  - PromptEditor.tsx accepts value: PromptDoc and onChange: (next: PromptDoc) => void
+  - Renders text and chips matching design (icon + label, colored border + tinted bg)
+  - Typing produces text blocks; insertMediaRef(asset) inserts at caret
+  - Backspace at start of a chip removes it; arrow keys treat chip as a single caret position
+  - Character counter (245 / 2000) updates live; blocks input over limit
+  - Focus ring uses primary/50 per design
+  - Uncontrolled selection survives re-renders
+  - Vitest tests cover: insert, delete, max-length, round-trip PromptDoc
+
+  Dependencies PromptDoc Zod type from project-schema
+  Effort L
+
+  ---
+  [FE] PromptToolbar — AI Enhance + Insert Video/Image/Audio buttons
+
+  Description
+  Toolbar row beneath the editor. AI Enhance triggers the enhancement flow. Insert buttons open the Asset Picker modal pre-filtered to the chosen type and, on selection, call editor.insertMediaRef(...).
+
+  Acceptance Criteria
+  - Four buttons rendered with icons + labels per design (colors: AI=neutral, video=info, image=warning, audio=success)
+  - Each Insert button opens AssetPickerModal with mediaType prop
+  - On asset chosen, the editor updates and modal closes
+  - AI Enhance button is disabled while a job is running and shows a spinner
+  - Buttons keyboard-accessible (Tab order, Enter/Space)
+
+  Dependencies PromptEditor; AssetPickerModal
+  Effort S
+
+  ---
+  [FE] useEnhancePrompt hook + AI Enhance flow with diff preview
+
+  Description
+  Hook that POSTs to enhance, polls the job, and on done shows a confirmation dialog with the proposed PromptDoc so the user can accept or discard. Uses React Query for polling with backoff.
+
+  Acceptance Criteria
+  - features/generate-wizard/hooks/useEnhancePrompt.ts
+  - Returns { start, status, proposedDoc, accept, discard, error }
+  - Polling interval 1s, max 60s, then fail
+  - EnhancePreviewModal.tsx shows side-by-side or inline diff and Accept / Discard buttons
+  - Accepting calls onChange of the editor and saves draft
+  - Discarding leaves the original prompt untouched
+  - Error toast on failure or rate-limit (429)
+  - Tested with mocked API client
+
+  Dependencies BE enhance endpoint; PromptEditor
+  Effort M
+
+  ---
+  [FE] AssetPickerModal — gallery filtered by media type
+
+  Description
+  Modal shown when an Insert button is pressed. Lists the user's ready assets filtered to a single type, lets them click to embed, and exits. Reuses query hooks from the Media Gallery panel.
+
+  Acceptance Criteria
+  - AssetPickerModal.tsx accepts mediaType: 'video'|'image'|'audio' and onPick(asset)
+  - Calls useAssets({ type }) (React Query)
+  - Renders skeleton, error, and empty states per architecture rules
+  - Click on card → onPick and modal closes
+  - Closes on Esc and backdrop click
+  - Has its own upload affordance that reuses the existing upload hook (no duplication)
+
+  Dependencies GET /assets BE ticket; existing upload hook
+  Effort M
+
+  ---
+  [FE] MediaGalleryPanel — right side panel with tabs, categories, footer stats
+
+  Description
+  Right-column panel mirroring the design: header (folder icon + "Media Gallery" + upload button), Recent/Folders tabs, scrollable list grouped by Videos / Images / Audio with the exact card variants from the screenshot, footer with selected count + storage used.
+
+  Acceptance Criteria
+  - MediaGalleryPanel.tsx, MediaGalleryHeader.tsx, MediaGalleryTabs.tsx, AssetThumbCard.tsx, AudioRowCard.tsx
+  - Uses useAssets({ type: 'all' }) and groups results client-side
+  - Recent tab is default; Folders tab shows an "empty for now" placeholder (Folders ships in a later epic)
+  - Each card supports hover state with + overlay matching design
+  - Clicking a card calls onAssetSelected(asset) (wired by parent to editor.insertMediaRef)
+  - Skeleton, empty, and error states match the design system
+  - Footer displays {n} Assets Selected and {x} GB used from the API totals
+  - Scrollable area; panel height fixed at 580px per design
+
+  Dependencies GET /assets BE ticket
+  Effort M
+
+  ---
+  [FE] useGenerationDraft hook with debounced autosave
+
+  Description
+  Hook that creates a draft on first edit and PUTs the latest PromptDoc 800 ms after the last change. Reads/writes via the typed API client. Surfaces isDirty and lastSavedAt for the UI.
+
+  Acceptance Criteria
+  - useGenerationDraft(initial?) returns { draftId, doc, setDoc, status, lastSavedAt }
+  - First setDoc after mount creates a draft (POST /generation-drafts)
+  - Subsequent setDoc calls are debounced 800 ms then PUT
+  - Uses React Query mutations; invalidates the draft query on success
+  - Failed save shows a toast and retries once
+  - Vitest tests with fake timers cover debounce + create-then-update sequence
+
+  Dependencies Generation drafts CRUD BE ticket
+  Effort M
+
+  ---
+  [FE] Wizard footer: Cancel + "Next: Video Road Map"
+
+  Description
+  Bottom action row. Cancel deletes the draft (with confirm dialog) and routes back to the previous page. Next persists the latest PromptDoc synchronously and routes to /generate/road-map (route placeholder for the next epic).
+
+  Acceptance Criteria
+  - Cancel shows confirm dialog, then DELETE /generation-drafts/:id and navigates away
+  - Next is disabled when PromptDoc has zero text blocks AND zero media refs
+  - Next forces a flush of any pending autosave before navigation
+  - Next button matches primary CTA design (gradient/primary, shadow, active scale)
+  - Loading state on Next while flushing
+
+  Dependencies useGenerationDraft
+  Effort S
+
+  ---
+  [FE] ProTipCard — dismissible floating hint
+
+  Description
+  Bottom-right floating card matching the design. Dismissed state persists in localStorage so it doesn't reappear after dismissal.
+
+  Acceptance Criteria
+  - Renders only when localStorage['proTip:generateStep1'] !== 'dismissed'
+  - Close button writes the flag and unmounts
+  - Matches design tokens (surface-elevated, primary/30 border)
+  - Does not overlap any focusable controls in the gallery panel
+
+  Dependencies None
+  Effort XS
+
+  ---
+  📋 Backlog (Build Order)
+
+  ┌─────┬───────────────────────────────────────────────────┬──────┬────────┬────────────┐
+  │  #  │                      Ticket                       │ Area │ Effort │ Depends On │
+  ├─────┼───────────────────────────────────────────────────┼──────┼────────┼────────────┤
+  │ 1   │ Create generation_drafts table + PromptDoc schema │ DB   │ S      │ —          │
+  ├─────┼───────────────────────────────────────────────────┼──────┼────────┼────────────┤
+  │ 2   │ generation-drafts CRUD + service + repo           │ BE   │ M      │ #1         │
+  ├─────┼───────────────────────────────────────────────────┼──────┼────────┼────────────┤
+  │ 3   │ GET /assets gallery listing endpoint              │ BE   │ S      │ —          │
+  ├─────┼───────────────────────────────────────────────────┼──────┼────────┼────────────┤
+  │ 4   │ AI prompt-enhance endpoint (BullMQ + OpenAI)      │ INT  │ L      │ #2         │
+  ├─────┼───────────────────────────────────────────────────┼──────┼────────┼────────────┤
+  │ 5   │ Generate wizard route + stepper shell             │ FE   │ S      │ —          │
+  ├─────┼───────────────────────────────────────────────────┼──────┼────────┼────────────┤
+  │ 6   │ PromptEditor with chip controller                 │ FE   │ L      │ #1         │
+  ├─────┼───────────────────────────────────────────────────┼──────┼────────┼────────────┤
+  │ 7   │ PromptToolbar                                     │ FE   │ S      │ #6, #9     │
+  ├─────┼───────────────────────────────────────────────────┼──────┼────────┼────────────┤
+  │ 8   │ useEnhancePrompt + preview modal                  │ FE   │ M      │ #4, #6     │
+  ├─────┼───────────────────────────────────────────────────┼──────┼────────┼────────────┤
+  │ 9   │ AssetPickerModal                                  │ FE   │ M      │ #3         │
+  ├─────┼───────────────────────────────────────────────────┼──────┼────────┼────────────┤
+  │ 10  │ MediaGalleryPanel                                 │ FE   │ M      │ #3         │
+  ├─────┼───────────────────────────────────────────────────┼──────┼────────┼────────────┤
+  │ 11  │ useGenerationDraft autosave hook                  │ FE   │ M      │ #2         │
+  ├─────┼───────────────────────────────────────────────────┼──────┼────────┼────────────┤
+  │ 12  │ Wizard footer (Cancel / Next)                     │ FE   │ S      │ #11        │
+  ├─────┼───────────────────────────────────────────────────┼──────┼────────┼────────────┤
+  │ 13  │ ProTipCard                                        │ FE   │ XS     │ —          │
+  └─────┴───────────────────────────────────────────────────┴──────┴────────┴────────────┘
+
+  Build Order Recommendation
+
+  Start backend in order #1 → #2 → #3 (small and unblocking) so frontend can move against a real API. Spin up frontend immediately on #5, #6, #13 (they need no backend). #4 (AI Enhance) is the riskiest ticket — kick it off in parallel with the other BE work because the token-preservation strategy may need iteration. #10 and #9 can start as soon as #3 lands. #11 and #12
+  wait on #2. Leave #8 (AI Enhance UI) for last so it consumes a working enhance endpoint instead of a moving target.
+
+  ⚠️  Phase Split Recommendation
+
+  13 tickets including one L. Suggest splitting the Trello card into:
+
+  - Phase 1 — Core Flow (must-ship): #1, #2, #3, #5, #6, #7, #9, #10, #11, #12 → user can write a prompt, embed media from gallery, save draft, and advance to Step 2.
+  - Phase 2 — AI + Polish: #4, #8, #13 → AI Enhance and the Pro Tip card.
+
+  This lets you ship a usable Step 1 without waiting on the LLM integration.

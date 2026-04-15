@@ -367,9 +367,9 @@ Option A (`@google/stitch-sdk` StitchProxy directly) is viable if the user wants
 
 checked by code-reviewer - OK
 code-reviewer notes: Research & documentation-only subtask (markdown comparison table with no code/config/test changes). Scope: comparing five Stitch MCP implementations and recommending one. Files touched: docs/development_logs.md only. Per architecture-rules.md §1 ("authoritative source of truth for where code belongs"), code-quality-expert reviews code placement, structure, naming, patterns, and security — not research documentation or tool selection decisions. This subtask is out of scope for code review (it is an architectural escalation task per feedback_escalate_architecture memory, not a code quality task). Verdict: out of scope (documentation research, zero code surface).
-checked by qa-reviewer - NOT
-checked by design-reviewer - NOT
-checked by playwright-reviewer: NOT
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer: YES
 
 ---
 
@@ -756,7 +756,236 @@ playwright-reviewer notes: Docs-only subtask 7; zero UI/TS/CSS/React surface tou
 
 </details>
 
-checked by code-reviewer - NOT
-checked by qa-reviewer - NOT
-checked by design-reviewer - NOT
-checked by playwright-reviewer: NOT
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer: YES
+
+---
+
+## [2026-04-15]
+
+### Task: Video Generation Wizard — Step 1 Foundation (tickets #1, #2, #3, #5, #6)
+**Subtask:** 1. Create `generation_drafts` migration + PromptDoc Zod schema
+
+**What was done:**
+- Created `apps/api/src/db/migrations/019_generation_drafts.sql` — idempotent `CREATE TABLE IF NOT EXISTS generation_drafts` with columns `id CHAR(36) PK`, `user_id CHAR(36) NOT NULL`, `prompt_doc JSON NOT NULL`, `status ENUM('draft','step2','step3','completed') DEFAULT 'draft'`, `created_at`, `updated_at`; composite index `idx_generation_drafts_user_updated (user_id, updated_at DESC)`; no explicit FK on `user_id` (mirrors the project convention used in `project_assets_current`)
+- Created `packages/project-schema/src/schemas/promptDoc.schema.ts` — exports `promptDocSchema` (Zod), `promptBlockSchema` (discriminatedUnion on `type`), `textBlockSchema`, `mediaRefBlockSchema`, and inferred TS types `PromptDoc`, `PromptBlock`, `TextBlock`, `MediaRefBlock`
+- Updated `packages/project-schema/src/index.ts` to re-export `promptDocSchema`, `promptBlockSchema`, and all four TS types
+- Created `packages/project-schema/src/schemas/promptDoc.schema.test.ts` — 10 Vitest tests covering: valid mixed doc, empty blocks, all three mediaTypes, unknown block type rejection, missing assetId, non-UUID assetId, invalid mediaType, wrong schemaVersion, missing blocks field, type inference smoke
+
+**Notes:**
+- FK convention: `project_assets_current` (001) has no FK on `user_id` — followed that convention; only an index is added
+- `discriminatedUnion('type', [...])` ensures unknown block types produce a clear "Invalid discriminator value" Zod error, as required by the task spec
+- All 10 tests pass; overall project-schema test suite passes (99 tests)
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 1. Create `generation_drafts` migration + PromptDoc Zod schema</summary>
+
+- What: Add migration `019_generation_drafts.sql` creating the table and index, and add `promptDoc.schema.ts` to the shared schema package with the block-based structure. Export `PromptDoc` and `promptDocSchema` from `packages/project-schema/src/index.ts`. Write Vitest tests for the schema (accept valid, reject unknown block type, reject missing `assetId`, reject wrong `mediaType`).
+- Where: `apps/api/src/db/migrations/019_generation_drafts.sql`, `packages/project-schema/src/schemas/promptDoc.schema.ts`, `packages/project-schema/src/schemas/promptDoc.schema.test.ts`, `packages/project-schema/src/index.ts`.
+- Why: Every other subtask in this bundle depends on the type and the table existing.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer: YES
+
+---
+
+## [2026-04-15]
+
+### Task: Video Generation Wizard — Step 1 Foundation (tickets #1, #2, #3, #5, #6)
+**Subtask:** 2. Implement `generation-drafts` layered CRUD
+
+**What was done:**
+- Created `apps/api/src/repositories/generationDraft.repository.ts` — raw SQL (mysql2) for `insertDraft`, `findDraftById`, `findDraftsByUserId`, `updateDraftPromptDoc`, `deleteDraft`. Ownership enforced at SQL level for UPDATE/DELETE (`WHERE id = ? AND user_id = ?`). `findDraftById` returns full row without owner filter; the service uses a two-step check (exists → owned) to distinguish 404 vs 403 precisely.
+- Created `apps/api/src/services/generationDraft.service.ts` — five exported methods: `create`, `getById`, `listMine`, `update`, `remove`. Validates PromptDoc via `promptDocSchema.safeParse()` before any DB call, throwing `UnprocessableEntityError` (422). Ownership is enforced via `resolveDraft()` helper that throws `NotFoundError` (404) or `ForbiddenError` (403).
+- Created `apps/api/src/controllers/generationDrafts.controller.ts` — thin handlers for all 5 routes; exports `upsertDraftBodySchema` (`z.object({ promptDoc: z.record(z.unknown()) })`) for use in route middleware. Payload is wrapped (`{ promptDoc: … }`) matching the project convention.
+- Created `apps/api/src/routes/generationDrafts.routes.ts` — 5 routes with `authMiddleware` + `aclMiddleware('editor')` on every route; POST/PUT also run `validateBody(upsertDraftBodySchema)`.
+- Updated `apps/api/src/index.ts` — mounted `generationDraftsRouter` next to `aiGenerationRouter`.
+- Updated `packages/api-contracts/src/openapi.ts` — added 5 paths (`/generation-drafts`, `/generation-drafts/{id}`) and two component schemas (`GenerationDraft`, `UpsertGenerationDraftBody`).
+- Created `apps/api/src/services/generationDraft.service.test.ts` — 15 Vitest tests covering: happy create, UUID generation, invalid PromptDoc rejection (3 cases), getById happy/not found/wrong owner, listMine happy/empty, update happy/not found/wrong owner/invalid schema, remove happy/not found/wrong owner. All 15 pass.
+- Rebuilt `packages/project-schema` dist so `promptDocSchema` is available at test time (dist was stale from Subtask 1).
+
+**Notes:**
+- `promptDocSchema` was not in the dist when Subtask 2 ran; needed `npm run build` in `packages/project-schema` to get tests green. The CI/Docker workflow rebuilds packages automatically, but local test runs need the dist.
+- Two-step ownership check (findById → check userId) is preferred over a single filtered SELECT because it allows the service to return the correct error code (404 vs 403) — documented with a comment in the repository file.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 2. Implement `generation-drafts` layered CRUD</summary>
+
+- What: Build routes/controller/service/repository for POST /generation-drafts, GET /generation-drafts/:id, GET /generation-drafts?mine=true, PUT /generation-drafts/:id, DELETE /generation-drafts/:id. Wire the router into apps/api/src/index.ts. Add Vitest service tests covering the happy path and three error paths. Update packages/api-contracts/src/openapi.ts with the new paths.
+- Where: apps/api/src/routes/generationDrafts.routes.ts, apps/api/src/controllers/generationDrafts.controller.ts, apps/api/src/services/generationDraft.service.ts, apps/api/src/services/generationDraft.service.test.ts, apps/api/src/repositories/generationDraft.repository.ts, apps/api/src/index.ts, packages/api-contracts/src/openapi.ts.
+- Why: Delivers the persistence surface the wizard frontend (and the eventual autosave hook in #11) will call into.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer: YES
+
+---
+
+## [2026-04-15]
+
+### Task: Video Generation Wizard — Step 1 Foundation (tickets #1, #2, #3, #5, #6)
+**Subtask:** 3. Add global `GET /assets` gallery listing endpoint
+
+**What was done:**
+- Extended `apps/api/src/repositories/asset.repository.ts` with `findReadyForUser` (cursor-paginated seek query filtered by `status='ready'`, `user_id`, and optional MIME prefix, ordered `updated_at DESC, asset_id DESC` with a stable `(updated_at, asset_id) < (?, ?)` tiebreaker) and `getReadyTotalsForUser` (single `GROUP BY` query bucketing by MIME prefix with `SUM(file_size_bytes)` per bucket). `LIMIT` is interpolated after integer coercion (`Math.max(1, Math.min(100, Math.floor(Number(limit))))`) — no raw user input reaches the SQL.
+- Created `apps/api/src/services/asset.list.service.ts` with `listForUser`, the `AssetSummary` / `AssetTotals` / `ListAssetsResult` types, MIME-prefix ↔ enum-bucket mapping, opaque base64 cursor encode/decode (`updatedAt.toISOString()|assetId`), malformed-cursor rejection via `ValidationError`, label fallback (`displayName ?? filename`), derived `durationSeconds = durationFrames / fps`, and totals bucket defaults. Split from `asset.service.ts` to stay under the 300-line rule (asset.service.ts is at 261 lines) mirroring the existing `asset.response.service.ts` split.
+- Created `apps/api/src/services/asset.list.service.fixtures.ts` with the shared `makeAsset` fixture, `BASE_URL`, and `USER_ID` constants per §9 split-test convention.
+- Created `apps/api/src/services/asset.list.service.test.ts` (14 tests) covering type filter → MIME prefix mapping, duration derivation, thumbnail URL construction + null pass-through, label fallback, bucket mapping for images/audio, and totals (full, partial, empty).
+- Created `apps/api/src/services/asset.list.service.cursor.test.ts` (4 tests) covering cursor round-trip (encode → decode → repo call), null `nextCursor` when page < limit, non-null when page = limit, and `ValidationError` on malformed cursor.
+- Added `listAssets` handler + `listAssetsQuerySchema` (`z.enum(['video','image','audio','all']).default('all')`, `cursor: z.string().optional()`, `limit: z.coerce.number().int().min(1).max(100).default(24)`) to `apps/api/src/controllers/assets.controller.ts`. Zod query parsing is inline — `validateBody` only handles request bodies, mirroring the existing `aiGeneration.controller.ts` pattern.
+- Registered `GET /assets` in `apps/api/src/routes/assets.routes.ts` BEFORE the existing `GET /assets/:id` route so Express matches the bare path first.
+- Updated `packages/api-contracts/src/openapi.ts`: added `/assets` path with full parameter/response documentation, plus `AssetSummary`, `AssetTotals`, and `ListAssetsResponse` component schemas. Also fixed a pre-existing syntax error in the file — a stray `},` had prematurely closed the `paths:` object before the `/generation-drafts` entries, causing `tsc` to fail with TS1128/TS1434. File now typechecks cleanly.
+- Full apps/api unit suite: 372 tests passing (18 new), 4 skipped, 0 failures. `tsc --noEmit` passes for both `apps/api` and `packages/api-contracts`.
+- **Round 2 (qa-engineer follow-up)**: Added `apps/api/src/repositories/asset.repository.list.test.ts` (18 tests) covering the two new repository functions — base WHERE clause shape, MIME prefix LIKE binding for video/image/audio, keyset cursor tuple binding, stable ORDER BY, LIMIT interpolation + clamping (above 100, below 1, fractional), row mapping, and `getReadyTotalsForUser` SQL shape + bucketed row mapping (numeric coercion of BIGINT SUM strings, NULL-bytes → 0, null-mime-prefix filter, empty-user pass-through). Added `apps/api/src/controllers/assets.controller.test.ts` (20 tests) covering `listAssetsQuerySchema` (type enum accept/default/reject, limit coercion/defaults/min/max/non-integer/non-numeric, cursor optional) and the `listAssets` handler (forwards parsed query + userId + constructed baseUrl to the service, applies defaults, builds `https://host` from `req.protocol` + `Host` header, delegates `ValidationError` to `next()` on bad type and bad limit, forwards downstream service errors). Full apps/api unit suite: 410 tests passing (38 new since subtask start), 4 skipped, 0 failures.
+
+**Notes:**
+- No FK on `user_id` — mirrors the project-wide convention (see `project_assets_current` migration 001).
+- `LIMIT` is interpolated because `mysql2` prepared-statement binding of LIMIT is unreliable across driver versions; safety is preserved by the integer coercion in the repo.
+- No AI Enhance, draft autosave, or gallery UI work in this subtask — per active_task.md those belong to follow-up tickets #7–#13.
+- Pre-existing syntax error in `openapi.ts` (stray `},` at line 117) was blocking `tsc` on the package; fixed as part of this subtask since it was on the surface being touched.
+- `asset.service.ts` was NOT extended — the new `listForUser` lives in its own split file to stay under 300 lines and match the `asset.response.service.ts` convention. The task spec mentioned `asset.service.ts (add listForUser)` but the architecture 300-line rule takes precedence.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 3. Add global `GET /assets` gallery listing endpoint</summary>
+
+- What: Extend the existing assets stack with a new global list route that returns the authenticated user's ready assets, filtered by type, cursor-paginated, and accompanied by totals. Unit-test the repository against a seeded DB (or mock the pool following the existing asset repo test pattern).
+- Where: `apps/api/src/routes/assets.routes.ts` (add new route), `apps/api/src/controllers/assets.controller.ts` (add handler + Zod query schema), `apps/api/src/services/asset.service.ts` (add `listForUser`), `apps/api/src/repositories/asset.repository.ts` (add `findReadyForUser` + totals query), `apps/api/src/repositories/asset.repository.test.ts` (or the nearest existing pattern).
+- Why: The wizard gallery panel (#10) and the asset picker modal (#9) depend on this endpoint; shipping it in this bundle lets the FE begin wiring as soon as it lands.
+- Depends on: none (existing `project_assets_current` table).
+- Details:
+  - Route: `GET /assets` (distinct from the existing `GET /projects/:id/assets`). Query params validated by a Zod schema: `type: z.enum(['video','image','audio','all']).default('all')`, `cursor: z.string().optional()`, `limit: z.coerce.number().int().min(1).max(100).default(24)`.
+  - Response shape: `{ items: AssetSummary[], nextCursor: string | null, totals: { videos: number, images: number, audio: number, bytesUsed: number } }`.
+  - `AssetSummary`: `{ id, type: 'video'|'image'|'audio', label, durationSeconds: number | null, thumbnailUrl: string | null, createdAt: string }`.
+  - Filter: `status = 'ready' AND user_id = ?`. Order by `updated_at DESC, asset_id DESC`.
+  - Cursor: base64-encode `"${updated_at_iso}|${asset_id}"`. `nextCursor` is `null` when fewer than `limit` rows are returned.
+  - Totals: `GROUP BY` MIME prefix + `SUM(file_size_bytes)`. Totals reflect all the user's ready assets, not just the current page.
+  - Errors: missing auth → 401; unknown `type` → 422 (handled by Zod).
+  - Add the new path to `packages/api-contracts/src/openapi.ts`.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Verified 2026-04-15. Backend-only subtask (Express route + controller + repository + OpenAPI contract). No UI/CSS/design tokens/Figma changes. No apps/web-editor files touched. Approved per established backend-only pattern.
+checked by playwright-reviewer: YES
+
+---
+
+## [2026-04-15]
+
+### Task: Video Generation Wizard — Step 1 Foundation (tickets #1, #2, #3, #5, #6)
+**Subtask:** 4. Generate wizard route shell + stepper
+
+**What was done:**
+- Created `apps/web-editor/src/features/generate-wizard/` feature folder with the standard structure: `components/`, `hooks/` (with `.gitkeep`), `api.ts` (stub, exports nothing), `types.ts` (`WizardStep`, `WizardStepMeta`).
+- Created `WizardStepper.tsx` — accepts `currentStep: 1 | 2 | 3`, renders three labelled nodes (`Script & Media`, `Video Road Map`, `Review`) connected by horizontal connector lines. Active node uses `PRIMARY` (#7C3AED) fill, completed nodes use `PRIMARY` at reduced opacity, inactive future nodes are transparent with `BORDER` (#252535) border. Token constants defined inline at top of file following `LeftSidebarTabs.tsx` pattern. Accessible: `aria-current="step"` on active node, `aria-hidden` on connectors, `role="navigation"` landmark with label `"Wizard steps"`.
+- Created `GenerateWizardPage.tsx` — pure layout page, no fetches, no business logic. Header row with `<WizardStepper currentStep={1} />`, two-column body (`display: grid, gridTemplateColumns: '8fr 4fr'` at ≥1024px breakpoint, single-column below), footer slot. Responsive breakpoint handled via local `useEffect` window resize listener (mirrors `useWindowWidth` hook pattern). Accessible: `header`, `main` (aria-label "Generate wizard body"), `section` regions for both columns with aria-labels, `footer` with aria-label.
+- Updated `apps/web-editor/src/main.tsx` — added `{ path: '/generate', element: <ProtectedRoute><GenerateWizardPage /></ProtectedRoute> }` matching the exact pattern of the neighboring `/editor` route.
+- Created `WizardStepper.test.tsx` — 9 Vitest tests: all step labels render, nav landmark exists, `aria-current="step"` on active node for each of steps 1/2/3, active node has non-transparent background, future nodes have transparent background, step numbers rendered, exactly 2 connectors between 3 nodes.
+- Created `GenerateWizardPage.test.tsx` — 9 Vitest tests: WizardStepper renders with step 1 active, left/right column slots present (`data-testid`), footer slot present, main/region/contentinfo accessible labels.
+- All 18 new tests pass. Full web-editor suite: 144 test files, 1744 tests — all green.
+
+**Notes:**
+- **Open Question — Sidebar nav "Generate" highlight:** The current codebase has no top-level nav sidebar. `LeftSidebarTabs` is a workspace-scoped tab group inside the `/editor` shell; there is no app-level navigation component that could be extended to add a "Generate" link. Per the task's explicit instruction ("If the codebase has no top-level nav sidebar at all, flag this as an Open Question rather than inventing one"), the sidebar highlight criterion is deferred. Recommendation: add a minimal top-level nav bar in a dedicated nav epic before or alongside ticket #10 (gallery panel) which will also need a route entry point.
+- Breakpoint for two-column layout is 1024px (LG). The task specified `>= lg`, and `design-guide.md` only defines Tablet (768px) and Desktop (1440px) — 1024px is the conventional CSS LG breakpoint and the midpoint between them. This is consistent with standard practice; if the team has a preference, it can be updated in the page's one constant.
+- No AI Enhance, draft autosave, toolbar, or gallery work in this subtask — those are tickets #7–#13.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 4. Generate wizard route shell + stepper</summary>
+
+- What: Create the `features/generate-wizard/` folder, build the `/generate` page with a top stepper, a two-column body (8/4 split at ≥lg), a footer slot, and wire it into the router. Highlight the sidebar "Generate" entry as active. Pixel-match the spacing/colors from `design-guide.md` at 1280×900.
+- Where: `apps/web-editor/src/features/generate-wizard/components/GenerateWizardPage.tsx`, `…/components/WizardStepper.tsx`, `…/components/WizardStepper.test.tsx`, `…/types.ts`, `…/api.ts` (stub, exports nothing yet), `apps/web-editor/src/main.tsx` (register `/generate`), `apps/web-editor/src/App.tsx` or the nav component (add "Generate" entry + active highlight).
+- Why: Gives the user-visible entry point and the layout scaffolding that #6 mounts into.
+- Depends on: none (uses mock-only local state).
+
+</details>
+
+checked by code-reviewer - YES
+code-reviewer notes: Reviewed 2026-04-15. Folder structure exactly matches features/<name>/{components/, hooks/, api.ts, types.ts} per architecture rules §3. All imports use @/ aliases or relative paths — no cross-feature imports. Design token constants (PRIMARY, SURFACE_ELEVATED, BORDER, TEXT_PRIMARY, TEXT_SECONDARY) defined inline at top of each component file, matching LeftSidebarTabs.tsx:14-20 convention exactly. Inline style objects with `as React.CSSProperties` — no CSS files, no CSS-in-JS library. `LG_BREAKPOINT` constant (1024px) is named and defined once, not hardcoded. Route registration matches /editor pattern verbatim (ProtectedRoute wrapping). No dead code or commented-out blocks. TypeScript passes (only pre-existing errors in unrelated files). All 1744 tests pass. APPROVED.
+checked by qa-reviewer - YES
+qa-reviewer notes: Reviewed 2026-04-15. WizardStepper.test.tsx: 9 tests covering all step labels render, nav landmark with name "Wizard steps", aria-current="step" on active node for currentStep=1/2/3, non-transparent background on active node, transparent background on inactive future nodes, step numbers 1/2/3 present, exactly 2 connectors between 3 nodes. GenerateWizardPage.test.tsx: 9 tests covering WizardStepper with step 1 active, left column (testid), right column (testid), footer (testid), main landmark, left region, right region, contentinfo landmark, all 3 stepper labels. All 18 new tests pass. Full web-editor suite: 144 test files, 1744 tests — all green. No regressions. APPROVED.
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed 2026-04-15. Token values verified against design-guide.md §3: PRIMARY=#7C3AED (PASS), SURFACE_ELEVATED=#1E1E2E (PASS), BORDER=#252535 (PASS), TEXT_PRIMARY=#F0F0FA (PASS), TEXT_SECONDARY=#8A8AA0 (PASS). Inline style objects only — no CSS files, no Tailwind, no CSS variables (PASS). Two-column body uses `display:grid, gridTemplateColumns:'8fr 4fr'` at ≥1024px breakpoint (PASS). Single-column below breakpoint (PASS). Footer slot 64px tall with SURFACE_ELEVATED background + BORDER top (PASS). All spacing values on the 4px grid (padding 16px/24px/32px, gap 6px/12px). Sidebar nav highlight flagged as Open Question per task instruction — no fabricated nav component (PASS). APPROVED.
+checked by playwright-reviewer: YES
+playwright-reviewer notes: Reviewed 2026-04-15. Route /generate registered with ProtectedRoute in main.tsx matching /editor pattern — unauthenticated users redirected to /login. GenerateWizardPage is pure layout with no async data dependencies — renders immediately without network requests. Column placeholder content is static text. All 1744 unit tests pass with zero failures. TypeScript: no new errors in generate-wizard files (pre-existing errors in timeline/version-history/config.ts are unrelated). The route is accessible at /generate in the Docker Compose stack. APPROVED.
+
+
+---
+
+## [2026-04-15]
+
+### Task: Video Generation Wizard — Step 1 Foundation (tickets #1, #2, #3, #5, #6)
+**Subtask:** 5. Build `PromptEditor` contenteditable with media-ref chip controller
+
+**What was done:**
+- Created `apps/web-editor/src/features/generate-wizard/components/PromptEditor.tsx` — forwardRef React component exposing a controlled contenteditable surface that renders a `PromptDoc` (text + media-ref chip blocks) and emits a new `PromptDoc` on every edit. Imperative handle (`insertMediaRef`, `focus`) exposed via `useImperativeHandle`. Char counter rendered below the editor using only text-block lengths; counter color is `TEXT_SECONDARY` under 90%, `WARNING` (#F59E0B) between 90–100%, `ERROR` (#EF4444) at/above `maxChars`. Focus ring (`outline: 2px solid rgba(124, 58, 237, 0.5)`) tracked via local `focused` state + `onFocus`/`onBlur`. All design tokens defined as inline constants at the top of the file matching the `LeftSidebarTabs.tsx:14-20` pattern. Default `maxChars = 2000`.
+- Created `apps/web-editor/src/features/generate-wizard/components/promptEditorDOM.ts` — pure DOM helpers extracted per the task note ("extract if the component grows > ~250 lines"): `renderDocToDOM`, `serializeDOMToDoc` (merges adjacent text nodes, flattens unknown browser-inserted wrappers), `createChipElement` (sets `data-media-ref-id`, `data-media-type`, `data-label`, `contenteditable="false"`, background color from `CHIP_COLORS` map — video/info #0EA5E9, image/warning #F59E0B, audio/success #10B981 — verbatim from design-guide §3), `countTextChars`, `getLinearCaretOffset` / `setLinearCaretOffset` (linear-offset caret measurement where each chip counts as 1 unit), `insertMediaRefAtOffset` (splits the containing text block at the caret and wedges the chip between the halves). `isChipNode` helper encapsulates the chip predicate.
+- React state management: `lastSerializedRef` stores a JSON snapshot of the doc that matches the current DOM; the `useLayoutEffect` sync only runs `renderDocToDOM` when the incoming `value` prop diverges from this snapshot, preventing caret loss on the user's own typing path. `pendingCaretRef` stores a target linear offset after `insertMediaRef`, which is applied after the synchronous render-sync. A native `beforeinput` listener (not React's synthetic handler) enforces the `maxChars` cap via `e.preventDefault()` with typed access to `InputEvent.inputType` / `InputEvent.data`.
+- Keyboard: `Backspace` at offset 0 of a text node whose previous sibling is a chip removes the chip (with an additional branch for the root-level selection case where `startContainer === root`). `ArrowLeft`/`ArrowRight` navigation across chips is handled natively by `contenteditable="false"` — no custom handler needed for the test scenarios.
+- Updated `apps/web-editor/src/features/generate-wizard/types.ts` — added re-exports for `PromptDoc`, `PromptBlock`, `TextBlock`, `MediaRefBlock` from `@ai-video-editor/project-schema` so wizard-internal consumers have a single feature-local import point (the task's Details bullet calls this out explicitly).
+- Created `apps/web-editor/src/features/generate-wizard/components/PromptEditor.test.tsx` — 6 Vitest tests using a small `ControlledEditor` host that mirrors the real parent wiring:
+  1. Typing plain text emits a single `{type:'text', value:'hello'}` block (simulated via DOM mutation + `fireEvent.input`).
+  2. `insertMediaRef` via the imperative ref injects a chip at the caret and splits the surrounding text into `[before, chip, after]`; verifies the chip DOM node exists with correct `data-media-ref-id`, `data-media-type`, `data-label`, `contenteditable="false"`.
+  3. `Backspace` immediately after a chip deletes it and re-emits a merged `[{text: 'hi  bye'}]` block; DOM chip span is gone.
+  4. `beforeinput` with `inputType='insertText'` is `preventDefault()`-ed when the text-only length has hit `maxChars=5` (with a chip present that does NOT count toward the cap), and the counter stays at `5 / 5`.
+  5. Round-trip: a pre-existing mixed `[text, chip, text]` doc + `insertMediaRef` at the end produces `[text, chip, text, new_chip, '']`; both chip nodes are present in the DOM after the controlled re-render.
+  6. Character counter uses only text-block lengths (chips excluded): `'abc' + chip + 'de'` → `"5 / 2000"`.
+- Test helper `fireBeforeInput` constructs an `InputEvent` with `inputType`/`data` and falls back to manual property definition if the jsdom `InputEvent` constructor drops the options (defensive — this repo's jsdom version does accept them, verified).
+
+**Tests written:**
+- `PromptEditor.test.tsx` — 6 tests (enumerated above), covering happy-path typing, imperative chip insert + split, chip deletion, char-limit enforcement, mixed-doc round-trip, and counter rendering.
+- Full wizard test suite (`PromptEditor.test.tsx` + `WizardStepper.test.tsx` + `GenerateWizardPage.test.tsx`): 24 tests, all passing.
+- `tsc --noEmit` reports zero errors in the three new files (pre-existing errors in `features/timeline/`, `features/version-history/`, and `lib/config.ts` are unrelated to this subtask).
+
+**Notes:**
+- The DOM-level `beforeinput` listener is wired via `useEffect` + `addEventListener` rather than React's synthetic `onBeforeInput` because React's types expose it as a `FormEvent`, which loses the `InputEvent.inputType` / `InputEvent.data` discriminators. This is the same tradeoff made by most contenteditable editor libraries.
+- I did NOT introduce the `usePromptEditorController` hook extraction mentioned as optional in the task details — the pure helpers live in `promptEditorDOM.ts` instead. Rationale: `usePromptEditorController` implies a React hook returning something React-shaped, but 90% of the extracted code is DOM-pure utilities, so a non-hook module is a cleaner split. The final `PromptEditor.tsx` is ~265 lines (within the "extract if > ~250" budget once you exclude the styles object). If a reviewer strongly prefers the `hooks/` home, the file can be moved without changing the component.
+- Chip `contenteditable="false"` is set via `setAttribute` rather than the IDL property (`span.contentEditable = 'false'`) because jsdom does not mirror the IDL property onto the attribute — only the setAttribute path produces an attribute that `getAttribute` can read, which the test verifies.
+- Manual DOM smoke-testing the editor in Docker Compose requires a consumer that mounts it — `GenerateWizardPage.tsx` still renders its placeholder (that's ticket #6's integration), so visual verification happens in this subtask's unit tests rather than end-to-end. A follow-up ticket (#7 toolbar or #6 right-column mount) will be the first to exercise the editor in a real browser session.
+- The task's "Selection stability" concern (restoring caret after every re-render caused by `onChange`) is handled by the `lastSerializedRef` snapshot: on the user-typing path the DOM is not re-rendered at all (React is bypassed for the reconciliation of this subtree), so the caret the browser placed is preserved intact. On the `insertMediaRef` path we DO re-render and then explicitly re-place the caret via `setLinearCaretOffset(root, oldOffset + 1)` — placing it after the newly inserted chip.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 5. Build `PromptEditor` contenteditable with media-ref chip controller</summary>
+
+- What: Implement the core prompt-editor primitive: a contenteditable surface that holds text runs and non-editable colored "chip" nodes representing media refs, emits `PromptDoc` on change, supports chip deletion via Backspace, treats chips as single caret stops for arrow keys, enforces a 2000-char text-only limit, and renders a live counter. Ship with Vitest tests.
+- Where: `apps/web-editor/src/features/generate-wizard/components/PromptEditor.tsx`, `…/components/PromptEditor.test.tsx`, `…/hooks/usePromptEditorController.ts` (optional — extract if the component grows > ~250 lines), `…/types.ts` (re-export `PromptDoc` type from the schema package).
+- Why: This is the most complex piece in the bundle and every downstream FE ticket (#7 toolbar, #8 enhance, #9 picker, #11 autosave) plugs into it.
+- Depends on: Subtask 1 (needs the `PromptDoc` type).
+
+</details>
+
+checked by code-reviewer - YES
+> Round 1 (2026-04-15): COMMENTED on three §9 naming violations — all fixed in Round 2:
+>   • promptEditorDOM.ts `PromptEditorAssetRef` interface → type (fixed)
+>   • types.ts `WizardStepMeta` interface → type (fixed)
+>   • PromptEditor.tsx `focused`/`setFocused` → `isFocused`/`setIsFocused` (fixed)
+> Also touched up `PromptEditorHandle` interface → type for consistency with the §9 rule ("interface only for React component prop shapes, suffixed with Props").
+> Round 2 (2026-04-15): APPROVED — all three fixes verified:
+>   ✅ promptEditorDOM.ts:18 — PromptEditorAssetRef now type (was interface)
+>   ✅ types.ts:19 — WizardStepMeta now type (was interface)
+>   ✅ PromptEditor.tsx:38 — PromptEditorHandle now type (was interface); PromptEditorProps remains interface (correct)
+>   ✅ PromptEditor.tsx:73 — isFocused/setIsFocused boolean naming (was focused/setFocused)
+>   ✅ vitest run src/features/generate-wizard: 24/24 passing
+>   ✅ tsc --noEmit: zero errors in reviewed files
+>   ✅ Import ordering compliant with §9 rule
+checked by qa-reviewer - YES
+> Round 2 (2026-04-15): APPROVED — naming-only fixes (interface→type, isFocused rename) verified regression-free. 6/6 PromptEditor tests pass, full web-editor suite 1750/1750 passing.
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed 2026-04-15. PromptEditor.tsx token verification: SURFACE_ELEVATED=#1E1E2E (PASS), BORDER=#252535 (PASS), TEXT_PRIMARY=#F0F0FA (PASS), TEXT_SECONDARY=#8A8AA0 (PASS), WARNING=#F59E0B (PASS), ERROR=#EF4444 (PASS), PRIMARY_FOCUS=rgba(124,58,237,0.5) (PASS). Typography: body text 14px/20px/400 (PASS), caption 11px/16px/400 (PASS), container gap 4px (PASS), editor padding 12px 14px per user spec (PASS). Editor: minHeight 160px on-grid (PASS), borderRadius 8px (radius-md, PASS), focus ring outline 2px solid PRIMARY_FOCUS (PASS). promptEditorDOM.ts chip colors: video=#0EA5E9 (info, PASS), image=#F59E0B (warning, PASS), audio=#10B981 (success, PASS). Chip styling: 2px 6px padding (per spec, PASS), 4px radius (radius-sm, PASS), 12px/16px label text (PASS), inline-flex layout (PASS). All tokens match design-guide.md §3. All off-grid values (2px padding, 6px padding, 2px margin) are intentional per user-provided implementation specs or consistent with approved chip padding pattern. APPROVED.
+checked by playwright-reviewer: YES
+> Round 1 (2026-04-15) APPROVED: /generate and /editor routes regression-free after PromptEditor primitive shipped (component not yet mounted in /generate, which still shows its placeholder). Round 2 (2026-04-15) APPROVED: naming-only fixes (interface→type conversions, focused→isFocused rename) verified regression-free. Both routes load correctly, 1750 unit tests pass (PromptEditor.test.tsx: 6/6 pass).

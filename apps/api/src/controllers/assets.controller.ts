@@ -2,8 +2,10 @@ import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 
 import { config } from '@/config.js';
+import { ValidationError } from '@/lib/errors.js';
 import { s3Client } from '@/lib/s3.js';
 import * as assetService from '@/services/asset.service.js';
+import * as assetListService from '@/services/asset.list.service.js';
 import * as assetResponseService from '@/services/asset.response.service.js';
 
 /** Zod schema for the POST /assets/upload-url request body. Exported for use in route middleware. */
@@ -16,6 +18,17 @@ export const createUploadUrlSchema = z.object({
 /** Zod schema for the PATCH /assets/:id request body. Exported for use in route middleware. */
 export const patchAssetSchema = z.object({
   name: z.string().trim().min(1).max(255),
+});
+
+/**
+ * Zod schema for the GET /assets query string — validates the `type`, `cursor`,
+ * and `limit` query params used by the wizard gallery endpoint. Parsed inline
+ * in the `listAssets` handler because `validateBody` only runs on `req.body`.
+ */
+export const listAssetsQuerySchema = z.object({
+  type: z.enum(['video', 'image', 'audio', 'all']).default('all'),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(24),
 });
 
 type CreateUploadUrlBody = z.infer<typeof createUploadUrlSchema>;
@@ -43,6 +56,38 @@ export async function createUploadUrl(
       config.s3.bucket,
     );
     res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /assets — returns the authenticated user's `ready` assets for the
+ * wizard gallery. Query string is parsed inline via `listAssetsQuerySchema`
+ * and maps Zod errors to a 400 `ValidationError`.
+ */
+export async function listAssets(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const parsed = listAssetsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw new ValidationError(
+        `Invalid query parameters: ${parsed.error.issues.map((i) => i.message).join(', ')}`,
+      );
+    }
+
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const result = await assetListService.listForUser({
+      userId: req.user!.userId,
+      type: parsed.data.type,
+      cursor: parsed.data.cursor,
+      limit: parsed.data.limit,
+      baseUrl,
+    });
+    res.json(result);
   } catch (err) {
     next(err);
   }

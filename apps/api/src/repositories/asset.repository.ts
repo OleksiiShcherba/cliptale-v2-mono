@@ -175,3 +175,100 @@ export async function updateAssetDisplayName(
     [displayName, assetId],
   );
 }
+
+// ---------------------------------------------------------------------------
+// Global list (cursor-paginated) — powers the wizard gallery endpoint
+// ---------------------------------------------------------------------------
+
+/** Filter applied to the global list query. A raw MIME prefix — the service maps enum buckets to this. */
+export type AssetMimePrefix = 'video/' | 'image/' | 'audio/';
+
+type FindReadyParams = {
+  userId: string;
+  /** Optional MIME prefix filter. Omit to return all three buckets. */
+  mimePrefix?: AssetMimePrefix;
+  /** Seek cursor: only return rows strictly older than `(updatedAt, assetId)`. */
+  cursor?: { updatedAt: Date; assetId: string };
+  /** Maximum rows to return. Clamped by the caller (1–100). */
+  limit: number;
+};
+
+/**
+ * Returns the authenticated user's `ready` assets, ordered newest first and
+ * filtered by MIME prefix + seek cursor. Stable under concurrent inserts
+ * because the cursor tiebreaks by `asset_id`.
+ *
+ * LIMIT is interpolated after a Number() coercion — safe because callers must
+ * pass a pre-validated integer, and mysql2 prepared statements do not bind
+ * LIMIT reliably across driver versions.
+ */
+export async function findReadyForUser(params: FindReadyParams): Promise<Asset[]> {
+  const clauses: string[] = ['status = ?', 'user_id = ?'];
+  const values: unknown[] = ['ready', params.userId];
+
+  if (params.mimePrefix) {
+    clauses.push('content_type LIKE ?');
+    values.push(`${params.mimePrefix}%`);
+  }
+
+  if (params.cursor) {
+    clauses.push('(updated_at, asset_id) < (?, ?)');
+    values.push(params.cursor.updatedAt, params.cursor.assetId);
+  }
+
+  const safeLimit = Math.max(1, Math.min(100, Math.floor(Number(params.limit))));
+  const sql =
+    `SELECT * FROM project_assets_current
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY updated_at DESC, asset_id DESC
+     LIMIT ${safeLimit}`;
+
+  const [rows] = await pool.query<AssetRow[]>(sql, values);
+  return rows.map(mapRowToAsset);
+}
+
+/** Single-bucket totals row returned by `getReadyTotalsForUser`. */
+export type AssetTotalsRow = {
+  mimePrefix: AssetMimePrefix;
+  count: number;
+  bytes: number;
+};
+
+type TotalsRow = RowDataPacket & {
+  mime_prefix: AssetMimePrefix;
+  count: number;
+  bytes: string | number | null;
+};
+
+/**
+ * Aggregates the user's `ready` assets by MIME bucket. Returns one row per
+ * bucket that has at least one asset. Callers fill in zero for missing buckets.
+ *
+ * Note: `SUM(BIGINT)` returns a decimal string in mysql2 — we Number()-coerce
+ * in the mapper to keep the repository type contract numeric.
+ */
+export async function getReadyTotalsForUser(userId: string): Promise<AssetTotalsRow[]> {
+  const [rows] = await pool.query<TotalsRow[]>(
+    `SELECT
+       CASE
+         WHEN content_type LIKE 'video/%' THEN 'video/'
+         WHEN content_type LIKE 'image/%' THEN 'image/'
+         WHEN content_type LIKE 'audio/%' THEN 'audio/'
+         ELSE NULL
+       END AS mime_prefix,
+       COUNT(*) AS count,
+       SUM(file_size_bytes) AS bytes
+     FROM project_assets_current
+     WHERE user_id = ? AND status = 'ready'
+     GROUP BY mime_prefix`,
+    [userId],
+  );
+
+  return rows
+    .filter((r): r is TotalsRow & { mime_prefix: AssetMimePrefix } => r.mime_prefix !== null)
+    .map((r) => ({
+      mimePrefix: r.mime_prefix,
+      count: Number(r.count),
+      bytes: r.bytes == null ? 0 : Number(r.bytes),
+    }));
+}
