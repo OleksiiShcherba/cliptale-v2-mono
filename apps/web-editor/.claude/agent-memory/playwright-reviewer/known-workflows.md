@@ -364,6 +364,38 @@ regression-note: 2026-04-07 — RendersQueueModal feature broke the app; useList
 - Asset integration: On completion, backend auto-creates asset row (project_assets_current); AiGenerationPanel invalidates ['assets', projectId] query to trigger Asset Browser refresh
 - Status: CONFIRMED WORKING (2026-04-09) — Full source code review + visual screenshot verification (editor shell loads, left sidebar displays AI Generate tab)
 
+### 35. Generate Wizard Footer — Cancel (delete draft) + Next (navigate to road-map, 2026-04-16, Epic 9 FE Phase 1)
+- **Route:** `/generate` (Step 1: Prompt Editor) and `/generate/road-map` (Step 2 placeholder)
+- **Footer structure:** Right-aligned Cancel + Next buttons in footer bar (64px tall, 24px padding, 12px gap)
+- **Cancel button behavior:**
+  - Click opens confirm modal (role="dialog", aria-modal=true, aria-labelledby=cancel-dialog-title)
+  - Modal shows "Discard draft?" title + "Your progress will be lost." message + "Keep editing" and "Discard" buttons
+  - "Keep editing" closes dialog without action; Esc key also closes without discarding
+  - "Discard" button calls DELETE /generation-drafts/:id (via deleteDraft API fn) + navigates to /editor
+  - Network errors on DELETE are swallowed (best-effort; user intent is to leave)
+- **Next button behavior:**
+  - Disabled (opacity 0.5, cursor not-allowed) when doc.blocks is empty (hasAnyContent=false)
+  - Enabled (opacity 1.0, cursor pointer) when ≥1 text block with trim().length > 0 OR ≥1 media-ref block exists
+  - Click calls flush() → saves draft (via PUT /generation-drafts/:id) → navigates to /generate/road-map
+  - Shows inline spinner while flushing; error text displays if flush fails
+  - isMountedRef prevents setState/navigate after unmount
+- **Road map placeholder page (/generate/road-map):**
+  - Renders "Step 2 — Video Road Map" heading + "Coming soon" text
+  - Shows "Back to Step 1" link (aria-label="Back to Step 1", navigates to /generate)
+  - Minimal placeholder for future implementation
+- **Unit test suite:** WizardFooter.test.tsx (16 tests: 4 for hasAnyContent unit, 10 for interaction, 1 for GenerateRoadMapPlaceholder)
+- **Unit test status:** All 16 tests pass; 1810 total web-editor tests pass
+- **E2E visual regression suite (Playwright):** 6 tests, all passing
+  1. Footer renders with Cancel and Next buttons (both visible)
+  2. Next button disabled when no content
+  3. Cancel button opens modal (dialog visible + "Keep editing" + "Discard" buttons present)
+  4. Keep editing closes modal (dialog disappears)
+  5. Next button enabled when content added (not disabled attribute when text in editor)
+  6. Road map page renders ("Step 2 — Video Road Map" visible, "Coming soon", "Back to Step 1" link)
+- **Visual inspection:** All UI renders correctly. Modal uses proper backdrop with aria-modal. Dialog styling matches design (error-red button, transparent keep-editing button). Footer layout stable. No JS errors or blank screens.
+- **Code quality notes:** Code-reviewer flagged (1) file size violation (384 lines > 300-line cap) + (2) mutation pattern (deleteDraft not wrapped in useMutation). Design-reviewer flagged typography token mismatch (14px/500 weight not in design system). Functional behavior verified correct despite these issues.
+- **Status:** CONFIRMED WORKING (2026-04-16) — Playwright E2E 6/6 pass, unit tests 16/16 pass, no visual regressions
+
 ### 34. AI Generation UI — Two-Level Navigator (Images/Videos/Audio Groups + Capability Sub-Tabs, 2026-04-10, Epic 9 Phase 1)
 - **Change:** Replaced flat 4-tab capability selector with hierarchical two-level navigator
 - **Level 1 (Group buttons):** Images / Videos / Audio — displayed horizontally at top of capability panel

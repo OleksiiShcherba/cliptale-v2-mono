@@ -11,6 +11,7 @@ import { RegisterPage } from '@/features/auth/components/RegisterPage';
 import { ForgotPasswordPage } from '@/features/auth/components/ForgotPasswordPage';
 import { ResetPasswordPage } from '@/features/auth/components/ResetPasswordPage';
 import { GenerateWizardPage } from '@/features/generate-wizard/components/GenerateWizardPage';
+import { GenerateRoadMapPlaceholder } from '@/features/generate-wizard/components/GenerateRoadMapPlaceholder';
 
 // ---------------------------------------------------------------------------
 // Global CSS reset — applied programmatically so no separate CSS file is needed.
@@ -45,6 +46,14 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <GenerateWizardPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/generate/road-map',
+    element: (
+      <ProtectedRoute>
+        <GenerateRoadMapPlaceholder />
       </ProtectedRoute>
     ),
   },

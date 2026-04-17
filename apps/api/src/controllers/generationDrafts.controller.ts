@@ -107,3 +107,46 @@ export async function deleteDraft(
     next(err);
   }
 }
+
+/**
+ * POST /generation-drafts/:id/enhance
+ * Enqueues an AI Enhance job for the specified draft.
+ * Returns 202 Accepted with { jobId } on success.
+ */
+export async function startEnhance(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const result = await generationDraftService.startEnhance(
+      req.user!.userId,
+      req.params['id']!,
+    );
+    res.status(202).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /generation-drafts/:id/enhance/:jobId
+ * Polls the status of a previously enqueued enhance job.
+ * Returns 200 with { status, result?, error? }.
+ */
+export async function getEnhanceStatus(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const result = await generationDraftService.getEnhanceStatus(
+      req.user!.userId,
+      req.params['id']!,
+      req.params['jobId']!,
+    );
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}

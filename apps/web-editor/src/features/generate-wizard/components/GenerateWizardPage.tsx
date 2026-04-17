@@ -1,5 +1,16 @@
-import React from 'react';
+import React, { useCallback, useRef } from 'react';
 
+import { useEnhancePrompt } from '@/features/generate-wizard/hooks/useEnhancePrompt';
+import { useGenerationDraft } from '@/features/generate-wizard/hooks/useGenerationDraft';
+import type { AssetSummary, PromptDoc } from '../types';
+
+import type { PromptEditorHandle } from './PromptEditor';
+import { EnhancePreviewModal } from './EnhancePreviewModal';
+import { MediaGalleryPanel } from './MediaGalleryPanel';
+import { ProTipCard } from './ProTipCard';
+import { PromptEditor } from './PromptEditor';
+import { PromptToolbar } from './PromptToolbar';
+import { WizardFooter } from './WizardFooter';
 import { WizardStepper } from './WizardStepper';
 
 // Design-guide tokens (matching LeftSidebarTabs.tsx convention)
@@ -8,7 +19,6 @@ const SURFACE_ALT = '#16161F';
 const SURFACE_ELEVATED = '#1E1E2E';
 const BORDER = '#252535';
 const TEXT_PRIMARY = '#F0F0FA';
-const TEXT_SECONDARY = '#8A8AA0';
 
 /** Breakpoint at which the two-column (8fr / 4fr) layout kicks in. */
 const LG_BREAKPOINT = 1024;
@@ -16,18 +26,20 @@ const LG_BREAKPOINT = 1024;
 /**
  * The `/generate` page shell.
  *
- * Pure layout — no business logic, no fetches. Provides:
+ * Provides:
  * - A header row with the WizardStepper (currentStep=1)
  * - A two-column body (8fr / 4fr) at ≥1024px, single-column below
- * - A footer slot at the bottom
- *
- * Business content (PromptEditor, RoadMap panel, Review, footer actions) will be
- * mounted here by follow-up tickets #5, #6, #7 etc.
+ *   - Left: PromptEditor
+ *   - Right: MediaGalleryPanel wired to promptEditorRef.insertMediaRef
+ * - A footer with Cancel and Next buttons (WizardFooter)
  */
 export function GenerateWizardPage(): React.ReactElement {
   const [windowWidth, setWindowWidth] = React.useState(() =>
     typeof window !== 'undefined' ? window.innerWidth : 1280,
   );
+  const { draftId, doc, setDoc, flush } = useGenerationDraft();
+  const { start, status, proposedDoc, error, reset } = useEnhancePrompt(draftId);
+  const promptEditorRef = useRef<PromptEditorHandle>(null);
 
   React.useEffect(() => {
     function handleResize(): void {
@@ -39,6 +51,37 @@ export function GenerateWizardPage(): React.ReactElement {
 
   const isLg = windowWidth >= LG_BREAKPOINT;
 
+  /** True while an enhance job is in-flight (queued or running). */
+  const isEnhancing = status === 'queued' || status === 'running';
+
+  /** Called by MediaGalleryPanel when the user clicks an asset card. */
+  const handleAssetSelected = useCallback((asset: AssetSummary): void => {
+    promptEditorRef.current?.insertMediaRef({
+      id: asset.id,
+      type: asset.type,
+      label: asset.label,
+    });
+  }, []);
+
+  /** Called by PromptToolbar AI Enhance button. */
+  const handleEnhance = useCallback((): void => {
+    start(doc);
+  }, [doc, start]);
+
+  /**
+   * Accept handler — apply the proposed doc to the editor and flush autosave.
+   * The `flush()` call ensures the accepted doc persists without waiting for
+   * the debounce timer in useGenerationDraft.
+   */
+  const handleAccept = useCallback(
+    (proposed: PromptDoc): void => {
+      setDoc(proposed);
+      void flush();
+      reset();
+    },
+    [flush, reset, setDoc],
+  );
+
   return (
     <div style={styles.page}>
       {/* Header — WizardStepper */}
@@ -48,44 +91,56 @@ export function GenerateWizardPage(): React.ReactElement {
 
       {/* Two-column body */}
       <main
-        style={
-          isLg
-            ? styles.bodyDesktop
-            : styles.bodyMobile
-        }
+        style={isLg ? styles.bodyDesktop : styles.bodyMobile}
         aria-label="Generate wizard body"
       >
-        {/* Left column — primary content (PromptEditor area, tickets #5/#7/#9) */}
+        {/* Left column — PromptEditor */}
         <section
           style={styles.leftColumn}
           aria-label="Script and media editor"
           data-testid="wizard-left-column"
         >
-          <div style={styles.columnPlaceholder}>
-            <span style={styles.placeholderText}>
-              Script &amp; Media — coming in ticket #5
-            </span>
-          </div>
+          <PromptEditor
+            ref={promptEditorRef}
+            value={doc}
+            onChange={setDoc}
+          />
+          <PromptToolbar
+            promptEditorRef={promptEditorRef}
+            draftId={draftId}
+            isEnhancing={isEnhancing}
+            onEnhance={handleEnhance}
+          />
         </section>
 
-        {/* Right column — secondary panel (RoadMap / Review, tickets #6/#12) */}
+        {/* Right column — MediaGalleryPanel */}
         <section
           style={styles.rightColumn}
           aria-label="Video road map"
           data-testid="wizard-right-column"
         >
-          <div style={styles.columnPlaceholder}>
-            <span style={styles.placeholderText}>
-              Video Road Map — coming in ticket #6
-            </span>
-          </div>
+          <MediaGalleryPanel onAssetSelected={handleAssetSelected} />
         </section>
       </main>
 
-      {/* Footer slot */}
+      {/* Footer — Cancel / Next */}
       <footer style={styles.footer} aria-label="Wizard footer actions" data-testid="wizard-footer">
-        {/* Footer actions (Back / Next / Generate) — tickets #12 */}
+        <WizardFooter draftId={draftId} doc={doc} flush={flush} />
       </footer>
+
+      {/* ProTipCard — floating dismissible hint, bottom-right */}
+      <ProTipCard />
+
+      {/* AI Enhance preview modal — only mounted when status === 'done' */}
+      <EnhancePreviewModal
+        open={status === 'done'}
+        original={doc}
+        proposed={proposedDoc}
+        status={status}
+        error={error}
+        onAccept={handleAccept}
+        onDiscard={reset}
+      />
     </div>
   );
 }
@@ -138,25 +193,7 @@ const styles = {
     flexDirection: 'column' as const,
     overflow: 'auto',
     background: SURFACE_ALT,
-    padding: '24px',
-  } as React.CSSProperties,
-
-  columnPlaceholder: {
-    flex: 1,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: SURFACE_ELEVATED,
-    borderRadius: '8px',
-    padding: '32px',
-    minHeight: '120px',
-  } as React.CSSProperties,
-
-  placeholderText: {
-    color: TEXT_SECONDARY,
-    fontSize: '14px',
-    fontWeight: 400,
-    textAlign: 'center' as const,
+    padding: '0',
   } as React.CSSProperties,
 
   footer: {

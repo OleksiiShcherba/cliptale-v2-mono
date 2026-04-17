@@ -1,5 +1,5 @@
 import { Queue, Worker } from 'bullmq';
-import type { MediaIngestJobPayload, TranscriptionJobPayload } from '@ai-video-editor/project-schema';
+import type { MediaIngestJobPayload, TranscriptionJobPayload, EnhancePromptJobPayload } from '@ai-video-editor/project-schema';
 import OpenAI from 'openai';
 
 import { config } from '@/config.js';
@@ -15,10 +15,12 @@ import {
 import { processIngestJob } from '@/jobs/ingest.job.js';
 import { processTranscribeJob } from '@/jobs/transcribe.job.js';
 import { processAiGenerateJob, type AiGenerateJobPayload } from '@/jobs/ai-generate.job.js';
+import { processEnhancePromptJob } from '@/jobs/enhancePrompt.job.js';
 
 const QUEUE_MEDIA_INGEST = 'media-ingest';
 const QUEUE_TRANSCRIPTION = 'transcription';
 const QUEUE_AI_GENERATE = 'ai-generate';
+const QUEUE_AI_ENHANCE = 'ai-enhance';
 
 const connection = { url: config.redis.url };
 
@@ -106,6 +108,28 @@ aiGenerateWorker.on('error', (err) => {
 
 console.log('[media-worker] Listening for jobs on queue:', QUEUE_AI_GENERATE);
 
+// ── AI enhance worker (concurrency 2) ────────────────────────────────────────
+
+const aiEnhanceWorker = new Worker<EnhancePromptJobPayload>(
+  QUEUE_AI_ENHANCE,
+  (job) => processEnhancePromptJob(job, { openai: openaiClient, pool }),
+  { connection, concurrency: 2 },
+);
+
+aiEnhanceWorker.on('completed', (job) => {
+  console.log(`[media-worker] ai-enhance job ${job.id} completed`);
+});
+
+aiEnhanceWorker.on('failed', (job, err) => {
+  console.error(`[media-worker] ai-enhance job ${job?.id} failed:`, err.message);
+});
+
+aiEnhanceWorker.on('error', (err) => {
+  console.error('[media-worker] ai-enhance worker error:', err.message);
+});
+
+console.log('[media-worker] Listening for jobs on queue:', QUEUE_AI_ENHANCE);
+
 // ── Graceful shutdown ─────────────────────────────────────────────────────────
 
 async function shutdown(signal: string): Promise<void> {
@@ -114,6 +138,7 @@ async function shutdown(signal: string): Promise<void> {
     ingestWorker.close(),
     transcriptionWorker.close(),
     aiGenerateWorker.close(),
+    aiEnhanceWorker.close(),
     mediaIngestQueue.close(),
   ]);
   console.log('[media-worker] Workers closed. Exiting.');

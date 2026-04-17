@@ -3,7 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as generationDraftRepository from '@/repositories/generationDraft.repository.js';
 import { ForbiddenError, NotFoundError, UnprocessableEntityError } from '@/lib/errors.js';
 import { create, getById, listMine, update, remove } from './generationDraft.service.js';
-import type { GenerationDraft } from '@/repositories/generationDraft.repository.js';
+import {
+  VALID_PROMPT_DOC,
+  USER_ID,
+  OTHER_USER_ID,
+  DRAFT_ID,
+  makeDraft,
+} from './generationDraft.service.fixtures.js';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -14,28 +20,6 @@ vi.mock('@/repositories/generationDraft.repository.js', () => ({
   updateDraftPromptDoc: vi.fn(),
   deleteDraft: vi.fn(),
 }));
-
-// ── Fixtures ─────────────────────────────────────────────────────────────────
-
-const VALID_PROMPT_DOC = {
-  schemaVersion: 1 as const,
-  blocks: [{ type: 'text' as const, value: 'Hello world' }],
-};
-
-const USER_ID = 'user-abc-123';
-const OTHER_USER_ID = 'user-xyz-999';
-const DRAFT_ID = '11111111-1111-4111-8111-111111111111';
-
-function makeDraft(overrides?: Partial<GenerationDraft>): GenerationDraft {
-  return {
-    id: DRAFT_ID,
-    userId: USER_ID,
-    promptDoc: VALID_PROMPT_DOC,
-    createdAt: new Date('2026-01-01T00:00:00Z'),
-    updatedAt: new Date('2026-01-01T00:00:00Z'),
-    ...overrides,
-  };
-}
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 

@@ -72,6 +72,13 @@ export const apiClient = {
       body: JSON.stringify(body),
     }).then(handleUnauthorized),
 
+  put: (path: string, body: unknown) =>
+    fetch(`${config.apiBaseUrl}${path}`, {
+      method: 'PUT',
+      headers: buildHeaders(),
+      body: JSON.stringify(body),
+    }).then(handleUnauthorized),
+
   delete: (path: string) =>
     fetch(`${config.apiBaseUrl}${path}`, {
       method: 'DELETE',

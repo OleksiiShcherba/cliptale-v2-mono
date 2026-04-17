@@ -5,3 +5,5 @@
 - [ElevenLabs Subtask 2 — Backend-only, no design review](elevenlabs-subtask-2-backend-only.md) — Config + HTTP client library, no UI components
 - [C9 Caption Color Token Violation](c9-caption-color-issue.md) — ClipBlock.tsx line 13: caption=`#F59E0B` (warning) should be `#10B981` (success) per design-guide line 285
 - [C11 Dual Color Pickers — APPROVED](c11_dual_color_pickers.md) — Two hex inputs for active/inactive word colors in CaptionEditorPanel; all design tokens verified, no violations
+- [Subtask 5 EnhancePreviewModal token violations](subtask5-enhance-modal-tokens.md) — Header/footer padding 20px (not a token), border-radius hardcoded, letter-spacing inconsistent; 4 issues COMMENTED in dev-log
+- [Subtask 6 AI Enhance wiring — APPROVED](subtask6-ai-enhance-wiring.md) — PromptToolbar button + GenerateWizardPage modal mount; all design tokens verified, no violations found

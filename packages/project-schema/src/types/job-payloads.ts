@@ -4,6 +4,8 @@
  * to avoid duplication across app boundaries.
  */
 
+import type { PromptDoc } from '../schemas/promptDoc.schema.js';
+
 /** Payload for a `media-ingest` job — carries everything the worker needs to process an asset. */
 export type MediaIngestJobPayload = {
   assetId: string;
@@ -67,4 +69,20 @@ export type RenderVideoJobPayload = {
   requestedBy: string | null;
   /** Resolved preset configuration (not just the key). */
   preset: RenderPreset;
+};
+
+/**
+ * Payload for an `ai-enhance` BullMQ job — carries the draft, user context,
+ * and the prompt document to be rewritten by the LLM.
+ *
+ * The worker receives the full PromptDoc so it can perform the
+ * sentinel-splice strategy without an extra DB read.
+ */
+export type EnhancePromptJobPayload = {
+  /** The generation draft this enhancement belongs to. */
+  draftId: string;
+  /** The user who initiated the enhancement. */
+  userId: string;
+  /** The current prompt document to be rewritten. */
+  promptDoc: PromptDoc;
 };

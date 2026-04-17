@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { authMiddleware } from '@/middleware/auth.middleware.js';
 import { aclMiddleware } from '@/middleware/acl.middleware.js';
 import { validateBody } from '@/middleware/validate.middleware.js';
+import { enhancePromptLimiter } from '@/middleware/enhance.rate-limiter.js';
 import * as generationDraftsController from '@/controllers/generationDrafts.controller.js';
 
 const router = Router();
@@ -52,6 +53,28 @@ router.delete(
   authMiddleware,
   aclMiddleware('editor'),
   generationDraftsController.deleteDraft,
+);
+
+// POST /generation-drafts/:id/enhance
+// Enqueues an AI Enhance job for the draft. Per-user rate limit: 10/hour.
+// Returns 202 { jobId } on success. Requires authMiddleware before enhancePromptLimiter
+// so that req.user is available for the per-user key generator.
+router.post(
+  '/generation-drafts/:id/enhance',
+  authMiddleware,
+  aclMiddleware('editor'),
+  enhancePromptLimiter,
+  generationDraftsController.startEnhance,
+);
+
+// GET /generation-drafts/:id/enhance/:jobId
+// Polls the status of a previously enqueued enhance job.
+// Returns 200 { status, result?, error? }. No rate limit on polling.
+router.get(
+  '/generation-drafts/:id/enhance/:jobId',
+  authMiddleware,
+  aclMiddleware('editor'),
+  generationDraftsController.getEnhanceStatus,
 );
 
 export { router as generationDraftsRouter };

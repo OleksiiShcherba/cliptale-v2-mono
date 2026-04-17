@@ -229,6 +229,83 @@ export const openApiSpec = {
         security: [{ bearerAuth: [] }],
       },
     },
+    '/generation-drafts/{id}/enhance': {
+      post: {
+        summary: 'Start an AI Enhance job for a generation draft',
+        description:
+          'Enqueues a BullMQ job that rewrites the draft\'s promptDoc via an LLM while ' +
+          'preserving inline media-ref blocks. Returns the job ID to poll for status. ' +
+          'Per-user rate limit: 10 requests per hour (HTTP 429 on breach).',
+        operationId: 'startEnhancePrompt',
+        tags: ['generation-drafts'],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft to enhance.',
+          },
+        ],
+        responses: {
+          202: {
+            description: 'Enhance job enqueued. Poll the returned jobId for status.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StartEnhanceResponse' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid session token.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found.' },
+          429: { description: 'Per-user enhance rate limit exceeded (10 req/hr).' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/generation-drafts/{id}/enhance/{jobId}': {
+      get: {
+        summary: 'Poll the status of an AI Enhance job',
+        description:
+          'Returns the current status of an enhance job. Status values: ' +
+          '`queued` (waiting/delayed), `running` (active), `done` (completed — result populated), ' +
+          '`failed` (failed — error populated). ' +
+          'The job is retained for 1 hour after completion and 24 hours after failure.',
+        operationId: 'getEnhanceStatus',
+        tags: ['generation-drafts'],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft.',
+          },
+          {
+            name: 'jobId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'BullMQ job ID returned by POST /generation-drafts/:id/enhance.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Current job status. `result` is present only when status=done; `error` only when status=failed.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/EnhanceStatusResponse' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid session token.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found, or job has expired / was never created.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
     '/generation-drafts/{id}': {
       get: {
         summary: 'Get a single generation draft',
@@ -349,6 +426,45 @@ export const openApiSpec = {
           promptDoc: {
             type: 'object',
             description: 'PromptDoc to persist. Must conform to the promptDocSchema (schemaVersion:1, blocks array).',
+          },
+        },
+      },
+      StartEnhanceResponse: {
+        type: 'object',
+        required: ['jobId'],
+        description: 'Returned by POST /generation-drafts/:id/enhance. Contains the BullMQ job ID.',
+        properties: {
+          jobId: {
+            type: 'string',
+            format: 'uuid',
+            description: 'BullMQ job ID. Pass to GET /generation-drafts/:id/enhance/:jobId to poll.',
+          },
+        },
+      },
+      EnhanceStatusResponse: {
+        type: 'object',
+        required: ['status'],
+        description: 'Returned by GET /generation-drafts/:id/enhance/:jobId.',
+        properties: {
+          status: {
+            type: 'string',
+            enum: ['queued', 'running', 'done', 'failed'],
+            description:
+              'Current job status. ' +
+              '`queued` = waiting/delayed in queue; ' +
+              '`running` = being processed; ' +
+              '`done` = completed successfully; ' +
+              '`failed` = errored or timed out.',
+          },
+          result: {
+            type: 'object',
+            description:
+              'Proposed PromptDoc produced by the LLM. Present only when status=done. ' +
+              'Conforms to promptDocSchema (schemaVersion:1, blocks array).',
+          },
+          error: {
+            type: 'string',
+            description: 'Human-readable error message. Present only when status=failed.',
           },
         },
       },

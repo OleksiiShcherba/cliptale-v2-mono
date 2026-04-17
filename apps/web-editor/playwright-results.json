@@ -1,0 +1,8 @@
+[
+  {
+    "id": "enhance-flow-e2e",
+    "name": "AI Enhance end-to-end flow",
+    "status": "passed",
+    "screenshotsDir": "./playwright-screenshots"
+  }
+]

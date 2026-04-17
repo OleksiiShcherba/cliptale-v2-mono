@@ -12,4 +12,5 @@ export type {
   RenderPresetKey,
   RenderPreset,
   RenderVideoJobPayload,
+  EnhancePromptJobPayload,
 } from './types/job-payloads.js';

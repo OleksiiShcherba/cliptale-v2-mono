@@ -15,7 +15,12 @@ export type GenerationDraft = {
 type GenerationDraftRow = RowDataPacket & {
   id: string;
   user_id: string;
-  prompt_doc: string;
+  /**
+   * mysql2/promise returns MySQL JSON columns as already-parsed objects when
+   * the underlying MySQL driver performs automatic JSON parsing. Accept both
+   * string (e.g. test doubles or older driver behaviour) and object.
+   */
+  prompt_doc: string | PromptDoc;
   created_at: Date;
   updated_at: Date;
 };
@@ -24,7 +29,10 @@ function mapRowToDraft(row: GenerationDraftRow): GenerationDraft {
   return {
     id: row.id,
     userId: row.user_id,
-    promptDoc: JSON.parse(row.prompt_doc) as PromptDoc,
+    promptDoc:
+      typeof row.prompt_doc === 'string'
+        ? (JSON.parse(row.prompt_doc) as PromptDoc)
+        : (row.prompt_doc as PromptDoc),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

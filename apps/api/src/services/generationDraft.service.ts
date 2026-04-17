@@ -10,6 +10,17 @@ import {
   NotFoundError,
   UnprocessableEntityError,
 } from '@/lib/errors.js';
+import { aiEnhanceQueue } from '@/queues/bullmq.js';
+import { enqueueEnhancePrompt } from '@/queues/jobs/enqueue-enhance-prompt.js';
+
+/** Valid status values returned by getEnhanceStatus. */
+export type EnhanceJobStatus = 'queued' | 'running' | 'done' | 'failed';
+
+export type EnhanceStatusResult = {
+  status: EnhanceJobStatus;
+  result?: PromptDoc;
+  error?: string;
+};
 
 /**
  * Validate a PromptDoc against the shared Zod schema.
@@ -80,4 +91,75 @@ export async function remove(userId: string, id: string): Promise<void> {
   // Verify ownership first (throws NotFoundError / ForbiddenError as appropriate).
   await resolveDraft(userId, id);
   await generationDraftRepository.deleteDraft(id, userId);
+}
+
+/**
+ * Enqueues an AI Enhance job for the given draft.
+ *
+ * - Verifies the draft exists and belongs to the caller (404 / 403 on failure).
+ * - Returns the BullMQ job ID that the caller uses to poll status via getEnhanceStatus.
+ * - Does NOT validate or mutate the draft's promptDoc — the worker receives the
+ *   current promptDoc as the job payload and writes a proposed rewrite to the
+ *   job's returnvalue without touching the DB.
+ */
+export async function startEnhance(
+  userId: string,
+  draftId: string,
+): Promise<{ jobId: string }> {
+  const draft = await resolveDraft(userId, draftId);
+  const jobId = await enqueueEnhancePrompt({ draftId, userId, promptDoc: draft.promptDoc });
+  return { jobId };
+}
+
+/**
+ * Maps BullMQ job state to the API status enum and surfaces the returnvalue / failedReason.
+ *
+ * BullMQ state → API status mapping:
+ *   waiting | delayed → 'queued'
+ *   active             → 'running'
+ *   completed          → 'done'   (result populated from job.returnvalue)
+ *   failed             → 'failed' (error populated from job.failedReason)
+ *   anything else      → 'failed' (treated as an unknown terminal state)
+ *
+ * - Verifies draft ownership before reading the job (same 404 / 403 semantics).
+ * - Does NOT re-enqueue or mutate anything.
+ * - Throws NotFoundError when the jobId is not found in the queue (job may have
+ *   expired per the removeOnComplete / removeOnFail TTLs set in the producer).
+ */
+export async function getEnhanceStatus(
+  userId: string,
+  draftId: string,
+  jobId: string,
+): Promise<EnhanceStatusResult> {
+  // Ownership check — throws if draft missing or not owned by userId.
+  await resolveDraft(userId, draftId);
+
+  const job = await aiEnhanceQueue.getJob(jobId);
+  if (!job) {
+    throw new NotFoundError(`Enhance job ${jobId} not found — it may have expired`);
+  }
+
+  const state = await job.getState();
+
+  if (state === 'completed') {
+    const parsed = promptDocSchema.safeParse(job.returnvalue);
+    return {
+      status: 'done',
+      result: parsed.success ? parsed.data : undefined,
+    };
+  }
+
+  if (state === 'failed') {
+    return {
+      status: 'failed',
+      error: job.failedReason ?? 'Unknown error',
+    };
+  }
+
+  if (state === 'active') {
+    return { status: 'running' };
+  }
+
+  // waiting | delayed | unknown states → queued
+  return { status: 'queued' };
 }
