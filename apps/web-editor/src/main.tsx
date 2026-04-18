@@ -12,6 +12,7 @@ import { ForgotPasswordPage } from '@/features/auth/components/ForgotPasswordPag
 import { ResetPasswordPage } from '@/features/auth/components/ResetPasswordPage';
 import { GenerateWizardPage } from '@/features/generate-wizard/components/GenerateWizardPage';
 import { GenerateRoadMapPlaceholder } from '@/features/generate-wizard/components/GenerateRoadMapPlaceholder';
+import { HomePage } from '@/features/home/components/HomePage';
 
 // ---------------------------------------------------------------------------
 // Global CSS reset — applied programmatically so no separate CSS file is needed.
@@ -33,6 +34,14 @@ const router = createBrowserRouter([
   { path: '/register', element: <RegisterPage /> },
   { path: '/forgot-password', element: <ForgotPasswordPage /> },
   { path: '/reset-password', element: <ResetPasswordPage /> },
+  {
+    path: '/',
+    element: (
+      <ProtectedRoute>
+        <HomePage />
+      </ProtectedRoute>
+    ),
+  },
   {
     path: '/editor',
     element: (
@@ -57,7 +66,7 @@ const router = createBrowserRouter([
       </ProtectedRoute>
     ),
   },
-  { path: '*', element: <Navigate to="/editor" replace /> },
+  { path: '*', element: <Navigate to="/" replace /> },
 ]);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

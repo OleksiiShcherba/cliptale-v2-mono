@@ -60,7 +60,7 @@ describe('useGenerationDraft — timing / coalesce / flush / error / unmount', (
   it('coalesces rapid setDoc calls — one createDraft fires with the latest doc', async () => {
     mockCreateDraft.mockResolvedValue(DRAFT_RESPONSE);
 
-    const { result } = renderHook(() => useGenerationDraft(EMPTY_DOC), {
+    const { result } = renderHook(() => useGenerationDraft({ initial: EMPTY_DOC }), {
       wrapper: makeWrapper(),
     });
 
@@ -87,7 +87,7 @@ describe('useGenerationDraft — timing / coalesce / flush / error / unmount', (
     mockCreateDraft.mockResolvedValue(DRAFT_RESPONSE);
     mockUpdateDraft.mockResolvedValue({ ...DRAFT_RESPONSE, promptDoc: DOC_B });
 
-    const { result } = renderHook(() => useGenerationDraft(EMPTY_DOC), {
+    const { result } = renderHook(() => useGenerationDraft({ initial: EMPTY_DOC }), {
       wrapper: makeWrapper(),
     });
 
@@ -117,7 +117,7 @@ describe('useGenerationDraft — timing / coalesce / flush / error / unmount', (
     // Both update attempts reject.
     mockUpdateDraft.mockRejectedValue(new Error('Server error'));
 
-    const { result } = renderHook(() => useGenerationDraft(EMPTY_DOC), {
+    const { result } = renderHook(() => useGenerationDraft({ initial: EMPTY_DOC }), {
       wrapper: makeWrapper(),
     });
 
@@ -142,7 +142,7 @@ describe('useGenerationDraft — timing / coalesce / flush / error / unmount', (
   it('flush() cancels the pending timer and immediately triggers the save', async () => {
     mockCreateDraft.mockResolvedValue(DRAFT_RESPONSE);
 
-    const { result } = renderHook(() => useGenerationDraft(EMPTY_DOC), {
+    const { result } = renderHook(() => useGenerationDraft({ initial: EMPTY_DOC }), {
       wrapper: makeWrapper(),
     });
 
@@ -168,7 +168,7 @@ describe('useGenerationDraft — timing / coalesce / flush / error / unmount', (
   // -------------------------------------------------------------------------
 
   it('cancels the pending timer on unmount — no POST or PUT is made', async () => {
-    const { result, unmount } = renderHook(() => useGenerationDraft(EMPTY_DOC), {
+    const { result, unmount } = renderHook(() => useGenerationDraft({ initial: EMPTY_DOC }), {
       wrapper: makeWrapper(),
     });
 

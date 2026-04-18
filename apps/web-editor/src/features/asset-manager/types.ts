@@ -44,14 +44,8 @@ export type UploadUrlResponse = {
 /** Active tab filter in the asset browser panel. */
 export type AssetFilterTab = 'all' | 'video' | 'audio' | 'image';
 
-/** Per-file upload state tracked by useAssetUpload. */
-export type UploadEntry = {
-  file: File;
-  assetId: string;
-  uploadUrl: string;
-  expiresAt: string;
-  /** 0–100 upload progress percentage driven by XHR onprogress events. */
-  progress: number;
-  status: 'queued' | 'uploading' | 'done' | 'error';
-  error?: string;
-};
+/**
+ * Re-exported for backward compatibility.
+ * @deprecated Import directly from `@/shared/file-upload/types`.
+ */
+export type { UploadEntry } from '@/shared/file-upload/types';

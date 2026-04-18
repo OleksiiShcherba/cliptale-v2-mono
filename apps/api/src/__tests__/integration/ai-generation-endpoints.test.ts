@@ -1,10 +1,16 @@
 /**
  * Integration tests for the AI generation endpoints (fal.ai + ElevenLabs models):
  *   GET  /ai/models
- *   POST /projects/:id/ai/generate
+ *   POST /projects/:id/ai/generate   (compat route — project used for ACL only)
  *
  * Verifies the full Express → middleware → service → repository → DB chain.
  * Requires a live MySQL instance: docker compose up -d db
+ *
+ * After Batch 1 Subtask 8:
+ *   - Jobs are user-scoped only; no project_id stored in ai_generation_jobs.
+ *   - The resolver uses file.repository.findByIdForUser (files table).
+ *   - project_assets_current is gone (migration 024 dropped it).
+ *   - Legacy body.projectId is accepted by the compat shim but not stored.
  *
  * Run:
  *   APP_DB_PASSWORD=cliptale vitest run src/__tests__/integration/ai-generation-endpoints.test.ts
@@ -13,6 +19,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
 import mysql, { type Connection } from 'mysql2/promise';
+import { randomUUID } from 'node:crypto';
 import { AI_MODELS } from '@ai-video-editor/api-contracts';
 
 // ── Set env vars before app is imported ──────────────────────────────────────
@@ -47,8 +54,7 @@ vi.mock('bullmq', async (importOriginal) => {
 });
 
 // Mock the AWS presigner so the resolver does not need real S3 credentials to
-// rewrite asset IDs into https URLs. Mirrors the pattern in
-// renders-endpoint.test.ts.
+// rewrite file IDs into https URLs.
 vi.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: vi
     .fn()
@@ -59,6 +65,7 @@ vi.mock('@aws-sdk/client-s3', () => ({
   S3Client: vi.fn().mockImplementation(() => ({})),
   GetObjectCommand: vi.fn().mockImplementation((params) => ({ ...params })),
   PutObjectCommand: vi.fn().mockImplementation((params) => ({ ...params })),
+  HeadObjectCommand: vi.fn().mockImplementation((params) => ({ ...params })),
 }));
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,7 +73,7 @@ vi.mock('@aws-sdk/client-s3', () => ({
 let app: Express;
 let conn: Connection;
 let testProjectId: string;
-let testAssetId: string;
+let testFileId: string;
 
 const insertedJobIds: string[] = [];
 
@@ -80,70 +87,31 @@ beforeAll(async () => {
     database: process.env['APP_DB_NAME']     ?? 'cliptale',
     user:     process.env['APP_DB_USER']     ?? 'cliptale',
     password: process.env['APP_DB_PASSWORD'] ?? 'cliptale',
-    multipleStatements: true,
   });
 
-  // Run migrations needed for this test. Migration 014 depends on users and
-  // projects, so the foundational migrations run first; 011 seeds the
-  // dev-user-001 row that DEV_AUTH_BYPASS attaches to requests.
-  const { readFileSync } = await import('node:fs');
-  const { resolve, dirname } = await import('node:path');
-  const { fileURLToPath } = await import('node:url');
-  const __dirname = dirname(fileURLToPath(import.meta.url));
+  // Seed a project row for the ACL check (aclMiddleware verifies membership).
+  testProjectId = `proj-ai-ep-${Date.now()}`;
+  await conn.query('INSERT IGNORE INTO projects (project_id) VALUES (?)', [testProjectId]);
 
-  for (const migration of [
-    '001_project_assets_current.sql',
-    '008_users_auth.sql',
-    '011_seed_dev_user.sql',
-    '014_ai_jobs_fal_reshape.sql',
-  ]) {
-    const sql = readFileSync(
-      resolve(__dirname, `../../db/migrations/${migration}`),
-      'utf-8',
-    );
-    await conn.query(sql);
-  }
-
-  // Seed the project row so the FK from ai_generation_jobs.project_id resolves.
-  testProjectId = `proj-ai-gen-${Date.now()}`;
-  await conn.query('INSERT INTO projects (project_id) VALUES (?)', [
-    testProjectId,
-  ]);
-
-  // Seed an asset row owned by the dev-auth-bypass user so the resolver can
-  // verify ownership + look up the storage URI for the image_urls field.
-  testAssetId = `asset-ai-gen-${Date.now()}`;
-  await conn.query(
-    `INSERT INTO project_assets_current
-       (asset_id, project_id, user_id, filename, content_type, file_size_bytes, storage_uri, status)
-     VALUES (?, ?, 'dev-user-001', ?, 'image/png', 1024, ?, 'ready')`,
-    [
-      testAssetId,
-      testProjectId,
-      'edit-source.png',
-      `s3://test-bucket/assets/${testAssetId}.png`,
-    ],
+  // Seed a file row in `files` owned by dev-user-001 for the resolver test.
+  // (dev-user-001 is the DEV_AUTH_BYPASS user seeded by migration 011.)
+  testFileId = randomUUID();
+  await conn.execute(
+    `INSERT INTO files (file_id, user_id, kind, storage_uri, mime_type, display_name, status)
+     VALUES (?, 'dev-user-001', 'image', ?, 'image/png', 'edit-source.png', 'ready')`,
+    [testFileId, `s3://test-bucket/users/dev-user-001/files/${testFileId}/edit-source.png`],
   );
 });
 
 afterAll(async () => {
   if (insertedJobIds.length) {
     await conn?.query(
-      `DELETE FROM ai_generation_jobs WHERE job_id IN (${insertedJobIds
-        .map(() => '?')
-        .join(',')})`,
+      `DELETE FROM ai_generation_jobs WHERE job_id IN (${insertedJobIds.map(() => '?').join(',')})`,
       insertedJobIds,
     );
   }
-  await conn?.query('DELETE FROM ai_generation_jobs WHERE project_id = ?', [
-    testProjectId,
-  ]);
-  await conn?.query('DELETE FROM project_assets_current WHERE asset_id = ?', [
-    testAssetId,
-  ]);
-  await conn?.query('DELETE FROM projects WHERE project_id = ?', [
-    testProjectId,
-  ]);
+  await conn?.execute('DELETE FROM files WHERE file_id = ?', [testFileId]);
+  await conn?.query('DELETE FROM projects WHERE project_id = ?', [testProjectId]);
   await conn?.end();
 });
 
@@ -173,7 +141,6 @@ describe('GET /ai/models', () => {
     const catalogIds = AI_MODELS.map((m) => m.id).sort();
     expect(returnedIds).toEqual(catalogIds);
 
-    // Spot-check that every model in a group reports the matching capability.
     for (const capability of Object.keys(res.body) as string[]) {
       const group = res.body[capability] as Array<{ capability: string }>;
       for (const model of group) {
@@ -186,7 +153,7 @@ describe('GET /ai/models', () => {
 // ── POST /projects/:id/ai/generate ────────────────────────────────────────────
 
 describe('POST /projects/:id/ai/generate', () => {
-  it('returns 202 and writes a job row for a valid fal-ai/nano-banana-2 request', async () => {
+  it('returns 202 and writes a job row (user-scoped, no project_id in DB)', async () => {
     const res = await request(app)
       .post(`/projects/${testProjectId}/ai/generate`)
       .send({
@@ -201,18 +168,45 @@ describe('POST /projects/:id/ai/generate', () => {
     const jobId = res.body['jobId'] as string;
     insertedJobIds.push(jobId);
 
-    // Verify the row was persisted with the expected model_id + capability.
+    // Verify job row was persisted with correct model_id, capability, prompt, status.
+    // Crucially: no project_id column (migration 025 dropped it).
     const [rows] = await conn.query<mysql.RowDataPacket[]>(
-      `SELECT job_id, user_id, project_id, model_id, capability, prompt, status
+      `SELECT job_id, user_id, model_id, capability, prompt, status, output_file_id
          FROM ai_generation_jobs WHERE job_id = ?`,
       [jobId],
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]!['user_id']).toBe('dev-user-001');
-    expect(rows[0]!['project_id']).toBe(testProjectId);
     expect(rows[0]!['model_id']).toBe('fal-ai/nano-banana-2');
     expect(rows[0]!['capability']).toBe('text_to_image');
     expect(rows[0]!['prompt']).toBe('a cat sitting on a rug');
+    expect(rows[0]!['status']).toBe('queued');
+    expect(rows[0]!['output_file_id']).toBeNull();
+    // No project_id in SELECT result means the column is gone.
+    expect(rows[0]).not.toHaveProperty('project_id');
+  });
+
+  it('compat shim: accepts legacy body.projectId without 400', async () => {
+    const res = await request(app)
+      .post(`/projects/${testProjectId}/ai/generate`)
+      .send({
+        modelId: 'fal-ai/nano-banana-2',
+        prompt: 'compat shim test',
+        options: {},
+        projectId: 'legacy-project-id-from-fe',
+      });
+
+    // Should be 202 (not 400) — projectId is stripped by the compat shim.
+    expect(res.status).toBe(202);
+    const jobId = res.body['jobId'] as string;
+    insertedJobIds.push(jobId);
+
+    const [rows] = await conn.query<mysql.RowDataPacket[]>(
+      `SELECT user_id, model_id, status FROM ai_generation_jobs WHERE job_id = ?`,
+      [jobId],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!['user_id']).toBe('dev-user-001');
     expect(rows[0]!['status']).toBe('queued');
   });
 
@@ -230,8 +224,7 @@ describe('POST /projects/:id/ai/generate', () => {
   });
 
   it('returns 400 when a required option field is missing', async () => {
-    // fal-ai/nano-banana-2/edit requires `image_urls`; sending only prompt
-    // must fail validation in the service layer.
+    // fal-ai/nano-banana-2/edit requires `image_urls`; sending only prompt must fail.
     const res = await request(app)
       .post(`/projects/${testProjectId}/ai/generate`)
       .send({
@@ -244,18 +237,17 @@ describe('POST /projects/:id/ai/generate', () => {
     expect(res.body['error']).toBeDefined();
   });
 
-  it('resolves an asset id inside image_urls into a presigned https URL before persisting the job row', async () => {
+  it('resolves a file id inside image_urls into a presigned https URL before persisting', async () => {
     const res = await request(app)
       .post(`/projects/${testProjectId}/ai/generate`)
       .send({
         modelId: 'fal-ai/nano-banana-2/edit',
         prompt: 'edit',
-        options: { image_urls: [testAssetId] },
+        options: { image_urls: [testFileId] },
       });
 
     expect(res.status).toBe(202);
     const jobId = res.body['jobId'] as string;
-    expect(typeof jobId).toBe('string');
     insertedJobIds.push(jobId);
 
     const [rows] = await conn.query<mysql.RowDataPacket[]>(
@@ -264,8 +256,6 @@ describe('POST /projects/:id/ai/generate', () => {
     );
     expect(rows).toHaveLength(1);
 
-    // MySQL returns the JSON column as a parsed object in mysql2's default
-    // config; fall back to JSON.parse if a string comes through.
     const rawOptions = rows[0]!['options'];
     const options =
       typeof rawOptions === 'string'
@@ -276,6 +266,6 @@ describe('POST /projects/:id/ai/generate', () => {
     expect(Array.isArray(imageUrls)).toBe(true);
     const [first] = imageUrls as string[];
     expect(first).toMatch(/^https:\/\//);
-    expect(first).not.toBe(testAssetId);
+    expect(first).not.toBe(testFileId);
   });
 });

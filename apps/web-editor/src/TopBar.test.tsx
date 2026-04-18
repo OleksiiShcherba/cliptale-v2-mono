@@ -6,16 +6,34 @@ import { render, screen, fireEvent } from '@testing-library/react';
 // Mocks
 // ---------------------------------------------------------------------------
 
+const { mockSave, mockResolveConflictByOverwrite } = vi.hoisted(() => ({
+  mockSave: vi.fn().mockResolvedValue(undefined),
+  mockResolveConflictByOverwrite: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('@/features/version-history/hooks/useAutosave', () => ({
-  useAutosave: vi.fn().mockReturnValue({ saveStatus: 'idle', lastSavedAt: null, hasEverEdited: false }),
+  useAutosave: vi.fn().mockReturnValue({
+    saveStatus: 'idle',
+    lastSavedAt: null,
+    hasEverEdited: false,
+    save: mockSave,
+    resolveConflictByOverwrite: mockResolveConflictByOverwrite,
+  }),
 }));
 
 vi.mock('./SaveStatusBadge', () => ({
-  SaveStatusBadge: () => React.createElement('div', { 'data-testid': 'save-status-badge' }),
+  SaveStatusBadge: ({ onOverwrite }: { onOverwrite?: () => void }) =>
+    React.createElement('div', {
+      'data-testid': 'save-status-badge',
+      'data-has-overwrite': onOverwrite !== undefined ? 'true' : 'false',
+    }),
 }));
 
+import { useAutosave } from '@/features/version-history/hooks/useAutosave';
 import { TopBar } from './TopBar';
 import { defaultProps } from './TopBar.fixtures';
+
+const mockUseAutosave = vi.mocked(useAutosave);
 
 // ---------------------------------------------------------------------------
 // Tests — structure, settings, history, undo/redo, renders, logout
@@ -215,5 +233,82 @@ describe('TopBar', () => {
     render(<TopBar {...defaultProps} onLogout={onLogout} />);
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(onLogout).toHaveBeenCalledOnce();
+  });
+
+  // ── Home button ────────────────────────────────────────────────────────────
+
+  it('renders the Home button with aria-label "Go to home"', () => {
+    render(<TopBar {...defaultProps} />);
+    expect(screen.getByRole('button', { name: 'Go to home' })).toBeTruthy();
+  });
+
+  it('calls onNavigateHome when the Home button is clicked', () => {
+    const onNavigateHome = vi.fn();
+    render(<TopBar {...defaultProps} onNavigateHome={onNavigateHome} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Go to home' }));
+    expect(onNavigateHome).toHaveBeenCalledOnce();
+  });
+
+  it('triggers onNavigateHome on keyboard Enter via click handler', () => {
+    const onNavigateHome = vi.fn();
+    render(<TopBar {...defaultProps} onNavigateHome={onNavigateHome} />);
+    const btn = screen.getByRole('button', { name: 'Go to home' });
+    fireEvent.keyDown(btn, { key: 'Enter', code: 'Enter' });
+    fireEvent.click(btn);
+    expect(onNavigateHome).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the Home button leftmost in the TopBar (before the title)', () => {
+    const { container } = render(<TopBar {...defaultProps} />);
+    const header = container.querySelector('header') as HTMLElement;
+    const leftSection = header.firstElementChild as HTMLElement;
+    const firstChild = leftSection.firstElementChild as HTMLElement;
+    expect(firstChild.getAttribute('aria-label')).toBe('Go to home');
+  });
+
+  // ── Save button ────────────────────────────────────────────────────────────
+
+  it('renders the Save button', () => {
+    render(<TopBar {...defaultProps} />);
+    expect(screen.getByRole('button', { name: 'Save project' })).toBeTruthy();
+  });
+
+  it('Save button is enabled when saveStatus is not "saving"', () => {
+    render(<TopBar {...defaultProps} />);
+    const btn = screen.getByRole('button', { name: 'Save project' });
+    expect(btn.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('Save button is disabled when saveStatus is "saving"', () => {
+    mockUseAutosave.mockReturnValue({
+      saveStatus: 'saving',
+      lastSavedAt: null,
+      hasEverEdited: true,
+      save: mockSave,
+      resolveConflictByOverwrite: mockResolveConflictByOverwrite,
+    });
+    render(<TopBar {...defaultProps} />);
+    const btn = screen.getByRole('button', { name: 'Save project' });
+    expect(btn.hasAttribute('disabled')).toBe(true);
+  });
+
+  it('calls save() when the Save button is clicked', () => {
+    const mockSaveFunction = vi.fn().mockResolvedValue(undefined);
+    mockUseAutosave.mockReturnValue({
+      saveStatus: 'idle',
+      lastSavedAt: null,
+      hasEverEdited: false,
+      save: mockSaveFunction,
+      resolveConflictByOverwrite: mockResolveConflictByOverwrite,
+    });
+    render(<TopBar {...defaultProps} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
+    expect(mockSaveFunction).toHaveBeenCalledOnce();
+  });
+
+  it('passes resolveConflictByOverwrite as onOverwrite to SaveStatusBadge', () => {
+    render(<TopBar {...defaultProps} />);
+    const badge = screen.getByTestId('save-status-badge');
+    expect(badge.getAttribute('data-has-overwrite')).toBe('true');
   });
 });

@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from '@/config.js';
 import { authRouter } from '@/routes/auth.routes.js';
 import { assetsRouter } from '@/routes/assets.routes.js';
+import { fileRouter } from '@/routes/file.routes.js';
 import { captionsRouter } from '@/routes/captions.routes.js';
 import { clipsRouter } from '@/routes/clips.routes.js';
 import { projectsRouter } from '@/routes/projects.routes.js';
@@ -28,6 +29,7 @@ app.get('/health', (_req, res) => {
 
 app.use(authRouter);
 app.use(assetsRouter);
+app.use(fileRouter);
 app.use(captionsRouter);
 app.use(clipsRouter);
 app.use(projectsRouter);

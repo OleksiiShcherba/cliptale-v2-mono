@@ -35,10 +35,17 @@ async function downloadObject(
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
-async function getAssetProjectId(pool: Pool, assetId: string): Promise<string | null> {
+/**
+ * Looks up one project_id that the file is linked to via `project_files`.
+ * Returns null when the file is not linked to any project.
+ *
+ * After migration 024, `assetId` in the job payload is reused as `file_id`.
+ * The project context is needed for the `caption_tracks.project_id` column.
+ */
+async function getFileProjectId(pool: Pool, fileId: string): Promise<string | null> {
   const [rows] = await pool.execute<RowDataPacket[]>(
-    'SELECT project_id FROM project_assets_current WHERE asset_id = ?',
-    [assetId],
+    'SELECT project_id FROM project_files WHERE file_id = ? LIMIT 1',
+    [fileId],
   );
   return (rows[0]?.['project_id'] as string | undefined) ?? null;
 }
@@ -47,7 +54,8 @@ async function insertCaptionTrack(
   pool: Pool,
   params: {
     captionTrackId: string;
-    assetId: string;
+    /** `files.file_id` — the source audio/video file that was transcribed. */
+    fileId: string;
     projectId: string;
     language: string;
     segments: CaptionSegment[];
@@ -55,11 +63,11 @@ async function insertCaptionTrack(
 ): Promise<void> {
   await pool.execute(
     `INSERT IGNORE INTO caption_tracks
-       (caption_track_id, asset_id, project_id, language, segments_json)
+       (caption_track_id, file_id, project_id, language, segments_json)
      VALUES (?, ?, ?, ?, ?)`,
     [
       params.captionTrackId,
-      params.assetId,
+      params.fileId,
       params.projectId,
       params.language,
       JSON.stringify(params.segments),
@@ -79,12 +87,16 @@ export type TranscribeJobDeps = {
 /**
  * BullMQ job handler for `transcription` jobs.
  *
- * 1. Looks up the asset's projectId from the database.
- * 2. Downloads the asset from S3 to a temp file.
+ * 1. Looks up the file's projectId from `project_files` (file_id = assetId in payload).
+ * 2. Downloads the file from S3 to a temp file.
  * 3. Sends the audio/video file to the OpenAI Whisper API (`verbose_json`).
  * 4. Parses `segments[]` (start, end, text) from the response.
  * 5. Inserts the caption track row via `INSERT IGNORE` (idempotent).
  * 6. Cleans up the temp file in all cases (success or error).
+ *
+ * NOTE: `job.data.assetId` is now a `files.file_id` value after migration 024.
+ * The field name in the payload retains `assetId` for backwards-compat until
+ * Subtask 8 updates the TranscriptionJobPayload shape.
  *
  * On any failure: logs the error and re-throws so BullMQ retries per the
  * configured `attempts` (3x exponential backoff).
@@ -93,17 +105,18 @@ export async function processTranscribeJob(
   job: Job<TranscriptionJobPayload>,
   deps: TranscribeJobDeps,
 ): Promise<void> {
-  const { assetId, storageUri, language } = job.data;
+  // `assetId` in the payload is a file_id value after migration 024.
+  const { assetId: fileId, storageUri, language } = job.data;
   const { s3, pool, openai } = deps;
 
-  const projectId = await getAssetProjectId(pool, assetId);
+  const projectId = await getFileProjectId(pool, fileId);
   if (!projectId) {
-    throw new Error(`Asset "${assetId}" not found in database — cannot transcribe`);
+    throw new Error(`File "${fileId}" not found in database — cannot transcribe`);
   }
 
   const { bucket, key } = parseStorageUri(storageUri);
   const origFilename = path.basename(key);
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `transcribe-${assetId}-`));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `transcribe-${fileId}-`));
   const tmpInput = path.join(tmpDir, origFilename);
 
   try {
@@ -136,14 +149,14 @@ export async function processTranscribeJob(
 
     await insertCaptionTrack(pool, {
       captionTrackId: randomUUID(),
-      assetId,
+      fileId,
       projectId,
       language: language ?? 'auto',
       segments,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown transcription error';
-    console.error(`[transcribe-job] Failed for asset "${assetId}":`, message);
+    console.error(`[transcribe-job] Failed for file "${fileId}":`, message);
     throw err;
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });

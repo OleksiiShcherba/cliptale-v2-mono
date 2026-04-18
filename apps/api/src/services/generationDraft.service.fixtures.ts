@@ -1,4 +1,7 @@
-import type { GenerationDraft } from '@/repositories/generationDraft.repository.js';
+import type {
+  GenerationDraft,
+  GenerationDraftStatus,
+} from '@/repositories/generationDraft.repository.js';
 
 export const VALID_PROMPT_DOC = {
   schemaVersion: 1 as const,
@@ -14,6 +17,7 @@ export function makeDraft(overrides?: Partial<GenerationDraft>): GenerationDraft
     id: DRAFT_ID,
     userId: USER_ID,
     promptDoc: VALID_PROMPT_DOC,
+    status: 'draft' as GenerationDraftStatus,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,

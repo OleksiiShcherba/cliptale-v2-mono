@@ -6,11 +6,21 @@
 
 import type { PromptDoc } from '../schemas/promptDoc.schema.js';
 
-/** Payload for a `media-ingest` job — carries everything the worker needs to process an asset. */
+/**
+ * Payload for a `media-ingest` job — carries everything the worker needs to process an asset.
+ *
+ * Either `assetId` (legacy `project_assets_current` row) or `fileId` (new `files` row) must
+ * be provided. Workers check which field is present to decide which table to update.
+ * Both are allowed simultaneously during the migration window; after Batch 1 is complete
+ * and `project_assets_current` is retired, `assetId` will be removed.
+ */
 export type MediaIngestJobPayload = {
+  /** Legacy asset row ID — for existing `project_assets_current` ingest jobs. */
   assetId: string;
   storageUri: string;
   contentType: string;
+  /** New `files` table row ID — present when the upload was initiated via `POST /files/upload-url`. */
+  fileId?: string;
 };
 
 /** Payload for a `transcription` job — carries everything the worker needs to transcribe an asset via Whisper. */

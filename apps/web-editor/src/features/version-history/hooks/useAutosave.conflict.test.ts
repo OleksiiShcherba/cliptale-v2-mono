@@ -19,6 +19,7 @@ vi.mock('@/store/history-store', () => ({
 
 vi.mock('@/features/version-history/api', () => ({
   saveVersion: vi.fn(),
+  fetchLatestVersion: vi.fn(),
 }));
 
 
@@ -30,9 +31,11 @@ import { FAKE_DOC, FAKE_PATCHES, FAKE_INVERSE } from './useAutosave.fixtures';
 
 const mockGetSnapshot = vi.mocked(projectStoreModule.getSnapshot);
 const mockSubscribeToProject = vi.mocked(projectStoreModule.subscribe);
+const mockSetCurrentVersionId = vi.mocked(projectStoreModule.setCurrentVersionId);
 const mockHasPendingPatches = vi.mocked(historyStoreModule.hasPendingPatches);
 const mockDrainPatches = vi.mocked(historyStoreModule.drainPatches);
 const mockSaveVersion = vi.mocked(versionApi.saveVersion);
+const mockFetchLatestVersion = vi.mocked(versionApi.fetchLatestVersion);
 
 function setupDefaultMocks(): void {
   mockGetSnapshot.mockReturnValue(FAKE_DOC as ReturnType<typeof mockGetSnapshot>);
@@ -179,5 +182,89 @@ describe('useAutosave — beforeunload', () => {
     });
 
     expect(mockSaveVersion).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — resolveConflictByOverwrite
+// ---------------------------------------------------------------------------
+
+describe('useAutosave — resolveConflictByOverwrite', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    setupDefaultMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('overwrite flow: re-reads latest versionId, updates parent, issues save, transitions to saved', async () => {
+    const latestVersionId = 55;
+    const newVersionId = 56;
+    const savedAt = '2026-04-17T10:00:00.000Z';
+
+    mockFetchLatestVersion.mockResolvedValue({
+      versionId: latestVersionId,
+      docJson: FAKE_DOC as ReturnType<typeof mockGetSnapshot>,
+      createdAt: savedAt,
+    });
+    mockSaveVersion.mockResolvedValue({ versionId: newVersionId, createdAt: savedAt });
+    // Overwrite bypasses hasPendingPatches guard — patches may be empty after prior drain.
+    mockHasPendingPatches.mockReturnValue(false);
+    mockDrainPatches.mockReturnValue({ patches: [], inversePatches: [] });
+
+    const { result } = await act(async () => renderHook(() => useAutosave('test-project-001')));
+
+    await act(async () => {
+      await result.current.resolveConflictByOverwrite();
+    });
+
+    expect(mockFetchLatestVersion).toHaveBeenCalledWith('test-project-001');
+    expect(mockSetCurrentVersionId).toHaveBeenCalledWith(latestVersionId);
+    expect(mockSaveVersion).toHaveBeenCalledWith('test-project-001', expect.objectContaining({
+      parentVersionId: null, // getCurrentVersionId mock returns null; setCurrentVersionId is separate
+    }));
+    expect(result.current.saveStatus).toBe('saved');
+  });
+
+  it('overwrite with repeat 409 stays on conflict — no infinite retry', async () => {
+    const conflictError = Object.assign(new Error('conflict'), { status: 409 });
+
+    mockFetchLatestVersion.mockResolvedValue({
+      versionId: 10,
+      docJson: FAKE_DOC as ReturnType<typeof mockGetSnapshot>,
+      createdAt: new Date().toISOString(),
+    });
+    mockSaveVersion.mockRejectedValue(conflictError);
+    mockHasPendingPatches.mockReturnValue(false);
+    mockDrainPatches.mockReturnValue({ patches: [], inversePatches: [] });
+
+    const { result } = await act(async () => renderHook(() => useAutosave('test-project-001')));
+
+    await act(async () => {
+      await result.current.resolveConflictByOverwrite();
+    });
+
+    // Status stays conflict — no infinite retry
+    expect(result.current.saveStatus).toBe('conflict');
+    // saveVersion was called exactly once (no loop)
+    expect(mockSaveVersion).toHaveBeenCalledOnce();
+  });
+
+  it('overwrite keeps conflict state when fetchLatestVersion fails', async () => {
+    mockFetchLatestVersion.mockRejectedValue(new Error('Network error'));
+
+    const { result } = await act(async () => renderHook(() => useAutosave('test-project-001')));
+
+    await act(async () => {
+      await result.current.resolveConflictByOverwrite();
+    });
+
+    // fetchLatestVersion failed — should not call saveVersion
+    expect(mockSaveVersion).not.toHaveBeenCalled();
+    // Status stays as is (idle from start in this test — conflict isn't pre-set here)
+    expect(result.current.saveStatus).toBe('idle');
   });
 });

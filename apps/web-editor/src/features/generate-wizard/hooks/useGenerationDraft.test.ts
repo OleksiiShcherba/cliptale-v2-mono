@@ -61,7 +61,7 @@ describe('useGenerationDraft', () => {
   // -------------------------------------------------------------------------
 
   it('makes no API request when setDoc is never called', async () => {
-    const { result } = renderHook(() => useGenerationDraft(EMPTY_DOC), {
+    const { result } = renderHook(() => useGenerationDraft({ initial: EMPTY_DOC }), {
       wrapper: makeWrapper(),
     });
 
@@ -82,7 +82,7 @@ describe('useGenerationDraft', () => {
   it('calls createDraft after 800ms debounce on first setDoc and stores the returned id', async () => {
     mockCreateDraft.mockResolvedValue(DRAFT_RESPONSE);
 
-    const { result } = renderHook(() => useGenerationDraft(EMPTY_DOC), {
+    const { result } = renderHook(() => useGenerationDraft({ initial: EMPTY_DOC }), {
       wrapper: makeWrapper(),
     });
 
@@ -110,7 +110,7 @@ describe('useGenerationDraft', () => {
       new Promise<typeof DRAFT_RESPONSE>((res) => { resolveCreate = res; }),
     );
 
-    const { result } = renderHook(() => useGenerationDraft(EMPTY_DOC), {
+    const { result } = renderHook(() => useGenerationDraft({ initial: EMPTY_DOC }), {
       wrapper: makeWrapper(),
     });
 
@@ -132,7 +132,7 @@ describe('useGenerationDraft', () => {
   // -------------------------------------------------------------------------
 
   it('treats setDoc with the same doc content as a no-op — no request is made', async () => {
-    const { result } = renderHook(() => useGenerationDraft(DOC_A), {
+    const { result } = renderHook(() => useGenerationDraft({ initial: DOC_A }), {
       wrapper: makeWrapper(),
     });
 

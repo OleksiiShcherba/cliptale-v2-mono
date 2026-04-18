@@ -39,6 +39,8 @@ export interface TopBarProps {
   onToggleSettings: () => void;
   /** Called when the Sign Out button is clicked. */
   onLogout: () => void;
+  /** Called when the Home button is clicked — navigates back to the Home hub. */
+  onNavigateHome: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,8 +68,11 @@ export function TopBar({
   isSettingsOpen,
   onToggleSettings,
   onLogout,
+  onNavigateHome,
 }: TopBarProps): React.ReactElement {
-  const { saveStatus, lastSavedAt, hasEverEdited } = useAutosave(projectId);
+  const { saveStatus, lastSavedAt, hasEverEdited, save, resolveConflictByOverwrite } = useAutosave(projectId);
+
+  const isSaving = saveStatus === 'saving';
 
   const exportButtonStyle = !canExport
     ? styles.exportButtonDisabled
@@ -77,7 +82,26 @@ export function TopBar({
 
   return (
     <header style={styles.topBar} aria-label="Editor top bar">
-      <span style={styles.topBarTitle}>ClipTale Editor</span>
+      <div style={styles.topBarLeft}>
+        <button
+          type="button"
+          style={styles.homeButton}
+          onClick={onNavigateHome}
+          aria-label="Go to home"
+        >
+          {/* House icon */}
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path
+              d="M1 5.5L6 1L11 5.5V11H7.5V8H4.5V11H1V5.5Z"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinejoin="round"
+            />
+          </svg>
+          Home
+        </button>
+        <span style={styles.topBarTitle}>ClipTale Editor</span>
+      </div>
       <div style={styles.topBarRight}>
         {/* Undo / Redo */}
         <div style={styles.undoRedoGroup}>
@@ -133,10 +157,21 @@ export function TopBar({
           </button>
         </div>
 
+        <button
+          type="button"
+          style={isSaving ? styles.saveButtonDisabled : styles.saveButton}
+          onClick={isSaving ? undefined : () => { void save(); }}
+          aria-label="Save project"
+          aria-disabled={isSaving}
+          disabled={isSaving}
+        >
+          {isSaving ? 'Saving\u2026' : 'Save'}
+        </button>
         <SaveStatusBadge
           saveStatus={saveStatus}
           lastSavedAt={lastSavedAt}
           hasEverEdited={hasEverEdited}
+          onOverwrite={resolveConflictByOverwrite}
         />
         <button
           type="button"

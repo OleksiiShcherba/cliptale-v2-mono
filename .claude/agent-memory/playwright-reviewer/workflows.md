@@ -2,8 +2,11 @@
 name: Known Working Workflows
 description: Confirmed working user journeys in ClipTale editor, verified by Playwright screenshots
 type: project
-updated: 2026-04-09
+updated: 2026-04-18
 ---
+
+## Subtask 3 Verification (2026-04-18)
+**[FE] Move ai-generation feature → shared/ai-generation/** — Pure import-path refactoring verified via E2E smoke test. Editor shell, AI Generation panel, and Home page all load correctly. No regressions detected. Status: PASSED.
 
 All workflows start at http://localhost:5173/ (single-page app, all features on one route).
 
@@ -262,3 +265,47 @@ As of 2026-04-09, the following changes are permanent:
 - NEW: AssetPickerField now supports `mediaType: 'audio'` for audio_url inputs
 - NEW: SchemaFieldInput.tsx has audio_url and audio_upload field type handlers
 - All 1555 web-editor tests pass
+
+## Workflow 24: Drag-and-drop assets into PromptEditor + X-icon chip removal (subtask 6, verified 2026-04-18)
+- Navigate to /generate (requires login/auth)
+- PromptEditor renders with [contenteditable] attribute (dark text input area at left, "0 / 2000" counter at bottom right)
+- Toolbar shows buttons: "AI Enhance", "Insert Video", "Insert Image", "Insert Audio"
+- MediaGalleryPanel on right shows "Media Gallery" with "Recent/Folders" tabs and "No assets yet" placeholder
+- DRAG-AND-DROP (E2E): Browser-only feature — caretPositionFromPoint API not supported in jsdom; unit tests verify drop parsing and insertion logic
+- CHIP × ICON REMOVAL: ✅ 3 unit tests in PromptEditor.test.tsx verify:
+  - Each chip renders button with aria-label="Remove <label>" and data-chip-remove="true"
+  - Clicking × button removes the chip from the doc (onChange fires)
+  - Clicking × on one chip does not affect other chips
+- BACKSPACE DELETION: ✅ Verified by subtask 5 fix (maintained) — handleKeyDown walks backward past empty text nodes to delete preceding chips
+- ASSET DRAG: ✅ 7 unit tests in AssetThumbCard.drag.test.tsx verify draggable=true, correct MIME type (application/x-cliptale-asset), JSON payload
+- DROP INSERTION: ✅ 8 unit tests in PromptEditor.drag.test.tsx verify:
+  - dragover accepts only cliptale-asset MIME, rejects wrong types
+  - drop parses JSON, inserts video/audio/image chips at caret position
+  - fallback behavior for jsdom (no caretPositionFromPoint) appends at end
+  - preserves existing chips after drop
+- REGRESSION: All 1969 web-editor tests pass (no regressions from subtask 5 or 6)
+
+## Workflow 25: HomePage scroll fix + Create Storyboard draft (subtask 1, verified 2026-04-18)
+- Navigate to / (HomePage — Home Hub landing, post-login required)
+- SCROLL FIX: Main content area `<main role="tabpanel">` renders with:
+  - clientHeight = 900px (viewport height)
+  - scrollHeight = 1857px+ (exceeds viewport when many cards exist)
+  - overflow = 'auto' (CSS computed style)
+  - canScroll = true (scrollHeight > clientHeight)
+  - Outer flex container: `height: 100vh`, child `<main>`: `minHeight: 0` to bind scroll bounds
+  - Multiple project cards (responsive 3-col grid ≥1440px) all visible without page-level overflow
+- PROJECTS PANEL: Default tab on mount; shows 3+ project cards, "Create New Project" button, "Projects" heading (h1)
+- STORYBOARD PANEL: Accessible via `?tab=storyboard` query param; shows storyboard cards with "DRAFT" badge, "Resume" button, "Create Storyboard" button (top-right, purple #7C3AED)
+- CREATE STORYBOARD WORKFLOW:
+  - Click "Create Storyboard" button (enabled state, white text)
+  - Button enters disabled state, text shows "Creating…" (async guard)
+  - Network: POST /generation-drafts fires with body `{ schemaVersion: 1, blocks: [] }`
+  - 201 response returns `{ id: <uuid>, ... }`
+  - Navigation to `/generate?draftId={id}` succeeds
+  - Wizard page loads (GenerateWizardPage — step 1 "Script & Media" active)
+  - WizardStepper visible with 3 nodes (1 active)
+  - "Back to Storyboard" button rendered (left side, navigates to `/?tab=storyboard`)
+  - useGenerationDraft hook auto-hydrates from ?draftId= param (no wizard-side changes)
+  - Error fallback: if POST fails, navigates to `/generate` (no draftId) — wizard creates fresh draft on first autosave
+- No JS errors, no regressions on Projects/Storyboard/Home panels
+- Selectors: `button:has-text("Create Storyboard")` works reliably; `[role="tabpanel"]` finds active tab; `h1:has-text("Projects")` or `h1:has-text("Storyboards")` detect panel heading

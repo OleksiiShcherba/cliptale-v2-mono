@@ -97,6 +97,35 @@ export async function listVersions(projectId: string): Promise<ProjectVersionSum
   return versionRepository.listVersions(projectId);
 }
 
+/** Shape returned by `getLatestVersion`. */
+export type LatestVersionResult = {
+  versionId: number;
+  docJson: unknown;
+  createdAt: Date;
+};
+
+/**
+ * Returns the latest version for a project including its full `doc_json`.
+ * Throws `NotFoundError` (404) when the project has no versions yet.
+ */
+export async function getLatestVersion(projectId: string): Promise<LatestVersionResult> {
+  const latestVersionId = await versionRepository.getLatestVersionId(projectId);
+  if (latestVersionId === null) {
+    throw new NotFoundError(`No versions found for project "${projectId}"`);
+  }
+
+  const version = await versionRepository.getVersionById(projectId, latestVersionId);
+  if (!version) {
+    throw new NotFoundError(`Version ${latestVersionId} not found for project "${projectId}"`);
+  }
+
+  return {
+    versionId: version.versionId,
+    docJson: version.docJson,
+    createdAt: version.createdAt,
+  };
+}
+
 /** Parameters for restoring a project to a prior version. */
 export type RestoreVersionParams = {
   projectId: string;

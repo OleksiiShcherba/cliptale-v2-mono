@@ -5,6 +5,10 @@ import type {
   TextBlock,
 } from '@ai-video-editor/project-schema';
 
+// Pure doc-level helpers (no DOM). Re-exported here so existing import sites
+// that import from `./promptEditorDOM` continue to work without changes.
+export { countTextChars, insertMediaRefAtOffset } from './promptEditorInsert';
+
 const TEXT_PRIMARY = '#F0F0FA';
 
 // Media-ref chip color palette (docs/design-guide.md §3)
@@ -40,8 +44,8 @@ export function createChipElement(block: MediaRefBlock): HTMLSpanElement {
     display: 'inline-flex',
     alignItems: 'center',
     gap: '4px',
-    padding: '2px 6px',
-    margin: '0 2px',
+    padding: '4px 8px',  // space-1 / space-2 tokens (4px grid)
+    margin: '0 4px',     // space-1 token (4px grid)
     borderRadius: '4px',
     fontSize: '12px',
     fontWeight: '500',
@@ -49,11 +53,66 @@ export function createChipElement(block: MediaRefBlock): HTMLSpanElement {
     color: TEXT_PRIMARY,
     background: CHIP_COLORS[block.mediaType],
     verticalAlign: 'baseline',
+    // userSelect: 'all' on the chip wrapper — lets the user select the chip as
+    // an atomic unit, but the cross button inside must stop propagation so that
+    // clicking it does not accidentally trigger a selection-change that moves
+    // the caret outside the chip before the removeChild fires.
     userSelect: 'all',
     cursor: 'default',
   });
-  span.textContent = block.label;
+
+  const labelNode = document.createTextNode(block.label);
+  span.appendChild(labelNode);
+
+  // × cross-icon delete button
+  const btn = document.createElement('button');
+  btn.setAttribute('type', 'button');
+  btn.setAttribute('aria-label', `Remove ${block.label}`);
+  btn.setAttribute('data-chip-remove', 'true');
+  Object.assign(btn.style, {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0',
+    margin: '0 0 0 4px',   // space-1 token (4px grid)
+    width: '16px',          // 4px-grid aligned (radius-sm icon size)
+    height: '16px',         // 4px-grid aligned
+    borderRadius: '4px',    // radius-sm token
+    border: 'none',
+    // TODO: refactor to token when chip-button-bg token exists — no opacity token
+    // in design-guide §3 for this case; rgba(255,255,255,0.25) is acceptable interim.
+    background: 'rgba(255,255,255,0.25)',
+    color: TEXT_PRIMARY,
+    fontSize: '12px',       // label token (12px 500 Medium) per design-guide §3
+    lineHeight: '1',
+    cursor: 'pointer',
+    flexShrink: '0',
+    // Prevent the button click from propagating into the contenteditable area
+    // in a way that triggers unwanted focus/caret shifts.
+    verticalAlign: 'middle',
+  });
+  btn.textContent = '×';
+  span.appendChild(btn);
+
   return span;
+}
+
+/**
+ * Removes `chipEl` from its parent and calls `onRemove` so the host can
+ * serialize the updated DOM back to a `PromptDoc`.
+ *
+ * The button inside the chip uses `e.preventDefault()` / `e.stopPropagation()`
+ * so that the click does not fire the contenteditable `input` event or shift
+ * the caret to an unexpected position before the removal is committed.
+ */
+export function removeChipByElement(
+  chipEl: HTMLElement,
+  onRemove: (root: HTMLElement) => void,
+): void {
+  const root = chipEl.parentElement;
+  if (!root) return;
+  root.removeChild(chipEl);
+  onRemove(root);
 }
 
 /** Replaces `root`'s children with a flat DOM representation of `doc`. */
@@ -107,15 +166,6 @@ export function serializeDOMToDoc(root: HTMLElement): PromptDoc {
 
   if (blocks.length === 0) blocks.push({ type: 'text', value: '' });
   return { schemaVersion: 1, blocks };
-}
-
-/** Total number of text characters in `doc` (chips are not counted). */
-export function countTextChars(doc: PromptDoc): number {
-  let total = 0;
-  for (const b of doc.blocks) {
-    if (b.type === 'text') total += b.value.length;
-  }
-  return total;
 }
 
 /**
@@ -199,64 +249,6 @@ export function setLinearCaretOffset(root: HTMLElement, target: number): void {
     sel.removeAllRanges();
     sel.addRange(range);
   }
-}
-
-/**
- * Inserts `chip` at linear offset `offset` within `doc`. Splits the containing
- * text block when the offset falls inside one, and pads with empty text blocks
- * at chip-adjacent boundaries so the result remains walkable.
- */
-export function insertMediaRefAtOffset(
-  doc: PromptDoc,
-  offset: number,
-  chip: MediaRefBlock,
-): PromptDoc {
-  const out: PromptBlock[] = [];
-  let pos = 0;
-  let inserted = false;
-
-  for (const block of doc.blocks) {
-    if (inserted) {
-      out.push(block);
-      continue;
-    }
-
-    if (block.type === 'text') {
-      const len = block.value.length;
-      if (offset >= pos && offset <= pos + len) {
-        const split = offset - pos;
-        out.push({ type: 'text', value: block.value.slice(0, split) });
-        out.push(chip);
-        out.push({ type: 'text', value: block.value.slice(split) });
-        inserted = true;
-      } else {
-        out.push(block);
-      }
-      pos += len;
-      continue;
-    }
-
-    // chip block
-    if (offset === pos) {
-      out.push({ type: 'text', value: '' });
-      out.push(chip);
-      out.push(block);
-      inserted = true;
-    } else {
-      out.push(block);
-    }
-    pos += 1;
-  }
-
-  if (!inserted) {
-    if (out.length === 0 || out[out.length - 1].type !== 'text') {
-      out.push({ type: 'text', value: '' });
-    }
-    out.push(chip);
-    out.push({ type: 'text', value: '' });
-  }
-
-  return { schemaVersion: 1, blocks: out };
 }
 
 function nodeLinearLength(node: Node): number {

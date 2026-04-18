@@ -10,7 +10,7 @@ import type { PlayerRef } from '@remotion/player';
 import type { AudioClip, CaptionClip, ImageClip, TextOverlayClip, VideoClip } from '@ai-video-editor/project-schema';
 
 import { AssetBrowserPanel } from '@/features/asset-manager/components/AssetBrowserPanel';
-import { AiGenerationPanel } from '@/features/ai-generation/components/AiGenerationPanel';
+import { AiGenerationPanel } from '@/shared/ai-generation/components/AiGenerationPanel';
 import { PreviewPanel } from '@/features/preview/components/PreviewPanel';
 import { PlaybackControls } from '@/features/preview/components/PlaybackControls';
 import { CaptionEditorPanel } from '@/features/captions/components/CaptionEditorPanel';
@@ -192,7 +192,7 @@ export function MobileTabContent({ activeTab, projectId, onSwitchToAssets }: Mob
   }
 
   if (activeTab === 'ai-generate') {
-    return <AiGenerationPanel projectId={projectId} onSwitchToAssets={onSwitchToAssets} />;
+    return <AiGenerationPanel context={{ kind: 'project', id: projectId }} onSwitchToAssets={onSwitchToAssets} />;
   }
 
   if (activeTab === 'captions') {

@@ -230,3 +230,60 @@ describe('PromptEditor', () => {
     expect(screen.getByTestId('prompt-editor-counter').textContent).toBe('5 / 2000');
   });
 });
+
+// ── Chip × cross-icon button ──────────────────────────────────────────────────
+
+describe('PromptEditor — chip × cross-icon', () => {
+  it('renders a button with aria-label="Remove <label>" inside each chip', () => {
+    const initial: PromptDoc = {
+      schemaVersion: 1,
+      blocks: [
+        { type: 'media-ref', mediaType: 'video', assetId: 'v1', label: 'clip.mp4' },
+      ],
+    };
+    render(<ControlledEditor initial={initial} />);
+    const removeBtn = screen.getByRole('button', { name: 'Remove clip.mp4' });
+    expect(removeBtn).toBeTruthy();
+    expect(removeBtn.getAttribute('data-chip-remove')).toBe('true');
+  });
+
+  it('clicking the × button removes the chip from the doc', () => {
+    const onChange = vi.fn();
+    const initial: PromptDoc = {
+      schemaVersion: 1,
+      blocks: [
+        { type: 'text', value: 'hello ' },
+        { type: 'media-ref', mediaType: 'video', assetId: 'v1', label: 'clip.mp4' },
+        { type: 'text', value: ' world' },
+      ],
+    };
+    render(<ControlledEditor initial={initial} onDocChange={onChange} />);
+
+    const removeBtn = screen.getByRole('button', { name: 'Remove clip.mp4' });
+    act(() => { removeBtn.click(); });
+
+    expect(onChange).toHaveBeenCalled();
+    const last = onChange.mock.calls[onChange.mock.calls.length - 1][0] as PromptDoc;
+    expect(last.blocks.some((b) => b.type === 'media-ref')).toBe(false);
+  });
+
+  it('clicking × on one chip does not affect other chips', () => {
+    const onChange = vi.fn();
+    const initial: PromptDoc = {
+      schemaVersion: 1,
+      blocks: [
+        { type: 'media-ref', mediaType: 'video', assetId: 'v1', label: 'first' },
+        { type: 'media-ref', mediaType: 'image', assetId: 'i2', label: 'second' },
+      ],
+    };
+    render(<ControlledEditor initial={initial} onDocChange={onChange} />);
+
+    const removeFirst = screen.getByRole('button', { name: 'Remove first' });
+    act(() => { removeFirst.click(); });
+
+    const last = onChange.mock.calls[onChange.mock.calls.length - 1][0] as PromptDoc;
+    const remaining = last.blocks.filter((b) => b.type === 'media-ref');
+    expect(remaining).toHaveLength(1);
+    expect((remaining[0] as { assetId: string }).assetId).toBe('i2');
+  });
+});

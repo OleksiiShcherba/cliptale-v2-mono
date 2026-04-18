@@ -11,11 +11,13 @@ import type { AiProvider } from '@ai-video-editor/api-contracts';
  * never forwards credentials through the queue. `provider` is a discriminator
  * so the worker can branch by provider without needing to re-derive it from
  * the capability.
+ *
+ * `projectId` was removed in Batch 1 Subtask 8 — jobs are now tied only to
+ * `userId` + `outputFileId`. No project coupling in the job shape.
  */
 export type AiGenerateJobPayload = {
   jobId: string;
   userId: string;
-  projectId: string;
   modelId: string;
   capability: AiCapability;
   provider: AiProvider;

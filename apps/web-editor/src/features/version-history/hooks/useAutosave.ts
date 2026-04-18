@@ -7,7 +7,7 @@ import {
   getCurrentVersionId,
 } from '@/store/project-store';
 import { drainPatches, hasPendingPatches } from '@/store/history-store';
-import { saveVersion } from '@/features/version-history/api';
+import { saveVersion, fetchLatestVersion } from '@/features/version-history/api';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,6 +19,14 @@ export type UseAutosaveResult = {
   saveStatus: SaveStatus;
   lastSavedAt: Date | null;
   hasEverEdited: boolean;
+  /** Triggers an immediate save without waiting for the debounce timer. */
+  save: () => Promise<void>;
+  /**
+   * Resolves a conflict by fetching the latest server version, updating the
+   * local parent pointer, and retrying the save. If the retry still conflicts,
+   * the status stays on `'conflict'` — no infinite retry.
+   */
+  resolveConflictByOverwrite: () => Promise<void>;
 };
 
 // ---------------------------------------------------------------------------
@@ -38,7 +46,10 @@ const DEBOUNCE_MS = 2000;
  * - Debounces 2 s after the last `setProject` call.
  * - On save, drains accumulated patches from history-store and POSTs the full
  *   doc + patches to `POST /projects/:id/versions`.
- * - On 409 conflict: sets `saveStatus` to `'conflict'` (sticky — requires reload).
+ * - On 409 conflict: sets `saveStatus` to `'conflict'`.
+ * - Exposes `save()` for a manual immediate save trigger.
+ * - Exposes `resolveConflictByOverwrite()` to resolve a conflict by fetching
+ *   the latest version, updating the parent pointer, and retrying save.
  * - Adds a `beforeunload` listener to attempt an immediate flush on tab close.
  * - Exposes `saveStatus` and `lastSavedAt` for the header indicator.
  */
@@ -58,12 +69,16 @@ export function useAutosave(projectId: string): UseAutosaveResult {
   }, [saveStatus]);
 
   // ---------------------------------------------------------------------------
-  // Core save function — not debounced; called by both the timer and beforeunload
+  // Core save function — not debounced; called by the timer, beforeunload, and
+  // the manual save trigger.
+  // When `force` is true the hasPendingPatches guard is bypassed so the overwrite
+  // path can POST the current snapshot even after patches were already drained by
+  // the failed optimistic-lock attempt.
   // ---------------------------------------------------------------------------
 
-  const performSave = useCallback(async (): Promise<void> => {
+  const performSave = useCallback(async (force = false): Promise<void> => {
     if (isSavingRef.current) return;
-    if (!hasPendingPatches()) return;
+    if (!force && !hasPendingPatches()) return;
 
     isSavingRef.current = true;
     setSaveStatus('saving');
@@ -96,6 +111,34 @@ export function useAutosave(projectId: string): UseAutosaveResult {
       isSavingRef.current = false;
     }
   }, [projectId]);
+
+  // ---------------------------------------------------------------------------
+  // Manual save trigger — bypasses the debounce, called from the Save button.
+  // ---------------------------------------------------------------------------
+
+  const save = useCallback(async (): Promise<void> => {
+    return performSave();
+  }, [performSave]);
+
+  // ---------------------------------------------------------------------------
+  // Overwrite conflict — fetches latest versionId, updates the parent pointer,
+  // and retries the save from the current snapshot without re-queuing patches.
+  // If the retry still 409s, status remains 'conflict' (no infinite retry).
+  // ---------------------------------------------------------------------------
+
+  const resolveConflictByOverwrite = useCallback(async (): Promise<void> => {
+    try {
+      const latest = await fetchLatestVersion(projectId);
+      setCurrentVersionId(latest.versionId);
+    } catch {
+      // If we cannot fetch the latest version, keep the conflict state.
+      return;
+    }
+
+    // Force-save from the current snapshot even if patch buffer is empty after
+    // the previous failed attempt already drained it.
+    await performSave(true);
+  }, [projectId, performSave]);
 
   // ---------------------------------------------------------------------------
   // Project-store subscription + debounce
@@ -141,5 +184,5 @@ export function useAutosave(projectId: string): UseAutosaveResult {
     };
   }, [performSave]);
 
-  return { saveStatus, lastSavedAt, hasEverEdited };
+  return { saveStatus, lastSavedAt, hasEverEdited, save, resolveConflictByOverwrite };
 }

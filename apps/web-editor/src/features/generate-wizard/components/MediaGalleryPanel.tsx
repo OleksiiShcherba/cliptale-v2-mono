@@ -1,5 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 
+import { useQueryClient } from '@tanstack/react-query';
+
+import { AiGenerationPanel } from '@/shared/ai-generation/components/AiGenerationPanel';
+import { useFileUpload } from '@/shared/file-upload/useFileUpload';
+import { UploadDropzone } from '@/shared/file-upload/UploadDropzone';
 import { useAssets } from '@/features/generate-wizard/hooks/useAssets';
 
 import type { AssetSummary } from '../types';
@@ -10,10 +15,15 @@ import { MediaGalleryHeader } from './MediaGalleryHeader';
 import {
   groupStyles,
   panelStyles,
-  stateStyles,
 } from './mediaGalleryStyles';
 import { MediaGalleryTabs } from './MediaGalleryTabs';
 import type { GalleryTab } from './MediaGalleryTabs';
+import {
+  FoldersPlaceholder,
+  GalleryEmpty,
+  GalleryError,
+  GallerySkeleton,
+} from './MediaGalleryPanelViews';
 
 // ---------------------------------------------------------------------------
 // Formatters
@@ -23,48 +33,6 @@ import type { GalleryTab } from './MediaGalleryTabs';
 function formatGigabytes(bytes: number): string {
   const gb = bytes / (1024 * 1024 * 1024);
   return `${gb.toFixed(2)} GB`;
-}
-
-// ---------------------------------------------------------------------------
-// Internal sub-views
-// ---------------------------------------------------------------------------
-
-/** Three grey skeleton cards while the query is loading. */
-function GallerySkeleton(): React.ReactElement {
-  return (
-    <div style={stateStyles.skeletonGrid} data-testid="gallery-skeleton">
-      <div style={stateStyles.skeletonCard} />
-      <div style={stateStyles.skeletonCard} />
-      <div style={stateStyles.skeletonCard} />
-    </div>
-  );
-}
-
-/** Error state. */
-function GalleryError(): React.ReactElement {
-  return (
-    <div style={stateStyles.centerText} role="alert">
-      Could not load assets
-    </div>
-  );
-}
-
-/** Empty state — shown when `items` is an empty array. */
-function GalleryEmpty(): React.ReactElement {
-  return (
-    <div style={stateStyles.centerText}>
-      No assets yet — upload in the editor
-    </div>
-  );
-}
-
-/** Folders tab placeholder. */
-function FoldersPlaceholder(): React.ReactElement {
-  return (
-    <div style={stateStyles.foldersPlaceholder} data-testid="folders-placeholder">
-      Folders coming soon
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +117,12 @@ function RecentBody({ onAssetSelected }: RecentBodyProps): React.ReactElement {
 export interface MediaGalleryPanelProps {
   /** Called when the user clicks an asset card. Parent wires this to the PromptEditor ref. */
   onAssetSelected: (asset: AssetSummary) => void;
+  /**
+   * The current generation draft ID.
+   * Used to link uploaded files to the draft via `POST /generation-drafts/:id/files`.
+   * When undefined the Upload button is hidden (e.g. during initial draft creation).
+   */
+  draftId: string | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,22 +131,42 @@ export interface MediaGalleryPanelProps {
 
 /**
  * Right-column gallery panel for the Generate Wizard Step 1.
- *
- * - Header: folder icon + "Media Gallery" heading
- * - Tabs: Recent (default) | Folders
- * - Body: grouped asset list (Videos / Images / Audio) with loading/error/empty states
- * - Footer: total count + GB used from the `totals` payload
- *
- * Panel height is 580px per ticket spec; body overflows with scroll.
+ * Tabs: Recent | Folders | AI. AI tab renders AiGenerationPanel scoped to the
+ * current draft; on completion the gallery query is invalidated automatically.
+ * Panel height is 580px per spec; body overflows with scroll.
  */
 export function MediaGalleryPanel({
   onAssetSelected,
+  draftId,
 }: MediaGalleryPanelProps): React.ReactElement {
   const [activeTab, setActiveTab] = useState<GalleryTab>('recent');
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
   const { data } = useAssets({ type: 'all' });
+  const queryClient = useQueryClient();
+
+  const { entries, isUploading, uploadFiles, clearEntries } = useFileUpload({
+    target: draftId
+      ? { kind: 'draft', draftId }
+      : { kind: 'draft', draftId: '' },
+    onUploadComplete: () => {
+      // Invalidate so the gallery refreshes after each file is linked to the draft
+      void queryClient.invalidateQueries({ queryKey: ['generate-wizard', 'assets'] });
+    },
+  });
 
   const totalCount = data?.totals.count ?? 0;
   const gbUsed = data ? formatGigabytes(data.totals.bytesUsed) : '0.00 GB';
+
+  const handleOpenUpload = useCallback(() => setIsUploadOpen(true), []);
+  const handleCloseUpload = useCallback(() => setIsUploadOpen(false), []);
+  const handleDoneUpload = useCallback(() => {
+    clearEntries();
+    setIsUploadOpen(false);
+  }, [clearEntries]);
+
+  // Switch back to Recent tab when AI generation completes and the user clicks
+  // "View in Assets" — gives them direct feedback that the output landed.
+  const handleSwitchToRecent = useCallback(() => setActiveTab('recent'), []);
 
   return (
     <section
@@ -180,11 +174,23 @@ export function MediaGalleryPanel({
       aria-label="Media gallery"
       aria-labelledby="media-gallery-heading"
     >
-      <MediaGalleryHeader />
+      <div style={headerRowStyles}>
+        <MediaGalleryHeader />
+        {draftId && activeTab !== 'ai' && (
+          <button
+            onClick={handleOpenUpload}
+            aria-label="Upload files"
+            data-testid="upload-button"
+            style={uploadButtonStyle}
+          >
+            Upload
+          </button>
+        )}
+      </div>
 
       <MediaGalleryTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
-      {activeTab === 'recent' ? (
+      {activeTab === 'recent' && (
         <div
           id="tabpanel-recent"
           role="tabpanel"
@@ -194,7 +200,9 @@ export function MediaGalleryPanel({
         >
           <RecentBody onAssetSelected={onAssetSelected} />
         </div>
-      ) : (
+      )}
+
+      {activeTab === 'folders' && (
         <div
           id="tabpanel-folders"
           role="tabpanel"
@@ -206,6 +214,27 @@ export function MediaGalleryPanel({
         </div>
       )}
 
+      {activeTab === 'ai' && (
+        <div
+          id="tabpanel-ai"
+          role="tabpanel"
+          aria-labelledby="tab-ai"
+          style={panelStyles.body}
+          data-testid="tabpanel-ai"
+        >
+          {draftId ? (
+            <AiGenerationPanel
+              context={{ kind: 'draft', id: draftId }}
+              onSwitchToAssets={handleSwitchToRecent}
+            />
+          ) : (
+            <p style={aiUnavailableStyle}>
+              AI generation is available after the draft is created.
+            </p>
+          )}
+        </div>
+      )}
+
       <footer style={panelStyles.footer} aria-label="Gallery summary">
         <span style={panelStyles.footerText} data-testid="footer-asset-count">
           {totalCount} {totalCount === 1 ? 'Asset' : 'Assets'}
@@ -214,6 +243,50 @@ export function MediaGalleryPanel({
           {gbUsed} used
         </span>
       </footer>
+
+      {isUploadOpen && (
+        <UploadDropzone
+          entries={entries}
+          isUploading={isUploading}
+          onUploadFiles={uploadFiles}
+          onClose={handleCloseUpload}
+          onDone={handleDoneUpload}
+        />
+      )}
     </section>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
+const headerRowStyles: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  paddingRight: 16,
+  flexShrink: 0,
+};
+
+const uploadButtonStyle: React.CSSProperties = {
+  height: 32,
+  padding: '0 16px',
+  borderRadius: 8,
+  backgroundColor: '#7C3AED',
+  border: 'none',
+  color: '#F0F0FA',
+  fontSize: 12,
+  fontWeight: 500,
+  cursor: 'pointer',
+  fontFamily: 'Inter, sans-serif',
+  flexShrink: 0,
+};
+
+const aiUnavailableStyle: React.CSSProperties = {
+  fontSize: 14,
+  color: '#8A8AA0',
+  textAlign: 'center',
+  marginTop: 32,
+  fontFamily: 'Inter, sans-serif',
+};

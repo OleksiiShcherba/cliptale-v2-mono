@@ -74,6 +74,31 @@ export async function listVersions(
 }
 
 /**
+ * GET /projects/:id/versions/latest
+ *
+ * Returns the most recent version for a project: `{ versionId, docJson, createdAt }`.
+ * Returns 404 when the project has no versions yet.
+ */
+export async function getLatestVersion(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const result = await versionService.getLatestVersion(req.params['id']!);
+    res.status(200).json({
+      versionId: result.versionId,
+      docJson: result.docJson,
+      createdAt: result.createdAt instanceof Date
+        ? result.createdAt.toISOString()
+        : result.createdAt,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * POST /projects/:id/versions/:versionId/restore
  *
  * Restores the project to the specified version. Returns 200 with the full

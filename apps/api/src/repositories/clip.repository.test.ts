@@ -77,11 +77,11 @@ describe('clip.repository — insertClip', () => {
     await insertClip(CAPTION_CLIP_INSERT);
 
     const [, params] = mockExecute.mock.calls[0] as [string, unknown[]];
-    // params: [clipId, projectId, trackId, type, assetId, startFrame, durationFrames, trimIn, trimOut, layer]
+    // params: [clipId, projectId, trackId, type, fileId, startFrame, durationFrames, trimIn, trimOut, layer]
     expect(params[3]).toBe('caption');
   });
 
-  it('sets assetId to null when not provided in ClipInsert', async () => {
+  it('sets fileId to null when not provided in ClipInsert', async () => {
     mockExecute.mockResolvedValueOnce([{ affectedRows: 1 } as ResultSetHeader, []]);
 
     await insertClip(CAPTION_CLIP_INSERT);
@@ -117,19 +117,19 @@ describe('clip.repository — insertClip', () => {
     expect(params[9]).toBe(0);
   });
 
-  it('accepts explicit assetId, trimInFrames, trimOutFrames, and layer', async () => {
+  it('accepts explicit fileId, trimInFrames, trimOutFrames, and layer', async () => {
     mockExecute.mockResolvedValueOnce([{ affectedRows: 1 } as ResultSetHeader, []]);
 
     await insertClip({
       ...CAPTION_CLIP_INSERT,
-      assetId: 'asset-uuid-001',
+      fileId: 'file-uuid-001',
       trimInFrames: 5,
       trimOutFrames: 80,
       layer: 2,
     });
 
     const [, params] = mockExecute.mock.calls[0] as [string, unknown[]];
-    expect(params[4]).toBe('asset-uuid-001');
+    expect(params[4]).toBe('file-uuid-001');
     expect(params[7]).toBe(5);
     expect(params[8]).toBe(80);
     expect(params[9]).toBe(2);

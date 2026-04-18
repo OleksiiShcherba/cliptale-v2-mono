@@ -65,7 +65,8 @@ export type ClipInsert = {
   projectId: string;
   trackId: string;
   type: 'video' | 'audio' | 'text-overlay' | 'image' | 'caption';
-  assetId?: string | null;
+  /** The `files.file_id` backing this clip. Null for text-overlay and caption clips. */
+  fileId?: string | null;
   startFrame: number;
   durationFrames: number;
   trimInFrames?: number;
@@ -80,7 +81,7 @@ export type ClipInsert = {
 export async function insertClip(clip: ClipInsert): Promise<void> {
   await pool.execute<ResultSetHeader>(
     `INSERT INTO project_clips_current
-       (clip_id, project_id, track_id, type, asset_id,
+       (clip_id, project_id, track_id, type, file_id,
         start_frame, duration_frames, trim_in_frames, trim_out_frames, layer)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
@@ -88,7 +89,7 @@ export async function insertClip(clip: ClipInsert): Promise<void> {
       clip.projectId,
       clip.trackId,
       clip.type,
-      clip.assetId ?? null,
+      clip.fileId ?? null,
       clip.startFrame,
       clip.durationFrames,
       clip.trimInFrames ?? 0,
@@ -114,6 +115,26 @@ export async function getClipByIdAndProject(
     [clipId, projectId],
   );
   return rows.length ? mapRow(rows[0]!) : null;
+}
+
+/**
+ * Checks whether `fileId` is linked to `projectId` via the `project_files` pivot.
+ * Returns true when the link exists, false otherwise.
+ *
+ * Used by clip.service before inserting a clip to enforce that
+ * the file belongs to the caller's project.
+ */
+export async function isFileLinkedToProject(
+  projectId: string,
+  fileId: string,
+): Promise<boolean> {
+  const [rows] = await pool.execute<(RowDataPacket & { cnt: number })[]>(
+    `SELECT COUNT(*) AS cnt
+       FROM project_files
+      WHERE project_id = ? AND file_id = ?`,
+    [projectId, fileId],
+  );
+  return (rows[0]?.cnt ?? 0) > 0;
 }
 
 /**

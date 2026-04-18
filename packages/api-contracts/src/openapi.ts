@@ -6,9 +6,12 @@
  * the spec and any consumer types must land in the same commit.
  *
  * Routes documented here:
+ *  - GET /projects                               — list authenticated user's projects (Home hub)
+ *  - POST /projects                              — create project with optional title (Home hub)
  *  - PATCH /projects/{projectId}/clips/{clipId}  — partial clip update (Epic 6)
  *  - GET /assets                                 — global wizard-gallery listing
  *  - POST/GET/PUT/DELETE /generation-drafts      — video generation wizard drafts
+ *  - GET /generation-drafts/cards                — storyboard card summaries (Home hub)
  */
 
 export const openApiSpec = {
@@ -18,6 +21,99 @@ export const openApiSpec = {
     version: '1.0.0',
   },
   paths: {
+    '/projects': {
+      get: {
+        summary: "List the authenticated user's projects",
+        description:
+          'Returns all projects owned by the authenticated user, sorted by updated_at DESC. ' +
+          'Each project summary includes a derived thumbnailUrl from the earliest visual clip ' +
+          '(video or image, ORDER BY start_frame ASC). Caption and audio clips are excluded. ' +
+          'Returns null thumbnailUrl when no visual clip exists.',
+        operationId: 'listProjects',
+        tags: ['projects'],
+        responses: {
+          200: {
+            description: 'List of project summaries.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ListProjectsResponse' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Authenticated user does not have editor role.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+      post: {
+        summary: 'Create a new project',
+        description:
+          'Creates a new empty project owned by the authenticated user. ' +
+          'Accepts an optional title — defaults to "Untitled project".',
+        operationId: 'createProject',
+        tags: ['projects'],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CreateProjectBody' },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Project created.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['projectId'],
+                  properties: {
+                    projectId: { type: 'string', format: 'uuid' },
+                  },
+                },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Authenticated user does not have editor role.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/projects/{projectId}/versions/latest': {
+      get: {
+        summary: 'Get the latest version of a project',
+        description:
+          'Returns the most recent saved version for the project, including the full `docJson` ' +
+          'snapshot. Returns 404 when the project has no versions yet (new project).',
+        operationId: 'getLatestVersion',
+        tags: ['versions'],
+        parameters: [
+          {
+            name: 'projectId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' },
+            description: 'UUID of the project.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Latest version found.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/LatestVersionResponse' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'User does not have viewer access to the project.' },
+          404: { description: 'No versions exist for this project yet.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
     '/projects/{projectId}/clips/{clipId}': {
       patch: {
         summary: 'Partially update a clip',
@@ -167,6 +263,32 @@ export const openApiSpec = {
           400: { description: 'Invalid cursor.' },
           401: { description: 'Missing or invalid session token.' },
           422: { description: 'Unknown `type` value rejected by query validation.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/generation-drafts/cards': {
+      get: {
+        summary: "List storyboard card summaries for the authenticated user's drafts",
+        description:
+          'Returns a per-draft summary suitable for the Storyboard panel card grid. ' +
+          'Each card includes a truncated text preview (≤140 chars from TextBlocks), ' +
+          'up to 3 media preview entries resolved from project_assets_current, and status. ' +
+          'Missing/deleted asset references are silently omitted — no 500 on dangling refs. ' +
+          'Results are sorted by updated_at DESC, scoped to the authenticated user.',
+        operationId: 'listStoryboardCards',
+        tags: ['generation-drafts'],
+        responses: {
+          200: {
+            description: 'List of storyboard card summaries.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ListStoryboardCardsResponse' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid session token.' },
+          403: { description: 'Authenticated user does not have editor role.' },
         },
         security: [{ bearerAuth: [] }],
       },
@@ -405,6 +527,59 @@ export const openApiSpec = {
       },
     },
     schemas: {
+      ProjectSummary: {
+        type: 'object',
+        required: ['projectId', 'title', 'updatedAt', 'thumbnailUrl'],
+        properties: {
+          projectId: { type: 'string', format: 'uuid', description: 'UUID of the project.' },
+          title: { type: 'string', description: 'Project title.' },
+          updatedAt: { type: 'string', format: 'date-time', description: 'Last modified timestamp.' },
+          thumbnailUrl: {
+            type: ['string', 'null'],
+            description:
+              'Thumbnail URL derived from the earliest visual clip (video or image). ' +
+              'Null when no visual clip exists.',
+          },
+        },
+      },
+      ListProjectsResponse: {
+        type: 'object',
+        required: ['items'],
+        properties: {
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/ProjectSummary' },
+          },
+        },
+      },
+      LatestVersionResponse: {
+        type: 'object',
+        required: ['versionId', 'docJson', 'createdAt'],
+        properties: {
+          versionId: {
+            type: 'integer',
+            description: 'ID of the latest version.',
+          },
+          docJson: {
+            type: 'object',
+            description: 'Full ProjectDoc snapshot at this version.',
+          },
+          createdAt: {
+            type: 'string',
+            format: 'date-time',
+            description: 'ISO 8601 timestamp when this version was saved.',
+          },
+        },
+      },
+      CreateProjectBody: {
+        type: 'object',
+        properties: {
+          title: {
+            type: 'string',
+            description: 'Optional project title. Defaults to "Untitled project" when omitted.',
+          },
+        },
+      },
       GenerationDraft: {
         type: 'object',
         required: ['id', 'userId', 'promptDoc', 'createdAt', 'updatedAt'],
@@ -465,6 +640,63 @@ export const openApiSpec = {
           error: {
             type: 'string',
             description: 'Human-readable error message. Present only when status=failed.',
+          },
+        },
+      },
+      MediaPreview: {
+        type: 'object',
+        required: ['assetId', 'type', 'thumbnailUrl'],
+        description: 'A single resolved media-preview entry on a storyboard card.',
+        properties: {
+          assetId: { type: 'string', format: 'uuid', description: 'UUID of the asset.' },
+          type: {
+            type: 'string',
+            enum: ['video', 'image', 'audio'],
+            description: 'Media bucket derived from the asset content-type.',
+          },
+          thumbnailUrl: {
+            type: ['string', 'null'],
+            description: 'API-proxy thumbnail URI, or null when no thumbnail exists for this asset.',
+          },
+        },
+      },
+      StoryboardCardSummary: {
+        type: 'object',
+        required: ['draftId', 'status', 'textPreview', 'mediaPreviews', 'updatedAt'],
+        description: 'Per-draft summary for the Storyboard panel card grid.',
+        properties: {
+          draftId: { type: 'string', format: 'uuid', description: 'UUID of the generation draft.' },
+          status: {
+            type: 'string',
+            enum: ['draft', 'step2', 'step3', 'completed'],
+            description: 'Current wizard progression status of the draft.',
+          },
+          textPreview: {
+            type: 'string',
+            maxLength: 140,
+            description:
+              'First ≤140 characters of concatenated TextBlock values from the promptDoc. ' +
+              'Empty string when the draft contains no TextBlocks.',
+          },
+          mediaPreviews: {
+            type: 'array',
+            maxItems: 3,
+            items: { $ref: '#/components/schemas/MediaPreview' },
+            description:
+              'First ≤3 resolved MediaRefBlock entries. ' +
+              'Missing/deleted assets are silently excluded — length may be less than the ' +
+              'number of MediaRefBlocks in the promptDoc.',
+          },
+          updatedAt: { type: 'string', format: 'date-time', description: 'Last-modified timestamp.' },
+        },
+      },
+      ListStoryboardCardsResponse: {
+        type: 'object',
+        required: ['items'],
+        properties: {
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/StoryboardCardSummary' },
           },
         },
       },

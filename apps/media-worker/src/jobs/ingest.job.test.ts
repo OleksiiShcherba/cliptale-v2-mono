@@ -271,5 +271,85 @@ describe('ingest.job', () => {
       expect(params[3]).toBe(30);          // fps=30 from the actual video stream
       expect(params[0]).toBe(300);         // durationFrames = 10s * 30fps = 300
     });
+
+    // ── fileId branch tests ───────────────────────────────────────────────────
+
+    it('calls setFileReady (not setAssetReady) when fileId is present — happy path', async () => {
+      await processIngestJob(
+        makeJob({ fileId: 'file-abc', contentType: 'video/mp4' }),
+        deps,
+      );
+
+      // setFileReady issues an UPDATE against `files`; setAssetReady targets `project_assets_current`.
+      const call = mockDbExecute.mock.calls[0]!;
+      const sql = call[0] as string;
+      expect(sql).toContain('UPDATE files');
+      expect(sql).not.toContain('project_assets_current');
+      // The last bind parameter must be the fileId, not assetId.
+      const params = call[1] as (string | null | number)[];
+      expect(params[params.length - 1]).toBe('file-abc');
+    });
+
+    it('converts durationSec to durationMs via Math.round(durationSec * 1000) and writes bytes=null', async () => {
+      // Default ffprobe mock returns format.duration='10' → durationSec=10.
+      await processIngestJob(
+        makeJob({ fileId: 'file-abc', contentType: 'video/mp4' }),
+        deps,
+      );
+
+      // setFileReady params: [durationMs, width, height, bytes, fileId]
+      const params = mockDbExecute.mock.calls[0]![1] as (string | null | number)[];
+      expect(params[0]).toBe(10_000);      // durationMs = Math.round(10 * 1000)
+      expect(params[1]).toBe(1920);        // width from ffprobe
+      expect(params[2]).toBe(1080);        // height from ffprobe
+      expect(params[3]).toBeNull();        // bytes intentionally null (S3 HEAD not available)
+      expect(params[4]).toBe('file-abc');  // fileId as row identifier
+    });
+
+    it('produces null durationMs when durationSec is 0', async () => {
+      const ffmpegMod = await import('fluent-ffmpeg');
+      const mockFfprobe = vi.mocked(ffmpegMod.default as never as { ffprobe: (...args: unknown[]) => void });
+
+      const zeroDurationProbe = {
+        streams: [
+          { codec_type: 'video', r_frame_rate: '30/1', width: 1920, height: 1080 } as never,
+          { codec_type: 'audio' } as never,
+        ],
+        format: { duration: '0' } as never,
+        chapters: [] as never[],
+      };
+      mockFfprobe.ffprobe.mockImplementationOnce(
+        (_input, cb: (err: null, data: typeof zeroDurationProbe) => void) => cb(null, zeroDurationProbe),
+      );
+
+      await processIngestJob(
+        makeJob({ fileId: 'file-zero', contentType: 'video/mp4' }),
+        deps,
+      );
+
+      // durationSec=0 → durationMs must be null (condition: durationSec > 0).
+      const params = mockDbExecute.mock.calls[0]![1] as (string | null | number)[];
+      expect(params[0]).toBeNull();        // durationMs = null
+    });
+
+    it('calls setFileError (not setAssetError) when fileId is present and ingest fails', async () => {
+      const s3Err = new Error('S3 file network error');
+      mockS3Send.mockRejectedValueOnce(s3Err);
+
+      await expect(
+        processIngestJob(makeJob({ fileId: 'file-err', contentType: 'video/mp4' }), deps),
+      ).rejects.toBe(s3Err);
+
+      // setFileError targets `files`; setAssetError targets `project_assets_current`.
+      const call = mockDbExecute.mock.calls[0]!;
+      const sql = call[0] as string;
+      expect(sql).toContain('UPDATE files');
+      expect(sql).toContain("status = 'error'");
+      expect(sql).not.toContain('project_assets_current');
+      // Error params: [errorMessage, fileId]
+      const params = call[1] as (string | null | number)[];
+      expect(params[0]).toBe('S3 file network error');
+      expect(params[1]).toBe('file-err');
+    });
   });
 });

@@ -19,6 +19,7 @@ vi.mock('@/store/history-store', () => ({
 
 vi.mock('@/features/version-history/api', () => ({
   saveVersion: vi.fn(),
+  fetchLatestVersion: vi.fn(),
 }));
 
 
@@ -102,6 +103,20 @@ describe('useAutosave — save', () => {
     expect(mockSaveVersion).toHaveBeenCalledWith('test-project-001', expect.objectContaining({
       parentVersionId: 7,
     }));
+  });
+
+  it('manual save() triggers the API call immediately without debounce elapse', async () => {
+    mockSaveVersion.mockResolvedValue({ versionId: 99, createdAt: new Date().toISOString() });
+
+    const { result } = await act(async () => renderHook(() => useAutosave('test-project-001')));
+
+    // Call save() without triggering any subscription change (no debounce needed)
+    await act(async () => {
+      await result.current.save();
+    });
+
+    expect(mockSaveVersion).toHaveBeenCalledOnce();
+    expect(result.current.saveStatus).toBe('saved');
   });
 
   it('does not start a second save while one is already in flight', async () => {

@@ -20,6 +20,13 @@ vi.mock('@/features/generate-wizard/api', () => ({
   createDraft: vi.fn().mockResolvedValue({ id: 'draft-1', promptDoc: {}, createdAt: '', updatedAt: '' }),
   updateDraft: vi.fn().mockResolvedValue({ id: 'draft-1', promptDoc: {}, createdAt: '', updatedAt: '' }),
   deleteDraft: vi.fn().mockResolvedValue(undefined),
+  fetchDraft: vi.fn().mockResolvedValue({
+    id: 'draft-abc',
+    userId: 'user-1',
+    promptDoc: { schemaVersion: 1, blocks: [{ type: 'text', value: 'Resumed draft content' }] },
+    createdAt: '2026-04-17T10:00:00.000Z',
+    updatedAt: '2026-04-17T10:00:00.000Z',
+  }),
 }));
 
 vi.mock('@/lib/api-client', () => ({
@@ -41,10 +48,14 @@ const { mockSetDoc, mockFlush } = vi.hoisted(() => ({
 }));
 
 // Mock useGenerationDraft so no real autosave timers or mutations fire.
+// When initialDraftId is provided, return a pre-hydrated doc matching the
+// fetchDraft mock response so the page renders the resumed content.
 vi.mock('@/features/generate-wizard/hooks/useGenerationDraft', () => ({
-  useGenerationDraft: () => ({
-    draftId: 'draft-1',
-    doc: { schemaVersion: 1, blocks: [{ type: 'text', value: '' }] },
+  useGenerationDraft: (opts?: { initialDraftId?: string | null }) => ({
+    draftId: opts?.initialDraftId ?? 'draft-1',
+    doc: opts?.initialDraftId
+      ? { schemaVersion: 1, blocks: [{ type: 'text', value: 'Resumed draft content' }] }
+      : { schemaVersion: 1, blocks: [{ type: 'text', value: '' }] },
     setDoc: mockSetDoc,
     status: 'idle',
     lastSavedAt: null,
@@ -115,12 +126,12 @@ vi.mock('./EnhancePreviewModal', () => ({
 // Render helper
 // ---------------------------------------------------------------------------
 
-function renderPage() {
+function renderPage(initialEntries: string[] = ['/generate']) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <QueryClientProvider client={queryClient}>
         <GenerateWizardPage />
       </QueryClientProvider>
@@ -261,4 +272,19 @@ describe('GenerateWizardPage', () => {
     fireEvent.click(screen.getByTestId('mock-discard-button'));
     expect(mockEnhanceReset).toHaveBeenCalledTimes(1);
   });
+
+  // ── Subtask 7 — resume-draft (?draftId=<id>) case ─────────────────────────
+
+  it('renders with pre-populated promptDoc when ?draftId=abc is in the URL', () => {
+    renderPage(['/generate?draftId=abc']);
+
+    // The mock useGenerationDraft returns "Resumed draft content" when
+    // initialDraftId is set, so the PromptEditor receives that doc.
+    // We verify the editor container mounts (content is internal to PromptEditor).
+    expect(screen.getByTestId('prompt-editor')).toBeTruthy();
+    // The wizard chrome is intact.
+    expect(screen.getByRole('navigation', { name: 'Wizard steps' })).toBeTruthy();
+    expect(screen.getByTestId('wizard-footer')).toBeTruthy();
+  });
+
 });

@@ -1,10 +1,13 @@
 import React, { useCallback, useRef } from 'react';
 
+import { useNavigate, useSearchParams } from 'react-router-dom';
+
 import { useEnhancePrompt } from '@/features/generate-wizard/hooks/useEnhancePrompt';
 import { useGenerationDraft } from '@/features/generate-wizard/hooks/useGenerationDraft';
 import type { AssetSummary, PromptDoc } from '../types';
 
 import type { PromptEditorHandle } from './PromptEditor';
+import { BackToStoryboardButton } from './BackToStoryboardButton';
 import { EnhancePreviewModal } from './EnhancePreviewModal';
 import { MediaGalleryPanel } from './MediaGalleryPanel';
 import { ProTipCard } from './ProTipCard';
@@ -37,7 +40,11 @@ export function GenerateWizardPage(): React.ReactElement {
   const [windowWidth, setWindowWidth] = React.useState(() =>
     typeof window !== 'undefined' ? window.innerWidth : 1280,
   );
-  const { draftId, doc, setDoc, flush } = useGenerationDraft();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Read ?draftId=<id> from the URL — present when resuming an existing draft.
+  const initialDraftId = searchParams.get('draftId');
+  const { draftId, doc, setDoc, flush } = useGenerationDraft({ initialDraftId });
   const { start, status, proposedDoc, error, reset } = useEnhancePrompt(draftId);
   const promptEditorRef = useRef<PromptEditorHandle>(null);
 
@@ -63,6 +70,16 @@ export function GenerateWizardPage(): React.ReactElement {
     });
   }, []);
 
+  /**
+   * Navigate home with a query-param hint to open the Storyboard tab.
+   * Query param (`?tab=storyboard`) was chosen over sessionStorage because it
+   * is bookmarkable and does not require cleanup — absence keeps the default
+   * (Projects tab).
+   */
+  const handleBackToStoryboard = useCallback((): void => {
+    navigate('/?tab=storyboard');
+  }, [navigate]);
+
   /** Called by PromptToolbar AI Enhance button. */
   const handleEnhance = useCallback((): void => {
     start(doc);
@@ -84,9 +101,13 @@ export function GenerateWizardPage(): React.ReactElement {
 
   return (
     <div style={styles.page}>
-      {/* Header — WizardStepper */}
+      {/* Header — Back-to-Storyboard button (left) + WizardStepper (center) */}
       <header style={styles.header}>
-        <WizardStepper currentStep={1} />
+        <BackToStoryboardButton onClick={handleBackToStoryboard} />
+        {/* Full-width wrapper ensures WizardStepper centers across the whole header */}
+        <div style={styles.stepperWrapper}>
+          <WizardStepper currentStep={1} />
+        </div>
       </header>
 
       {/* Two-column body */}
@@ -119,7 +140,7 @@ export function GenerateWizardPage(): React.ReactElement {
           aria-label="Video road map"
           data-testid="wizard-right-column"
         >
-          <MediaGalleryPanel onAssetSelected={handleAssetSelected} />
+          <MediaGalleryPanel onAssetSelected={handleAssetSelected} draftId={draftId ?? undefined} />
         </section>
       </main>
 
@@ -162,6 +183,13 @@ const styles = {
 
   header: {
     flexShrink: 0,
+    display: 'flex',
+    alignItems: 'stretch',
+    position: 'relative' as const,
+  } as React.CSSProperties,
+
+  stepperWrapper: {
+    flex: 1,
   } as React.CSSProperties,
 
   bodyDesktop: {

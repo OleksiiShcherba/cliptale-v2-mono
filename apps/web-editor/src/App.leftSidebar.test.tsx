@@ -13,13 +13,17 @@ vi.mock('@/features/asset-manager/components/AssetBrowserPanel', () => ({
     React.createElement('div', { 'data-testid': 'asset-browser-panel', 'data-project-id': projectId }),
 }));
 
-vi.mock('@/features/ai-generation/components/AiGenerationPanel', () => ({
-  AiGenerationPanel: ({ projectId }: { projectId: string }) =>
-    React.createElement('div', { 'data-testid': 'ai-generation-panel', 'data-project-id': projectId }),
+vi.mock('@/shared/ai-generation/components/AiGenerationPanel', () => ({
+  AiGenerationPanel: ({ context }: { context: { kind: string; id: string } }) =>
+    React.createElement('div', {
+      'data-testid': 'ai-generation-panel',
+      'data-context-kind': context.kind,
+      'data-context-id': context.id,
+    }),
 }));
 
-vi.mock('@/features/ai-generation/components/LeftSidebarTabs', async () => {
-  const actual = await vi.importActual('@/features/ai-generation/components/LeftSidebarTabs');
+vi.mock('@/shared/ai-generation/components/LeftSidebarTabs', async () => {
+  const actual = await vi.importActual('@/shared/ai-generation/components/LeftSidebarTabs');
   return actual;
 });
 
@@ -150,10 +154,11 @@ describe('App left sidebar tabs', () => {
     expect(screen.queryByTestId('ai-generation-panel')).toBeNull();
   });
 
-  it('passes projectId to AiGenerationPanel', () => {
+  it('passes project context to AiGenerationPanel', () => {
     render(<App />);
     fireEvent.click(screen.getByRole('tab', { name: 'AI Generate' }));
     const panel = screen.getByTestId('ai-generation-panel');
-    expect(panel.getAttribute('data-project-id')).toBe('proj-1');
+    expect(panel.getAttribute('data-context-kind')).toBe('project');
+    expect(panel.getAttribute('data-context-id')).toBe('proj-1');
   });
 });

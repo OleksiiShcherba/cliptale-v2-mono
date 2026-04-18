@@ -79,7 +79,8 @@ describe('LoginPage', () => {
     await waitFor(() => {
       expect(mockLogin).toHaveBeenCalledWith('test@example.com', 'password123');
       expect(mockSetSession).toHaveBeenCalledWith('tok123', mockUser);
-      expect(mockNavigate).toHaveBeenCalledWith('/editor', { replace: true });
+      // Post-login redirect must go to `/` (home hub), not `/editor` (subtask 4)
+      expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true });
     });
   });
 

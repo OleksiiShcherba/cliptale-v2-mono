@@ -1,16 +1,26 @@
+/**
+ * Tests for the useAssetUpload backward-compatibility shim.
+ *
+ * The shim wraps useFileUpload({ target: { kind: 'project', projectId } }).
+ * These tests verify that the shim passes through the projectId and that the
+ * full upload flow (requestUploadUrl → XHR PUT → finalizeFile → linkFileToProject)
+ * still works end-to-end for project callers.
+ *
+ * Detailed coverage of the shared hook lives in
+ * apps/web-editor/src/shared/file-upload/useFileUpload.test.ts.
+ */
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { useAssetUpload } from './useAssetUpload';
-import * as api from '@/features/asset-manager/api';
-import type { Asset } from '@/features/asset-manager/types';
+import * as sharedApi from '@/shared/file-upload/api';
 
-vi.mock('@/features/asset-manager/api');
+vi.mock('@/shared/file-upload/api');
 
-const mockRequestUploadUrl = vi.mocked(api.requestUploadUrl);
-const mockFinalizeAsset = vi.mocked(api.finalizeAsset);
+const mockRequestUploadUrl = vi.mocked(sharedApi.requestUploadUrl);
+const mockFinalizeFile = vi.mocked(sharedApi.finalizeFile);
+const mockLinkFileToProject = vi.mocked(sharedApi.linkFileToProject);
 
-// Capture XHR instances so tests can trigger progress/load/error
 let xhrInstances: MockXhr[] = [];
 
 class MockXhr {
@@ -26,12 +36,6 @@ class MockXhr {
     xhrInstances.push(this);
   }
 
-  triggerProgress(loaded: number, total: number): void {
-    this.upload.onprogress?.(
-      new ProgressEvent('progress', { loaded, total, lengthComputable: true }),
-    );
-  }
-
   triggerLoad(): void {
     this.onload?.(new Event('load'));
   }
@@ -41,37 +45,18 @@ class MockXhr {
   }
 }
 
-function makeAsset(): Asset {
-  return {
-    id: 'asset-1',
-    projectId: 'project-1',
-    filename: 'video.mp4',
-    displayName: null,
-    contentType: 'video/mp4',
-    downloadUrl: 'https://example.com/presigned/key',
-    status: 'processing',
-    durationSeconds: null,
-    width: null,
-    height: null,
-    fileSizeBytes: 1024,
-    thumbnailUri: null,
-    waveformPeaks: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-describe('useAssetUpload', () => {
+describe('useAssetUpload (compat shim)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     xhrInstances = [];
     vi.stubGlobal('XMLHttpRequest', MockXhr);
     mockRequestUploadUrl.mockResolvedValue({
-      assetId: 'asset-1',
+      fileId: 'file-1',
       uploadUrl: 'https://s3.example.com/upload',
       expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
     });
-    mockFinalizeAsset.mockResolvedValue(makeAsset());
+    mockFinalizeFile.mockResolvedValue(undefined);
+    mockLinkFileToProject.mockResolvedValue(undefined);
   });
 
   it('starts with empty entries and isUploading false', () => {
@@ -88,22 +73,10 @@ describe('useAssetUpload', () => {
     await vi.waitFor(() => expect(result.current.entries).toHaveLength(1));
 
     expect(result.current.entries[0].status).toBe('uploading');
-    expect(result.current.entries[0].assetId).toBe('asset-1');
     expect(result.current.isUploading).toBe(true);
   });
 
-  it('updates entry progress as XHR progress events fire', async () => {
-    const { result } = renderHook(() => useAssetUpload({ projectId: 'project-1' }));
-    const file = new File(['data'], 'video.mp4', { type: 'video/mp4' });
-
-    act(() => result.current.uploadFiles([file]));
-    await vi.waitFor(() => expect(xhrInstances.length).toBeGreaterThan(0));
-
-    act(() => xhrInstances[0].triggerProgress(60, 100));
-    expect(result.current.entries[0].progress).toBe(60);
-  });
-
-  it('marks entry done after XHR load event and finalize resolve', async () => {
+  it('marks entry done and calls linkFileToProject after successful upload', async () => {
     const { result } = renderHook(() => useAssetUpload({ projectId: 'project-1' }));
     const file = new File(['data'], 'video.mp4', { type: 'video/mp4' });
 
@@ -112,7 +85,7 @@ describe('useAssetUpload', () => {
     act(() => xhrInstances[0].triggerLoad());
     await vi.waitFor(() => expect(result.current.entries[0]?.status).toBe('done'));
 
-    expect(result.current.entries[0].status).toBe('done');
+    expect(mockLinkFileToProject).toHaveBeenCalledWith('project-1', 'file-1');
     expect(result.current.isUploading).toBe(false);
   });
 
@@ -125,11 +98,10 @@ describe('useAssetUpload', () => {
     act(() => xhrInstances[0].triggerError());
     await vi.waitFor(() => expect(result.current.entries[0]?.status).toBe('error'));
 
-    expect(result.current.entries[0].status).toBe('error');
     expect(result.current.entries[0].error).toBeTruthy();
   });
 
-  it('calls onUploadComplete with assetId when upload succeeds', async () => {
+  it('calls onUploadComplete with fileId when upload succeeds', async () => {
     const onUploadComplete = vi.fn();
     const { result } = renderHook(() =>
       useAssetUpload({ projectId: 'project-1', onUploadComplete }),
@@ -139,7 +111,7 @@ describe('useAssetUpload', () => {
     act(() => result.current.uploadFiles([file]));
     await vi.waitFor(() => expect(xhrInstances.length).toBeGreaterThan(0));
     act(() => xhrInstances[0].triggerLoad());
-    await vi.waitFor(() => expect(onUploadComplete).toHaveBeenCalledWith('asset-1'));
+    await vi.waitFor(() => expect(onUploadComplete).toHaveBeenCalledWith('file-1'));
   });
 
   it('clearEntries resets entries to empty', async () => {

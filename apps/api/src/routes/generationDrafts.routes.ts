@@ -27,6 +27,16 @@ router.get(
   generationDraftsController.listDrafts,
 );
 
+// GET /generation-drafts/cards
+// Returns storyboard card summaries for the authenticated user's drafts.
+// MUST be registered before /:id so Express does not interpret 'cards' as an id param.
+router.get(
+  '/generation-drafts/cards',
+  authMiddleware,
+  aclMiddleware('editor'),
+  generationDraftsController.listCards,
+);
+
 // GET /generation-drafts/:id
 // Returns a single generation draft. Enforces ownership in the service layer.
 router.get(
@@ -75,6 +85,39 @@ router.get(
   authMiddleware,
   aclMiddleware('editor'),
   generationDraftsController.getEnhanceStatus,
+);
+
+// POST /generation-drafts/:draftId/files
+// Links a file (by fileId) to a draft. Both must be owned by the caller.
+// Idempotent — double-linking the same (draft, file) pair returns 204.
+router.post(
+  '/generation-drafts/:draftId/files',
+  authMiddleware,
+  aclMiddleware('editor'),
+  validateBody(generationDraftsController.linkFileToDraftSchema),
+  generationDraftsController.linkFileToDraft,
+);
+
+// GET /generation-drafts/:id/assets
+// Returns all files linked to the draft, serialized as AssetApiResponse[].
+// Registered AFTER /:id/enhance/:jobId to avoid param collision.
+router.get(
+  '/generation-drafts/:id/assets',
+  authMiddleware,
+  aclMiddleware('editor'),
+  generationDraftsController.getDraftAssets,
+);
+
+// POST /generation-drafts/:draftId/ai/generate
+// Submits an AI generation request for a draft. Ownership enforced in the service.
+// Returns 202 { jobId, status: 'queued' } on success.
+// Registered after /:id/assets to avoid any potential param shadowing.
+router.post(
+  '/generation-drafts/:draftId/ai/generate',
+  authMiddleware,
+  aclMiddleware('editor'),
+  validateBody(generationDraftsController.submitDraftAiGenerationSchema),
+  generationDraftsController.submitDraftAiGeneration,
 );
 
 export { router as generationDraftsRouter };

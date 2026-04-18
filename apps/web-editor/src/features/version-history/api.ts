@@ -30,9 +30,38 @@ export type RestoreVersionResponse = {
   docJson: ProjectDoc;
 };
 
+export type LatestVersionResponse = {
+  versionId: number;
+  docJson: ProjectDoc;
+  createdAt: string;
+};
+
 // ---------------------------------------------------------------------------
 // API functions
 // ---------------------------------------------------------------------------
+
+/**
+ * Fetches the latest saved version for a project.
+ * Returns `{ versionId, docJson, createdAt }` on success.
+ * Throws an error with `status: 404` when the project has no versions yet,
+ * so the caller can fall through to the blank-project seed.
+ */
+export async function fetchLatestVersion(projectId: string): Promise<LatestVersionResponse> {
+  const res = await apiClient.get(`/projects/${projectId}/versions/latest`);
+
+  if (res.status === 404) {
+    const err = new Error('No versions found for this project');
+    (err as Error & { status: number }).status = 404;
+    throw err;
+  }
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to fetch latest version (${res.status}): ${body}`);
+  }
+
+  return res.json() as Promise<LatestVersionResponse>;
+}
 
 /**
  * POSTs a new version snapshot to the versions endpoint.

@@ -5,6 +5,9 @@
  * that the provider discriminator lands in the enqueue payload, that audio
  * field types (audio_upload, text) validate correctly, and that fal-specific
  * guards (kling-o3 XOR) are not applied to ElevenLabs models.
+ *
+ * After Batch 1 Subtask 8: `submitGeneration` is user-scoped only — no
+ * `projectId` parameter.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 
@@ -15,7 +18,6 @@ import {
   enqueueMock,
   FIXED_JOB_ID,
   resetMocks,
-  TEST_PROJECT,
   TEST_USER,
 } from './aiGeneration.service.fixtures.js';
 
@@ -32,7 +34,7 @@ describe('aiGeneration.service / ElevenLabs text_to_speech', () => {
   const MODEL = 'elevenlabs/text-to-speech';
 
   it('happy path: enqueues with provider=elevenlabs and capability=text_to_speech', async () => {
-    const result = await submitGeneration(TEST_USER, TEST_PROJECT, {
+    const result = await submitGeneration(TEST_USER, {
       modelId: MODEL,
       options: { text: 'Hello world' },
     });
@@ -55,7 +57,7 @@ describe('aiGeneration.service / ElevenLabs text_to_speech', () => {
   });
 
   it('accepts optional voice_id, stability, and similarity_boost', async () => {
-    await submitGeneration(TEST_USER, TEST_PROJECT, {
+    await submitGeneration(TEST_USER, {
       modelId: MODEL,
       options: { text: 'Hi', voice_id: 'v-abc', stability: 0.6, similarity_boost: 0.8 },
     });
@@ -74,7 +76,7 @@ describe('aiGeneration.service / ElevenLabs text_to_speech', () => {
 
   it('throws ValidationError when required text field is missing', async () => {
     await expect(
-      submitGeneration(TEST_USER, TEST_PROJECT, {
+      submitGeneration(TEST_USER, {
         modelId: MODEL,
         options: {},
       }),
@@ -85,7 +87,7 @@ describe('aiGeneration.service / ElevenLabs text_to_speech', () => {
 
   it('throws ValidationError for unknown field', async () => {
     await expect(
-      submitGeneration(TEST_USER, TEST_PROJECT, {
+      submitGeneration(TEST_USER, {
         modelId: MODEL,
         options: { text: 'Hi', unknown_field: true },
       }),
@@ -100,7 +102,7 @@ describe('aiGeneration.service / ElevenLabs voice_cloning', () => {
 
   it('happy path: audio_upload value passes through as-is (presigned URL)', async () => {
     const uploadUrl = 'https://s3.example.com/presigned-audio.mp3';
-    await submitGeneration(TEST_USER, TEST_PROJECT, {
+    await submitGeneration(TEST_USER, {
       modelId: MODEL,
       options: { name: 'My Clone', audio_sample: uploadUrl },
     });
@@ -119,7 +121,7 @@ describe('aiGeneration.service / ElevenLabs voice_cloning', () => {
 
   it('throws ValidationError when required name field is missing', async () => {
     await expect(
-      submitGeneration(TEST_USER, TEST_PROJECT, {
+      submitGeneration(TEST_USER, {
         modelId: MODEL,
         options: { audio_sample: 'https://example.com/audio.mp3' },
       }),
@@ -133,7 +135,7 @@ describe('aiGeneration.service / ElevenLabs music_generation', () => {
   const MODEL = 'elevenlabs/music-generation';
 
   it('happy path: enqueues with correct capability and provider', async () => {
-    await submitGeneration(TEST_USER, TEST_PROJECT, {
+    await submitGeneration(TEST_USER, {
       modelId: MODEL,
       options: { prompt: 'calm jazz' },
     });
@@ -148,7 +150,7 @@ describe('aiGeneration.service / ElevenLabs music_generation', () => {
   });
 
   it('accepts optional duration field', async () => {
-    await submitGeneration(TEST_USER, TEST_PROJECT, {
+    await submitGeneration(TEST_USER, {
       modelId: MODEL,
       options: { prompt: 'epic drums', duration: 60 },
     });
@@ -167,7 +169,7 @@ describe('aiGeneration.service / ElevenLabs speech_to_speech', () => {
   const MODEL = 'elevenlabs/speech-to-speech';
 
   it('happy path: enqueues with correct capability and provider', async () => {
-    await submitGeneration(TEST_USER, TEST_PROJECT, {
+    await submitGeneration(TEST_USER, {
       modelId: MODEL,
       options: {
         source_audio: 'https://s3.example.com/presigned-source.mp3',
@@ -185,7 +187,7 @@ describe('aiGeneration.service / ElevenLabs speech_to_speech', () => {
 
   it('throws ValidationError when required voice_id is missing', async () => {
     await expect(
-      submitGeneration(TEST_USER, TEST_PROJECT, {
+      submitGeneration(TEST_USER, {
         modelId: MODEL,
         options: { source_audio: 'https://example.com/audio.mp3' },
       }),
@@ -197,7 +199,7 @@ describe('aiGeneration.service / ElevenLabs speech_to_speech', () => {
 
 describe('aiGeneration.service / provider discriminator in enqueue payload', () => {
   it('fal.ai models enqueue with provider=fal', async () => {
-    await submitGeneration(TEST_USER, TEST_PROJECT, {
+    await submitGeneration(TEST_USER, {
       modelId: 'fal-ai/nano-banana-2',
       prompt: 'test',
       options: {},
@@ -209,7 +211,7 @@ describe('aiGeneration.service / provider discriminator in enqueue payload', () 
   });
 
   it('ElevenLabs models enqueue with provider=elevenlabs', async () => {
-    await submitGeneration(TEST_USER, TEST_PROJECT, {
+    await submitGeneration(TEST_USER, {
       modelId: 'elevenlabs/text-to-speech',
       options: { text: 'hi' },
     });

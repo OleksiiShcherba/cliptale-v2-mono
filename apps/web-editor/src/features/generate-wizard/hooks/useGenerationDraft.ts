@@ -2,13 +2,19 @@
  * Debounced autosave hook for the generation-wizard Step 1 draft.
  *
  * Lifecycle:
- *   - First `setDoc` call (doc differs from initial) triggers POST /generation-drafts
- *     after an 800 ms debounce window and stores the returned id in `draftId`.
- *   - Every subsequent `setDoc` call is debounced 800 ms; on fire, it PUTs the latest
- *     doc to PUT /generation-drafts/:draftId.
+ *   - When `initialDraftId` is provided, the hook fetches the existing draft on
+ *     mount, hydrates editor state from `draft.promptDoc`, and wires `draftId`
+ *     so all subsequent autosaves PUT against that id (no new draft row created).
+ *     On 404 / 403 the error is logged at `console.warn` and the hook falls
+ *     through to the normal fresh-start flow transparently.
+ *   - When no `initialDraftId` is given (fresh-start), the first `setDoc` call
+ *     triggers POST /generation-drafts after an 800 ms debounce window and
+ *     stores the returned id in `draftId`.
+ *   - Every subsequent `setDoc` call is debounced 800 ms; on fire, it PUTs the
+ *     latest doc to PUT /generation-drafts/:draftId.
  *   - `flush()` cancels the pending timer and immediately performs the save.
- *   - On failure the request is retried once; if the retry also fails, `status` becomes
- *     'error' and no further automatic retries occur.
+ *   - On failure the request is retried once; if the retry also fails, `status`
+ *     becomes 'error' and no further automatic retries occur.
  *   - The debounce timer is cleared on unmount to prevent setState-after-unmount.
  */
 
@@ -16,7 +22,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useMutation } from '@tanstack/react-query';
 
-import { createDraft, updateDraft } from '@/features/generate-wizard/api';
+import { createDraft, fetchDraft, updateDraft } from '@/features/generate-wizard/api';
 
 import type { PromptDoc, SaveStatus } from '@/features/generate-wizard/types';
 
@@ -31,6 +37,19 @@ const DEBOUNCE_MS = 800;
 // Public types
 // ---------------------------------------------------------------------------
 
+export type UseGenerationDraftOptions = {
+  /**
+   * Optional starting PromptDoc.
+   * Ignored when `initialDraftId` is given and the fetch succeeds.
+   */
+  initial?: PromptDoc;
+  /**
+   * When present, the hook hydrates from the existing draft instead of
+   * starting a fresh create flow.
+   */
+  initialDraftId?: string | null;
+};
+
 export type UseGenerationDraftResult = {
   draftId: string | null;
   doc: PromptDoc;
@@ -44,13 +63,19 @@ export type UseGenerationDraftResult = {
 // Hook
 // ---------------------------------------------------------------------------
 
+/** Default empty document used when no initial content is provided. */
+const DEFAULT_DOC: PromptDoc = { schemaVersion: 1, blocks: [{ type: 'text', value: '' }] };
+
 /**
  * Manages the in-progress generation draft with debounced server persistence.
  *
- * @param initial - Optional starting PromptDoc. Defaults to a single empty text block.
+ * @param options - Optional `initial` PromptDoc and/or `initialDraftId` for
+ *   the resume-draft (hydrate) flow.
  */
-export function useGenerationDraft(initial?: PromptDoc): UseGenerationDraftResult {
-  const initialDoc: PromptDoc = initial ?? { schemaVersion: 1, blocks: [{ type: 'text', value: '' }] };
+export function useGenerationDraft(options: UseGenerationDraftOptions = {}): UseGenerationDraftResult {
+  const { initial, initialDraftId } = options;
+
+  const initialDoc: PromptDoc = initial ?? DEFAULT_DOC;
 
   const [doc, setDocState] = useState<PromptDoc>(initialDoc);
   const [draftId, setDraftId] = useState<string | null>(null);
@@ -82,6 +107,36 @@ export function useGenerationDraft(initial?: PromptDoc): UseGenerationDraftResul
       }
     };
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // Hydrate branch — runs once on mount when initialDraftId is provided.
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!initialDraftId) return;
+
+    let cancelled = false;
+
+    fetchDraft(initialDraftId)
+      .then((draft) => {
+        if (cancelled || !isMountedRef.current) return;
+        // Hydrate both the React state and the stable ref.
+        latestDocRef.current = draft.promptDoc;
+        setDocState(draft.promptDoc);
+        setDraftId(draft.id);
+        draftIdRef.current = draft.id;
+      })
+      .catch((err: unknown) => {
+        // 404 / 403 / network error — fall through to fresh-start silently.
+        console.warn('[useGenerationDraft] hydrate failed; starting fresh.', err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+    // Only run on mount; initialDraftId is derived from a stable URL param.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDraftId]);
 
   // ---------------------------------------------------------------------------
   // Mutations (React Query)
@@ -120,7 +175,7 @@ export function useGenerationDraft(initial?: PromptDoc): UseGenerationDraftResul
           draftIdRef.current = draft.id;
         }
       } else {
-        // Draft exists — update it.
+        // Draft exists (either from hydrate or prior create) — update it.
         await updateMutation.mutateAsync({ id: currentDraftId, promptDoc: docToSave });
       }
     };

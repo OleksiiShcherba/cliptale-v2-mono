@@ -7,6 +7,9 @@ import { formatRelativeDate } from '@/shared/utils/formatRelativeDate';
 const TEXT_SECONDARY = '#8A8AA0';
 const SUCCESS = '#10B981';
 const WARNING = '#F59E0B';
+const SURFACE_ALT = '#16161F';
+const BORDER = '#252535';
+const TEXT_PRIMARY = '#F0F0FA';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -16,6 +19,11 @@ export interface SaveStatusBadgeProps {
   saveStatus: SaveStatus;
   lastSavedAt: Date | null;
   hasEverEdited: boolean;
+  /**
+   * Called when the user clicks "Overwrite" to resolve a conflict by accepting
+   * their local changes over the server's latest version.
+   */
+  onOverwrite?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -29,12 +37,13 @@ export interface SaveStatusBadgeProps {
  * - `idle`     → "Not yet saved" on first load; "Unsaved changes" after the first edit
  * - `saving`   → "Saving…" with a spinning indicator
  * - `saved`    → "Saved [time ago]" with a check mark
- * - `conflict` → "Conflict — reload to get latest" with a warning
+ * - `conflict` → "Conflict" warning with an "Overwrite" action button
  */
 export function SaveStatusBadge({
   saveStatus,
   lastSavedAt,
   hasEverEdited,
+  onOverwrite,
 }: SaveStatusBadgeProps): React.ReactElement {
   const label = getSaveStatusLabel(saveStatus, lastSavedAt, hasEverEdited);
   const color = getSaveStatusColor(saveStatus);
@@ -50,6 +59,16 @@ export function SaveStatusBadge({
         {getSaveStatusIcon(saveStatus)}
       </span>
       {label}
+      {saveStatus === 'conflict' && onOverwrite !== undefined && (
+        <button
+          type="button"
+          style={styles.overwriteButton}
+          onClick={onOverwrite}
+          aria-label="Overwrite server version with local changes"
+        >
+          Overwrite
+        </button>
+      )}
     </span>
   );
 }
@@ -72,7 +91,7 @@ export function getSaveStatusLabel(
     case 'saved':
       return lastSavedAt ? `Saved ${formatRelativeDate(lastSavedAt)}` : 'Saved';
     case 'conflict':
-      return 'Conflict \u2014 reload to get latest';
+      return 'Conflict';
   }
 }
 
@@ -110,12 +129,26 @@ const styles = {
   saveBadge: {
     display: 'inline-flex',
     alignItems: 'center',
-    gap: '6px',
+    gap: '8px',
     fontSize: '12px',
     fontWeight: 400,
   } as React.CSSProperties,
 
   saveBadgeIcon: {
     fontSize: '10px',
+  } as React.CSSProperties,
+
+  overwriteButton: {
+    background: SURFACE_ALT,
+    border: `1px solid ${BORDER}`,
+    borderRadius: '4px',
+    color: TEXT_PRIMARY,
+    fontSize: '12px',
+    fontWeight: 500,
+    fontFamily: 'Inter, sans-serif',
+    padding: '4px 8px',
+    cursor: 'pointer',
+    lineHeight: '16px',
+    marginLeft: '4px',
   } as React.CSSProperties,
 };

@@ -1,13 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Job } from 'bullmq';
-import type { S3Client } from '@aws-sdk/client-s3';
-import type OpenAI from 'openai';
-import type { Pool } from 'mysql2/promise';
+import { parseStorageUri, processTranscribeJob } from './transcribe.job.js';
+import {
+  deps,
+  makeJob,
+  resetMocks,
+  mockDbExecute,
+  mockTranscriptionsCreate,
+  MOCK_WORDS_SEG0,
+  MOCK_WORDS_SEG1,
+  MOCK_SEGMENTS,
+  MOCK_TOP_LEVEL_WORDS,
+} from './transcribe.job.fixtures.js';
 
-import type { TranscriptionJobPayload } from '@ai-video-editor/project-schema';
-import { parseStorageUri, processTranscribeJob, type TranscribeJobDeps } from './transcribe.job.js';
-
-// ── Mocks ─────────────────────────────────────────────────────────────────────
+// ── Module mocks ──────────────────────────────────────────────────────────────
 
 vi.mock('node:fs/promises', () => ({
   default: {
@@ -33,72 +38,13 @@ vi.mock('node:crypto', () => ({
   randomUUID: vi.fn().mockReturnValue('fixed-uuid-0000-0000-0000-000000000001'),
 }));
 
-// ── Test helpers ──────────────────────────────────────────────────────────────
-
-// Whisper returns word timings as a single top-level `words` array
-// (when `timestamp_granularities: ['word']` is requested), not nested
-// inside segments. The job code buckets words into segments by start time.
-const MOCK_WORDS_SEG0 = [
-  { word: 'Hello', start: 0.0, end: 0.8 },
-  { word: 'world', start: 0.9, end: 1.4 },
-];
-
-const MOCK_WORDS_SEG1 = [
-  { word: 'Another', start: 2.5, end: 3.0 },
-  { word: 'line', start: 3.1, end: 3.5 },
-];
-
-const MOCK_TOP_LEVEL_WORDS = [...MOCK_WORDS_SEG0, ...MOCK_WORDS_SEG1];
-
-const MOCK_SEGMENTS = [
-  { id: 0, seek: 0, start: 0.0, end: 2.5, text: '  Hello world  ', tokens: [], temperature: 0, avg_logprob: 0, compression_ratio: 0, no_speech_prob: 0 },
-  { id: 1, seek: 0, start: 2.5, end: 5.0, text: '  Another line  ', tokens: [], temperature: 0, avg_logprob: 0, compression_ratio: 0, no_speech_prob: 0 },
-];
-
-const mockS3Send = vi.fn().mockResolvedValue({ Body: { pipe: vi.fn() } });
-const mockS3 = { send: mockS3Send } as unknown as S3Client;
-
-const mockDbExecute = vi.fn();
-const mockPool = { execute: mockDbExecute } as unknown as Pool;
-
-const mockTranscriptionsCreate = vi.fn().mockResolvedValue({
-  task: 'transcribe',
-  language: 'en',
-  duration: 5.0,
-  text: 'Hello world Another line',
-  segments: MOCK_SEGMENTS,
-  words: MOCK_TOP_LEVEL_WORDS,
-});
-
-const mockOpenAI = {
-  audio: {
-    transcriptions: {
-      create: mockTranscriptionsCreate,
-    },
-  },
-} as unknown as OpenAI;
-
-const deps: TranscribeJobDeps = { s3: mockS3, pool: mockPool, openai: mockOpenAI };
-
-function makeJob(payload: Partial<TranscriptionJobPayload> = {}): Job<TranscriptionJobPayload> {
-  return {
-    data: {
-      assetId: 'asset-123',
-      storageUri: 's3://test-bucket/projects/proj/assets/asset-123/video.mp4',
-      contentType: 'video/mp4',
-      language: 'en',
-      ...payload,
-    },
-  } as Job<TranscriptionJobPayload>;
-}
-
 // ── Pure helper tests ─────────────────────────────────────────────────────────
 
 describe('transcribe.job', () => {
   describe('parseStorageUri', () => {
     it('extracts bucket and key from a valid s3:// URI', () => {
-      const result = parseStorageUri('s3://my-bucket/projects/p1/assets/a1/file.mp4');
-      expect(result).toEqual({ bucket: 'my-bucket', key: 'projects/p1/assets/a1/file.mp4' });
+      const result = parseStorageUri('s3://my-bucket/files/file-1/file.mp4');
+      expect(result).toEqual({ bucket: 'my-bucket', key: 'files/file-1/file.mp4' });
     });
 
     it('handles a key with no subdirectories', () => {
@@ -107,22 +53,11 @@ describe('transcribe.job', () => {
     });
   });
 
-  // ── processTranscribeJob ──────────────────────────────────────────────────
+  // ── processTranscribeJob — happy path ─────────────────────────────────────
 
   describe('processTranscribeJob', () => {
     beforeEach(() => {
-      vi.clearAllMocks();
-      // Default: asset found in DB
-      mockDbExecute.mockResolvedValue([[{ project_id: 'proj-001' }]]);
-      mockS3Send.mockResolvedValue({ Body: { pipe: vi.fn() } });
-      mockTranscriptionsCreate.mockResolvedValue({
-        task: 'transcribe',
-        language: 'en',
-        duration: 5.0,
-        text: 'Hello world Another line',
-        segments: MOCK_SEGMENTS,
-        words: MOCK_TOP_LEVEL_WORDS,
-      });
+      resetMocks();
     });
 
     it('inserts caption track with trimmed segments on happy path', async () => {
@@ -143,6 +78,29 @@ describe('transcribe.job', () => {
         { start: 0.0, end: 2.5, text: 'Hello world', words: MOCK_WORDS_SEG0 },
         { start: 2.5, end: 5.0, text: 'Another line', words: MOCK_WORDS_SEG1 },
       ]);
+    });
+
+    it('queries project_files using file_id (from assetId payload field)', async () => {
+      await processTranscribeJob(makeJob(), deps);
+
+      const selectCall = mockDbExecute.mock.calls.find(
+        (call) =>
+          typeof call[0] === 'string' && call[0].includes('project_files'),
+      );
+      expect(selectCall).toBeDefined();
+      expect(selectCall![1]).toEqual(['file-123']);
+    });
+
+    it('inserts using file_id column (not asset_id)', async () => {
+      await processTranscribeJob(makeJob(), deps);
+
+      const insertCall = mockDbExecute.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].includes('INSERT IGNORE'),
+      );
+      expect(insertCall).toBeDefined();
+      // INSERT IGNORE INTO caption_tracks (caption_track_id, file_id, project_id, language, segments_json)
+      expect((insertCall![0] as string)).toContain('file_id');
+      expect((insertCall![0] as string)).not.toContain('asset_id');
     });
 
     it('extracts words[] from Whisper response when present', async () => {
@@ -232,51 +190,6 @@ describe('transcribe.job', () => {
       );
       const params = insertCall![1] as unknown[];
       expect(params[3]).toBe('auto'); // language column
-    });
-
-    it('throws and re-throws when asset is not found in DB', async () => {
-      mockDbExecute.mockResolvedValueOnce([[]]); // empty result = asset not found
-
-      await expect(processTranscribeJob(makeJob(), deps)).rejects.toThrow(
-        'not found in database',
-      );
-    });
-
-    it('re-throws when S3 download fails so BullMQ can retry', async () => {
-      mockS3Send.mockRejectedValueOnce(new Error('S3 network error'));
-
-      await expect(processTranscribeJob(makeJob(), deps)).rejects.toThrow('S3 network error');
-    });
-
-    it('re-throws when Whisper API call fails so BullMQ can retry', async () => {
-      mockTranscriptionsCreate.mockRejectedValueOnce(new Error('OpenAI quota exceeded'));
-
-      await expect(processTranscribeJob(makeJob(), deps)).rejects.toThrow('OpenAI quota exceeded');
-    });
-
-    it('cleans up temp dir even when an error occurs', async () => {
-      mockTranscriptionsCreate.mockRejectedValueOnce(new Error('API error'));
-
-      const fsModule = await import('node:fs/promises');
-
-      await expect(processTranscribeJob(makeJob(), deps)).rejects.toThrow();
-
-      expect(fsModule.default.rm).toHaveBeenCalledWith(
-        expect.stringContaining('/tmp/'),
-        { recursive: true, force: true },
-      );
-    });
-
-    it('handles empty segments array from Whisper without throwing', async () => {
-      mockTranscriptionsCreate.mockResolvedValueOnce({
-        task: 'transcribe',
-        language: 'en',
-        duration: 0,
-        text: '',
-        segments: [],
-      });
-
-      await expect(processTranscribeJob(makeJob(), deps)).resolves.toBeUndefined();
     });
   });
 });

@@ -37,7 +37,7 @@ export function LoginPage(): React.ReactElement {
     try {
       const result = await loginUser(email, password);
       setSession(result.token, result.user);
-      navigate('/editor', { replace: true });
+      navigate('/', { replace: true });
     } catch (err) {
       setApiError(err instanceof Error ? err.message : 'Login failed');
     } finally {

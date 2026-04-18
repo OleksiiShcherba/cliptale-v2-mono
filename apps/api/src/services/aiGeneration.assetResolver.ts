@@ -1,18 +1,22 @@
 /**
- * Asset-URL resolver for fal.ai generation submissions.
+ * File-URL resolver for AI generation submissions.
  *
- * EPIC 9 Ticket 6 — Walks a model's declared `inputSchema.fields` and rewrites
- * any `image_url` / `image_url_list` field whose value is an internal asset ID
- * into a short-lived presigned HTTPS GET URL the fal.ai worker can fetch
- * directly. Values that are already `https://…` URLs pass through unchanged.
+ * Walks a model's declared `inputSchema.fields` and rewrites any
+ * `image_url` / `image_url_list` / `audio_url` field whose value is an
+ * internal file ID into a short-lived presigned HTTPS GET URL the worker
+ * can fetch directly. Values that are already `https://…` URLs pass through
+ * unchanged.
+ *
+ * After Batch 1 Subtask 8 the resolver looks up file IDs in the `files` table
+ * (via `file.repository.findByIdForUser`) rather than the legacy
+ * `project_assets_current` table. Ownership is enforced by the repository query:
+ * a user cannot reference another user's file.
  *
  * Design notes:
  *  - The walk is keyed off `field.type`, NEVER field name — the catalog uses
  *    names like `image_url`, `end_image_url`, `reference_images`, `image_urls`,
- *    `mask_image_url` etc. Only `type` is a reliable signal (acceptance
- *    criterion in the ticket plan).
+ *    `mask_image_url` etc. Only `type` is a reliable signal.
  *  - Presigned URLs are capped at 1 hour per §11 security patterns.
- *  - Ownership is enforced: a user cannot reference another user's asset.
  *  - The shape of `options` is trusted — `validateFalOptions` has already run
  *    before this resolver is invoked. The one defensive throw here protects
  *    against a future validator regression where `image_url_list` arrives as a
@@ -22,12 +26,12 @@ import { GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { AiModel } from '@ai-video-editor/api-contracts';
 
-import { NotFoundError, ForbiddenError, ValidationError } from '@/lib/errors.js';
+import { NotFoundError, ValidationError } from '@/lib/errors.js';
 import { s3Client as defaultS3Client } from '@/lib/s3.js';
-import { getAssetById } from '@/repositories/asset.repository.js';
-import { parseStorageUri } from '@/services/asset.service.js';
+import { findByIdForUser } from '@/repositories/file.repository.js';
+import { parseStorageUri } from '@/services/file.service.js';
 
-/** Presigned URL TTL for asset inputs — ≤ 1 hour per §11 security rule. */
+/** Presigned URL TTL for file inputs — ≤ 1 hour per §11 security rule. */
 const PRESIGN_EXPIRY_SECONDS = 60 * 60;
 
 /** Parameters accepted by {@link resolveAssetImageUrls}. */
@@ -45,9 +49,10 @@ function isHttpsUrl(value: unknown): value is string {
 }
 
 /**
- * Resolves a single element of an image field: passthrough for https URLs,
- * presigned URL issuance for internal asset IDs. Enforces ownership and
- * existence.
+ * Resolves a single element of an image/audio field: passthrough for https URLs,
+ * presigned URL issuance for internal file IDs. Enforces ownership via
+ * `findByIdForUser` — if the file does not belong to `userId`, returns null and
+ * this function throws NotFoundError (same surface as a missing file).
  */
 async function resolveOne(
   element: unknown,
@@ -57,21 +62,18 @@ async function resolveOne(
   if (isHttpsUrl(element)) {
     return element;
   }
-  // Trust `validateFalOptions` to have rejected non-string shapes already;
-  // the cast is the same trust boundary the rest of the service relies on.
-  const assetId = element as string;
+  // Trust `validateFalOptions` to have rejected non-string shapes already.
+  const fileId = element as string;
 
-  const asset = await getAssetById(assetId);
-  if (!asset) {
-    throw new NotFoundError(`Asset "${assetId}" not found`);
+  const file = await findByIdForUser(fileId, userId);
+  if (!file) {
+    throw new NotFoundError(`File "${fileId}" not found`);
   }
-  if (asset.userId !== userId) {
-    throw new ForbiddenError(
-      `Asset "${assetId}" does not belong to the requesting user`,
-    );
-  }
+  // findByIdForUser enforces ownership via WHERE user_id = ?. A cross-user
+  // lookup returns null, which surfaces as NotFoundError (avoids leaking
+  // whether the file exists for another user).
 
-  const { bucket, key } = parseStorageUri(asset.storageUri);
+  const { bucket, key } = parseStorageUri(file.storageUri);
   return getSignedUrl(
     s3,
     new GetObjectCommand({ Bucket: bucket, Key: key }),
@@ -81,12 +83,12 @@ async function resolveOne(
 
 /**
  * Walks the model's declared fields and rewrites every `image_url` /
- * `image_url_list` value in-place on a shallow clone of `options`. The
- * returned object is safe to pass to the queue / DB layer — every image-type
- * field is either an https URL or undefined.
+ * `image_url_list` / `audio_url` value in-place on a shallow clone of `options`.
+ * The returned object is safe to pass to the queue / DB layer — every
+ * image/audio-type field is either an https URL or undefined.
  *
  * Fields whose value is `undefined` or `null` are skipped (optional fields).
- * Non-image fields are left untouched.
+ * Non-image/audio fields are left untouched.
  */
 export async function resolveAssetImageUrls(
   params: ResolveAssetImageUrlsParams,
@@ -119,7 +121,7 @@ export async function resolveAssetImageUrls(
     // image_url_list
     if (!Array.isArray(value)) {
       throw new ValidationError(
-        `Field "${field.name}" must be an array of asset IDs or https URLs`,
+        `Field "${field.name}" must be an array of file IDs or https URLs`,
       );
     }
     const rewritten: string[] = [];
@@ -131,3 +133,4 @@ export async function resolveAssetImageUrls(
 
   return resolved;
 }
+

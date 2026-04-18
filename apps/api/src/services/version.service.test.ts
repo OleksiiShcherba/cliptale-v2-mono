@@ -335,4 +335,5 @@ describe('version.service', () => {
       expect(result).toEqual(mockVersion.docJson);
     });
   });
+
 });

@@ -29,6 +29,18 @@ router.get(
   versionsController.listVersions,
 );
 
+// GET /projects/:id/versions/latest
+// Returns the most recent version including full doc_json.
+// Returns 200 { versionId, docJson, createdAt }; 404 when no versions exist.
+// NOTE: this route must be registered before /:versionId/restore so the
+// literal segment "latest" does not get captured as a numeric versionId param.
+router.get(
+  '/projects/:id/versions/latest',
+  authMiddleware,
+  aclMiddleware('viewer'),
+  versionsController.getLatestVersion,
+);
+
 // POST /projects/:id/versions/:versionId/restore
 // Atomically restores project to the specified version.
 // Updates latest_version_id, writes project.restore audit event.

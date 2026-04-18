@@ -1,6 +1,9 @@
 /**
  * Unit tests for getJobStatus, listModels (catalog grouping), and
  * listUserVoices. Repository + queue mocks come from the colocated fixtures file.
+ *
+ * After Batch 1 Subtask 8: job rows have `outputFileId` (not `resultAssetId`),
+ * and `projectId` is gone.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 
@@ -10,7 +13,6 @@ import {
   getJobByIdMock,
   getVoicesByUserIdMock,
   resetMocks,
-  TEST_PROJECT,
   TEST_USER,
 } from './aiGeneration.service.fixtures.js';
 
@@ -28,14 +30,13 @@ describe('aiGeneration.service / getJobStatus', () => {
     getJobByIdMock.mockResolvedValue({
       jobId: 'job-1',
       userId: TEST_USER,
-      projectId: TEST_PROJECT,
       modelId: 'fal-ai/nano-banana-2',
       capability: 'text_to_image',
       prompt: 'hi',
       options: null,
       status: 'processing',
       progress: 42,
-      resultAssetId: null,
+      outputFileId: null,
       resultUrl: null,
       errorMessage: null,
       createdAt: new Date(),
@@ -47,10 +48,33 @@ describe('aiGeneration.service / getJobStatus', () => {
       jobId: 'job-1',
       status: 'processing',
       progress: 42,
-      resultAssetId: null,
+      outputFileId: null,
       resultUrl: null,
       errorMessage: null,
     });
+  });
+
+  it('returns outputFileId when job is completed', async () => {
+    getJobByIdMock.mockResolvedValue({
+      jobId: 'job-completed',
+      userId: TEST_USER,
+      modelId: 'fal-ai/nano-banana-2',
+      capability: 'text_to_image',
+      prompt: 'hi',
+      options: null,
+      status: 'completed',
+      progress: 100,
+      outputFileId: 'file-generated-001',
+      resultUrl: 'https://cdn.example.com/generated.mp4',
+      errorMessage: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const result = await getJobStatus('job-completed', TEST_USER);
+    expect(result.outputFileId).toBe('file-generated-001');
+    expect(result.status).toBe('completed');
+    expect(result.resultUrl).toBe('https://cdn.example.com/generated.mp4');
   });
 
   it('throws NotFoundError when the job does not exist', async () => {
@@ -64,14 +88,13 @@ describe('aiGeneration.service / getJobStatus', () => {
     getJobByIdMock.mockResolvedValue({
       jobId: 'job-2',
       userId: 'some-other-user',
-      projectId: TEST_PROJECT,
       modelId: 'fal-ai/nano-banana-2',
       capability: 'text_to_image',
       prompt: 'hi',
       options: null,
       status: 'queued',
       progress: 0,
-      resultAssetId: null,
+      outputFileId: null,
       resultUrl: null,
       errorMessage: null,
       createdAt: new Date(),

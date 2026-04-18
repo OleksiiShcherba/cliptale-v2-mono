@@ -112,6 +112,21 @@ export async function getEnhanceStatus(
 }
 
 /**
+ * Fetches an existing generation draft by id.
+ *
+ * Maps to GET /generation-drafts/:id.
+ * Returns the draft record. Throws on 404 / 403 / network error so callers
+ * can catch and fall through to a fresh-start flow.
+ */
+export async function fetchDraft(id: string): Promise<GenerationDraft> {
+  const res = await apiClient.get(`/generation-drafts/${id}`);
+  if (!res.ok) {
+    throw new Error(`GET /generation-drafts/${id} failed: ${res.status}`);
+  }
+  return res.json() as Promise<GenerationDraft>;
+}
+
+/**
  * Fetches a page of the calling user's ready assets.
  *
  * Maps to GET /assets?type=&cursor=&limit=

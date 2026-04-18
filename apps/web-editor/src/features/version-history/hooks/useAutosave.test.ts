@@ -21,6 +21,7 @@ vi.mock('@/store/history-store', () => ({
 
 vi.mock('@/features/version-history/api', () => ({
   saveVersion: vi.fn(),
+  fetchLatestVersion: vi.fn(),
 }));
 
 

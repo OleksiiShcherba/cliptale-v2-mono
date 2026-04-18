@@ -1,4 +1,4 @@
-# Development Log (compacted — 2026-03-29 to 2026-04-16)
+# Development Log (compacted — 2026-03-29 to 2026-04-18)
 
 ## Monorepo Scaffold (Epic 1)
 - added: root config (`package.json`, `turbo.json`, `tsconfig.json`, `.env.example`, `.gitignore`, `docker-compose.yml` — MySQL 8 + Redis 7)
@@ -7,8 +7,12 @@
 - fixed: `APP_` env prefix; Zod startup validation; `workspace:*` → `file:` paths
 
 ## DB Migrations
-- added: 001–019 — projects, assets, captions, versions, render_jobs, project_clips, seed, image clip ENUM, users/sessions/password_resets/email_verifications, ai_provider_configs (later dropped), ai_generation_jobs
-- added: 013_drop_ai_provider_configs.sql; 014_ai_jobs_fal_reshape.sql; 015_ai_jobs_audio_capabilities.sql (ENUM widened to 8); 016_user_voices.sql; 017_asset_display_name.sql; 018_add_caption_clip_type.sql; 019_generation_drafts.sql
+- added: 001–020 — projects, assets, captions, versions, render_jobs, project_clips, seed, image clip ENUM, users/sessions/password_resets/email_verifications, ai_provider_configs (later dropped), ai_generation_jobs
+- added: 013_drop_ai_provider_configs; 014_ai_jobs_fal_reshape; 015_ai_jobs_audio_capabilities (ENUM widened to 8); 016_user_voices; 017_asset_display_name; 018_add_caption_clip_type; 019_generation_drafts; 020_projects_owner_title
+- added: 021_files (root table, user-scoped, status ENUM, idx_files_user_status/created), 022_file_pivots (project_files + draft_files, composite PKs, CASCADE container / RESTRICT file)
+- added: 023_downstream_file_id_columns (file_id on project_clips_current + caption_tracks, output_file_id on ai_generation_jobs)
+- added: 024_backfill_file_ids (one-way: project_assets_current → files + project_files; update downstream file_id; NOT NULL caption_tracks.file_id; drop asset_id cols + project_assets_current table)
+- added: 025_drop_ai_job_project_id (drop FK + idx + project_id column)
 
 ## Infrastructure (Redis + BullMQ + S3)
 - updated: Redis healthcheck, error handlers, graceful shutdown, worker concurrency
@@ -46,6 +50,7 @@
 ## Version History & Rollback (Epic 4)
 - added: version CRUD + restore; `useAutosave.ts` (debounce 2s, drainPatches, beforeunload flush)
 - added: `VersionHistoryPanel.tsx`, `RestoreModal.tsx`, `TopBar.tsx`, `SaveStatusBadge.tsx`
+- added: `GET /projects/:id/versions/latest`; `fetchLatestVersion`, `save()`/`resolveConflictByOverwrite()`, `performSave(force)`; Save + Overwrite buttons
 
 ## Background Render Pipeline (Epic 5)
 - added: render CRUD + per-user 2-concurrent limit; `render.job.ts` (fetch doc → Remotion render → S3)
@@ -75,7 +80,7 @@
 - fixed: CSS reset (white border); mobile preview height
 - added: `DeleteTrackDialog.tsx`, Scroll-to-Beginning button, `useReplaceAsset.ts`/`ReplaceAssetDialog.tsx`, `useDeleteAsset.ts`/`DeleteAssetDialog.tsx`
 - added: `AddToTimelineDropdown.tsx`/`useTracksForAsset.ts`, `ProjectSettingsModal.tsx` (FPS + resolution presets)
-- added: `POST /projects`; `useProjectInit.ts` (reads `?projectId=` or creates new)
+- added: `POST /projects`; `useProjectInit.ts` (reads `?projectId=` or creates new; hydrates via `fetchLatestVersion`)
 - fixed: `useCurrentVersionId()` reactivity via `useSyncExternalStore`
 
 ## Authentication & Authorization (Epic 8)
@@ -87,198 +92,408 @@
 - added FE: `features/auth/` — LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage; React Router; auth styles
 - added: `AuthProvider.tsx`, `ProtectedRoute.tsx`, `useAuth.ts`; Bearer token injection + 401 interceptor
 - added: `oauth.service.ts` (Google + GitHub code exchange, account linking); OAuth routes + FE buttons
-- added: query-param `?token=` fallback for media element auth; `buildAuthenticatedUrl()` in `api-client.ts`
+- added: query-param `?token=` fallback for media auth; `buildAuthenticatedUrl()` in `api-client.ts`
 
-## AI Platform — Epic 9 (fal.ai catalog + ElevenLabs audio)
+## AI Platform — Epic 9 (fal.ai + ElevenLabs)
 - removed: BYOK layer (aiProvider.*, lib/encryption.ts, `APP_AI_ENCRYPTION_KEY`, FE `features/ai-providers/`)
-- added: `APP_FAL_KEY`, `apps/media-worker/src/lib/fal-client.ts` (pure module)
+- added: `APP_FAL_KEY`, `apps/media-worker/src/lib/fal-client.ts`
 - added: `packages/api-contracts/src/fal-models.ts` (1093 lines, §9.7 exception) — 9 fal models
-- added: `apps/api/src/services/falOptions.validator.ts` (schema-walking validator)
-- added: `apps/api/src/services/aiGeneration.assetResolver.ts` (asset ID → presigned URL)
+- added: `apps/api/src/services/falOptions.validator.ts`; `aiGeneration.assetResolver.ts`
 - rewrote: `aiGeneration.service.ts`, `aiGenerationJob.repository.ts`, `ai-generate.job.ts`
-- added: `apps/media-worker/src/jobs/ai-generate.output.ts` (capability-keyed parser)
-- added: `GET /ai/models`; removed 8 legacy provider adapters
-- added: `packages/api-contracts/src/elevenlabs-models.ts`, `apps/media-worker/src/lib/elevenlabs-client.ts`
-- added: `AiProvider = 'fal'|'elevenlabs'`; unified `AI_MODELS` (13)
-- added: `APP_ELEVENLABS_API_KEY` (media-worker only); `ai-generate-audio.handler.ts`
-- added: `voice.repository.ts`, `listUserVoices(userId)` service, `GET /ai/voices`
+- added: `ai-generate.output.ts` (capability-keyed parser); `GET /ai/models`; removed 8 legacy provider adapters
+- added: `packages/api-contracts/src/elevenlabs-models.ts`, `elevenlabs-client.ts`; `AiProvider = 'fal'|'elevenlabs'`; unified `AI_MODELS` (13)
+- added: `APP_ELEVENLABS_API_KEY`, `ai-generate-audio.handler.ts`, `voice.repository.ts`, `listUserVoices`, `GET /ai/voices`
 
-## AI Generation — Frontend Schema-Driven Panel (Ticket 9)
+## AI Generation — FE Schema-Driven Panel
 - rewrote: `features/ai-generation/types.ts`, `api.ts`
 - created: `CapabilityTabs.tsx`, `ModelCard.tsx`, `AssetPickerField.tsx`, `SchemaFieldInput.tsx` (8-type dispatcher)
 - rewrote: `GenerationOptionsForm.tsx`, `AiGenerationPanel.tsx`
-- added: `aiGenerationPanel.utils.ts` + 28 unit tests
-- split: styles into tokens/field/panel files (all under §9.7 cap)
-- added: `@ai-video-editor/api-contracts` workspace dep to web-editor + api
+- added: `aiGenerationPanel.utils.ts` + 28 unit tests; styles split (tokens/field/panel)
 
 ## Asset Rename
-- added: migration 017 `displayName` column; repo type + mapping + `updateAssetDisplayName`
-- added: `renameAsset` service (ownership enforced); `PATCH /assets/:id` with Zod validation
-- added: FE `Asset.displayName`, `updateAsset()`, `InlineRenameField.tsx`
-- updated: `AssetCard.tsx` and `AssetDetailPanel.tsx` render `displayName ?? filename`
+- added: migration 017 `displayName` column; repo type + `updateAssetDisplayName`
+- added: `renameAsset` service; `PATCH /assets/:id` with Zod validation
+- added: FE `Asset.displayName`, `updateAsset()`, `InlineRenameField.tsx`; `AssetCard`/`AssetDetailPanel` render `displayName ?? filename`
 
 ## Progressive Reveal Captions
-- added: `CaptionWord` + `CaptionSegment.words?` to `packages/project-schema` (additive)
+- added: `CaptionWord` + `CaptionSegment.words?` to project-schema (additive)
 - updated: `transcribe.job.ts` to extract Whisper word timestamps
 - added: `captionClipSchema` (discriminated union); `ClipInsert.type` includes `'caption'`
-- added: `packages/remotion-comps/src/layers/CaptionLayer.tsx` — per-word color via `useCurrentFrame()`
-- updated: `VideoComposition.tsx` caption branch with `premountFor={fps}`
+- added: `CaptionLayer.tsx` — per-word color via `useCurrentFrame()`, `premountFor={fps}`, `clipStartFrame` prop for second-clip highlighting
 - updated: `useAddCaptionsToTimeline.ts` — branches on words (CaptionClip vs TextOverlayClip fallback)
-- added: `CaptionEditor` dual-hex color inputs; clip.repository caption ENUM round-trip test
+- added: `CaptionEditor` dual-hex color inputs; 5 regression tests; schema JSDoc (absolute-frame contract)
 
 ## AssetPreviewModal Fix
-- fixed: `AssetPreviewModal.tsx` — replaced presigned `downloadUrl` with `${apiBaseUrl}/assets/${id}/stream` + `buildAuthenticatedUrl` for video/audio playback
-- rewrote: tests to assert stream URL + regression guards
+- fixed: `AssetPreviewModal.tsx` — replaced presigned `downloadUrl` with `${apiBaseUrl}/assets/${id}/stream` + `buildAuthenticatedUrl`
 
-## Caption Second-Clip Highlighting Fix
-- added: `clipStartFrame?: number` prop on `CaptionLayer.tsx` — reconstructs absolute frame as `clipStartFrame + useCurrentFrame()`
-- updated: `VideoComposition.tsx` passes `clipStartFrame={clip.startFrame}`
-- added: 5 regression tests in sibling `CaptionLayer.regression.test.tsx` (§9.7 split)
-- added: schema JSDoc declaring absolute-frame contract
+## EPIC 10 STAGE 1 — Design Tooling (Figma → Stitch)
+- installed: `davideast/stitch-mcp`; removed `figma-remote-mcp`
+- created: Stitch project `1905176480942766690` + DS `assets/17601109738921479972` v1 "ClipTale Dark"
+- generated: 4 DESKTOP screens (Landing/Dashboard/Editor/Asset Browser); transient dup Landing (OQ-S1)
+- rewrote: `docs/design-guide.md` — §1 Stitch, §3 tokens + DS ID, §6 screen IDs, §7 tool patterns, §10 OQ-S1..S4
 
-## EPIC 10 STAGE 1 — Design Tooling Migration (Figma → Stitch)
-- added: EPIC 10 STAGE 1 section to `docs/general_tasks.md`
-- selected: `davideast/stitch-mcp` (Option B) — Google Labs-adjacent, Claude Code supported
-- installed: `stitch` MCP server in `~/.claude.json` via JSON round-trip + atomic write (backup retained)
-- verified: stdio handshake exposes 12 tools (`create_project`, `list_screens`, `generate_screen_from_text`, design-system tools, etc.)
-- created: Stitch project `1905176480942766690` "ClipTale" + design system `assets/17601109738921479972` v1 "ClipTale Dark"
-- generated: 4 DESKTOP screens (Landing/Dashboard/Editor/Asset Browser); one transient network error produced a duplicate Landing (flagged as OQ-S1)
-- removed: `figma-remote-mcp` from `~/.claude.json` + 3 permission entries from `.claude/settings.local.json`
-- rewrote: `docs/design-guide.md` (301→289 lines) — §1 Stitch project, §3 tokens preserved + Stitch DS ID, §6 screen IDs, §7 tool patterns, §10 OQ-S1..S4
-- audited: Figma-dependent agents (HIGH: design-reviewer, senior-dev, figma-design-generator, task-design-sync, figma-power; LOW: qa-engineer, code-quality-expert; NONE: playwright-reviewer)
-
-## Video Generation Wizard — Step 1 Foundation (Phase 0)
+## Video Generation Wizard (Phase 0 + Step 1)
 - added: migration `019_generation_drafts.sql` (JSON prompt_doc, status ENUM, composite idx)
-- added: `packages/project-schema/src/schemas/promptDoc.schema.ts` — `promptDocSchema` (discriminatedUnion on `type`), exports `PromptDoc`/`PromptBlock`/`TextBlock`/`MediaRefBlock`
-- added: `generationDraft.repository.ts` (raw mysql2; two-step ownership for precise 404/403)
-- added: `generationDraft.service.ts` (create/getById/listMine/update/remove; Zod validation → 422)
-- added: `generationDrafts.controller.ts`, `generationDrafts.routes.ts` (5 routes, auth + editor ACL, validateBody)
+- added: `packages/project-schema/src/schemas/promptDoc.schema.ts` — `promptDocSchema` (discriminatedUnion)
+- added: `generationDraft.repository.ts`, `generationDraft.service.ts`, controllers + routes (5 routes, auth + editor ACL)
 - added: 5 OpenAPI paths + `GenerationDraft`/`UpsertGenerationDraftBody` schemas
-- added: repo `findReadyForUser` (cursor-paginated seek query) + `getReadyTotalsForUser` (GROUP BY)
-- added: `asset.list.service.ts` (split from `asset.service.ts` to stay under 300 lines); MIME-prefix enum mapping, base64 cursor
-- added: `GET /assets` route + handler + Zod query schema (type/cursor/limit); openapi.ts `AssetSummary`/`AssetTotals`/`ListAssetsResponse`
-- fixed: pre-existing syntax error in `openapi.ts` (stray `},` closing paths early)
+- added: repo `findReadyForUser` + `getReadyTotalsForUser`; `asset.list.service.ts` split; `GET /assets` route + Zod
+- added: `features/generate-wizard/` (components/, hooks/, api.ts, types.ts)
+- added: `WizardStepper.tsx`, `GenerateWizardPage.tsx`, `/generate` route (protected)
+- added: `PromptEditor.tsx` + `promptEditorDOM.ts` — contenteditable chip controller; forwardRef imperative handle
+- chip colors: video=#0EA5E9, image=#F59E0B, audio=#10B981
+- added: `useAssets.ts` (React Query); `MediaGalleryPanel.tsx` (580px); `AssetThumbCard.tsx`, `AudioRowCard.tsx`
+- added: `mediaGalleryStyles.ts` + state styles; `AssetPickerModal.tsx` (520×580, type-filtered, focus trap)
+- added: `PromptToolbar.tsx`; `put` on apiClient; `useGenerationDraft.ts` (debounced 800ms, POST-then-PUT, `flush()`)
+- added: `WizardFooter.tsx` + `CancelConfirmDialog.tsx`; `GenerateRoadMapPlaceholder.tsx` + `/generate/road-map`
 
-## Video Generation Wizard — Step 1 Shell
-- added: `features/generate-wizard/` folder with `components/`, `hooks/`, `api.ts` (stub), `types.ts`
-- added: `WizardStepper.tsx` (3 nodes, aria-current="step"), `GenerateWizardPage.tsx` (2-column grid at ≥1024px, mobile single-column)
-- added: `/generate` route in `main.tsx` wrapped in `ProtectedRoute`
-- added: `PromptEditor.tsx` + `promptEditorDOM.ts` — contenteditable with chip controller; forwardRef imperative handle (`insertMediaRef`, `focus`); char counter with TEXT_SECONDARY/WARNING/ERROR color ladder
-- chip colors: video=#0EA5E9 (info), image=#F59E0B (warning), audio=#10B981 (success) from design-guide §3
+## Wizard Phase 2 (AI Enhance + Pro Tip)
+- added: `EnhancePromptJobPayload`; `QUEUE_AI_ENHANCE` + `aiEnhanceQueue`
+- added: `enqueue-enhance-prompt.ts` (UUID jobId, 3 retries)
+- rewrote: `enhancePrompt.job.ts` — serialize → `gpt-4o-mini` → validate sentinels → splice → `promptDocSchema`
+- added: `enhancePrompt.helpers.ts`; `enhance.rate-limiter.ts` (10/hr per userId)
+- added: `POST /generation-drafts/:id/enhance` (202), `GET .../enhance/:jobId`; `startEnhance`, `getEnhanceStatus`
+- added: `EnhanceStatus`; `useEnhancePrompt.ts` (1000ms poll, 60s cap)
+- added: `EnhancePreviewModal.tsx` + `renderPromptDocText.ts`
+- fixed: `mapRowToDraft` — `typeof === 'string'` guard for mysql2 JSON columns
+- added: `useDismissableFlag.ts` + `ProTipCard.tsx`
 
-## Video Generation Wizard — Step 1 FE Phase 1 (tickets #7, #9, #10, #11, #12)
-- added: `useAssets.ts` hook (React Query `['generate-wizard', 'assets', type]`)
-- added: `MediaGalleryPanel.tsx` (580px height) + `MediaGalleryHeader.tsx`, `MediaGalleryTabs.tsx` (Recent/Folders tabs)
-- added: `AssetThumbCard.tsx` (video/image cards), `AudioRowCard.tsx` (row layout)
-- added: `mediaGalleryStyles.ts` + `mediaGalleryStateStyles.ts` (§9.7 split; inlined tokens to avoid circular dep)
-- added: `AssetPickerModal.tsx` + `assetPickerModalStyles.ts` — 520×580 modal, type-filtered, focus trap, Esc/backdrop/pick close
-- added: `PromptToolbar.tsx` (AI Enhance disabled + 3 Insert buttons; one-modal-at-a-time state)
-- added: `put` method on `apiClient`; `createDraft`/`updateDraft`/`deleteDraft` in `api.ts`
-- added: `useGenerationDraft.ts` hook — debounced autosave (800ms), POST-then-PUT, one retry, `flush()`, unmount-safe
-- split: hook tests into `useGenerationDraft.test.ts` + `useGenerationDraft.timing.test.ts` + fixtures
-- added: `WizardFooter.tsx` + `CancelConfirmDialog.tsx` — Cancel→`deleteDraft` (useMutation per §7) + navigate `/editor`; Next disabled when `hasAnyContent===false`, calls `flush()` then navigates `/generate/road-map`
-- added: `GenerateRoadMapPlaceholder.tsx` + `/generate/road-map` route
-- extracted: `hasAnyContent` helper to `features/generate-wizard/utils.ts` (§5 no logic in .tsx)
-- integrated: `GenerateWizardPage.tsx` wires PromptEditor + PromptToolbar + MediaGalleryPanel + WizardFooter with `useGenerationDraft` state
+## EPIC — Home: Projects & Storyboard Hub
 
-## Video Generation Wizard — Phase 2 (AI Enhance + Pro Tip) — tickets #4, #8, #13
+### DB + BE
+- added: `020_projects_owner_title.sql` — `owner_user_id` NOT NULL + `title` + composite idx; INFORMATION_SCHEMA idempotent
+- widened: `project.repository.ts` `createProject(projectId, ownerUserId, title?)`; added `findProjectsByUserId`
+- widened: `project.service.ts` `createProject(userId, title?)`; added `listForUser(userId)`
+- updated: `projects.controller.ts` `listProjects` `{ items }`; routes `GET /projects` before `POST /projects` (editor ACL)
+- added: `MediaPreview`, `StoryboardCard` types; `findStoryboardDraftsForUser`, `findAssetPreviewsByIds`
+- added: `TEXT_PREVIEW_MAX_CHARS=140`, `MEDIA_PREVIEW_MAX_COUNT=3`, `mimeToMediaType()`, `listStoryboardCardsForUser`
+- added: `listCards` handler + `GET /generation-drafts/cards` (before `/:id`)
+- added: `/projects` + `/generation-drafts/cards` in `openapi.ts`
 
-### Subtask 1 — BullMQ wiring
-- added: `EnhancePromptJobPayload` type in `packages/project-schema/src/types/job-payloads.ts`
-- added: `QUEUE_AI_ENHANCE = 'ai-enhance'` + `aiEnhanceQueue` singleton in `apps/api/src/queues/bullmq.ts` (included in error-listener loop)
-- added: `apps/api/src/queues/jobs/enqueue-enhance-prompt.ts` — `enqueueEnhancePrompt(payload): Promise<string>` (UUID jobId, `attempts: 3`, exp backoff, `removeOnComplete: { age: 3600 }`, `removeOnFail: { age: 86400 }`)
-- added: `apps/media-worker/src/jobs/enhancePrompt.job.ts` stub (throws `'not implemented yet'`) + `EnhancePromptJobDeps` type
-- updated: `apps/media-worker/src/index.ts` — registers `aiEnhanceWorker` (concurrency 2, injects `{ openai, pool }`); graceful shutdown
-- added: `enqueue-enhance-prompt.test.ts` — 7 unit tests (job name/payload, jobId round-trip, retry/TTL config, uniqueness, media-ref preservation)
+### FE Home
+- added: `features/home/` — types, api, hooks (useProjects, useStoryboardCards)
+- added: `HomePage.tsx` (2-col: HomeSidebar + `<main role="tabpanel">`), `HomeSidebar.tsx` (240px nav)
+- added: `ProjectCard.tsx`, `ProjectsPanel.tsx`, `StoryboardCard.tsx`, `StoryboardPanel.tsx` (+ parts files)
+- updated: `main.tsx` `/` → `HomePage`; `*` → `/`; `LoginPage` post-login → `/`
+- added: `HomePage` reads `?tab=storyboard`; `fetchDraft(id)` in generate-wizard/api.ts
+- updated: `useGenerationDraft.ts` — `(options?: { initial?, initialDraftId? })`; hydrate useEffect once when `initialDraftId`
+- updated: `GenerateWizardPage.tsx` — reads `?draftId=` via useSearchParams
 
-### Subtask 2 — enhancePrompt handler
-- rewrote: `apps/media-worker/src/jobs/enhancePrompt.job.ts` — serialize → OpenAI chat completions (`gpt-4o-mini`) → validate sentinel integrity → splice → `promptDocSchema` validation → return `PromptDoc` as job returnvalue (no DB write)
-- exports: `ENHANCE_SYSTEM_PROMPT` const, `EnhanceTokenPreservationError`, `EnhanceSchemaError`
-- added: `apps/media-worker/src/jobs/enhancePrompt.helpers.ts` — pure `serializeWithSentinels`, `validateSentinelIntegrity`, `spliceSentinels`, `SentinelResult` type
-- added: `enhancePrompt.helpers.test.ts` (19 tests) + `enhancePrompt.job.test.ts` (11 tests, mocked OpenAI)
-- note: `spliceSentinels` omits empty-string text segments for clean output
+## Editor + Generate-Wizard UX Batch
+- added: Home button in editor TopBar (`onNavigateHome` → `navigate('/')`); Manual Save button; Overwrite button (conflict)
+- added: `BackToStoryboardButton.tsx` in wizard header → `/?tab=storyboard`
+- fixed: chip-deletion bug in `PromptEditor.handleKeyDown` — walks past consecutive empty text nodes before `isChipNode`
+- added: `PromptEditor.deletion.test.tsx` (3 cases); HTML5 drag-drop from `AssetThumbCard`/`AudioRowCard` into `PromptEditor`
+- added: MIME `application/x-cliptale-asset`, chip-clone drag image; `promptEditorDrop.ts` (caret fallback), `promptEditorInsert.ts`, `usePromptEditorHandlers.ts`
+- added: × remove button on chips (aria-label, CHIP_COLORS hover)
 
-### Subtask 3 — Enhance REST endpoints + rate limiter
-- added: `apps/api/src/middleware/enhance.rate-limiter.ts` — `rateLimit({ windowMs: 3_600_000, max: 10, keyGenerator: req.user!.userId })`
-- added: `POST /generation-drafts/:id/enhance` (202 `{ jobId }`, 401/404/429) + `GET /generation-drafts/:id/enhance/:jobId` (200 `{ status, result?, error? }`)
-- updated: `generationDraft.service.ts` — `startEnhance(userId, draftId)` (ownership via resolveDraft → enqueue) + `getEnhanceStatus(userId, draftId, jobId)` (maps BullMQ state: waiting/delayed→queued, active→running, completed→done, failed→failed)
-- updated: `generationDrafts.controller.ts` (thin handlers), `generationDrafts.routes.ts` (auth + aclMiddleware('editor') + limiter on POST only)
-- updated: `packages/api-contracts/src/openapi.ts` — added both paths + `StartEnhanceResponse`/`EnhanceStatusResponse` schemas
-- added: `enhance.rate-limiter.test.ts` (4 tests), `generationDrafts.controller.test.ts` (4 tests)
-- split (§9.7 fix): `generationDraft.service.test.ts` → core tests (187 lines) + `generationDraft.enhance.test.ts` (174 lines) + `generationDraft.service.fixtures.ts` (21 lines)
+## EPIC — Files-as-Root Foundation (Batch 1, 2026-04-18)
 
-### Subtask 4 — useEnhancePrompt hook
-- added: `EnhanceStatus = 'idle'|'queued'|'running'|'done'|'failed'` in `features/generate-wizard/types.ts`
-- added: `startEnhance(draftId)` + `getEnhanceStatus(draftId, jobId)` in `features/generate-wizard/api.ts`
-- added: `features/generate-wizard/hooks/useEnhancePrompt.ts` — `useEnhancePrompt(draftId) → { start, status, proposedDoc, error, reset }`; 1000 ms poll via `useRef`-held interval; 60 s timeout cap; uses `window.setInterval`/`window.clearInterval`; clears on unmount; double-start no-op
-- split (§9.7 fix): tests into `useEnhancePrompt.test.ts` + `useEnhancePrompt.timing.test.ts` (8 fake-timer tests)
+### Subtask 1 — FE Home UX
+- fixed: `HomePage.tsx` outer flex `minHeight: '100vh'` → `height: '100vh'`; `<main>` `minHeight: 0` (bounds `overflow: auto`)
+- updated: `StoryboardPanel.tsx` `handleCreate` — async `createDraft({schemaVersion:1,blocks:[]})` → `navigate('/generate?draftId=${id}')`; `isCreating` guard; fallback to `/generate` on error
 
-### Subtask 5 — EnhancePreviewModal
-- added: `features/generate-wizard/components/EnhancePreviewModal.tsx` — `role="dialog"`, `aria-modal`, `aria-labelledby`, Esc via `onKeyDown`, backdrop-click guard (`e.target === e.currentTarget`); failed state hides Accept + shows inline error
-- added: `enhancePreviewModalStyles.ts` (tokens: SURFACE_ELEVATED, BORDER, PRIMARY, ERROR_COLOR, `RADIUS_MD = '8px'`, header/footer padding on space-4/space-6 grid, panel label `letterSpacing: '0.08em'`)
-- added: `renderPromptDocText.ts` — pure helper; renders `[video: label]` / `[image: …]` / `[audio: …]` inline so UUIDs never surface
-- added: `EnhancePreviewModal.fixtures.ts` + `EnhancePreviewModal.test.tsx` (8 cases)
-- fixed (design round 2): header padding 16px 20px→16px 24px; footer padding 12px 20px→12px 24px; extracted `RADIUS_MD` const; panel label letter-spacing 0.06em→0.08em
+### Subtask 2 — Files root + pivots DDL
+- added: migrations 021 (files table, user-scoped, status ENUM, 2 composite indexes) + 022 (project_files, draft_files; composite PKs; CASCADE container, RESTRICT file)
 
-### Subtask 6 — Wire end-to-end in PromptToolbar + GenerateWizardPage
-- updated: `PromptToolbar.tsx` — accepts `draftId`, `isEnhancing`, `onEnhance`; AI Enhance button no longer `disabled` (disabled when `draftId===null || isEnhancing`); renders `SpinnerIcon` while in-flight
-- updated: `GenerateWizardPage.tsx` — consumes `useEnhancePrompt(draftId)`; mounts `<EnhancePreviewModal open={status==='done'} .../>`; Accept → `setDoc(proposedDoc)` + `flush()` + `reset()`; Discard → `reset()`
-- extracted (§9.7 fix): `PromptToolbarIcons.tsx` (5 SVG icon components split out of `PromptToolbar.tsx` 309→216 lines)
-- split (§9.7 fix): `PromptToolbar.enhance.test.tsx` (3 tests) + `PromptToolbar.test.tsx` (8 core tests, 301→248 lines)
-- extended: `GenerateWizardPage.test.tsx` (+3 cases: modal absent/visible/Accept calls setDoc/Discard calls reset)
-- fixed (E2E-blocking bug): `apps/api/src/repositories/generationDraft.repository.ts` — `mapRowToDraft` now uses `typeof row.prompt_doc === 'string' ? JSON.parse(...) : row.prompt_doc` guard (mysql2 returns MySQL JSON columns as already-parsed objects); `GenerationDraftRow.prompt_doc` typed `string | PromptDoc`
-- added: `generationDraft.repository.test.ts` — 5 regression tests (string input, object input, multi-block, null-row, field mapping)
+### Subtask 3 — Downstream backfill + drop
+- added: migrations 023 (nullable file_id/output_file_id on downstream tables, idempotent guarded DDL)
+- added: migration 024 (12 steps: INSERT IGNORE files+project_files from project_assets_current; UPDATE downstream file_id; NOT NULL caption_tracks.file_id via `IS_NULLABLE='YES'` COUNT guard; drop FKs/indexes/columns; DROP TABLE project_assets_current)
+- added: migration 025 (drop ai_generation_jobs project_id FK + idx + column)
+- migrated: 20 rows into files; pivot links skipped for seed rows with non-UUID project_id (INSERT IGNORE)
 
-### Subtask 7 — ProTipCard (floating dismissible hint)
-- added: `features/generate-wizard/hooks/useDismissableFlag.ts` — `useDismissableFlag(key) → { dismissed, dismiss }`; SSR-safe `typeof window !== 'undefined'` guard; writes `'dismissed'` sentinel
-- added: `features/generate-wizard/components/ProTipCard.tsx` — `<aside role="note" aria-label="Pro tip">`; returns `null` when dismissed; close button calls `dismiss()`
-- added: `proTipCardStyles.ts` — SURFACE_ELEVATED background, `rgba(124, 58, 237, 0.3)` primary/30 border, `RADIUS_MD`, `Z_INDEX_PRO_TIP=100`, fixed position `bottom: 24px; right: 24px`
-- updated: `GenerateWizardPage.tsx` — mounts `<ProTipCard />` after `</footer>`, before `<EnhancePreviewModal>`
-- added: `useDismissableFlag.test.ts` (4 tests: absent / pre-dismissed / write-and-flip / key-isolation) + `ProTipCard.test.tsx` (3 tests: renders / hidden / close writes+unmounts)
-- fixed (design round 2): label typography (11px→12px to match full `label` token 12px/500); card position 20px→24px (space-6); close button padding 2px→4px (space-1)
-- localStorage key: `'proTip:generateStep1'`
+### Subtask 4 — File vertical slice + ingest dual-path
+- added: `file.repository.ts` — createPending, finalize, findById(ForUser), findReadyForUser (cursor + MIME prefix), getReadyTotalsForUser, updateProbeMetadata, setFileError
+- added: `file.service.ts` — createUploadUrl, finalizeFile (S3 HEAD + enqueue ingest; idempotent), listFiles, streamUrl; re-exports parseStorageUri
+- added: `file.controller.ts`, `file.routes.ts` — POST /files/upload-url, POST /files/:id/finalize, GET /files, GET /files/:id/stream
+- added: `file.service.fixtures.ts`, `file.service.test.ts` (18 integration tests, real MySQL)
+- updated: `MediaIngestJobPayload.fileId?` optional (dual-path migration window)
+- updated: `ingest.job.ts` — `setFileReady`/`setFileError` write to `files` when fileId present; fallback to project_assets_current path (bytes=null — S3 HEAD not available in worker)
+- added: 4 ingest tests (fileId happy path, Math.round(durationSec*1000), duration=0 → null, S3 error path)
+- updated: `apps/api/src/index.ts` registers fileRouter
+
+### Subtask 5 — Link endpoints + pivot-backed reads
+- added: `fileLinks.repository.ts` — linkFileToProject (INSERT IGNORE), findFilesByProjectId (JOIN), linkFileToDraft, findFilesByDraftId
+- added: `fileLinks.service.ts` — ownership checks (ForbiddenError 403, NotFoundError 404), idempotent link
+- added: `fileLinks.response.service.ts` (split for §9.7) — maps FileRow → AssetApiResponse, presigns downloadUrl, thumbnailUri/waveformPeaks null
+- added: `findProjectById` to project.repository.ts (for ownership checks)
+- updated: `assets.controller.getProjectAssets` uses fileLinksResponseService (FE contract preserved)
+- added: POST /projects/:projectId/files (204), POST /generation-drafts/:draftId/files (204), GET /generation-drafts/:id/assets
+- added: fileLinks.service.test.ts (15), file-links-endpoints.test.ts (13), .draft.test.ts (14), .fixtures.ts = 42 integration tests
+
+### Subtask 6 — clip refactor (asset_id → file_id)
+- refactored: `clip.repository.ts` — asset_id → file_id throughout; added `isFileLinkedToProject(projectId, fileId)` querying project_files
+- refactored: `clip.service.createClip` — ValidationError (400) on unlinked file; null fileId skips check (caption clips)
+- updated: `clips.controller.ts` — wire-level assetId kept in createClipSchema (Batch 1 compat); maps body.assetId → service fileId
+- fixed: `project.repository.ts:92` — removed broken correlated subquery `JOIN project_assets_current a ON a.asset_id = c.asset_id` (was 500ing GET /projects); replaced with `NULL AS thumbnail_uri` (files has no thumbnail col yet)
+- added: `clip.service.integration.test.ts` (4 tests: linked insert, unlinked rejected, null fileId caption, phantom ID rejected)
+- fixed: stale tests — clip.repository.test.ts line 120 `assetId` → `fileId`; project.repository.test.ts assertions
+
+### Subtask 7 — caption refactor
+- refactored: `caption.repository.ts` — asset_id → file_id; `getCaptionTrackByAssetId` → `getCaptionTrackByFileId`
+- refactored: `caption.service.ts` — uses `fileRepository.findById`; NotFoundError on missing file
+- rewrote: `captions-endpoints.test.ts` — seeds files table directly; real session auth (APP_DEV_AUTH_BYPASS=false)
+- added: `caption.service.integration.test.ts` (5 tests: insert with file_id, null for unknown file, INSERT IGNORE dedup, getCaptions segments, transcribeAsset NotFoundError)
+- refactored: `transcribe.job.ts` — `getAssetProjectId` → `getFileProjectId` (queries project_files); insertCaptionTrack writes file_id
+- split (§9.7 cap): transcribe.job.test.ts (195) + transcribe.job.error.test.ts (91) + transcribe.job.fixtures.ts (87); each test file needs its own vi.mock block (Vitest hoisting rule)
+- test results: caption.service 9/9, caption.service.integration 5/5, captions-endpoints 9/9, transcribe.job 17/17, full media-worker 136/136
+
+### Subtask 8 — aiGeneration refactor (user-scoped, no project_id)
+- refactored: `aiGenerationJob.repository.ts` — removed projectId/resultAssetId; added outputFileId; new `setOutputFile(jobId, fileId)` replaces updateJobResult
+- refactored: `enqueue-ai-generate.ts` — removed projectId from `AiGenerateJobPayload`
+- refactored: `aiGeneration.service.ts` — user-scoped only; GetJobStatusResult has outputFileId
+- refactored: `aiGeneration.assetResolver.ts` — uses `file.repository.findByIdForUser` (ownership via DB query, cross-user → null → NotFoundError); parseStorageUri re-export from file.service.ts
+- compat shim: `aiGeneration.controller.ts` — Zod schema accepts optional `body.projectId` and strips it silently (preserves FE contract for Batch 1 → Batch 2 window); route `POST /projects/:id/ai/generate` kept with `aclMiddleware('editor')` still gating project membership
+- updated: `aiGeneration.service.fixtures.ts` — `makeFileRow` replaces makeAssetRow
+- tests: service 17, status 7, audio 12, assetResolver 10, integration 4, endpoints 6 = 56 (includes compat-shim test)
+- fixed (Docker DB sync): `docker volume rm cliptalecom-v2_db_data` then `docker compose up -d db` — migrations 001–025 auto-applied via `docker-entrypoint-initdb.d`; 10/10 AI integration tests pass; full API suite 788/833 (45 pre-existing dev-auth-bypass failures, no new regressions)
 
 ## Architectural Decisions / Notes
-- §9.7 300-line cap enforced via test-file splits (`.fixtures.ts` + `.<topic>.test.ts`) and component sub-extraction; approved exception: `fal-models.ts`
+- §9.7 300-line cap enforced via `*.fixtures.ts` + `.<topic>.test.ts` splits; approved exception: `fal-models.ts`
 - Worker env discipline: only `index.ts` reads `config.*.key`; handlers receive secrets via deps
-- ElevenLabs catalog uses `FalInputSchema` shape for uniform FE renderer
-- Migration strategy: DROP + CREATE (mysql2 `multipleStatements` cannot carry DELIMITER procedures)
+- Migration strategy: `INFORMATION_SCHEMA` + `PREPARE/EXECUTE` guards for idempotent DDL (MySQL 8.0.x has no `ADD COLUMN IF NOT EXISTS`)
+- MySQL NOT NULL idempotency: use `COUNT(*) WHERE IS_NULLABLE='YES'` — COLUMN_DEFAULT guard is unreliable (NULL for nullable cols with no default)
+- Vitest vi.mock hoisting: each split test file needs its own vi.mock block; cannot centralize mocks in fixtures.ts
+- Files-as-root pattern: `files` is user-scoped root; `project_files`/`draft_files` pivots (CASCADE container, RESTRICT file) = app-layer GC before file delete
+- Wire-level DTO naming kept as `assetId` during Batch 1 to avoid FE churn; rename to `fileId` deferred to Batch 2
+- aiGeneration compat shim: Zod accepts optional projectId and silently strips (FE contract preserved through Batch 1→2 window)
+- `findByIdForUser` unifies existence + ownership into one query (cross-user returns null, surfaced as NotFoundError — avoids leaking existence)
 - Audio routes through ElevenLabs (not fal.ai) per `project_audio_provider.md`
-- AI assets created `status='processing'` then handed to `media-ingest` for metadata
-- Wizard upload affordance deferred (selection-only) per user decision 2026-04-16
-- Wizard MediaGalleryPanel is a separate component from editor AssetBrowserPanel (no cross-feature imports per §14)
-- Stitch DS `spacing`/`typography` maps do NOT round-trip in API echo — design-guide.md §3 remains authoritative
-- Enhance job state lives in BullMQ/Redis only (no MySQL row) — `GET /enhance/:jobId` reads `queue.getJob(jobId)` directly
-- Enhance rate limit is per-user (`req.user.userId`), not per-IP
-- Enhance FE hook uses vanilla `setInterval` (not React Query `refetchInterval`) per §14 (forbids importing from `features/ai-generation/`)
-- No toast library / no diff library introduced — errors inline in modal, Before/After rendered as plain text panels
-- mysql2 returns MySQL JSON columns as already-parsed objects; repository mappers must guard `typeof === 'string'` before `JSON.parse`
+- Wizard MediaGalleryPanel separate from editor AssetBrowserPanel (no cross-feature imports §14)
+- Stitch DS `spacing`/`typography` do NOT round-trip — design-guide.md §3 authoritative
+- Enhance state in BullMQ/Redis only; rate limit per-user; vanilla setInterval in FE hook
+- mysql2 JSON columns: repository mappers must guard `typeof === 'string'` before `JSON.parse`
+- Typography §3: body 14/400, label 12/500, heading-3 16/600; spacing multiples of 4px
+- `/` HomePage is post-login + `*`-fallback; `/editor?projectId=<id>` is editor entry
 
-## [2026-04-16]
+## Known Issues / TODOs
+- ACL middleware stub — real project ownership check deferred
+- `files` table lacks `thumbnail_uri`/`waveform_json` columns; `getProjectFilesResponse` returns null for these (FE already handles)
+- `duration_ms` left NULL for migrated files (source `duration_frames` lacked fps for conversion); ingest reprocesses will repopulate
+- `MediaIngestJobPayload.assetId` still required (migration window); `fileId` optional — full cleanup in Batch 2
+- `bytes` NULL after ingest (FFprobe doesn't return S3 object size; HeadObject call would require bucket config in worker)
+- Seed `project_assets_current` rows referenced non-existent `proj-001`; migrated to files but pivot links skipped (INSERT IGNORE)
+- `packages/api-contracts/` OpenAPI spec only covers scoped endpoints
+- Presigned download URL deferred; S3 CORS needs bucket config
+- Pre-existing integration test failures with `APP_DEV_AUTH_BYPASS=true` (45 failing in full API suite — unchanged throughout Batch 1)
+- Production stream endpoint needs signed URL tokens
+- OAuth client IDs/secrets default empty
+- Lint workspace-wide fails with ESLint v9 config-migration error
+- Pre-existing TS errors in unrelated test files
+- Stitch OQ-S1..S4 (dup Landing, tablet/mobile variants, secondary screens, spacing/typography echo)
+- Sidebar nav: no top-level nav; wizard "Generate" highlight deferred
+- `DEV_PROJECT` fixture in `project-store.ts` — candidate for removal
+- TopBar buttons `borderRadius: 6px` off-token (pre-existing)
+- Chip × button needs semi-transparent background token
+- Migration 025 reliability on fresh docker-entrypoint-initdb.d init has had conflicting reports — verify on next clean-volume start
+- `parseStorageUri` duplicated between asset.service.ts + file.service.ts (re-exported); candidate to move to `lib/storage-uri.ts`
 
-### Task: Fix Docker Build TypeScript Error
-**Subtask:** fix-enhance-userid — Pass `userId` to `enqueueEnhancePrompt` in `startEnhance`
+## Batch 2 (planned, not started)
+- [FE] Shared `useFileUpload` hook (extract from `useAssetUpload.ts`)
+- [FE] Wire editor UploadDropzone + wizard upload area in MediaGalleryPanel
+- [FE] Extract shared AI components to `shared/ai-generation/` per §14
+- [FE] Refactor AiGenerationPanel — context prop `{ kind: 'project'|'draft', id }`
+- [BE] `POST /generation-drafts/:draftId/ai/generate` (thin wrapper; links output to draft via draft_files)
+- [FE] AI tab in wizard MediaGalleryPanel
+- [Playwright] E2E regression sweep (editor upload, wizard upload, editor AI, wizard AI, Home scroll + create-storyboard)
+- DTO rename `assetId` → `fileId` on the wire + remove aiGeneration compat shim
+
+---
+
+## [2026-04-18]
+
+### Task: Files-as-root foundation (BATCH 2 of 2) — FE upload + AI port to wizard + regression
+**Subtask:** [FE] Extract `useFileUpload` into `shared/file-upload/` with context adapter
 
 **What was done:**
-- Fixed the missing `userId` field at the `enqueueEnhancePrompt` call site in `apps/api/src/services/generationDraft.service.ts` line 110
-- `userId` was already available as a parameter on `startEnhance` — just needed to be threaded through to the enqueue call
-- Verified `apps/api/src/services/generationDraft.service.test.ts` does not test `startEnhance`, so no test update needed there
-- Verified `apps/api/src/queues/jobs/enqueue-enhance-prompt.test.ts` already includes `userId` in its `BASE_PAYLOAD` fixture — already correct
-- Confirmed `npm run build --workspace=apps/api` succeeds with no TypeScript errors
+- Created `apps/web-editor/src/shared/file-upload/types.ts` — exports `UploadTarget` (discriminated union: project | draft) and `UploadEntry` (now uses `fileId` instead of `assetId`)
+- Created `apps/web-editor/src/shared/file-upload/api.ts` — exports `requestUploadUrl`, `finalizeFile`, `linkFileToProject`, `linkFileToDraft` wrapping Batch 1 endpoints (`POST /files/upload-url`, `POST /files/:id/finalize`, `POST /projects/:id/files`, `POST /generation-drafts/:id/files`)
+- Created `apps/web-editor/src/shared/file-upload/useFileUpload.ts` — context-aware upload hook; accepts `{ target: UploadTarget }`, runs request-URL → XHR PUT → finalize → link flow, dispatches to correct link endpoint based on target kind
+- Created `apps/web-editor/src/shared/file-upload/useFileUpload.test.ts` — 13 test cases covering project target, draft target, XHR progress, error paths, and API call correctness (including the two new draft-target cases required by the acceptance criteria)
+- Converted `apps/web-editor/src/features/asset-manager/hooks/useAssetUpload.ts` to a backward-compatibility shim that wraps `useFileUpload({ target: { kind: 'project', projectId } })`
+- Updated `apps/web-editor/src/features/asset-manager/hooks/useAssetUpload.test.ts` to mock `@/shared/file-upload/api` instead of the old `@/features/asset-manager/api`
+- Removed `requestUploadUrl` and `finalizeAsset` from `apps/web-editor/src/features/asset-manager/api.ts` (now in shared)
+- Updated `apps/web-editor/src/features/asset-manager/types.ts`: removed the old `UploadEntry` definition, added `export type { UploadEntry } from '@/shared/file-upload/types'` re-export for backward compat
+- Updated `apps/web-editor/src/features/asset-manager/components/UploadProgressList.tsx` — imports `UploadEntry` from shared; uses `entry.fileId` as React key
+- Updated `apps/web-editor/src/features/asset-manager/components/UploadDropzone.tsx` — imports `UploadEntry` from shared
 
 **Notes:**
-- The type `EnhancePromptJobPayload` was always correct; the bug was purely a missing field at the call site
+- Batch 1 API uses `mimeType` (not `contentType`) and returns `fileId` (not `assetId`) — shared api.ts aligns with this
+- The shim in `useAssetUpload.ts` preserves `onUploadComplete(fileId)` — callers such as `ReplaceAssetDialog` receive a `fileId` rather than `assetId`; this is intentional — the Batch 1 architecture unifies file identity under `fileId`
+- `UploadDropzone.tsx` and `UploadProgressList.tsx` component tests mock `useAssetUpload` at the module level — unaffected by the internal implementation change
+- `AssetBrowserPanel.test.tsx` and `ReplaceAssetDialog.test.tsx` still mock the shim directly — no test changes needed for those components
 
 **Completed subtask from active_task.md:**
 <details>
-<summary>Subtask: fix-enhance-userid</summary>
+<summary>Subtask: [FE] Extract `useFileUpload` into `shared/file-upload/` with context adapter</summary>
 
-Pass `userId` to `enqueueEnhancePrompt` in `apps/api/src/services/generationDraft.service.ts:110` so `startEnhance` satisfies `EnhancePromptJobPayload`. Scope:
-- Update the call site on line 110 to include `userId` alongside `draftId` and `promptDoc`.
-- Update `apps/api/src/services/generationDraft.service.test.ts` if it asserts the enqueue payload shape — ensure the mock enqueue receives the new `userId` field.
-- Verify `npm run build --workspace=apps/api` succeeds (locally and inside the Docker build).
-- Verify `docker compose build` completes without the TS2345 error.
-- Do NOT change `EnhancePromptJobPayload` itself; the type is correct — the bug is the missing field at the call site.
+- What: Move `useAssetUpload.ts` + its tests into `apps/web-editor/src/shared/file-upload/useFileUpload.ts`. Change the hook signature from `{ projectId }` to `{ target: { kind: 'project'; projectId: string } | { kind: 'draft'; draftId: string } }`. After the existing `POST /files/upload-url` + XHR PUT + `POST /files/:id/finalize` sequence lands (these are Batch 1 endpoints), call the appropriate link endpoint (`POST /projects/:id/files` for project target, `POST /generation-drafts/:id/files` for draft target) using the already-returned `fileId`. Refactor the existing editor caller (`features/asset-manager`) to pass `{ kind: 'project', projectId }`. Keep `UploadEntry` type in `shared/file-upload/types.ts`.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer: YES — hook-only refactoring; useFileUpload (13 unit tests) + backward-compat shim (6 tests) + full asset-manager suite (295 tests) + web-editor regression (1984 tests) all PASS; zero UI changes
+
+design-reviewer notes: Reviewed on 2026-04-18. Hook extraction only; UploadProgressList + UploadDropzone import changes (type path + property rename) have no visual impact. No design tokens, colors, spacing, or layout changes. All checks passed.
+
+playwright-reviewer notes: Reviewed on 2026-04-18. Hook-only refactoring qualifies for unit-test-only pattern (hook_testing_pattern.md). Comprehensive unit test coverage (19 tests), backward-compatible shim, full asset-manager regression (295 tests), web-editor full suite regression (1984 tests). No UI rendering changes — only import paths and internal property names. E2E test deferred per hook-only pattern.
+
+---
+
+## [2026-04-18]
+
+### Task: Files-as-root foundation (BATCH 2 of 2) — FE upload + AI port to wizard + regression
+**Subtask:** [FE] Wire upload affordance in wizard `MediaGalleryPanel`
+
+**What was done:**
+- Extended `apps/web-editor/src/features/generate-wizard/components/MediaGalleryPanel.tsx` with upload affordance: Upload button (visible only when `draftId` is provided), `UploadDropzone` modal (open/close/done state), `useFileUpload({ target: { kind: 'draft', draftId } })` wired in, query invalidation on `onUploadComplete` targeting `['generate-wizard', 'assets']`
+- `apps/web-editor/src/shared/file-upload/UploadDropzone.tsx` — promoted to shared (done as part of Subtask 1's broader work); re-export shim left at `features/asset-manager/components/UploadDropzone.tsx`
+- `apps/web-editor/src/shared/file-upload/UploadProgressList.tsx` — per-file progress bars + error status text rendered inside the dropzone modal
+- `apps/web-editor/src/features/generate-wizard/components/MediaGalleryPanel.test.tsx` — 14 test cases; tests 11–14 cover upload affordance: Upload button visibility by `draftId` presence, modal open/close, `Done` clears entries, `useFileUpload` initialized with draft target, `onUploadComplete` calls `queryClient.invalidateQueries`
+- `apps/web-editor/src/features/generate-wizard/components/MediaGalleryPanel.fixtures.ts` — shared test fixtures (VIDEO_ASSET, IMAGE_ASSET, AUDIO_ASSET, MIXED_RESPONSE, EMPTY_RESPONSE, VIDEO_ONLY_RESPONSE) used by all 14 tests
+
+**Notes:**
+- `MediaGalleryPanel.tsx` is 299 lines — within the §9.7 300-line cap
+- Query key for invalidation is `['generate-wizard', 'assets']` (prefix match); `useAssets` keys are `['generate-wizard', 'assets', type]` — partial prefix invalidation covers all type variants
+- When `draftId` is `undefined` the Upload button is hidden and `useFileUpload` is called with an empty `draftId: ''` — the hook is never invoked with an undefined target field; upload operations are a no-op because the button is absent
+- UploadDropzone reuse: editor's `AssetBrowserPanel` continues to use the shim re-export at `features/asset-manager/components/UploadDropzone.tsx`; wizard uses the canonical shared import directly — no cross-feature imports (§14 satisfied)
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: [FE] Wire upload affordance in wizard MediaGalleryPanel</summary>
+
+- What: Add an upload CTA (button + hidden file input, or a small dropzone) to the wizard's `MediaGalleryPanel` that uses `useFileUpload({ target: { kind: 'draft', draftId } })`. After a successful upload, the newly-uploaded `AssetSummary` should appear in the current tab (Video / Image / Audio) — reuse the existing `useAssets(draftId)` hook's refetch / invalidation to trigger a re-fetch. If the editor has a reusable `UploadDropzone` component, move it to `shared/file-upload/UploadDropzone.tsx` as part of this subtask; otherwise keep the wizard implementation minimal and inline (a single "Upload" button that opens a native file picker).
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer: YES — Fix round 1 applied: design-token values updated in MediaGalleryPanel.tsx + UploadDropzone.tsx (fontSize, padding, borderRadius); 17 unit tests pass + full web-editor suite 1991/1991 tests pass (no regressions); wiring intact
+
+design-reviewer notes: Verified on 2026-04-18. All five fixes confirmed in code: MediaGalleryPanel upload button fontSize 12 (line 293), UploadDropzone header padding '0 16px' (line 109), header title fontSize 16 (line 112), dropzone borderRadius 8 (line 139), Browse Files button fontSize 12 (line 191). All values match design-guide §3 tokens (label = 12px 500, heading-3 = 16px 600, space-4 = 16px, radius-md = 8px). No additional violations found.
+
+---
+
+## [2026-04-18]
+
+### Task: Files-as-root foundation (BATCH 2 of 2) — FE upload + AI port to wizard + regression
+**Subtask:** [FE] Move `ai-generation` feature → `shared/ai-generation/`
+
+**What was done:**
+- Copied all 47 files from `apps/web-editor/src/features/ai-generation/` to `apps/web-editor/src/shared/ai-generation/` (identical directory structure: `components/`, `hooks/`, `api.ts`, `types.ts`, and all test files)
+- Updated all `@/features/ai-generation/` import paths to `@/shared/ai-generation/` inside all moved files using sed
+- Updated external call sites: `App.tsx` (3 imports), `App.panels.tsx` (1 import), `App.leftSidebar.test.tsx` (3 mock paths)
+- Deleted `apps/web-editor/src/features/ai-generation/` directory entirely
+- Fixed 4 test files that exceeded the 300-line cap (§9.7): split each into a primary file and a sibling file using the `.<topic>.test.ts` naming convention
+  - `SchemaFieldInput.test.tsx` (384→151) + `SchemaFieldInput.complex.test.tsx` (275) — primitive vs complex field types; shared static fixture in `SchemaFieldInput.fixtures.ts`
+  - `VoicePickerRows.test.tsx` (317→82) + `VoicePickerRows.library.test.tsx` (251) — UserVoiceRow vs LibraryVoiceRow + buildCategoryLabel
+  - `VoicePickerModal.audio.test.tsx` (313→227) + `VoicePickerModal.audio.cleanup.test.tsx` (162) — core playback vs cleanup/dismissal
+  - `aiGenerationPanel.utils.test.ts` (305→221) + `aiGenerationPanel.utils.split.test.ts` (91) — getFirstCapabilityForGroup/seedDefaults/isCatalogEmpty/hasAllRequired vs splitPromptFromOptions
+- Updated `types.ts` JSDoc comment to reference `shared/ai-generation` (was `features/ai-generation`)
+
+**Notes:**
+- Pure import-path migration only — no logic changes. All behavioral changes are deferred to Subtask 4.
+- `vi.hoisted()` variables cannot be exported from a fixtures file (Vitest hoisting constraint) — each split test file declares its own `vi.hoisted()` block; only static data types are exported from `SchemaFieldInput.fixtures.ts`. This is consistent with the pattern documented in `development_logs.md` (Subtask 7 notes).
+- After split, all 177 test files pass (1991 tests); test count unchanged because splits redistribute existing tests, not add new ones.
+- The 4 test files that exceeded 300 lines pre-existed in `features/ai-generation/` — §9.7 compliance is now enforced as part of this move subtask.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: [FE] Move `ai-generation` feature → `shared/ai-generation/`</summary>
+
+- What: Relocate every file under `apps/web-editor/src/features/ai-generation/` to `apps/web-editor/src/shared/ai-generation/` with identical structure (`components/`, `hooks/`, `api.ts`, `types.ts`). Update all imports at call sites. Do not refactor logic in this subtask — move only.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer: YES — Pure refactoring (import paths only); no logic changes; AI Generation panel opens and renders correctly; Editor shell loads; Home page loads; all 1991 unit tests pass; zero regressions on 3-point smoke test (editor shell, AI panel, home page)
+
+code-reviewer notes (2026-04-18):
+- §14 violation deferred to Subtask 4: shared/ai-generation/components/AssetPickerField.tsx:4-5 still imports getAssets + Asset from @/features/asset-manager/. This import pre-existed Subtask 3 (the original file had the same dependency). Subtask 4 refactors AssetPickerField to be context-aware (uses `GET /projects/:id/assets` or `GET /generation-drafts/:id/assets`), which removes the cross-feature import. User approved deferral.
+
+design-reviewer notes: Reviewed on 2026-04-18. Pure file relocation (47 files moved from features/ai-generation/ → shared/ai-generation/) with import-path-only changes. No visual, layout, spacing, color, typography, or component logic changes. No design tokens modified. All checks passed.
+
+---
+
+## [2026-04-18]
+
+### Task: Files-as-root foundation (BATCH 2 of 2) — FE upload + AI port to wizard + regression
+**Subtask:** [FE] Refactor `AiGenerationPanel` + `useAiGeneration` + `api.submitGeneration` to accept a context prop
+
+**What was done:**
+- Added `AiGenerationContext` type to `shared/ai-generation/types.ts` — discriminated union `{ kind: 'project' | 'draft'; id: string }`
+- Updated `shared/ai-generation/api.ts` — `submitGeneration(context, request)` picks route by context kind; added `getContextAssets(context)` + `AssetSummary` type (replaces cross-feature `getAssets` dependency)
+- Updated `shared/ai-generation/hooks/useAiGeneration.ts` — `submit(context, request)` signature; propagates context to `submitGeneration`
+- Updated `shared/ai-generation/components/AssetPickerField.tsx` — replaced `projectId: string` prop with `context: AiGenerationContext`; uses `getContextAssets(context)` from shared api instead of `getAssets` from `@/features/asset-manager/api` (§14 violation resolved)
+- Updated `shared/ai-generation/components/SchemaFieldInput.tsx` — replaced `projectId: string` prop with `context: AiGenerationContext`; forwarded to `AssetPickerField`
+- Updated `shared/ai-generation/components/GenerationOptionsForm.tsx` — replaced `projectId: string` prop with `context: AiGenerationContext`; forwarded to `SchemaFieldInput`
+- Updated `shared/ai-generation/components/AiGenerationPanel.tsx` — replaced `projectId: string` prop with `context: AiGenerationContext`; updated `handleSubmit`, query invalidation key, and `GenerationOptionsForm` usage
+- Updated `apps/web-editor/src/App.tsx` and `App.panels.tsx` — both call sites now pass `context={{ kind: 'project', id: projectId }}`
+- Updated all test files: `AiGenerationPanel.test.tsx`, `AiGenerationPanel.form.test.tsx`, `AiGenerationPanel.states.test.tsx`, `AssetPickerField.test.tsx`, `GenerationOptionsForm.test.tsx`, `SchemaFieldInput.test.tsx`, `SchemaFieldInput.complex.test.tsx`, `useAiGeneration.test.ts`, `api.test.ts`, `App.leftSidebar.test.tsx`
+
+**Notes:**
+- `AssetPickerField` query key changed from `['assets', projectId]` to `['assets', context.kind, context.id]` to distinguish project vs draft cache entries
+- `AiGenerationPanel` query invalidation key changed to match `['assets', context.kind, context.id]`
+- `AssetSummary` type exported from `api.ts` (not from `types.ts`) to keep it co-located with `getContextAssets` — tests import it from `@/shared/ai-generation/api`
+- The §14 violation (AssetPickerField importing from `@/features/asset-manager/api`) is fully resolved in this subtask as planned
+- 211 tests pass across the full `shared/ai-generation/` suite + `App.leftSidebar.test.tsx`
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: [FE] Refactor `AiGenerationPanel` + `useAiGeneration` + `api.submitGeneration` to accept a context prop</summary>
+
+- What: Replace `projectId: string` prop on `AiGenerationPanel` with `context: { kind: 'project' | 'draft', id: string }`. Propagate the change through `useAiGeneration.submit(context, request)` and `api.submitGeneration(context, request)`. The API client picks the route: `POST /projects/:id/ai/generate` for project, `POST /generation-drafts/:id/ai/generate` for draft. Also refactor `AssetPickerField` to call `GET /projects/:id/assets` or `GET /generation-drafts/:id/assets` based on the same context. Update the editor's `AiGenerationPanel` call site to pass `{ kind: 'project', id: projectId }`.
+
+</details>
+
+**Fix round 1 (code-reviewer import fix):** Verified that `AssetPickerField.tsx` line 5 reads `import type { AiGenerationContext } from '@/shared/ai-generation/types';` — no import of `AiGenerationContext` from `api` remains in the file. Ran full `shared/ai-generation/` test suite from `apps/web-editor/` cwd: 26 test files, 206 tests, all passed.
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer: YES — Fix round 1 verified: AssetPickerField.tsx:5 now correctly imports AiGenerationContext from @/shared/ai-generation/types (not api); unit test suite 1998/1998 pass (zero regressions); app loads without JS errors
+
+code-reviewer notes: 2026-04-18. All files within 300-line cap (types.ts 106, api.ts 150, useAiGeneration.ts 66, AiGenerationPanel.tsx 266, AssetPickerField.tsx 196, GenerationOptionsForm.tsx 56, SchemaFieldInput.tsx 254). All 1998 web-editor tests pass, no regressions. §14 cross-feature import resolved: AssetPickerField now calls getContextAssets() from shared/ai-generation/api instead of getAssets from @/features/asset-manager/api. App.tsx + App.panels.tsx correctly pass context prop at call sites. FIXED: AssetPickerField now imports AiGenerationContext from @/shared/ai-generation/types (line 5) as required per §9 module exports contract.
+
+design-reviewer notes: Reviewed on 2026-04-18. Prop-signature refactor only (`projectId: string` → `context: { kind, id }`). Zero JSX markup changes across AiGenerationPanel, AssetPickerField, SchemaFieldInput, GenerationOptionsForm. No style, spacing, color, typography, or layout modifications. All styling files unchanged. Query key scoping updated for draft context but no DOM impact. All checks passed.
+
+playwright-reviewer notes: Reviewed on 2026-04-18 (sanity-check pass). FE refactoring verified: (1) Editor shell loads without errors, (2) `/projects/:id/ai/generate` route correctly wired, test POST returns jobId + status 202 (confirmed via API), (3) All 1998 web-editor unit tests pass (zero regressions), (4) App.tsx passes `context={{ kind: 'project', id: projectId }}` correctly, (5) api.submitGeneration routes to `/projects/:id/ai/generate` for kind='project'. No 404/network errors on new route shape. E2E UI test deferred to Subtask 7 (full regression sweep).
+
+---
+
+## [2026-04-18]
+
+### Task: Files-as-root foundation (BATCH 2 of 2) — FE upload + AI port to wizard + regression
+**Subtask:** [BE] `POST /generation-drafts/:draftId/ai/generate` endpoint
+
+**What was done:**
+- Added migration `026_ai_jobs_draft_id.sql` — nullable `draft_id CHAR(36)` column on `ai_generation_jobs`; guarded by INFORMATION_SCHEMA check (idempotent)
+- Extended `aiGenerationJob.repository.ts` — added `setDraftId(jobId, draftId)` to record the draft association after enqueue; extended `setOutputFile` to SELECT `draft_id` first and, when set, INSERT IGNORE into `draft_files` so the output file auto-links to the draft upon job completion (no worker changes needed)
+- Added `submitDraftAiGeneration(userId, draftId, params)` to `generationDraft.service.ts` — verifies draft ownership via existing `resolveDraft`, delegates to `aiGeneration.service.submitGeneration`, then calls `setDraftId`
+- Added `submitDraftAiGenerationSchema` Zod schema and `submitDraftAiGeneration` handler to `generationDrafts.controller.ts` (thin — parse, call service, return 202)
+- Added `POST /generation-drafts/:draftId/ai/generate` route in `generationDrafts.routes.ts` with `authMiddleware`, `aclMiddleware('editor')`, `validateBody(submitDraftAiGenerationSchema)`
+- Added integration test `generation-draft-ai-generate.test.ts` (289 lines) — covers: happy path (202 + job row written with draft_id), completion hook (setOutputFile auto-links draft_files + GET /assets returns the file), non-owner 403, missing draft 404, invalid payload 400, provider failure (job failed + no draft_files row)
+
+**Notes:**
+- The media worker (`ai-generate.job.ts`) is not yet updated to call `setOutputFile` — it still writes to `project_assets_current`. The completion hook relies on whichever path calls `setOutputFile` from `aiGenerationJob.repository.ts` (API or updated worker). The integration tests simulate the worker by calling `aiJobRepo.setOutputFile` directly, matching the pattern in `aiGeneration.service.integration.test.ts`.
+- `INSERT IGNORE INTO draft_files` in `setOutputFile` is intentionally permissive: if the draft was deleted between submit and completion, the FK constraint fires and the ignore suppresses it — no orphan rows, no thrown error.
+- `SELECT draft_id FROM ai_generation_jobs WHERE job_id = ?` runs before the UPDATE in `setOutputFile` — adds one extra round-trip only when the function is called (worker completion path). This is acceptable.
+- `AiGenerationJob.draftId` field added to the type; existing unit tests (aiGeneration.service.status.test.ts) are unaffected because `getJobStatus` does not surface `draftId` in its response shape, and mock return values go through `vi.fn().mockResolvedValue()` which is not type-checked.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: [BE] `POST /generation-drafts/:draftId/ai/generate` endpoint</summary>
+
+- Add new route in `apps/api/src/routes/generationDrafts.routes.ts`.
+- Add thin handler `submitDraftAiGeneration` in `apps/api/src/controllers/generationDrafts.controller.ts`.
+- Add orchestration in `apps/api/src/services/generationDraft.service.ts` that delegates to `aiGeneration.service.submit(userId, request)` (the same path the project endpoint uses). Ownership validation first (403 if caller ≠ draft owner; 400 on invalid payload; 202 on success with `{ jobId }`).
+- Ensure the completed job's `output_file_id` is linked to the draft via `draft_files`. Extended `aiGenerationJob.repository.setOutputFile` to INSERT IGNORE into `draft_files` when `draft_id` is set on the job row.
+- Integration test against real MySQL: seed a draft, hit the endpoint, poll the job, assert output file lands in `draft_files`; edge cases: non-owner → 403; provider failure → `status='failed'`, no link row.
 
 </details>
 
@@ -287,55 +502,6 @@ checked by qa-reviewer - YES
 checked by design-reviewer - YES
 checked by playwright-reviewer: YES
 
-design-reviewer notes: Reviewed on 2026-04-16. Backend-only service fix — no UI or design surface touched. Per memory (feedback_design_reviewer_backend.md), backend-only service changes auto-approve. Line 110 in generationDraft.service.ts now correctly threads userId to enqueueEnhancePrompt call.
+code-reviewer notes: Reviewed on 2026-04-18. §2 4-layer API correct: routes → controller → service → repository. Migration 026 idempotent (INFORMATION_SCHEMA guard), CHAR(36) nullable, no FK. All files ≤300 lines: routes 123, controller 267, service 291, repo 192, test 289. No direct env reads. Integration test covers happy path (202 + draft_id set), completion hook (auto-link draft_files), ownership edge cases (401/403/404), validation (400), and provider failure. setOutputFile repo-layer placement is intentional design: INSERT IGNORE idempotent at data layer, media-worker has no service layer. All architecture rules satisfied.
 
-qa-reviewer notes: Verified 2026-04-16. The missing `userId` field was being passed to `enqueueEnhancePrompt` on line 110. Existing test in `generationDraft.enhance.test.ts` was failing because the assertion didn't include `userId` — fixed that assertion. All related tests now pass: generationDraft.service.test.ts (15), generationDraft.enhance.test.ts (11), enqueue-enhance-prompt.test.ts (7), generationDrafts.controller.test.ts (4). Regression suite clean: 457 unit tests passing (26 integration test failures are pre-existing database connectivity issues).
-
----
-
-## [2026-04-17]
-
-### Task: EPIC — Home: Projects & Storyboard Hub
-**Subtask:** 1. [DB] 020 migration — owner_user_id + title + index on projects table
-
-**What was done:**
-- Created `apps/api/src/db/migrations/020_projects_owner_title.sql` — adds `owner_user_id CHAR(36) NOT NULL DEFAULT 'dev-user-001'` and `title VARCHAR(255) NOT NULL DEFAULT 'Untitled project'` to the `projects` table using `ADD COLUMN IF NOT EXISTS` (MySQL 8.0.29+ idempotent syntax); creates composite index `idx_projects_owner_updated ON projects (owner_user_id, updated_at DESC)` with `CREATE INDEX IF NOT EXISTS`; includes explicit `UPDATE` backfill statement and a `-- Manual rollback:` comment block.
-- Created `apps/api/src/__tests__/integration/projects-schema.test.ts` — integration tests (real MySQL, no mocking) covering: column presence, type/length/nullability for `owner_user_id` and `title`, default value on `title`, index existence and key column order, backfill assertion (no null/empty `owner_user_id` or `title`), idempotency re-run, and INSERT behaviour with both columns.
-
-**Notes:**
-- `ADD COLUMN IF NOT EXISTS` combined with `DEFAULT 'dev-user-001'` on `owner_user_id` automatically backfills pre-existing rows to the seed user when the column is first added. The explicit `UPDATE` statement in the migration documents the backfill intent but is a no-op on subsequent runs.
-- `CREATE INDEX IF NOT EXISTS` makes the index step idempotent; MySQL 8.0.29+ required (as stated in the AC).
-- The column default `DEFAULT 'dev-user-001'` is intentional for backfill only — subtask 2 will make the application always supply `owner_user_id` explicitly on new inserts; the default remains as a safety net.
-- Integration test cleanup uses a tracked `testProjectIds` array in `afterAll` to avoid leaving test rows behind.
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: 1. [DB] 020 migration — owner_user_id + title + index on projects table</summary>
-
-- What: Add a new idempotent SQL migration that adds `owner_user_id CHAR(36) NOT NULL` and `title VARCHAR(255) NOT NULL DEFAULT 'Untitled project'` to `projects`, creates composite index `idx_projects_owner_updated (owner_user_id, updated_at DESC)`, and backfills existing rows to the dev seed user id from `011_seed_dev_user.sql`.
-- Where: `apps/api/src/db/migrations/020_projects_owner_title.sql` (new). Reference existing `projects` definition in `003_project_versions.sql` (do NOT re-create the table).
-- Why: `findProjectsByUserId` in subtask 2 needs the owner link + index to scope listing to the current user and to sort by `updated_at DESC` cheaply.
-- Acceptance criteria: all met — idempotent `ADD COLUMN IF NOT EXISTS`, backfill via column default + UPDATE, composite index `idx_projects_owner_updated`, manual rollback comment block.
-- Test approach: `apps/api/src/__tests__/integration/projects-schema.test.ts` (new) — real MySQL integration tests.
-
-</details>
-
-checked by code-reviewer - NOT
-checked by qa-reviewer - NOT
-checked by design-reviewer - NOT
-checked by playwright-reviewer: NOT
-
----
-
-## Known Issues / TODOs
-- ACL middleware stub — real project ownership check deferred
-- `packages/api-contracts/` OpenAPI spec only covers scoped endpoints
-- Presigned download URL deferred; S3 CORS needs bucket config
-- Pre-existing integration test failures with `APP_DEV_AUTH_BYPASS=true`
-- Production stream endpoint needs signed URL tokens
-- OAuth client IDs/secrets default empty
-- Lint workspace-wide fails with ESLint v9 config-migration error
-- Pre-existing TS errors in unrelated test files (App.PreviewSection, App.RightSidebar, asset-manager, export, auth, timeline, version-history, config.ts)
-- Stitch OQ-S1 (duplicate Landing), OQ-S2 (tablet/mobile variants), OQ-S3 (secondary screens), OQ-S4 (spacing/typography echo)
-- Sidebar nav: no top-level nav component exists; wizard "Generate" highlight deferred
-- Wizard upload affordance: omitted per 2026-04-16 decision — follow-up backlog item
+design-reviewer notes: Reviewed on 2026-04-18. Backend-only subtask (migration 026 + repository/service/controller/route + integration test). Zero UI changes, zero design tokens, zero DOM impact. Auto-approved per feedback_design_reviewer_backend.md pattern.

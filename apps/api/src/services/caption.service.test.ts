@@ -1,52 +1,49 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { ConflictError, NotFoundError } from '@/lib/errors.js';
-import * as assetRepository from '@/repositories/asset.repository.js';
+import * as fileRepository from '@/repositories/file.repository.js';
 import * as captionRepository from '@/repositories/caption.repository.js';
-import type { Asset } from '@/repositories/asset.repository.js';
+import type { FileRow } from '@/repositories/file.repository.js';
 import type { CaptionTrack } from '@/repositories/caption.repository.js';
 
 import { transcribeAsset, getCaptions } from './caption.service.js';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
-vi.mock('@/repositories/asset.repository.js', () => ({
-  getAssetById: vi.fn(),
+vi.mock('@/repositories/file.repository.js', () => ({
+  findById: vi.fn(),
 }));
 
 vi.mock('@/repositories/caption.repository.js', () => ({
-  getCaptionTrackByAssetId: vi.fn(),
+  getCaptionTrackByFileId: vi.fn(),
 }));
 
 vi.mock('@/queues/jobs/enqueue-transcription.js', () => ({
-  enqueueTranscriptionJob: vi.fn().mockResolvedValue('asset-001'),
+  enqueueTranscriptionJob: vi.fn().mockResolvedValue('file-001'),
 }));
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
-const mockAsset: Asset = {
-  assetId: 'asset-001',
-  projectId: 'proj-001',
+const mockFile: FileRow = {
+  fileId: 'file-001',
   userId: 'user-001',
-  filename: 'video.mp4',
-  contentType: 'video/mp4',
-  fileSizeBytes: 1_000_000,
-  storageUri: 's3://test-bucket/projects/proj-001/assets/asset-001/video.mp4',
-  status: 'ready',
-  errorMessage: null,
-  durationFrames: 300,
+  kind: 'video',
+  storageUri: 's3://test-bucket/files/file-001/video.mp4',
+  mimeType: 'video/mp4',
+  bytes: 1_000_000,
   width: 1920,
   height: 1080,
-  fps: 30,
-  thumbnailUri: null,
-  waveformJson: null,
+  durationMs: 10_000,
+  displayName: 'video.mp4',
+  status: 'ready',
+  errorMessage: null,
   createdAt: new Date('2026-04-01T00:00:00Z'),
   updatedAt: new Date('2026-04-01T00:00:00Z'),
 };
 
 const mockCaptionTrack: CaptionTrack = {
   captionTrackId: 'track-001',
-  assetId: 'asset-001',
+  fileId: 'file-001',
   projectId: 'proj-001',
   language: 'en',
   segments: [
@@ -64,54 +61,70 @@ describe('caption.service', () => {
   });
 
   describe('transcribeAsset', () => {
-    it('returns { jobId } on happy path when asset exists and no caption track yet', async () => {
-      vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(mockAsset);
-      vi.mocked(captionRepository.getCaptionTrackByAssetId).mockResolvedValueOnce(null);
+    it('returns { jobId } on happy path when file exists and no caption track yet', async () => {
+      vi.mocked(fileRepository.findById).mockResolvedValueOnce(mockFile);
+      vi.mocked(captionRepository.getCaptionTrackByFileId).mockResolvedValueOnce(null);
 
-      const result = await transcribeAsset('asset-001');
+      const result = await transcribeAsset('file-001');
 
-      expect(result).toEqual({ jobId: 'asset-001' });
+      expect(result).toEqual({ jobId: 'file-001' });
     });
 
-    it('calls enqueueTranscriptionJob with correct payload derived from asset', async () => {
-      vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(mockAsset);
-      vi.mocked(captionRepository.getCaptionTrackByAssetId).mockResolvedValueOnce(null);
+    it('calls enqueueTranscriptionJob with correct payload derived from file', async () => {
+      vi.mocked(fileRepository.findById).mockResolvedValueOnce(mockFile);
+      vi.mocked(captionRepository.getCaptionTrackByFileId).mockResolvedValueOnce(null);
 
       const { enqueueTranscriptionJob } = await import(
         '@/queues/jobs/enqueue-transcription.js'
       );
 
-      await transcribeAsset('asset-001');
+      await transcribeAsset('file-001');
 
       expect(enqueueTranscriptionJob).toHaveBeenCalledWith({
-        assetId: 'asset-001',
-        storageUri: mockAsset.storageUri,
+        assetId: 'file-001',
+        storageUri: mockFile.storageUri,
         contentType: 'video/mp4',
         language: 'en',
       });
     });
 
-    it('throws NotFoundError when the asset does not exist', async () => {
-      vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(null);
+    it('throws NotFoundError when the file does not exist', async () => {
+      vi.mocked(fileRepository.findById).mockResolvedValueOnce(null);
 
       await expect(transcribeAsset('nonexistent')).rejects.toBeInstanceOf(NotFoundError);
     });
 
-    it('throws ConflictError when a caption track already exists for the asset', async () => {
-      vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(mockAsset);
-      vi.mocked(captionRepository.getCaptionTrackByAssetId).mockResolvedValueOnce(
+    it('throws ConflictError when a caption track already exists for the file', async () => {
+      vi.mocked(fileRepository.findById).mockResolvedValueOnce(mockFile);
+      vi.mocked(captionRepository.getCaptionTrackByFileId).mockResolvedValueOnce(
         mockCaptionTrack,
       );
 
-      await expect(transcribeAsset('asset-001')).rejects.toBeInstanceOf(ConflictError);
+      await expect(transcribeAsset('file-001')).rejects.toBeInstanceOf(ConflictError);
     });
 
     it('propagates unexpected repository errors', async () => {
-      vi.mocked(assetRepository.getAssetById).mockRejectedValueOnce(
+      vi.mocked(fileRepository.findById).mockRejectedValueOnce(
         new Error('DB connection lost'),
       );
 
-      await expect(transcribeAsset('asset-001')).rejects.toThrow('DB connection lost');
+      await expect(transcribeAsset('file-001')).rejects.toThrow('DB connection lost');
+    });
+
+    it('falls back to application/octet-stream when file mimeType is null', async () => {
+      const fileWithNullMime: FileRow = { ...mockFile, mimeType: null };
+      vi.mocked(fileRepository.findById).mockResolvedValueOnce(fileWithNullMime);
+      vi.mocked(captionRepository.getCaptionTrackByFileId).mockResolvedValueOnce(null);
+
+      const { enqueueTranscriptionJob } = await import(
+        '@/queues/jobs/enqueue-transcription.js'
+      );
+
+      await transcribeAsset('file-001');
+
+      expect(enqueueTranscriptionJob).toHaveBeenCalledWith(
+        expect.objectContaining({ contentType: 'application/octet-stream' }),
+      );
     });
   });
 
@@ -119,27 +132,27 @@ describe('caption.service', () => {
 
   describe('getCaptions', () => {
     it('returns { segments } when a caption track exists', async () => {
-      vi.mocked(captionRepository.getCaptionTrackByAssetId).mockResolvedValueOnce(
+      vi.mocked(captionRepository.getCaptionTrackByFileId).mockResolvedValueOnce(
         mockCaptionTrack,
       );
 
-      const result = await getCaptions('asset-001');
+      const result = await getCaptions('file-001');
 
       expect(result).toEqual({ segments: mockCaptionTrack.segments });
     });
 
-    it('throws NotFoundError when no caption track exists for the asset', async () => {
-      vi.mocked(captionRepository.getCaptionTrackByAssetId).mockResolvedValueOnce(null);
+    it('throws NotFoundError when no caption track exists for the file', async () => {
+      vi.mocked(captionRepository.getCaptionTrackByFileId).mockResolvedValueOnce(null);
 
-      await expect(getCaptions('asset-001')).rejects.toBeInstanceOf(NotFoundError);
+      await expect(getCaptions('file-001')).rejects.toBeInstanceOf(NotFoundError);
     });
 
     it('propagates unexpected repository errors', async () => {
-      vi.mocked(captionRepository.getCaptionTrackByAssetId).mockRejectedValueOnce(
+      vi.mocked(captionRepository.getCaptionTrackByFileId).mockRejectedValueOnce(
         new Error('DB connection lost'),
       );
 
-      await expect(getCaptions('asset-001')).rejects.toThrow('DB connection lost');
+      await expect(getCaptions('file-001')).rejects.toThrow('DB connection lost');
     });
   });
 });

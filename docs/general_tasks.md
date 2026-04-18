@@ -249,3 +249,11 @@
   - Loaded memory entries: Code reviewer must report only, Escalate architecture/product decisions, Development workflow - Docker Compose, DEV_AUTH_BYPASS env, Design-reviewer approval for backend-only subtasks, Reviewer gate skipped for config-only subtasks.
   - Reuse audit highlights: `apps/api/src/repositories/project.repository.ts`, `apps/api/src/services/project.service.ts`, `apps/api/src/repositories/generationDraft.repository.ts` (list fn exists), `apps/web-editor/src/main.tsx` (router), `apps/web-editor/src/features/generate-wizard/hooks/useGenerationDraft.ts` (resume target), `apps/web-editor/src/features/asset-manager/components/AssetCard.tsx` (card pattern reference only).
   - Recommended build order: **Start with `[DB] 020 migration`** (unblocks the Projects list slice). Then land `[BE] Projects list slice` and, in parallel, `[BE] Storyboard cards endpoint` (independent). As soon as the API contract is stable, kick off `[FE] HomePage shell + routing`; the two panel tickets (`[FE] Projects panel`, `[FE] Storyboard panel`) can then run in parallel against the real endpoints. `[FE] Wizard resume-draft support` is independent and can slot in any time after the shell lands — ship last so it consumes the Storyboard card deep-link.
+
+
+FEEDBACK:
+
+1. Projects page is not scrollable
+2. Create Storyboad should create new storyboard, and there should be possiblity to reopen it from storyboard page
+3. Project and Storyboard files upload should by default first upload files through general files upload process, that keep files available for specific user through full system, and later once that done, these files can be linked to specific assets on project level or stroryboard level
+4. Add files apload process same as we have on project page into storyboard page, same aswell for AI generation it shoudl also be available on storyboard pages.

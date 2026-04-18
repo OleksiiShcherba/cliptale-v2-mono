@@ -1,24 +1,26 @@
 /**
- * Unit tests for resolveAssetImageUrls — Epic 9 Ticket 6.
+ * Unit tests for resolveAssetImageUrls — after Batch 1 Subtask 8.
  *
- * Mocks for `asset.repository.getAssetById` and the AWS presigner are
- * registered in the colocated fixtures file. The real `FAL_MODELS` catalog is
- * imported so the tests exercise actual schema shapes rather than synthetic
- * mini-models.
+ * The resolver now uses `file.repository.findByIdForUser` instead of
+ * `asset.repository.getAssetById`. Mocks for the repository and the AWS
+ * presigner are registered in the colocated fixtures file.
+ *
+ * The real FAL_MODELS catalog is imported so tests exercise actual schema
+ * shapes rather than synthetic mini-models.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 
 import { FAL_MODELS, type FalModel } from '@ai-video-editor/api-contracts';
 
-import { ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors.js';
+import { NotFoundError, ValidationError } from '@/lib/errors.js';
 
 import {
   FIXED_PRESIGNED_URL,
-  getAssetByIdMock,
+  findByIdForUserMock,
   getSignedUrlMock,
-  makeAssetRow,
+  makeFileRow,
   resetMocks,
-  TEST_ASSET_ID,
+  TEST_FILE_ID,
   TEST_USER,
 } from './aiGeneration.service.fixtures.js';
 
@@ -53,25 +55,25 @@ describe('resolveAssetImageUrls / image_url field', () => {
     });
 
     expect(result['image_url']).toBe('https://cdn.example.com/foo.png');
-    expect(getAssetByIdMock).not.toHaveBeenCalled();
+    expect(findByIdForUserMock).not.toHaveBeenCalled();
     expect(getSignedUrlMock).not.toHaveBeenCalled();
   });
 
-  it('resolves an asset id into a presigned URL using the fixture storage URI', async () => {
-    getAssetByIdMock.mockResolvedValue(
-      makeAssetRow({ storageUri: 's3://test-bucket/assets/foo.png' }),
+  it('resolves a file id into a presigned URL using the fixture storage URI', async () => {
+    findByIdForUserMock.mockResolvedValue(
+      makeFileRow({ storageUri: 's3://test-bucket/assets/foo.png' }),
     );
 
     const result = await resolveAssetImageUrls({
       model: modelById(LTX),
-      options: { prompt: 'p', image_url: TEST_ASSET_ID },
+      options: { prompt: 'p', image_url: TEST_FILE_ID },
       userId: TEST_USER,
     });
 
     expect(result['image_url']).toBe(FIXED_PRESIGNED_URL);
 
-    expect(getAssetByIdMock).toHaveBeenCalledTimes(1);
-    expect(getAssetByIdMock).toHaveBeenCalledWith(TEST_ASSET_ID);
+    expect(findByIdForUserMock).toHaveBeenCalledTimes(1);
+    expect(findByIdForUserMock).toHaveBeenCalledWith(TEST_FILE_ID, TEST_USER);
 
     expect(getSignedUrlMock).toHaveBeenCalledTimes(1);
     const [, cmd, opts] = getSignedUrlMock.mock.calls[0]!;
@@ -93,7 +95,7 @@ describe('resolveAssetImageUrls / image_url field', () => {
     });
     // `end_image_url` (optional image_url) is undefined — must not be added.
     expect(result['end_image_url']).toBeUndefined();
-    expect(getAssetByIdMock).not.toHaveBeenCalled();
+    expect(findByIdForUserMock).not.toHaveBeenCalled();
   });
 
   it('treats an uppercase HTTPS scheme as passthrough (case-insensitive)', async () => {
@@ -103,18 +105,18 @@ describe('resolveAssetImageUrls / image_url field', () => {
       userId: TEST_USER,
     });
     expect(result['image_url']).toBe('HTTPS://cdn.example.com/x.png');
-    expect(getAssetByIdMock).not.toHaveBeenCalled();
+    expect(findByIdForUserMock).not.toHaveBeenCalled();
   });
 });
 
 // ── image_url_list passthrough + resolution ──────────────────────────────────
 
 describe('resolveAssetImageUrls / image_url_list field', () => {
-  it('preserves order, replacing asset ids with presigned URLs and leaving https URLs untouched', async () => {
-    const assetRow = makeAssetRow({
+  it('preserves order, replacing file ids with presigned URLs and leaving https URLs untouched', async () => {
+    const fileRow = makeFileRow({
       storageUri: 's3://test-bucket/assets/bar.png',
     });
-    getAssetByIdMock.mockResolvedValue(assetRow);
+    findByIdForUserMock.mockResolvedValue(fileRow);
     getSignedUrlMock
       .mockReset()
       .mockResolvedValueOnce('https://s3.example.com/presigned-id-0');
@@ -123,7 +125,7 @@ describe('resolveAssetImageUrls / image_url_list field', () => {
       model: modelById(NANO_EDIT),
       options: {
         prompt: 'edit',
-        image_urls: [TEST_ASSET_ID, 'https://cdn.example.com/untouched.png'],
+        image_urls: [TEST_FILE_ID, 'https://cdn.example.com/untouched.png'],
       },
       userId: TEST_USER,
     });
@@ -132,21 +134,21 @@ describe('resolveAssetImageUrls / image_url_list field', () => {
       'https://s3.example.com/presigned-id-0',
       'https://cdn.example.com/untouched.png',
     ]);
-    expect(getAssetByIdMock).toHaveBeenCalledTimes(1);
+    expect(findByIdForUserMock).toHaveBeenCalledTimes(1);
     expect(getSignedUrlMock).toHaveBeenCalledTimes(1);
   });
 
-  it('resolves every element when the entire list is asset ids', async () => {
-    const ids = ['asset-a', 'asset-b', 'asset-c'];
-    getAssetByIdMock
+  it('resolves every element when the entire list is file ids', async () => {
+    const ids = ['file-a', 'file-b', 'file-c'];
+    findByIdForUserMock
       .mockResolvedValueOnce(
-        makeAssetRow({ assetId: 'asset-a', storageUri: 's3://b/a.png' }),
+        makeFileRow({ fileId: 'file-a', storageUri: 's3://b/a.png' }),
       )
       .mockResolvedValueOnce(
-        makeAssetRow({ assetId: 'asset-b', storageUri: 's3://b/b.png' }),
+        makeFileRow({ fileId: 'file-b', storageUri: 's3://b/b.png' }),
       )
       .mockResolvedValueOnce(
-        makeAssetRow({ assetId: 'asset-c', storageUri: 's3://b/c.png' }),
+        makeFileRow({ fileId: 'file-c', storageUri: 's3://b/c.png' }),
       );
     getSignedUrlMock
       .mockReset()
@@ -165,8 +167,8 @@ describe('resolveAssetImageUrls / image_url_list field', () => {
       'https://s3.example.com/b',
       'https://s3.example.com/c',
     ]);
-    expect(getAssetByIdMock).toHaveBeenCalledTimes(3);
-    expect(getAssetByIdMock.mock.calls.map((c) => c[0])).toEqual(ids);
+    expect(findByIdForUserMock).toHaveBeenCalledTimes(3);
+    expect(findByIdForUserMock.mock.calls.map((c) => c[0])).toEqual(ids);
     expect(getSignedUrlMock).toHaveBeenCalledTimes(3);
   });
 
@@ -192,8 +194,8 @@ describe('resolveAssetImageUrls / image_url_list field', () => {
 // ── ownership + existence errors ─────────────────────────────────────────────
 
 describe('resolveAssetImageUrls / ownership + existence', () => {
-  it('throws NotFoundError when the asset does not exist', async () => {
-    getAssetByIdMock.mockResolvedValue(null);
+  it('throws NotFoundError when the file does not exist', async () => {
+    findByIdForUserMock.mockResolvedValue(null);
 
     await expect(
       resolveAssetImageUrls({
@@ -212,26 +214,17 @@ describe('resolveAssetImageUrls / ownership + existence', () => {
     ).rejects.toThrow(/missing-id/);
   });
 
-  it('throws ForbiddenError when the asset belongs to another user', async () => {
-    getAssetByIdMock.mockResolvedValue(
-      makeAssetRow({ userId: 'other-user-xyz' }),
-    );
+  it('throws NotFoundError when the file belongs to another user (findByIdForUser returns null)', async () => {
+    // findByIdForUser returns null for cross-user lookups — ownership is enforced at DB level.
+    findByIdForUserMock.mockResolvedValue(null);
 
     await expect(
       resolveAssetImageUrls({
         model: modelById(LTX),
-        options: { prompt: 'p', image_url: TEST_ASSET_ID },
-        userId: TEST_USER,
+        options: { prompt: 'p', image_url: TEST_FILE_ID },
+        userId: 'other-user',
       }),
-    ).rejects.toBeInstanceOf(ForbiddenError);
-
-    await expect(
-      resolveAssetImageUrls({
-        model: modelById(LTX),
-        options: { prompt: 'p', image_url: TEST_ASSET_ID },
-        userId: TEST_USER,
-      }),
-    ).rejects.toThrow(new RegExp(TEST_ASSET_ID));
+    ).rejects.toBeInstanceOf(NotFoundError);
   });
 });
 
@@ -246,7 +239,7 @@ describe('resolveAssetImageUrls / no-image-field models', () => {
       userId: TEST_USER,
     });
     expect(result).toEqual(input);
-    expect(getAssetByIdMock).not.toHaveBeenCalled();
+    expect(findByIdForUserMock).not.toHaveBeenCalled();
     expect(getSignedUrlMock).not.toHaveBeenCalled();
   });
 });

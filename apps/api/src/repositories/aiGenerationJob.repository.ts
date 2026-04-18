@@ -26,18 +26,19 @@ export type AiCapability =
   | 'speech_to_speech'
   | 'music_generation';
 
-/** Full job record as stored in ai_generation_jobs (migration 014). */
+/** Full job record as stored in ai_generation_jobs (after migrations 025 + 026). */
 export type AiGenerationJob = {
   jobId: string;
   userId: string;
-  projectId: string;
   modelId: string;
   capability: AiCapability;
   prompt: string;
   options: Record<string, unknown> | null;
   status: AiJobStatus;
   progress: number;
-  resultAssetId: string | null;
+  outputFileId: string | null;
+  /** Set when the job was submitted via POST /generation-drafts/:id/ai/generate. */
+  draftId: string | null;
   resultUrl: string | null;
   errorMessage: string | null;
   createdAt: Date;
@@ -47,14 +48,14 @@ export type AiGenerationJob = {
 type JobRow = RowDataPacket & {
   job_id: string;
   user_id: string;
-  project_id: string;
   model_id: string;
   capability: AiCapability;
   prompt: string;
   options: Record<string, unknown> | null;
   status: AiJobStatus;
   progress: number;
-  result_asset_id: string | null;
+  output_file_id: string | null;
+  draft_id: string | null;
   result_url: string | null;
   error_message: string | null;
   created_at: Date;
@@ -65,14 +66,14 @@ function mapRow(row: JobRow): AiGenerationJob {
   return {
     jobId: row.job_id,
     userId: row.user_id,
-    projectId: row.project_id,
     modelId: row.model_id,
     capability: row.capability,
     prompt: row.prompt,
     options: row.options,
     status: row.status,
     progress: row.progress,
-    resultAssetId: row.result_asset_id,
+    outputFileId: row.output_file_id,
+    draftId: row.draft_id,
     resultUrl: row.result_url,
     errorMessage: row.error_message,
     createdAt: row.created_at,
@@ -84,7 +85,6 @@ function mapRow(row: JobRow): AiGenerationJob {
 export async function createJob(params: {
   jobId: string;
   userId: string;
-  projectId: string;
   modelId: string;
   capability: AiCapability;
   prompt: string;
@@ -92,12 +92,11 @@ export async function createJob(params: {
 }): Promise<void> {
   await pool.execute(
     `INSERT INTO ai_generation_jobs
-       (job_id, user_id, project_id, model_id, capability, prompt, options)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (job_id, user_id, model_id, capability, prompt, options)
+     VALUES (?, ?, ?, ?, ?, ?)`,
     [
       params.jobId,
       params.userId,
-      params.projectId,
       params.modelId,
       params.capability,
       params.prompt,
@@ -140,15 +139,54 @@ export async function updateJobProgress(
   );
 }
 
-/** Updates the job result asset ID and marks it as completed. */
-export async function updateJobResult(
+/**
+ * Records the generation draft that owns this job.
+ *
+ * Called immediately after a job is enqueued via the draft AI generate endpoint
+ * so that setOutputFile can link the output file to the draft automatically
+ * upon completion.
+ */
+export async function setDraftId(jobId: string, draftId: string): Promise<void> {
+  await pool.execute(
+    'UPDATE ai_generation_jobs SET draft_id = ? WHERE job_id = ?',
+    [draftId, jobId],
+  );
+}
+
+/**
+ * Marks the job as completed and links it to the generated file in `files`.
+ * The file row must already exist (created by the worker completion path).
+ *
+ * When draft_id is set on the job row, also inserts a row into `draft_files`
+ * so the output file appears in the draft's asset gallery. The INSERT IGNORE
+ * makes the link idempotent; a missing draft (deleted after submit) silently
+ * produces no row because the FK would fail — which is the correct behaviour.
+ */
+export async function setOutputFile(
   jobId: string,
-  resultAssetId: string,
+  outputFileId: string,
 ): Promise<void> {
+  // Look up draft_id before updating so we can conditionally link draft_files.
+  const [rows] = await pool.execute<JobRow[]>(
+    'SELECT draft_id FROM ai_generation_jobs WHERE job_id = ?',
+    [jobId],
+  );
+  const draftId = rows.length ? rows[0]!.draft_id : null;
+
   await pool.execute(
     `UPDATE ai_generation_jobs
-     SET status = 'completed', progress = 100, result_asset_id = ?
+     SET status = 'completed', progress = 100, output_file_id = ?
      WHERE job_id = ?`,
-    [resultAssetId, jobId],
+    [outputFileId, jobId],
   );
+
+  if (draftId) {
+    // Intentionally uses INSERT IGNORE: if the draft was deleted between job
+    // submit and completion the FK will reject the insert and the link is
+    // silently skipped — no orphan rows.
+    await pool.execute(
+      'INSERT IGNORE INTO draft_files (draft_id, file_id) VALUES (?, ?)',
+      [draftId, outputFileId],
+    );
+  }
 }

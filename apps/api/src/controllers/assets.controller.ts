@@ -7,6 +7,7 @@ import { s3Client } from '@/lib/s3.js';
 import * as assetService from '@/services/asset.service.js';
 import * as assetListService from '@/services/asset.list.service.js';
 import * as assetResponseService from '@/services/asset.response.service.js';
+import * as fileLinksResponseService from '@/services/fileLinks.response.service.js';
 
 /** Zod schema for the POST /assets/upload-url request body. Exported for use in route middleware. */
 export const createUploadUrlSchema = z.object({
@@ -93,7 +94,15 @@ export async function listAssets(
   }
 }
 
-/** GET /projects/:id/assets — returns all assets for a project as a JSON array. */
+/**
+ * GET /projects/:id/assets
+ * Returns all files linked to a project via the `project_files` pivot table,
+ * serialized as an `AssetApiResponse[]` array.
+ *
+ * The underlying SQL changed from reading `project_assets_current` to
+ * JOIN-ing `project_files → files`, but the HTTP response shape is identical
+ * to preserve the FE contract.
+ */
 export async function getProjectAssets(
   req: Request,
   res: Response,
@@ -101,7 +110,11 @@ export async function getProjectAssets(
 ): Promise<void> {
   try {
     const baseUrl = `${req.protocol}://${req.get('host')}`;
-    const assets = await assetResponseService.getProjectAssetsResponse(req.params['id']!, s3Client, baseUrl);
+    const assets = await fileLinksResponseService.getProjectFilesResponse(
+      req.params['id']!,
+      s3Client,
+      baseUrl,
+    );
     res.json(assets);
   } catch (err) {
     next(err);

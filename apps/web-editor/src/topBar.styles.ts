@@ -199,6 +199,29 @@ export const styles = {
     lineHeight: '16px',
   } as React.CSSProperties,
 
+  homeButton: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    background: 'transparent',
+    border: `1px solid ${BORDER}`,
+    borderRadius: '6px',
+    color: TEXT_SECONDARY,
+    fontSize: '12px',
+    fontWeight: 500,
+    fontFamily: 'Inter, sans-serif',
+    padding: '4px 10px',
+    cursor: 'pointer',
+    lineHeight: '16px',
+    flexShrink: 0,
+  } as React.CSSProperties,
+
+  topBarLeft: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  } as React.CSSProperties,
+
   signOutButton: {
     background: 'transparent',
     border: `1px solid ${BORDER}`,
@@ -221,6 +244,32 @@ export const styles = {
     fontWeight: 600,
     fontFamily: 'Inter, sans-serif',
     padding: '4px 12px',
+    cursor: 'not-allowed',
+    lineHeight: '16px',
+  } as React.CSSProperties,
+
+  saveButton: {
+    background: 'transparent',
+    border: `1px solid ${PRIMARY}`,
+    borderRadius: '6px',
+    color: PRIMARY,
+    fontSize: '12px',
+    fontWeight: 500,
+    fontFamily: 'Inter, sans-serif',
+    padding: '4px 10px',
+    cursor: 'pointer',
+    lineHeight: '16px',
+  } as React.CSSProperties,
+
+  saveButtonDisabled: {
+    background: 'transparent',
+    border: `1px solid ${BORDER}`,
+    borderRadius: '6px',
+    color: TEXT_DISABLED,
+    fontSize: '12px',
+    fontWeight: 500,
+    fontFamily: 'Inter, sans-serif',
+    padding: '4px 10px',
     cursor: 'not-allowed',
     lineHeight: '16px',
   } as React.CSSProperties,

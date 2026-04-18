@@ -1,7 +1,28 @@
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 
+import { s3Client } from '@/lib/s3.js';
 import * as generationDraftService from '@/services/generationDraft.service.js';
+import * as fileLinksService from '@/services/fileLinks.service.js';
+import * as fileLinksResponseService from '@/services/fileLinks.response.service.js';
+
+/**
+ * Zod schema for POST /generation-drafts/:draftId/ai/generate.
+ *
+ * Mirrors aiGeneration.controller.submitGenerationSchema but lives here to keep
+ * the controller files decoupled. No `projectId` compat shim needed — this is a
+ * new endpoint, not a migration of the project-scoped one.
+ */
+export const submitDraftAiGenerationSchema = z.object({
+  modelId: z.string().min(1),
+  prompt: z.string().min(1).max(4000).optional(),
+  options: z.record(z.unknown()).default({}),
+});
+
+/** Zod schema for POST /generation-drafts/:draftId/files body. Exported for route middleware. */
+export const linkFileToDraftSchema = z.object({
+  fileId: z.string().uuid(),
+});
 
 /**
  * Zod schema for POST /generation-drafts and PUT /generation-drafts/:id request bodies.
@@ -130,6 +151,25 @@ export async function startEnhance(
 }
 
 /**
+ * GET /generation-drafts/cards
+ * Returns storyboard card summaries for all drafts owned by the authenticated user.
+ * Sorted by updated_at DESC. Media previews are capped at 3 per card; text preview
+ * is truncated to 140 characters. Missing/deleted asset refs are silently skipped.
+ */
+export async function listCards(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const items = await generationDraftService.listStoryboardCardsForUser(req.user!.userId);
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * GET /generation-drafts/:id/enhance/:jobId
  * Polls the status of a previously enqueued enhance job.
  * Returns 200 with { status, result?, error? }.
@@ -146,6 +186,81 @@ export async function getEnhanceStatus(
       req.params['jobId']!,
     );
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /generation-drafts/:draftId/files
+ * Links a file (by `fileId`) to a generation draft. Both the draft and the
+ * file must be owned by the authenticated user. Double-link is idempotent —
+ * if the pair already exists, returns 204 No Content.
+ * Body is pre-validated by validateBody(linkFileToDraftSchema) in the route.
+ */
+export async function linkFileToDraft(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = req.user!.userId;
+    const draftId = req.params['draftId']!;
+    const { fileId } = req.body as z.infer<typeof linkFileToDraftSchema>;
+
+    await fileLinksService.linkFileToDraft(userId, draftId, fileId);
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /generation-drafts/:id/assets
+ * Returns all files linked to a generation draft via the `draft_files` pivot
+ * table, serialized as an `AssetApiResponse[]` array.
+ */
+export async function getDraftAssets(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const assets = await fileLinksResponseService.getDraftFilesResponse(
+      req.params['id']!,
+      s3Client,
+      baseUrl,
+    );
+    res.json(assets);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /generation-drafts/:draftId/ai/generate
+ * Submits an AI generation request scoped to a generation draft.
+ * Returns 202 Accepted with { jobId, status: 'queued' } on success.
+ * Body is pre-validated by validateBody(submitDraftAiGenerationSchema) in the route.
+ */
+export async function submitDraftAiGeneration(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const body = req.body as z.infer<typeof submitDraftAiGenerationSchema>;
+    const result = await generationDraftService.submitDraftAiGeneration(
+      req.user!.userId,
+      req.params['draftId']!,
+      {
+        modelId: body.modelId,
+        prompt: body.prompt,
+        options: body.options,
+      },
+    );
+    res.status(202).json(result);
   } catch (err) {
     next(err);
   }

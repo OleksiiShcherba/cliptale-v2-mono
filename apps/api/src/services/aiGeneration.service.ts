@@ -5,8 +5,9 @@
  * enforces the kling-o3 prompt XOR (fal-only), resolves any asset URL fields into
  * presigned HTTPS URLs, enqueues a worker job, and persists a job row.
  *
- * All provider/BYOK concepts were removed in EPIC 9 Ticket 5 — the API layer
- * never handles provider API keys (each worker owns its own key via config).
+ * Jobs are tied only to `user_id` + `output_file_id` — no project coupling in
+ * the job shape (Batch 1 Subtask 8). Project/draft linking is handled separately
+ * by an explicit link call after the job completes.
  */
 import {
   AI_MODELS,
@@ -49,7 +50,7 @@ export type GetJobStatusResult = {
   jobId: string;
   status: AiJobStatus;
   progress: number;
-  resultAssetId: string | null;
+  outputFileId: string | null;
   resultUrl: string | null;
   errorMessage: string | null;
 };
@@ -95,10 +96,11 @@ function deriveDbPrompt(
  * 4. Enforces the kling-o3 XOR (fal.ai models only).
  * 5. Resolves any `image_url` / `audio_url` fields into presigned HTTPS URLs.
  * 6. Enqueues a worker job and writes a job row with status='queued'.
+ *
+ * `userId` is the only scope — jobs are no longer tied to a project.
  */
 export async function submitGeneration(
   userId: string,
-  projectId: string,
   params: SubmitGenerationParams,
 ): Promise<SubmitGenerationResult> {
   const { modelId, prompt, options } = params;
@@ -148,7 +150,7 @@ export async function submitGeneration(
     }
   }
 
-  // Resolve internal asset IDs in image_url / audio_url fields into presigned URLs.
+  // Resolve internal file IDs in image_url / audio_url fields into presigned URLs.
   // audio_upload fields are direct upload URLs from the FE — they pass through unchanged.
   const resolvedOptions = await resolveAssetImageUrls({
     model,
@@ -160,7 +162,6 @@ export async function submitGeneration(
 
   const jobId = await enqueueAiGenerateJob({
     userId,
-    projectId,
     modelId: model.id,
     capability: model.capability,
     provider: model.provider,
@@ -171,7 +172,6 @@ export async function submitGeneration(
   await aiGenerationJobRepository.createJob({
     jobId,
     userId,
-    projectId,
     modelId: model.id,
     capability: model.capability,
     prompt: dbPrompt,
@@ -200,7 +200,7 @@ export async function getJobStatus(
     jobId: row.jobId,
     status: row.status,
     progress: row.progress,
-    resultAssetId: row.resultAssetId,
+    outputFileId: row.outputFileId,
     resultUrl: row.resultUrl,
     errorMessage: row.errorMessage,
   };

@@ -127,7 +127,7 @@ async function uploadFile(
   await s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: contentType }));
 }
 
-// ── DB helpers ────────────────────────────────────────────────────────────────
+// ── DB helpers — legacy project_assets_current ────────────────────────────────
 
 type AssetReadyParams = {
   durationFrames: number | null;
@@ -163,6 +163,40 @@ async function setAssetError(pool: Pool, assetId: string, message: string): Prom
   );
 }
 
+// ── DB helpers — new `files` table ────────────────────────────────────────────
+
+type FileReadyParams = {
+  durationMs: number | null;
+  width: number | null;
+  height: number | null;
+  bytes: number | null;
+};
+
+/**
+ * Writes FFprobe results back to the `files` row and marks it `ready`.
+ * This is the new probe-metadata write path introduced in Subtask 4.
+ */
+async function setFileReady(pool: Pool, fileId: string, params: FileReadyParams): Promise<void> {
+  await pool.execute(
+    `UPDATE files
+     SET status = 'ready',
+         duration_ms = ?,
+         width = ?,
+         height = ?,
+         bytes = ?,
+         error_message = NULL
+     WHERE file_id = ?`,
+    [params.durationMs, params.width, params.height, params.bytes, fileId],
+  );
+}
+
+async function setFileError(pool: Pool, fileId: string, message: string): Promise<void> {
+  await pool.execute(
+    `UPDATE files SET status = 'error', error_message = ? WHERE file_id = ?`,
+    [message, fileId],
+  );
+}
+
 // ── Job handler ───────────────────────────────────────────────────────────────
 
 /** Injected dependencies for `processIngestJob` — enables testing without real S3/DB. */
@@ -174,24 +208,31 @@ export type IngestJobDeps = {
 /**
  * BullMQ job handler for `media-ingest` jobs.
  *
- * 1. Downloads the asset from S3 to a temp file.
+ * 1. Downloads the asset/file from S3 to a temp file.
  * 2. Runs FFprobe to extract duration, dimensions, and fps.
  * 3. Generates a 320×180 JPEG thumbnail for video assets.
  * 4. Generates 200-peak waveform JSON for audio/video assets.
  * 5. Uploads the thumbnail back to S3.
- * 6. Updates the asset row to `ready`.
+ * 6. Updates the database row to `ready`.
  *
- * On any failure: updates the asset to `error` with the error message, then
+ * Target table selection:
+ * - When `fileId` is present → writes to `files` (new path, Subtask 4+).
+ * - Otherwise → writes to `project_assets_current` (legacy path, kept until Batch 1 complete).
+ *
+ * On any failure: updates the target row to `error` with the error message, then
  * re-throws so BullMQ retries the job per the configured `attempts`.
  */
 export async function processIngestJob(
   job: Job<MediaIngestJobPayload>,
   deps: IngestJobDeps,
 ): Promise<void> {
-  const { assetId, storageUri, contentType } = job.data;
+  const { assetId, fileId, storageUri, contentType } = job.data;
   const { s3, pool } = deps;
 
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `ingest-${assetId}-`));
+  // Determine which row ID to use for logging / tmp dir naming.
+  const rowId = fileId ?? assetId;
+
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), `ingest-${rowId}-`));
   const tmpInput = path.join(tmpDir, 'asset');
 
   try {
@@ -225,10 +266,25 @@ export async function processIngestJob(
     const waveformJson =
       hasAudio && audioStream ? await extractWaveformPeaks(tmpInput, WAVEFORM_PEAKS) : null;
 
-    await setAssetReady(pool, assetId, { durationFrames, width, height, fps, thumbnailUri, waveformJson });
+    if (fileId) {
+      // New path: write metadata to the `files` table.
+      // duration_ms = durationSec × 1000, rounded to the nearest millisecond.
+      const durationMs = durationSec > 0 ? Math.round(durationSec * 1000) : null;
+      // bytes is not known from FFprobe alone; the S3 HEAD value is not available here.
+      // Set to null — the finalize step already stored the client-declared size; a future
+      // reconciliation step can back-fill from S3 HeadObject if needed.
+      await setFileReady(pool, fileId, { durationMs, width, height, bytes: null });
+    } else {
+      // Legacy path: write to project_assets_current.
+      await setAssetReady(pool, assetId, { durationFrames, width, height, fps, thumbnailUri, waveformJson });
+    }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown ingest error';
-    await setAssetError(pool, assetId, message);
+    if (fileId) {
+      await setFileError(pool, fileId, message);
+    } else {
+      await setAssetError(pool, assetId, message);
+    }
     throw err; // Re-throw so BullMQ retries per job.attempts.
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });

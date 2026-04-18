@@ -23,4 +23,5 @@ export const defaultProps: TopBarProps = {
   onUndo: vi.fn(),
   onRedo: vi.fn(),
   onLogout: vi.fn(),
+  onNavigateHome: vi.fn(),
 };

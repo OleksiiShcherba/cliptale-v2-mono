@@ -9,7 +9,8 @@ export type { CaptionSegment };
 /** Full caption track record as stored in `caption_tracks`. */
 export type CaptionTrack = {
   captionTrackId: string;
-  assetId: string;
+  /** `files.file_id` of the underlying SRT/VTT blob. */
+  fileId: string;
   projectId: string;
   language: string;
   segments: CaptionSegment[];
@@ -19,7 +20,8 @@ export type CaptionTrack = {
 /** Parameters for inserting a new caption track row. */
 type InsertCaptionTrackParams = {
   captionTrackId: string;
-  assetId: string;
+  /** `files.file_id` for the source audio/video file being transcribed. */
+  fileId: string;
   projectId: string;
   language: string;
   segmentsJson: CaptionSegment[];
@@ -27,7 +29,7 @@ type InsertCaptionTrackParams = {
 
 type CaptionTrackRow = RowDataPacket & {
   caption_track_id: string;
-  asset_id: string;
+  file_id: string;
   project_id: string;
   language: string;
   segments_json: string | CaptionSegment[];
@@ -41,7 +43,7 @@ function mapRowToCaptionTrack(row: CaptionTrackRow): CaptionTrack {
       : (row.segments_json as CaptionSegment[]);
   return {
     captionTrackId: row.caption_track_id,
-    assetId: row.asset_id,
+    fileId: row.file_id,
     projectId: row.project_id,
     language: row.language,
     segments,
@@ -50,19 +52,19 @@ function mapRowToCaptionTrack(row: CaptionTrackRow): CaptionTrack {
 }
 
 /**
- * Inserts a caption track row.
+ * Inserts a caption track row referencing a `files.file_id`.
  *
  * Uses `INSERT IGNORE` so that concurrent or duplicate worker completions
- * for the same asset do not throw — the first writer wins.
+ * for the same file do not throw — the first writer wins.
  */
 export async function insertCaptionTrack(params: InsertCaptionTrackParams): Promise<void> {
   await pool.execute(
     `INSERT IGNORE INTO caption_tracks
-       (caption_track_id, asset_id, project_id, language, segments_json)
+       (caption_track_id, file_id, project_id, language, segments_json)
      VALUES (?, ?, ?, ?, ?)`,
     [
       params.captionTrackId,
-      params.assetId,
+      params.fileId,
       params.projectId,
       params.language,
       JSON.stringify(params.segmentsJson),
@@ -71,13 +73,13 @@ export async function insertCaptionTrack(params: InsertCaptionTrackParams): Prom
 }
 
 /**
- * Returns the caption track for an asset, or null if transcription has not
+ * Returns the caption track for a file, or null if transcription has not
  * completed yet.
  */
-export async function getCaptionTrackByAssetId(assetId: string): Promise<CaptionTrack | null> {
+export async function getCaptionTrackByFileId(fileId: string): Promise<CaptionTrack | null> {
   const [rows] = await pool.execute<CaptionTrackRow[]>(
-    'SELECT * FROM caption_tracks WHERE asset_id = ? LIMIT 1',
-    [assetId],
+    'SELECT * FROM caption_tracks WHERE file_id = ? LIMIT 1',
+    [fileId],
   );
   return rows.length ? mapRowToCaptionTrack(rows[0]!) : null;
 }

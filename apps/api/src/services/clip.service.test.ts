@@ -1,18 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { NotFoundError, ForbiddenError } from '@/lib/errors.js';
+import { NotFoundError, ForbiddenError, ValidationError } from '@/lib/errors.js';
 
 // ── Hoist shared mock objects ─────────────────────────────────────────────────
-const { mockGetClip, mockPatchClip, mockInsertClip } = vi.hoisted(() => ({
+const { mockGetClip, mockPatchClip, mockInsertClip, mockIsFileLinked } = vi.hoisted(() => ({
   mockGetClip: vi.fn(),
   mockPatchClip: vi.fn(),
   mockInsertClip: vi.fn(),
+  mockIsFileLinked: vi.fn(),
 }));
 
 vi.mock('@/repositories/clip.repository.js', () => ({
   getClipByIdAndProject: mockGetClip,
   patchClip: mockPatchClip,
   insertClip: mockInsertClip,
+  isFileLinkedToProject: mockIsFileLinked,
 }));
 
 // ── Import SUT after mocks are registered ────────────────────────────────────
@@ -56,12 +58,13 @@ describe('clip.service', () => {
       durationFrames: 30,
     };
 
-    it('calls insertClip with the provided params on success', async () => {
+    it('calls insertClip with the provided params when no fileId is given', async () => {
       mockInsertClip.mockResolvedValue(undefined);
 
       await createClip(baseInsert);
 
       expect(mockInsertClip).toHaveBeenCalledWith(baseInsert);
+      expect(mockIsFileLinked).not.toHaveBeenCalled();
     });
 
     it('propagates errors thrown by insertClip (e.g. duplicate clipId)', async () => {
@@ -70,11 +73,12 @@ describe('clip.service', () => {
       await expect(createClip(baseInsert)).rejects.toThrow('Duplicate entry');
     });
 
-    it('passes optional fields (assetId, trimInFrames, layer) through to insertClip', async () => {
+    it('passes optional fields (fileId, trimInFrames, layer) through to insertClip when file is linked', async () => {
+      mockIsFileLinked.mockResolvedValue(true);
       mockInsertClip.mockResolvedValue(undefined);
       const params = {
         ...baseInsert,
-        assetId: 'asset-uuid-001',
+        fileId: 'file-uuid-001',
         trimInFrames: 5,
         trimOutFrames: null,
         layer: 2,
@@ -82,10 +86,19 @@ describe('clip.service', () => {
 
       await createClip(params);
 
+      expect(mockIsFileLinked).toHaveBeenCalledWith('proj-uuid-001', 'file-uuid-001');
       expect(mockInsertClip).toHaveBeenCalledWith(params);
     });
 
-    it('creates a caption clip when type is caption', async () => {
+    it('throws ValidationError when fileId is provided but not linked to the project', async () => {
+      mockIsFileLinked.mockResolvedValue(false);
+      const params = { ...baseInsert, fileId: 'unlinked-file-uuid' };
+
+      await expect(createClip(params)).rejects.toThrow(ValidationError);
+      expect(mockInsertClip).not.toHaveBeenCalled();
+    });
+
+    it('creates a caption clip when type is caption and no fileId', async () => {
       mockInsertClip.mockResolvedValue(undefined);
       const params = {
         ...baseInsert,
@@ -94,6 +107,16 @@ describe('clip.service', () => {
 
       await createClip(params);
 
+      expect(mockInsertClip).toHaveBeenCalledWith(params);
+    });
+
+    it('skips file-link check when fileId is null', async () => {
+      mockInsertClip.mockResolvedValue(undefined);
+      const params = { ...baseInsert, fileId: null };
+
+      await createClip(params);
+
+      expect(mockIsFileLinked).not.toHaveBeenCalled();
       expect(mockInsertClip).toHaveBeenCalledWith(params);
     });
   });

@@ -1,4 +1,4 @@
-import { NotFoundError, ForbiddenError } from '@/lib/errors.js';
+import { NotFoundError, ForbiddenError, ValidationError } from '@/lib/errors.js';
 import * as clipRepository from '@/repositories/clip.repository.js';
 import type { ClipRow, ClipPatch, ClipInsert } from '@/repositories/clip.repository.js';
 
@@ -21,8 +21,20 @@ export type CreateClipParams = ClipInsert;
 /**
  * Inserts a new clip into project_clips_current.
  * Called after split/duplicate operations that produce new clip IDs.
+ *
+ * When `fileId` is provided, validates that the file is linked to the project
+ * via `project_files` before inserting. Throws `ValidationError` (400) when
+ * the file is not linked to the project.
  */
 export async function createClip(params: CreateClipParams): Promise<void> {
+  if (params.fileId != null) {
+    const linked = await clipRepository.isFileLinkedToProject(params.projectId, params.fileId);
+    if (!linked) {
+      throw new ValidationError(
+        `File "${params.fileId}" is not linked to project "${params.projectId}"`,
+      );
+    }
+  }
   await clipRepository.insertClip(params);
 }
 

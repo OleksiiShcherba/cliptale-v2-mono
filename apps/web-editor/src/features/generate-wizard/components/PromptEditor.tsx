@@ -15,12 +15,12 @@ import {
   countTextChars,
   getLinearCaretOffset,
   insertMediaRefAtOffset,
-  isChipNode,
   renderDocToDOM,
   serializeDOMToDoc,
   setLinearCaretOffset,
   type PromptEditorAssetRef,
 } from './promptEditorDOM';
+import { usePromptEditorHandlers } from './usePromptEditorHandlers';
 
 // Design-guide tokens (matching LeftSidebarTabs.tsx convention)
 const SURFACE_ELEVATED = '#1E1E2E';
@@ -127,48 +127,21 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(
       onChangeRef.current(doc);
     }, []);
 
-    const handleKeyDown = useCallback(
-      (e: React.KeyboardEvent<HTMLDivElement>) => {
-        if (e.key !== 'Backspace') return;
-        const root = editorRef.current;
-        if (!root) return;
-        const sel = window.getSelection();
-        if (!sel || sel.rangeCount === 0) return;
-        const range = sel.getRangeAt(0);
-        if (!range.collapsed) return;
-
-        // caret at offset 0 of a text node whose previous sibling is a chip
-        if (
-          range.startContainer.nodeType === Node.TEXT_NODE &&
-          range.startOffset === 0
-        ) {
-          const prev = range.startContainer.previousSibling;
-          if (prev && isChipNode(prev)) {
-            e.preventDefault();
-            prev.parentNode?.removeChild(prev);
-            emitFromDOM(root);
-          }
-          return;
-        }
-
-        // caret directly on root (element-level selection) right after a chip
-        if (range.startContainer === root && range.startOffset > 0) {
-          const prev = root.childNodes[range.startOffset - 1];
-          if (prev && isChipNode(prev)) {
-            e.preventDefault();
-            root.removeChild(prev);
-            emitFromDOM(root);
-          }
-        }
-      },
-      [],
-    );
-
     const emitFromDOM = useCallback((root: HTMLElement) => {
       const doc = serializeDOMToDoc(root);
       lastSerializedRef.current = JSON.stringify(doc);
       onChangeRef.current(doc);
     }, []);
+
+    // DOM event handlers extracted to a dedicated hook to keep this file under
+    // the §9.7 300-line cap.
+    const { handleKeyDown, handleClick, handleDragOver, handleDrop } =
+      usePromptEditorHandlers({
+        editorRef,
+        pendingCaretRef,
+        onChangeRef,
+        emitFromDOM,
+      });
 
     useImperativeHandle(
       ref,
@@ -215,6 +188,9 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(
           data-testid="prompt-editor"
           onInput={handleInput}
           onKeyDown={handleKeyDown}
+          onClick={handleClick}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           style={{

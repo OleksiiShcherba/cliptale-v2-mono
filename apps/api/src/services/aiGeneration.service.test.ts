@@ -3,7 +3,11 @@
  * kling-o3 XOR, and DB prompt column derivation.
  *
  * Repository + queue modules are mocked via the colocated fixtures file.
- * The real `FAL_MODELS` catalog is imported for authenticity.
+ * The real AI_MODELS catalog is imported for authenticity.
+ *
+ * After Batch 1 Subtask 8: `submitGeneration` is user-scoped only — no
+ * `projectId` parameter. The enqueue/createJob payloads no longer carry
+ * `projectId`.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 
@@ -14,11 +18,10 @@ import {
   enqueueMock,
   FIXED_JOB_ID,
   FIXED_PRESIGNED_URL,
-  getAssetByIdMock,
-  makeAssetRow,
+  findByIdForUserMock,
+  makeFileRow,
   resetMocks,
-  TEST_ASSET_ID,
-  TEST_PROJECT,
+  TEST_FILE_ID,
   TEST_USER,
 } from './aiGeneration.service.fixtures.js';
 
@@ -33,7 +36,7 @@ beforeEach(() => {
 
 describe('aiGeneration.service / submitGeneration', () => {
   it('happy path: text-to-image model enqueues + persists and returns queued', async () => {
-    const result = await submitGeneration(TEST_USER, TEST_PROJECT, {
+    const result = await submitGeneration(TEST_USER, {
       modelId: 'fal-ai/nano-banana-2',
       prompt: 'a serene beach at dawn',
       options: {},
@@ -45,30 +48,32 @@ describe('aiGeneration.service / submitGeneration', () => {
     expect(enqueueMock).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: TEST_USER,
-        projectId: TEST_PROJECT,
         modelId: 'fal-ai/nano-banana-2',
         capability: 'text_to_image',
         prompt: 'a serene beach at dawn',
         options: expect.objectContaining({ prompt: 'a serene beach at dawn' }),
       }),
     );
+    // Ensure projectId is NOT in the enqueue payload.
+    expect(enqueueMock.mock.calls[0]![0]).not.toHaveProperty('projectId');
 
     expect(createJobMock).toHaveBeenCalledTimes(1);
     expect(createJobMock).toHaveBeenCalledWith(
       expect.objectContaining({
         jobId: FIXED_JOB_ID,
         userId: TEST_USER,
-        projectId: TEST_PROJECT,
         modelId: 'fal-ai/nano-banana-2',
         capability: 'text_to_image',
         prompt: 'a serene beach at dawn',
       }),
     );
+    // Ensure projectId is NOT in the createJob payload.
+    expect(createJobMock.mock.calls[0]![0]).not.toHaveProperty('projectId');
   });
 
   it('throws ValidationError for an unknown modelId', async () => {
     await expect(
-      submitGeneration(TEST_USER, TEST_PROJECT, {
+      submitGeneration(TEST_USER, {
         modelId: 'fal-ai/does-not-exist',
         prompt: 'x',
         options: {},
@@ -82,7 +87,7 @@ describe('aiGeneration.service / submitGeneration', () => {
   it('throws ValidationError when a required field is missing', async () => {
     // nano-banana-2/edit requires both prompt AND image_urls — omit image_urls.
     await expect(
-      submitGeneration(TEST_USER, TEST_PROJECT, {
+      submitGeneration(TEST_USER, {
         modelId: 'fal-ai/nano-banana-2/edit',
         prompt: 'merge these',
         options: {},
@@ -92,7 +97,7 @@ describe('aiGeneration.service / submitGeneration', () => {
 
   it('throws ValidationError for an unknown option key', async () => {
     await expect(
-      submitGeneration(TEST_USER, TEST_PROJECT, {
+      submitGeneration(TEST_USER, {
         modelId: 'fal-ai/nano-banana-2',
         prompt: 'hello',
         options: { not_a_real_field: 1 },
@@ -102,7 +107,7 @@ describe('aiGeneration.service / submitGeneration', () => {
 
   it('throws ValidationError when a boolean field receives a number', async () => {
     await expect(
-      submitGeneration(TEST_USER, TEST_PROJECT, {
+      submitGeneration(TEST_USER, {
         modelId: 'fal-ai/nano-banana-2',
         prompt: 'hello',
         options: { limit_generations: 1 },
@@ -112,7 +117,7 @@ describe('aiGeneration.service / submitGeneration', () => {
 
   it('throws ValidationError when an enum field receives an out-of-set value', async () => {
     await expect(
-      submitGeneration(TEST_USER, TEST_PROJECT, {
+      submitGeneration(TEST_USER, {
         modelId: 'fal-ai/nano-banana-2',
         prompt: 'hello',
         options: { resolution: '8K' },
@@ -121,7 +126,7 @@ describe('aiGeneration.service / submitGeneration', () => {
   });
 
   it('copies top-level prompt into options.prompt when the model accepts it', async () => {
-    await submitGeneration(TEST_USER, TEST_PROJECT, {
+    await submitGeneration(TEST_USER, {
       modelId: 'fal-ai/nano-banana-2',
       prompt: 'sunrise',
       options: {},
@@ -133,7 +138,7 @@ describe('aiGeneration.service / submitGeneration', () => {
   });
 
   it('does not overwrite an existing options.prompt with the top-level prompt', async () => {
-    await submitGeneration(TEST_USER, TEST_PROJECT, {
+    await submitGeneration(TEST_USER, {
       modelId: 'fal-ai/nano-banana-2',
       prompt: 'top-level should be ignored',
       options: { prompt: 'explicit options prompt' },
@@ -144,17 +149,17 @@ describe('aiGeneration.service / submitGeneration', () => {
     expect(enqueuePayload.options['prompt']).toBe('explicit options prompt');
   });
 
-  it('resolves an image_url asset id into a presigned URL before enqueue/persist', async () => {
-    getAssetByIdMock.mockResolvedValue(
-      makeAssetRow({ storageUri: 's3://test-bucket/assets/start.png' }),
+  it('resolves an image_url file id into a presigned URL before enqueue/persist', async () => {
+    findByIdForUserMock.mockResolvedValue(
+      makeFileRow({ storageUri: 's3://test-bucket/users/u/files/f/start.png' }),
     );
 
-    await submitGeneration(TEST_USER, TEST_PROJECT, {
+    await submitGeneration(TEST_USER, {
       modelId: 'fal-ai/ltx-2-19b/image-to-video',
-      options: { image_url: TEST_ASSET_ID, prompt: 'x' },
+      options: { image_url: TEST_FILE_ID, prompt: 'x' },
     });
 
-    expect(getAssetByIdMock).toHaveBeenCalledWith(TEST_ASSET_ID);
+    expect(findByIdForUserMock).toHaveBeenCalledWith(TEST_FILE_ID, TEST_USER);
 
     expect(enqueueMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -181,7 +186,7 @@ describe('aiGeneration.service / kling-o3 prompt XOR', () => {
 
   it('rejects when both prompt and multi_prompt are provided', async () => {
     await expect(
-      submitGeneration(TEST_USER, TEST_PROJECT, {
+      submitGeneration(TEST_USER, {
         modelId: KLING,
         options: {
           image_url: IMG,
@@ -194,7 +199,7 @@ describe('aiGeneration.service / kling-o3 prompt XOR', () => {
 
   it('rejects when neither prompt nor multi_prompt is provided', async () => {
     await expect(
-      submitGeneration(TEST_USER, TEST_PROJECT, {
+      submitGeneration(TEST_USER, {
         modelId: KLING,
         options: { image_url: IMG },
       }),
@@ -202,7 +207,7 @@ describe('aiGeneration.service / kling-o3 prompt XOR', () => {
   });
 
   it('accepts exactly one: only options.prompt', async () => {
-    const result = await submitGeneration(TEST_USER, TEST_PROJECT, {
+    const result = await submitGeneration(TEST_USER, {
       modelId: KLING,
       options: { image_url: IMG, prompt: 'drone shot over hills' },
     });
@@ -216,7 +221,7 @@ describe('aiGeneration.service / kling-o3 prompt XOR', () => {
   });
 
   it('accepts exactly one: only options.multi_prompt', async () => {
-    const result = await submitGeneration(TEST_USER, TEST_PROJECT, {
+    const result = await submitGeneration(TEST_USER, {
       modelId: KLING,
       options: { image_url: IMG, multi_prompt: ['scene one', 'scene two'] },
     });
@@ -227,7 +232,7 @@ describe('aiGeneration.service / kling-o3 prompt XOR', () => {
   });
 
   it('accepts exactly one: top-level prompt is merged into options.prompt', async () => {
-    const result = await submitGeneration(TEST_USER, TEST_PROJECT, {
+    const result = await submitGeneration(TEST_USER, {
       modelId: KLING,
       prompt: 'merged top-level',
       options: { image_url: IMG },
@@ -248,7 +253,7 @@ describe('aiGeneration.service / DB prompt column derivation', () => {
   const IMG = 'https://example.com/start.jpg';
 
   it('uses the top-level prompt when present', async () => {
-    await submitGeneration(TEST_USER, TEST_PROJECT, {
+    await submitGeneration(TEST_USER, {
       modelId: 'fal-ai/nano-banana-2',
       prompt: 'top-level',
       options: {},
@@ -259,7 +264,7 @@ describe('aiGeneration.service / DB prompt column derivation', () => {
   });
 
   it('uses options.prompt when top-level is absent', async () => {
-    await submitGeneration(TEST_USER, TEST_PROJECT, {
+    await submitGeneration(TEST_USER, {
       modelId: 'fal-ai/nano-banana-2',
       options: { prompt: 'from options' },
     });
@@ -269,7 +274,7 @@ describe('aiGeneration.service / DB prompt column derivation', () => {
   });
 
   it('uses multi_prompt[0] when only multi_prompt is set', async () => {
-    await submitGeneration(TEST_USER, TEST_PROJECT, {
+    await submitGeneration(TEST_USER, {
       modelId: KLING,
       options: { image_url: IMG, multi_prompt: ['first shot', 'second'] },
     });

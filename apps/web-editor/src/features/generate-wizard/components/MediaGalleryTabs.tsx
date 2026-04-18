@@ -2,7 +2,7 @@ import React from 'react';
 
 import { panelStyles } from './mediaGalleryStyles';
 
-export type GalleryTab = 'recent' | 'folders';
+export type GalleryTab = 'recent' | 'folders' | 'ai';
 
 export interface MediaGalleryTabsProps {
   activeTab: GalleryTab;
@@ -40,6 +40,17 @@ export function MediaGalleryTabs({
         onClick={() => onTabChange('folders')}
       >
         Folders
+      </button>
+      <button
+        role="tab"
+        id="tab-ai"
+        aria-selected={activeTab === 'ai'}
+        aria-controls="tabpanel-ai"
+        type="button"
+        style={panelStyles.tabButton(activeTab === 'ai')}
+        onClick={() => onTabChange('ai')}
+      >
+        AI
       </button>
     </div>
   );

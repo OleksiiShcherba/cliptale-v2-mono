@@ -6,19 +6,26 @@ import * as voiceCatalogService from '@/services/voiceCatalog.service.js';
 import { ValidationError } from '@/lib/errors.js';
 
 /**
- * Zod schema for POST /projects/:id/ai/generate.
+ * Zod schema for POST /projects/:id/ai/generate and POST /ai/generate.
  *
  * The Zod layer deliberately does NOT enumerate valid model ids — the service
- * validates `modelId` against the unified `AI_MODELS` catalog (fal + ElevenLabs) and returns the
- * specific error message. Here we only enforce the structural shape.
+ * validates `modelId` against the unified `AI_MODELS` catalog (fal + ElevenLabs)
+ * and returns the specific error message. Here we only enforce the structural
+ * shape.
+ *
+ * `projectId` is accepted but stripped (compat shim for Batch 1 → Batch 2
+ * window). The FE editor currently sends it; the service no longer uses it.
+ * Batch 2 Subtask 4 will remove the field from the FE payload.
  */
 export const submitGenerationSchema = z.object({
   modelId: z.string().min(1),
   prompt: z.string().min(1).max(4000).optional(),
   options: z.record(z.unknown()).default({}),
+  // Compat shim: accept but discard projectId sent by the legacy FE panel.
+  projectId: z.string().optional(),
 });
 
-/** POST /projects/:id/ai/generate — submit a generation request. */
+/** POST /projects/:id/ai/generate — submit a generation request (project-scoped route, compat). */
 export async function submitGeneration(
   req: Request,
   res: Response,
@@ -26,10 +33,13 @@ export async function submitGeneration(
 ): Promise<void> {
   try {
     const body = req.body as z.infer<typeof submitGenerationSchema>;
+    // projectId is intentionally not forwarded to the service — jobs are now
+    // user-scoped only. The route param :id is still used by aclMiddleware to
+    // verify the caller is a project member; it is not stored in the job row.
+    const { modelId, prompt, options } = body;
     const result = await aiGenerationService.submitGeneration(
       req.user!.userId,
-      req.params['id']!,
-      body,
+      { modelId, prompt, options },
     );
     res.status(202).json(result);
   } catch (err) {

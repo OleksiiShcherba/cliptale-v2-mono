@@ -1,6 +1,6 @@
 import type { CaptionSegment } from '@ai-video-editor/project-schema';
 
-import * as assetRepository from '@/repositories/asset.repository.js';
+import * as fileRepository from '@/repositories/file.repository.js';
 import * as captionRepository from '@/repositories/caption.repository.js';
 import { ConflictError, NotFoundError } from '@/lib/errors.js';
 import { enqueueTranscriptionJob } from '@/queues/jobs/enqueue-transcription.js';
@@ -18,28 +18,35 @@ export type CaptionsResult = {
 };
 
 /**
- * Enqueues a transcription job for the given asset.
+ * Enqueues a transcription job for the given file.
  *
- * - Throws `NotFoundError` if the asset does not exist.
+ * The `fileId` parameter corresponds to the `id` path param of
+ * `POST /assets/:id/transcribe`. After migration 024, asset IDs were
+ * reused as file IDs, so the wire value is identical.
+ *
+ * - Throws `NotFoundError` if no file with `fileId` exists in `files`.
  * - Throws `ConflictError` (409) if a caption track already exists for this
- *   asset — transcription is idempotent and should not be re-triggered once
+ *   file — transcription is idempotent and should not be re-triggered once
  *   segments are stored.
  */
-export async function transcribeAsset(assetId: string): Promise<TranscribeResult> {
-  const asset = await assetRepository.getAssetById(assetId);
-  if (!asset) {
-    throw new NotFoundError(`Asset "${assetId}" not found`);
+export async function transcribeAsset(fileId: string): Promise<TranscribeResult> {
+  const file = await fileRepository.findById(fileId);
+  if (!file) {
+    throw new NotFoundError(`File "${fileId}" not found`);
   }
 
-  const existing = await captionRepository.getCaptionTrackByAssetId(assetId);
+  const existing = await captionRepository.getCaptionTrackByFileId(fileId);
   if (existing) {
-    throw new ConflictError(`Caption track for asset "${assetId}" already exists`);
+    throw new ConflictError(`Caption track for file "${fileId}" already exists`);
   }
 
+  // enqueueTranscriptionJob payload retains `assetId` field name because the
+  // worker and shared job-payload type haven't been migrated yet (Subtask 8).
+  // The value is now a file_id reused from the old asset_id.
   const jobId = await enqueueTranscriptionJob({
-    assetId,
-    storageUri: asset.storageUri,
-    contentType: asset.contentType,
+    assetId: fileId,
+    storageUri: file.storageUri,
+    contentType: file.mimeType ?? 'application/octet-stream',
     language: DEFAULT_TRANSCRIPTION_LANGUAGE,
   });
 
@@ -47,15 +54,15 @@ export async function transcribeAsset(assetId: string): Promise<TranscribeResult
 }
 
 /**
- * Returns transcript segments for an asset.
+ * Returns transcript segments for a file.
  *
  * - Throws `NotFoundError` (404) if no caption track exists yet — the FE
  *   uses this to distinguish "not transcribed" from "transcribed but empty".
  */
-export async function getCaptions(assetId: string): Promise<CaptionsResult> {
-  const track = await captionRepository.getCaptionTrackByAssetId(assetId);
+export async function getCaptions(fileId: string): Promise<CaptionsResult> {
+  const track = await captionRepository.getCaptionTrackByFileId(fileId);
   if (!track) {
-    throw new NotFoundError(`No caption track found for asset "${assetId}"`);
+    throw new NotFoundError(`No caption track found for file "${fileId}"`);
   }
   return { segments: track.segments };
 }

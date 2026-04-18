@@ -1,0 +1,129 @@
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import { formatRelativeDate } from '@/shared/utils/formatRelativeDate';
+
+import type { ProjectSummary } from '../types';
+
+// ── Design-guide tokens (§3 Dark Theme) ────────────────────────────────────
+const SURFACE_ELEVATED = '#1E1E2E';
+const TEXT_PRIMARY = '#F0F0FA';
+const TEXT_SECONDARY = '#8A8AA0';
+const BORDER = '#252535';
+
+/** Placeholder SVG rendered when thumbnailUrl is null. */
+function ThumbnailPlaceholder(): React.ReactElement {
+  return (
+    <svg
+      aria-label="No thumbnail"
+      role="img"
+      width="100%"
+      height="100%"
+      viewBox="0 0 160 90"
+      xmlns="http://www.w3.org/2000/svg"
+      style={{ display: 'block' }}
+    >
+      <rect width="160" height="90" fill="#252535" />
+      <rect x="64" y="33" width="32" height="24" rx="4" fill="#8A8AA0" opacity="0.4" />
+      <polygon points="72,37 80,45 72,53" fill="#8A8AA0" opacity="0.7" />
+    </svg>
+  );
+}
+
+interface ProjectCardProps {
+  project: ProjectSummary;
+}
+
+/**
+ * Card component for a single project in the Projects panel.
+ *
+ * Renders thumbnail (or placeholder SVG), title, and relative last-updated date.
+ * Clicking anywhere on the card navigates to /editor?projectId=<id>.
+ */
+export function ProjectCard({ project }: ProjectCardProps): React.ReactElement {
+  const navigate = useNavigate();
+
+  function handleClick(): void {
+    navigate(`/editor?projectId=${project.projectId}`);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      navigate(`/editor?projectId=${project.projectId}`);
+    }
+  }
+
+  const relativeDate = formatRelativeDate(new Date(project.updatedAt));
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={`Open project: ${project.title}`}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      style={{
+        background: SURFACE_ELEVATED,
+        border: `1px solid ${BORDER}`,
+        borderRadius: 8,
+        overflow: 'hidden',
+        cursor: 'pointer',
+        display: 'flex',
+        flexDirection: 'column',
+        fontFamily: 'Inter, sans-serif',
+        transition: 'border-color 0.15s',
+      }}
+    >
+      {/* Thumbnail region — 16:9 aspect ratio */}
+      <div
+        style={{
+          width: '100%',
+          aspectRatio: '16 / 9',
+          overflow: 'hidden',
+          background: '#252535',
+        }}
+      >
+        {project.thumbnailUrl != null ? (
+          <img
+            src={project.thumbnailUrl}
+            alt={project.title}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          />
+        ) : (
+          <ThumbnailPlaceholder />
+        )}
+      </div>
+
+      {/* Card body */}
+      <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <p
+          style={{
+            margin: 0,
+            fontSize: 16,
+            fontWeight: 600,
+            color: TEXT_PRIMARY,
+            lineHeight: '20px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {project.title}
+        </p>
+        <p
+          title={project.updatedAt}
+          style={{
+            margin: 0,
+            fontSize: 12,
+            fontWeight: 400,
+            color: TEXT_SECONDARY,
+            lineHeight: '16px',
+          }}
+        >
+          {relativeDate}
+        </p>
+      </div>
+    </div>
+  );
+}

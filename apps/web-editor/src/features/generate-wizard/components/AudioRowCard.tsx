@@ -1,8 +1,12 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 
 import type { AssetSummary } from '../types';
 
+import { CHIP_COLORS, createChipElement } from './promptEditorDOM';
 import { audioCardStyles } from './mediaGalleryStyles';
+
+/** MIME type used for cross-component drag payloads — must match PromptEditor. */
+const ASSET_DRAG_MIME = 'application/x-cliptale-asset';
 
 export interface AudioRowCardProps {
   asset: AssetSummary;
@@ -46,14 +50,57 @@ export function AudioRowCard({
   onAssetSelected,
 }: AudioRowCardProps): React.ReactElement {
   const [isHovered, setIsHovered] = useState(false);
+  // Off-screen drag image node — appended on dragstart, removed on dragend.
+  const dragImageRef = useRef<HTMLElement | null>(null);
+
+  function handleDragStart(e: React.DragEvent<HTMLButtonElement>): void {
+    const payload = JSON.stringify({
+      assetId: asset.id,
+      type: asset.type,
+      label: asset.label,
+    });
+    e.dataTransfer.setData(ASSET_DRAG_MIME, payload);
+    e.dataTransfer.effectAllowed = 'copy';
+
+    const chipEl = createChipElement({
+      type: 'media-ref',
+      mediaType: asset.type,
+      assetId: asset.id,
+      label: asset.label,
+    });
+    Object.assign(chipEl.style, {
+      position: 'fixed',
+      top: '-200px',
+      left: '-200px',
+      pointerEvents: 'none',
+    });
+    document.body.appendChild(chipEl);
+    dragImageRef.current = chipEl;
+    e.dataTransfer.setDragImage(chipEl, 0, 8);
+  }
+
+  function handleDragEnd(): void {
+    if (dragImageRef.current) {
+      document.body.removeChild(dragImageRef.current);
+      dragImageRef.current = null;
+    }
+  }
+
+  const dragBorderColor = CHIP_COLORS[asset.type];
 
   return (
     <button
       type="button"
-      style={audioCardStyles.card}
+      draggable
+      style={{
+        ...audioCardStyles.card,
+        ...(isHovered ? { borderColor: dragBorderColor } : {}),
+      }}
       onClick={() => onAssetSelected(asset)}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
       aria-label={asset.label}
     >
       <span style={audioCardStyles.icon}>

@@ -16,9 +16,9 @@ import { useUndoRedo } from '@/features/version-history/hooks/useUndoRedo';
 import { useKeyboardShortcuts } from '@/features/version-history/hooks/useKeyboardShortcuts';
 import { useWindowWidth } from '@/shared/hooks/useWindowWidth';
 import { ProjectSettingsModal } from '@/features/project-settings/components/ProjectSettingsModal';
-import { AiGenerationPanel } from '@/features/ai-generation/components/AiGenerationPanel';
-import { LeftSidebarTabs } from '@/features/ai-generation/components/LeftSidebarTabs';
-import type { LeftSidebarTab } from '@/features/ai-generation/components/LeftSidebarTabs';
+import { AiGenerationPanel } from '@/shared/ai-generation/components/AiGenerationPanel';
+import { LeftSidebarTabs } from '@/shared/ai-generation/components/LeftSidebarTabs';
+import type { LeftSidebarTab } from '@/shared/ai-generation/components/LeftSidebarTabs';
 import { TimelineResizeHandle } from '@/features/timeline/components/TimelineResizeHandle';
 import { useTimelineResize } from '@/features/timeline/hooks/useTimelineResize';
 
@@ -67,6 +67,10 @@ export function App(): React.ReactElement {
     logout();
     navigate('/login', { replace: true });
   }, [logout, navigate]);
+
+  const handleNavigateHome = React.useCallback((): void => {
+    navigate('/');
+  }, [navigate]);
 
   const handleToggleSettings = (): void => setIsSettingsOpen((prev) => !prev);
   const handleCloseSettings = (): void => setIsSettingsOpen(false);
@@ -170,6 +174,7 @@ export function App(): React.ReactElement {
             onUndo={handleUndo}
             onRedo={handleRedo}
             onLogout={handleLogout}
+            onNavigateHome={handleNavigateHome}
           />
           <main style={styles.mobilePreviewArea} aria-label="Preview">
             <PreviewSection />
@@ -223,13 +228,14 @@ export function App(): React.ReactElement {
           onUndo={handleUndo}
           onRedo={handleRedo}
           onLogout={handleLogout}
+          onNavigateHome={handleNavigateHome}
         />
         <div style={styles.editorRow}>
           <aside style={styles.sidebar} aria-label="Left sidebar">
             <LeftSidebarTabs activeTab={leftSidebarTab} onTabChange={setLeftSidebarTab} />
             {leftSidebarTab === 'assets' && <AssetBrowserPanel projectId={projectId} />}
             {leftSidebarTab === 'ai-generate' && (
-              <AiGenerationPanel projectId={projectId} onSwitchToAssets={() => setLeftSidebarTab('assets')} />
+              <AiGenerationPanel context={{ kind: 'project', id: projectId }} onSwitchToAssets={() => setLeftSidebarTab('assets')} />
             )}
           </aside>
           <div style={styles.verticalDivider} aria-hidden="true" />
