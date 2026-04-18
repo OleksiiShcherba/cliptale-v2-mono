@@ -505,3 +505,53 @@ checked by playwright-reviewer: YES
 code-reviewer notes: Reviewed on 2026-04-18. §2 4-layer API correct: routes → controller → service → repository. Migration 026 idempotent (INFORMATION_SCHEMA guard), CHAR(36) nullable, no FK. All files ≤300 lines: routes 123, controller 267, service 291, repo 192, test 289. No direct env reads. Integration test covers happy path (202 + draft_id set), completion hook (auto-link draft_files), ownership edge cases (401/403/404), validation (400), and provider failure. setOutputFile repo-layer placement is intentional design: INSERT IGNORE idempotent at data layer, media-worker has no service layer. All architecture rules satisfied.
 
 design-reviewer notes: Reviewed on 2026-04-18. Backend-only subtask (migration 026 + repository/service/controller/route + integration test). Zero UI changes, zero design tokens, zero DOM impact. Auto-approved per feedback_design_reviewer_backend.md pattern.
+
+
+## [2026-04-18]
+
+### Task: Files-as-root foundation (BATCH 2 of 2) — FE upload + AI port to wizard + regression
+**Subtask:** [FE] Add AI tab to wizard `MediaGalleryPanel`
+
+**What was done:**
+- Added `'ai'` to `GalleryTab` union in `MediaGalleryTabs.tsx` and rendered a new "AI" tab button with correct ARIA attributes (`role="tab"`, `aria-selected`, `aria-controls="tabpanel-ai"`)
+- Updated `MediaGalleryPanel.tsx` to render `<AiGenerationPanel context={{ kind: 'draft', id: draftId }} onSwitchToAssets={handleSwitchToRecent} />` when the AI tab is active and `draftId` is present; shows an unavailable message when `draftId` is absent
+- The Upload button is hidden while the AI tab is active (the AI panel manages generation directly, no upload affordance needed)
+- `handleSwitchToRecent` invalidates `['generate-wizard', 'assets']` before switching to the Recent tab, ensuring the newly generated asset appears immediately when the user clicks "View in Assets"
+- Extracted `GallerySkeleton`, `GalleryError`, `GalleryEmpty`, `FoldersPlaceholder` into `MediaGalleryPanelViews.tsx` to keep `MediaGalleryPanel.tsx` within the §9.7 300-line cap (296 lines after extraction)
+- Added 8 new unit tests in `MediaGalleryPanel.ai.test.tsx`: AI tab presence, draft context prop, ARIA tabpanel attributes, Recent tab hidden, Upload button hidden, draftId-absent fallback message, onSwitchToAssets switches to Recent, gallery query invalidated on switch
+
+**Files created:**
+- `apps/web-editor/src/features/generate-wizard/components/MediaGalleryPanelViews.tsx` — extracted presentational state sub-components
+- `apps/web-editor/src/features/generate-wizard/components/MediaGalleryPanel.ai.test.tsx` — 8 AI tab unit tests
+
+**Files modified:**
+- `apps/web-editor/src/features/generate-wizard/components/MediaGalleryTabs.tsx` — added `'ai'` tab value and button
+- `apps/web-editor/src/features/generate-wizard/components/MediaGalleryPanel.tsx` — AI tab rendering, query invalidation, Upload button hide on AI tab
+- `apps/web-editor/src/features/generate-wizard/components/MediaGalleryPanel.test.tsx` — added `AiGenerationPanel` module mock (required for module resolution)
+
+**Notes:**
+- `AiGenerationPanel` already invalidates `['assets', context.kind, context.id]` on completion. The wizard gallery uses `['generate-wizard', 'assets', type]` — a different key shape. Rather than adding an `onComplete` prop to `AiGenerationPanel`, the wizard invalidates its own query key in `handleSwitchToRecent` (called when user clicks "View in Assets"). This is a clean separation: the AI panel manages its own state; the wizard gallery manages its own cache.
+- The JS default parameter gotcha: passing `undefined` explicitly to a function with a default parameter still triggers the default. Fixed in the new test file by inlining the render call instead of delegating to `renderPanel(fn, undefined)`.
+- `MediaGalleryPanel.test.tsx` is 379 lines pre-existing from a prior subtask. My modification adds only the `AiGenerationPanel` module mock (17 lines). AI tab tests were placed in the new split file to respect the cap.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: [FE] Add AI tab to wizard `MediaGalleryPanel`</summary>
+
+Add a new tab value `'ai'` to `MediaGalleryTabs` (or reuse the existing tab pattern) in `apps/web-editor/src/features/generate-wizard/components/MediaGalleryTabs.tsx`.
+In `apps/web-editor/src/features/generate-wizard/components/MediaGalleryPanel.tsx`, when the AI tab is active and `draftId` is present, render `<AiGenerationPanel context={{ kind: 'draft', id: draftId }} />`.
+On successful AI generation completion (same query key used in Subtask 2 — `['generate-wizard', 'assets']`), invalidate so output appears in the standard gallery tabs.
+Add unit test `MediaGalleryPanel.test.tsx` case: switching to AI tab renders the AI panel.
+Keep files ≤ 300 lines (§9.7); use `.fixtures.ts` + topic test splits if needed.
+§14 compliance — wizard imports only from `shared/` for AI components.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer: NOT
+
+qa-reviewer notes: Reviewed on 2026-04-18. Unit test coverage: 8 new tests in MediaGalleryPanel.ai.test.tsx (AI tab presence, context prop validation, ARIA attributes, upload button hide, query invalidation on return to Recent, no-draft fallback). Existing MediaGalleryPanel.test.tsx 17 tests remain green with new AiGenerationPanel mock. generate-wizard suite 164/164 tests pass. shared/ai-generation suite 206/206 tests pass. Full web-editor regression 2006/2006 tests pass. Acceptance criteria met: tab switch + context prop + upload button hidden + query invalidation. No regressions.
+
+design-reviewer notes: Reviewed on 2026-04-18. Tab button typography: inactive 14/400/20 (body), active 14/600/20 (body + semi-bold). Padding 8px 12px (space-2/space-3 grid-compliant). AI tab button present with correct ARIA role/aria-selected/aria-controls. Tab order: Recent | Folders | AI. AI panel renders with context={{ kind: 'draft', id: draftId }}, fallback message when draftId absent. Upload button hidden while AI tab active. All checks passed.

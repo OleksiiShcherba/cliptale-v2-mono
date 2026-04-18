@@ -1,6 +1,6 @@
 ---
 name: Project: Files-as-root Batch 2 progress
-description: Files-as-root BATCH 2 (7 subtasks); Subtasks 1-5 COMPLETE (2026-04-18), 2 remaining (6-7)
+description: Files-as-root BATCH 2 (7 subtasks); Subtasks 1-6 COMPLETE (2026-04-18), 1 remaining (7)
 type: project
 ---
 
@@ -91,3 +91,20 @@ Key gotchas:
 - `AiGenerationJob` type gained `draftId: string | null` field — existing unit tests with mocked return values are unaffected since `vi.fn().mockResolvedValue()` doesn't type-check the return value shape.
 
 **How to apply:** Next subtask is 6 (FE — Add AI tab to wizard MediaGalleryPanel). Depends on Subtasks 4 and 5 being complete (both are). The `AiGenerationPanel` now accepts `context: AiGenerationContext`, so the wizard just passes `{ kind: 'draft', id: draftId }`.
+
+**Subtask 6** — COMPLETE (2026-04-18)
+
+AI tab wired into `MediaGalleryPanel` / `MediaGalleryTabs`.
+
+Key changes:
+- `GalleryTab` type: `'recent' | 'folders' | 'ai'`
+- `MediaGalleryTabs.tsx`: new "AI" tab button with correct ARIA attributes
+- `MediaGalleryPanel.tsx`: renders `<AiGenerationPanel context={{ kind: 'draft', id: draftId }} onSwitchToAssets={handleSwitchToRecent} />` when AI tab active; Upload button hidden on AI tab; `handleSwitchToRecent` invalidates `['generate-wizard', 'assets']` before switching to Recent tab
+- `MediaGalleryPanelViews.tsx`: extracted 4 state sub-components (GallerySkeleton, GalleryError, GalleryEmpty, FoldersPlaceholder) to keep main panel file at 296 lines
+- `MediaGalleryPanel.ai.test.tsx`: 8 unit tests (all pass)
+
+Key gotchas:
+- `AiGenerationPanel` invalidates `['assets', context.kind, context.id]` on completion, but wizard gallery uses `['generate-wizard', 'assets', type]`. Resolution: `handleSwitchToRecent` in `MediaGalleryPanel` invalidates the wizard query key when user clicks "View in Assets" — clean two-system separation.
+- JS default parameter gotcha: `renderPanel(fn, undefined)` still triggers `draftId = 'draft-1'` default. Test helper `renderPanelNoDraft` must inline the render call rather than delegating to `renderPanel`.
+
+**How to apply:** Only Subtask 7 remains (Playwright E2E regression sweep). No more implementation subtasks.

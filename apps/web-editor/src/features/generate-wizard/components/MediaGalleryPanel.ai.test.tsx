@@ -106,7 +106,17 @@ function renderPanel(onAssetSelected = vi.fn(), draftId: string | undefined = 'd
 }
 
 function renderPanelNoDraft(onAssetSelected = vi.fn()) {
-  return renderPanel(onAssetSelected, undefined);
+  // Render without draftId — must NOT use renderPanel() because JS default
+  // parameters activate when undefined is passed explicitly.
+  const queryClient = makeQueryClient();
+  return {
+    queryClient,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <MediaGalleryPanel onAssetSelected={onAssetSelected} draftId={undefined} />
+      </QueryClientProvider>,
+    ),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -189,5 +199,17 @@ describe('MediaGalleryPanel / AI tab', () => {
     // Should navigate back to the Recent tab
     expect(screen.getByTestId('tabpanel-recent')).toBeTruthy();
     expect(screen.queryByTestId('tabpanel-ai')).toBeNull();
+  });
+
+  it('should invalidate wizard gallery query when switching from AI tab to Recent', () => {
+    const { queryClient } = renderPanel(vi.fn(), 'draft-42');
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'AI' }));
+    fireEvent.click(screen.getByTestId('ai-switch-to-assets'));
+
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: ['generate-wizard', 'assets'] }),
+    );
   });
 });

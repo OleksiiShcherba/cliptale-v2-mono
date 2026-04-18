@@ -165,8 +165,12 @@ export function MediaGalleryPanel({
   }, [clearEntries]);
 
   // Switch back to Recent tab when AI generation completes and the user clicks
-  // "View in Assets" — gives them direct feedback that the output landed.
-  const handleSwitchToRecent = useCallback(() => setActiveTab('recent'), []);
+  // "View in Assets". Invalidate the wizard gallery query at this point so the
+  // newly generated asset is visible in the Recent tab immediately.
+  const handleSwitchToRecent = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['generate-wizard', 'assets'] });
+    setActiveTab('recent');
+  }, [queryClient]);
 
   return (
     <section

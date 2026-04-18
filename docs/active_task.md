@@ -50,24 +50,6 @@ Batch 1 landed the `files` root table, pivot tables (`project_files`, `draft_fil
 
 ## Subtasks
 
-- [ ] **6. [FE] Add AI tab to wizard `MediaGalleryPanel`**
-  - What: Add a new tab value `'ai'` to `MediaGalleryTabs` (or reuse an existing pattern). When active, render `<AiGenerationPanel context={{ kind: 'draft', id: draftId }} />` in the panel body. On successful generation completion, invalidate the `useAssets` query so the output appears in the standard gallery tabs.
-  - Where:
-    - `apps/web-editor/src/features/generate-wizard/components/MediaGalleryPanel.tsx`
-    - `apps/web-editor/src/features/generate-wizard/components/MediaGalleryTabs.tsx` (add `'ai'` tab value)
-    - `apps/web-editor/src/features/generate-wizard/components/MediaGalleryPanel.test.tsx` (tab switch + render case)
-  - Why: Final user-facing piece of feedback #4. Everything else is scaffolding for this.
-  - Acceptance criteria:
-    - Wizard shows an "AI" tab alongside Video/Image/Audio/Folders.
-    - Clicking it renders the full AI panel (model picker + form).
-    - Submitting generates a job; completion adds the output to the draft's gallery.
-    - Editor AI panel unaffected.
-  - Test approach:
-    - Unit test: tab switch renders the panel.
-    - Manual smoke in Docker Compose: run a small image generation from the wizard, confirm the image lands in the gallery.
-  - Risk: **low** — thin glue over Subtasks 4 and 5.
-  - Depends on: Subtasks 4, 5.
-
 - [ ] **7. [Playwright] E2E regression sweep**
   - What: Run the playwright-reviewer workflow against a fresh Docker Compose stack, covering: Home Hub scroll + Create Storyboard (Batch 1 Subtask 1), editor upload (regression after shared hook extract), wizard upload (new in Subtask 2), editor AI generation (regression after shared-move + context-prop refactor), wizard AI generation (new in Subtask 6). Update `docs/development_logs.md` entries from NOT → YES for every workflow that passes, and flag any that fail with screenshots.
   - Where:
