@@ -276,14 +276,14 @@ export async function processIngestJob(
       await setFileReady(pool, fileId, { durationMs, width, height, bytes: null });
     } else {
       // Legacy path: write to project_assets_current.
-      await setAssetReady(pool, assetId, { durationFrames, width, height, fps, thumbnailUri, waveformJson });
+      await setAssetReady(pool, assetId!, { durationFrames, width, height, fps, thumbnailUri, waveformJson });
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown ingest error';
     if (fileId) {
       await setFileError(pool, fileId, message);
     } else {
-      await setAssetError(pool, assetId, message);
+      await setAssetError(pool, assetId!, message);
     }
     throw err; // Re-throw so BullMQ retries per job.attempts.
   } finally {
