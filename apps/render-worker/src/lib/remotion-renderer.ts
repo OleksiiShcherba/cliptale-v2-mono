@@ -30,7 +30,7 @@ export type RenderCompositionOptions = {
   doc: ProjectDoc;
   preset: RenderPreset;
   outputPath: string;
-  /** Map from assetId to a presigned URL the headless browser can fetch. */
+  /** Map from fileId to a presigned URL the headless browser can fetch. */
   assetUrls: Record<string, string>;
   /** Called with progress values between 0 and 1 (e.g. 0.05, 0.10, ...). */
   onProgress?: (progress: number) => void;

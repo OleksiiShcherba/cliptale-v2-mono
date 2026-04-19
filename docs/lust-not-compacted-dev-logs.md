@@ -173,164 +173,118 @@
 - added: HTML5 drag-drop (MIME `application/x-cliptale-asset`) from AssetThumbCard/AudioRowCard into PromptEditor; × remove button on chips
 
 ## EPIC — Files-as-Root Foundation (Batch 1, 2026-04-18)
-- FE Home bounds: HomePage outer `height: '100vh'`; `<main>` `minHeight: 0`; StoryboardPanel async create → wizard navigate
-- DDL: migrations 021 (files table) + 022 (project_files/draft_files pivots, CASCADE container / RESTRICT file)
-- DDL: 023 downstream file_id columns; 024 backfill + drop asset_id/project_assets_current; 025 drop ai_jobs project_id FK
-- added: `file.repository.ts` (createPending, finalize, findById/ForUser, findReadyForUser, updateProbeMetadata, setFileError)
-- added: `file.service.ts`, `file.controller.ts`, `file.routes.ts`; 18 file.service + 4 ingest integration tests
-- updated: `ingest.job.ts` — dual-path: write to `files` when fileId, fallback to project_assets_current
-- added: `fileLinks.repository.ts` + `fileLinks.service.ts` + `fileLinks.response.service.ts` (ownership checks, idempotent link, FileRow→AssetApiResponse)
-- added: POST /projects/:projectId/files, POST /generation-drafts/:draftId/files, GET /generation-drafts/:id/assets; 42 integration tests
+- FE Home bounds: HomePage `height: '100vh'`; `<main>` `minHeight: 0`; StoryboardPanel async create → wizard navigate
+- DDL: migrations 021–025 (files root + pivots + downstream file_id + backfill + drop asset_id / project_assets_current / ai_jobs.project_id FK)
+- added: `file.repository.ts`, `file.service.ts`, `file.controller.ts`, `file.routes.ts`; `fileLinks.repository.ts` + service + response.service; POST /projects/:projectId/files, POST /generation-drafts/:draftId/files, GET /generation-drafts/:id/assets
 - refactored: `clip.repository.ts` / `clip.service.ts` / `clips.controller.ts` — asset_id → file_id (wire compat kept); `isFileLinkedToProject`
 - fixed: `project.repository.ts` broken `JOIN project_assets_current` subquery (was 500ing GET /projects)
-- refactored: `caption.repository.ts` + `caption.service.ts` + `transcribe.job.ts` — file_id; `getCaptionTrackByFileId`
-- refactored: `aiGenerationJob.repository.ts` (removed projectId/resultAssetId; added outputFileId + `setOutputFile`); `enqueue-ai-generate.ts`; `aiGeneration.service.ts` user-scoped; `aiGeneration.assetResolver.ts` uses `findByIdForUser`
-- Batch 1 compat shim: `aiGeneration.controller.ts` Zod optional `projectId` stripped (removed in Batch 2-cleanup)
-- total new tests: 56 (service 17, status 7, audio 12, assetResolver 10, integration 4, endpoints 6)
+- refactored: `caption.repository.ts` + service + `transcribe.job.ts` — file_id; `getCaptionTrackByFileId`
+- refactored: `aiGenerationJob.repository.ts` (removed projectId/resultAssetId; added outputFileId + `setOutputFile`); `enqueue-ai-generate.ts`; `aiGeneration.service.ts` user-scoped
+- total new tests: 56
 
-## EPIC — Files-as-Root Foundation (Batch 2, 2026-04-18) — FE upload + AI port to wizard
-- added: `shared/file-upload/` — types (UploadTarget project|draft), api, `useFileUpload.ts` (request-URL → XHR → finalize → link); 13 tests
-- converted: `features/asset-manager/hooks/useAssetUpload.ts` to shim wrapping `useFileUpload({ target: { kind: 'project', projectId } })`
-- promoted: `UploadDropzone.tsx` + `UploadProgressList.tsx` to `shared/file-upload/` (asset-manager shim re-exports)
-- extended: wizard `MediaGalleryPanel` — Upload btn (draftId-gated) + UploadDropzone modal + `useFileUpload({ kind: 'draft' })`; 14 tests + fixtures
-- moved: 47 files `features/ai-generation/` → `shared/ai-generation/`; updated App.tsx/App.panels.tsx/App.leftSidebar.test.tsx imports
-- added: `AiGenerationContext` type (`{ kind: 'project'|'draft', id }`); `submitGeneration(context, request)`; `getContextAssets(context)`; query keys scoped to `[...kind, id]`
-- added: migration 026 (nullable `draft_id`); `aiGenerationJob.repository.setDraftId`; setOutputFile INSERT IGNOREs `draft_files` pivot (repo-layer completion hook)
-- added: `POST /generation-drafts/:draftId/ai/generate` route + submitDraftAiGeneration service; 8 integration tests
-- added: 'ai' tab in `MediaGalleryTabs`; MediaGalleryPanel renders `<AiGenerationPanel context={...}>`; 8 AI tab tests
-- E2E regression (Playwright): 5/5 core workflows PASS (Home Hub, Editor upload, Wizard upload, Editor AI, Wizard AI)
+## EPIC — Files-as-Root Foundation (Batch 2, 2026-04-18) — FE upload + AI port
+- added: `shared/file-upload/` — types (UploadTarget project|draft), api, `useFileUpload.ts`; 13 tests
+- converted: `useAssetUpload.ts` to shim wrapping `useFileUpload`; promoted UploadDropzone/UploadProgressList to shared
+- extended: wizard `MediaGalleryPanel` — Upload btn + dropzone modal + useFileUpload({kind:'draft'}); 14 tests
+- moved: 47 files `features/ai-generation/` → `shared/ai-generation/`; `AiGenerationContext` discriminated union
+- added: migration 026 (nullable `draft_id`); `aiGenerationJob.repository.setDraftId`; setOutputFile INSERT IGNOREs `draft_files` pivot
+- added: `POST /generation-drafts/:draftId/ai/generate` route + service; 8 integration tests
+- added: 'ai' tab in MediaGalleryTabs; wizard renders `<AiGenerationPanel context={...}>`
+- E2E (Playwright): 5/5 core workflows PASS
 
 ## EPIC — Guardian Batch-2 Feedback Cleanup (Files-as-Root, 2026-04-19)
-### Subtask 1 — In-process migration runner
-- added: `apps/api/src/db/migrations/000_schema_migrations.sql`; `apps/api/src/db/migrate.ts` (`runPendingMigrations`, checksum, numeric-prefix order, per-migration mysql2 conn w/ multipleStatements, production gate `NODE_ENV=production && !APP_MIGRATE_ON_BOOT`)
-- updated: `apps/api/src/index.ts` — awaits runPendingMigrations before listen
-- updated: `docker-compose.yml` — removed `/docker-entrypoint-initdb.d:ro` mount
-- added: `migrate.unit.test.ts` (14), `migrate.production.test.ts` (2), `migrate.integration.test.ts` (3)
-- invariant: MySQL 8.0 DDL non-transactional → INSERT schema_migrations AFTER DDL; migrations must be idempotent
+- added: in-process migration runner `apps/api/src/db/migrate.ts` + `000_schema_migrations.sql`; production gate `NODE_ENV=production && !APP_MIGRATE_ON_BOOT`; awaited in `index.ts`; removed `/docker-entrypoint-initdb.d` mount; 19 tests
+- added: migration 027 drop_project_assets_current; schema-final-state integration test (7); hardened vitest `pool:'forks'` + `singleFork:true`; beforeAll schema-broken guards
+- recovery: `docker volume rm cliptalecom-v2_db_data` for drifted DB (Path B)
+- updated: asset_id → file_id across test debt (migration-002, projects-list, assets-delete)
+- removed: 25 `.toBe(401)` tests across 10 integration files (unreachable under `APP_DEV_AUTH_BYPASS=true`)
+- hygiene: deleted 17 docs/test_screenshots + 2 playwright-screenshots + playwright-review-temp.js; extended .gitignore
+- wire rename: `assetId` → `fileId` across api-contracts + FE (~70 files) + workers; strict Zod; grep=0
 
-### Subtask 2 — Live DB recovery + schema final-state guard
-- added: migration 027_drop_project_assets_current; `schema-final-state.integration.test.ts` (7)
-- recovery: diagnosed pre-migration state despite seeded schema_migrations (beforeAll DELETE+re-seed poison); Path B — `docker volume rm cliptalecom-v2_db_data` → clean boot
-- hardened: `vitest.config.ts` `pool: 'forks'` + `singleFork: true`; `migrate.integration.test.ts` schema-broken guard; `migration-014.test.ts` beforeAll stub + UPSERT repair; `migration-001.test.ts` outer DROP cleanup
-- updated: `.claude/agent-memory/regression-direction-guardian/project_migration_reliability.md`
+## EPIC — Backend Repository Migration (Batch 3, 2026-04-19)
+- rewrote: `asset.repository.ts` — 8 SQL stmts → `files` + `project_files` JOIN; preserves Asset type + service signatures
+- rewrote: `generationDraft.repository.findAssetPreviewsByIds` → SELECT file_id, mime_type FROM files; thumbnailUri null (backfill pending)
+- fixed: seeds — `assets-patch-endpoint.test.ts` + `generation-drafts-cards.*.test.ts` (files + project_files pivot; mimeToKind helper); afterAll FK order
+- split: `generation-drafts-cards` test → endpoint (293L, 7) + shape (268L, 5) + fixtures.ts per §9 300-cap
+- regression: 886 pass | 7 fail | 4 skip (Class A pre-existing user-mismatch; Class C pre-existing stale seeds; Class B schema-drift = 0 target)
 
-### Subtask 3 — Stale `asset_id` test debt
-- updated: `migration-002.test.ts` columns/INSERTs asset_id → file_id; composite-index absence assertion
-- updated: `projects-list-endpoint.test.ts` → `files` + `project_files` seed; FK-aware cleanup; thumbnail → `toBeNull()`
-- updated: `assets-delete-endpoint.test.ts` clip INSERT → file_id
-- acceptance: `Unknown column 'asset_id'` full suite = 0
+## EPIC — assetId → fileId Migration Cleanup (Batch 4, 2026-04-19)
+- Subtask 1 (editor-core tests): fileId on 3 clip factories in `index.test.ts`; `import { randomUUID } from 'node:crypto'`; removed `**/*.test.ts` exclude from tsconfig; added `@types/node` devDep; 10/10 pass
+- Subtask 2 (remotion-comps tests): fileId on CLIP_VIDEO/AUDIO/IMAGE fixtures; explicit `Track` type annotations in `VideoComposition.utils.ts` + typed `calculateMetadata` in `remotion-entry.tsx` (pre-existing implicit-any, surfaced by tsconfig fix); removed test excludes; 49/49 pass
+- Subtask 3 (remotion-comps stories): fileId UUIDs (`FILE_ID_VIDEO/AUDIO`) with computed `assetUrls[FILE_ID_VIDEO]` keys; removed `**/*.stories.tsx` exclude; added `VideoComposition.stories.test.ts` (12 tests; StoryArgs helper + bracket-notation `c['type']` to bypass Partial<Args> narrowing); round-2 fix: `type PlayerWrapperProps` → `interface` per §9; 61/61 pass
+- Subtask 4 (media-worker legacy removal): DECISION — removed legacy `project_assets_current` path entirely (migration 027 dropped the table; else-branch unreachable). `MediaIngestJobPayload.fileId` now required, `assetId?` removed. Trimmed `ingest.job.ts`; rewrote `ingest.job.test.ts` (18 tests); 134/134 media-worker, 100/100 project-schema pass
+- Subtask 5 (verification pass): workarounds confirmed reverted; full workspace green; dev deploy HTTP 200
+- Subtask 6 (S3 CORS): added `infra/s3/cors.json` (origins nip.io + localhost:5173/3000 × PUT/GET/HEAD × `*` headers × ETag × MaxAge 3000); applied via `aws s3api put-bucket-cors`; added `infra/s3/README.md` + regression test (relocated to `apps/api/src/__tests__/infra/cors.test.ts` + ESM `__dirname`); `file.service.ts createUploadUrl` comment links back to cors.json; curl preflight 200 OK
 
-### Subtask 4 — Delete DEV_AUTH_BYPASS-incompatible auth-contract tests
-- removed: 25 `.toBe(401)` tests across 10 integration files — versions-list-restore, versions-persist, versions-latest, assets-endpoints, assets-finalize, assets-list, assets-stream, renders, clip-patch, assets-delete
-- rationale: `APP_DEV_AUTH_BYPASS=true` dev/CI default → 401 unreachable
+## EPIC — Files-as-Root Cutover Finish (Batch 5, 2026-04-19, post-guardian findings)
+- S7.1 render-worker: rewrote `resolveAssetUrls()` in `apps/render-worker/src/jobs/render.job.ts` — filter `'fileId' in c`, `SELECT file_id, storage_uri FROM files WHERE file_id IN (?)`, return map keyed by fileId; renamed locals; JSDoc sync in `remotion-renderer.ts`; updated `render.job.fixtures.ts` + `render.job.assets.test.ts` + `render.job.test.ts`. Fix round 1 added 6 regression tests (exclude text-overlay/caption, image-clip resolve, mixed-clip doc, orphan safety, SQL-query guard). 26/26 pass. Unblocks export pipeline (was silently producing black frames in prod)
+- S7.2 ai-generate handlers: removed `insertAssetRow()`/`saveAudioAsset()` from `ai-generate.job.ts` + `ai-generate-audio.handler.ts`; both now call `deps.filesRepo.createFile(...)` → `deps.aiGenerationJobRepo.setOutputFile(jobId, fileId)`; worker-local thin repo implementations wired in `media-worker/src/index.ts` (no cross-app import); `voice_cloning` path unchanged (produces voice_id, not a file); updated fixtures + tests (findCreateFileParams helper); 134/134 pass. Fix round 1: extracted 6 helpers (pollFalWithProgress, downloadArtifact, setJobStatus, setJobProgress, sleep, mimeToKind) + `FileKind` type into `ai-generate.utils.ts` (125L); `ai-generate.job.ts` 308→223L. `mimeToKind` centralized: canonical export at `apps/api/src/services/file.service.ts`; test fixture `generation-drafts-cards.fixtures.ts` imports from there; media-worker retains 1 local copy (cross-app-boundary, commented). AI-generate outputs now actually land in `files` + `draft_files` pivot
+- S7.3 cors.test.ts: gated suite behind `describe.skipIf(!corsReachable)` with `readFileSync` moved inside callback (module-load crash fix); `console.warn` explains skip path; all 9 CORS assertions intact when cors.json reachable (Option A, no duplication)
 
-### Subtask 5 — Working-tree hygiene
-- deleted: 17 `docs/test_screenshots/wizard-ai-*.png`; `git rm` 2 `playwright-screenshots/*.png` + `playwright-review-temp.js`
-- extended: `.gitignore` — transient QA artefact block
+## 2026-04-19
 
-### Subtask 6 — Wire rename `assetId` → `fileId`
-- renamed: `packages/api-contracts/src/openapi.ts` MediaPreview.assetId → fileId; `packages/project-schema/src/schemas/clip.schema.ts` (video/audio/image) + `promptDoc.schema.ts` mediaRefBlockSchema + `types/job-payloads.ts` (TranscriptionJobPayload.fileId; MediaIngestJobPayload dual-key fileId?+assetId?)
-- updated: `apps/api/src/controllers/clips.controller.ts`, `aiGeneration.controller.ts` (removed projectId shim; `.strict()`)
-- updated: ~70 FE files in `apps/web-editor/src` via targeted + bulk sed; fixed duplicate-key in `file.service.ts`
-- updated: workers `transcribe.job.ts`, `ai-generate.job.ts`, `ai-generate-audio.handler.ts` pass `{ fileId, assetId }`
-- rewrote: `ai-generation-endpoints.test.ts` → asserts 400 on unknown fields
-- verified: `grep 'assetId' packages/api-contracts apps/api/src apps/web-editor/src` = 0
-- note: `npm run build` required for project-schema + api-contracts (workers import from dist)
-
-### Subtask 7 — `general_idea.md` evolution appendix
-- appended: `## Evolution since 2026-03-29` — Storyboard drafts (019/022), Files-as-Root (021-026), features/ vs shared/ rule (≥2 consumers → shared), In-process migration runner
-- invariant: no earlier sections edited
-
-## EPIC — Backend Repository Migration to Files-as-Root (Batch 3, 2026-04-19)
-### Subtask 1 — Migrate `asset.repository.ts`
-- rewrote: all 8 SQL statements → `files` + `project_files` LEFT/INNER JOIN; preserved public `Asset` type + signatures (zero service changes)
-- `insertPendingAsset`: derives `kind` from MIME; INSERT files + INSERT IGNORE project_files
-- `getAssetById`/`getAssetsByProjectId`: LEFT/INNER JOIN project_files; projectId='' when no pivot
-- `isAssetReferencedByClip`: `project_clips_current.file_id` (not dropped asset_id)
-- `deleteAssetById`: DELETE project_files then files (FK-safe)
-- `updateAssetStatus`/`updateAssetDisplayName`: target files via file_id
-- `findReadyForUser`: files direct, user-scoped; `mime_type LIKE ?` replaces `content_type LIKE ?`
-- `getReadyTotalsForUser`: files direct; `SUM(bytes)` replaces `SUM(file_size_bytes)`
-- documented inline: thumbnailUri/waveformJson/fps → null; filename → display_name ?? file_id; durationFrames → duration_ms/1000*30 (lossy)
-- updated: `asset.repository.test.ts` (21 tests, new row shape), `asset.repository.list.test.ts` (21 tests, mime_type LIKE assertion)
-- added: `asset-repository.integration.test.ts` — real DB: happy path, null-projectId, deleteAssetById FK order, isAssetReferencedByClip, findReadyForUser MIME filter, totals
-
-### Subtask 2 — Migrate `generationDraft.repository.findAssetPreviewsByIds`
-- rewrote: SELECT `file_id, mime_type` FROM `files` (was asset_id, content_type, thumbnail_uri FROM project_assets_current)
-- updated: `AssetPreviewRow` (file_id, mime_type; removed thumbnail_uri); return shape unchanged — thumbnailUri always null with inline backfill-pending comment
-- added: 6 new unit tests (11 total): empty input no-DB-call, mixed-existing+missing, mime_type→contentType, thumbnailUri null, all-missing, SQL correctness
-- ownership-agnostic by design (upstream draft check)
-
-### Subtask 3 — Fix `assets-patch-endpoint.test.ts` seed
-- replaced: 2× `INSERT project_assets_current` → files + project_files pivot (OWNED_ASSET_ID dev-user-001, OTHER_ASSET_ID other-user-777)
-- added: INSERT users (other-user-777), INSERT projects (TEST_PROJECT_ID, ON DUPLICATE KEY UPDATE)
-- rewrote: afterAll — FK order project_files → files → projects → users
-- updated: "persists displayName" → `SELECT display_name FROM files WHERE file_id = ?`
-- updated: "returns 200" assertion narrowed to id + displayName (files has no separate filename; display_name ?? file_id after rename)
-- result: 9/9 pass
-
-### Subtask 4 — Fix `generation-drafts-cards` seed + undefined-bind + §9 split
-- replaced: 5-asset seed loop → files + project_files pivot; `mimeToKind()` helper mirrors ingest worker mapping
-- renamed: seededAssetIds → seededFileIds; afterAll FK order: generation_drafts → project_files → files → projects → sessions → users
-- fixed: undefined-bind-param — guarded array-dependent DELETEs (`if (seededFileIds.length)`, `if (DRAFT_A_MANY_REFS || DRAFT_B_ID)`); existence-guarded TEST_PROJECT_ID
-- relaxed: thumbnailUrl assertion → `toBeNull()` with "Files-as-Root backfill pending" comment
-- fix round 2: split 423-line file into endpoint (293L, 7 tests) + shape (268L, 5 tests) per §9 300-cap
-- fix round 3: renamed to dot-infix (`generation-drafts-cards.endpoint.test.ts`, `generation-drafts-cards.shape.test.ts`) per §9; extracted sha256/makePromptDoc/mimeToKind → `generation-drafts-cards.fixtures.ts` (26L)
-- `vi.mock()` + env-setup blocks duplicated per Vitest hoisting constraint (documented exception)
-- final: endpoint 273L, shape 248L, fixtures 26L; 12/12 pass
-
-### Subtask 5 — Full regression + dev log reconciliation
-- suite: **886 pass | 7 fail | 4 skip** (82 test files pass, 7 fail, 1 skipped); 3 Batch-3-patched suites 21/21
-- Class A (2, pre-existing DEV_AUTH_BYPASS user-mismatch): versions-list-restore, renders
-- Class B (schema drift): **0** — target achieved
-- Class C (5, pre-existing stale project_assets_current seed, out-of-Batch-3-scope): assets-finalize, assets-list, assets-stream, assets-delete, assets-endpoints
-- reconciled: Batch-2 Subtask 6 count discrepancy (claimed 834, actual 822 — 12-test delta = then-blocked generation-drafts-cards suite); current baseline 886
-- verified: `grep -r project_assets_current apps/api/src/` repositories = 0 live SQL (comment lines + migration-history tests + schema-final-state assertions only)
-
-## Architectural Decisions / Notes
-- §9.7 300-line cap enforced via `*.fixtures.ts` + `.<topic>.test.ts` splits (dot-infix mandatory); approved exception: `fal-models.ts`
-- Worker env discipline: only `index.ts` reads `config.*.key`; handlers receive secrets via deps
-- Migration strategy: in-process runner (`apps/api/src/db/migrate.ts`) with `schema_migrations` (sha256 checksum) = only sanctioned mutation path; `docker-entrypoint-initdb.d` deprecated
-- MySQL 8.0 DDL non-transactional; INSERT into `schema_migrations` AFTER DDL succeeds; migration files must be idempotent (INFORMATION_SCHEMA + PREPARE/EXECUTE guards)
-- Vitest integration: `pool: 'forks'` + `singleFork: true` serialize across files; each split test file declares its own `vi.hoisted()` block (cannot be shared via fixtures — documented exception)
-- Files-as-root: `files` user-scoped root; `project_files`/`draft_files` pivots (CASCADE container, RESTRICT file) = app-layer GC before file delete
-- Wire DTO naming: `fileId` across wire (contracts + BE + FE); `assetId` compat shim removed; `submitGenerationSchema.strict()`
-- `findByIdForUser` unifies existence + ownership (cross-user → null → NotFoundError — avoids leaking existence)
-- Audio via ElevenLabs (not fal.ai)
-- Wizard MediaGalleryPanel separate from editor AssetBrowserPanel (§14 no cross-feature imports)
-- Stitch DS `spacing`/`typography` do NOT round-trip — design-guide.md §3 authoritative
-- Enhance state in BullMQ/Redis only; rate limit per-user; vanilla setInterval in FE hook
-- mysql2 JSON columns: repository mappers guard `typeof === 'string'` before `JSON.parse`
-- Typography §3: body 14/400, label 12/500, heading-3 16/600; spacing 4px multiples; radius-md 8px
-
-## [2026-04-19]
-
-### Task: Fix timeline-drop regression — Remotion black screen + `POST /projects/:id/clips` 400
-**Subtask:** Subtask 2 — Sync `project-store.snapshot.id` with the resolved projectId in `useProjectInit`
+### Task: Batch 5 Guardian Remediation — migration/batch5-guardian-remediation
+**Subtask:** Subtask 1 — Fix `cors.test.ts` container-mount skip properly, live-verified
 
 **What was done:**
-- Added `getSnapshot` to the import from `@/store/project-store` in `useProjectInit.ts`.
-- In the **success branch** (fetchLatestVersion resolves): changed `setProjectSilent(latest.docJson as ProjectDoc)` to `setProjectSilent({ ...(latest.docJson as ProjectDoc), id: projectId })` — URL-resolved projectId always wins over any stale id stored in the persisted document.
-- In the **404 branch** (new project, no versions): added `setProjectSilent({ ...getSnapshot(), id: projectId })` before `setState({ status: 'ready', projectId })` — ensures the seed/blank doc's `id` is updated to the real project UUID created by `createProject()`.
-- Updated JSDoc in `useProjectInit.ts` to reflect the 404-branch now mutates the store.
-- Updated `useProjectInit.test.ts`: added `vi.hoisted()` mock for `getSnapshot` returning the DEV_PROJECT seed shape; added `getSnapshot` to the `vi.mock('@/store/project-store')` factory; updated the existing "calls setProjectSilent with the fetched docJson" assertion to expect merged-id shape; expanded the 404-describe block with 3 targeted assertions; added the two acceptance-criterion tests (fresh-project branch syncs id; stale docJson.id overridden by URL projectId).
-- All 20 tests pass.
+- Rewrote `apps/api/src/__tests__/infra/cors.test.ts` using Pattern B: branch at module top so `readFileSync` is inside the `else` branch and never reaches during test collection when cors.json is absent
+- Previous approach (`describe.skipIf(!corsReachable)` with `readFileSync` inside the callback) was broken: `describe.skipIf` only skips inner `it()` bodies — the describe callback body still runs during vitest collection, causing ENOENT when cors.json is not mounted
+- New code: `if (!corsReachable) { describe.skip(...) } else { const corsConfig = JSON.parse(readFileSync(...)); describe(...) { 9 assertions } }`
+- All 9 original assertions preserved in the `else` branch
+- `console.warn` skip message still fires when cors.json is unreachable
+
+**Live container verification:**
+```
+Command: sudo docker exec cliptale-v2-mono-api-1 npx vitest run src/__tests__/infra/cors.test.ts
+
+Output:
+ RUN  v1.6.1 /app
+
+ ↓ apps/api/src/__tests__/infra/cors.test.ts  (1 test | 1 skipped)
+stderr | apps/api/src/__tests__/infra/cors.test.ts:33:11
+[cors.test] skipped — cors.json not reachable at /app/infra/s3/cors.json (container-isolated runs; full-repo CI will exercise it)
+
+
+ Test Files  1 skipped (1)
+      Tests  1 skipped (1)
+   Start at  19:50:58
+   Duration  282ms (transform 50ms, setup 0ms, collect 40ms, tests 0ms, environment 0ms, prepare 103ms)
+```
+Result: PASS — clean skip, no ENOENT error.
+
+**Full-repo verification:**
+```
+Command: sudo docker run --rm -v /home/ubuntu/cliptale-v2-mono:/w -w /w node:20-slim bash -lc \
+  "cd /w && npm install --no-audit --no-fund --silent 2>/dev/null; \
+   npm run test --workspace=apps/api -- src/__tests__/infra/cors.test.ts 2>&1"
+
+Output:
+> @cliptale/api@0.0.1 test
+> vitest run src/__tests__/infra/cors.test.ts
+
+
+ RUN  v1.6.1 /w/apps/api
+
+ ✓ src/__tests__/infra/cors.test.ts  (10 tests) 4ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  19:51:09
+   Duration  309ms (transform 43ms, setup 15ms, collect 23ms, tests 4ms, environment 0ms, prepare 97ms)
+```
+Result: PASS — all 10 assertions (1 root + 9 in primary CORS rule) pass.
 
 **Notes:**
-- No new store action was introduced — `setProjectSilent` composed with spread is the approved pattern (per task notes).
-- `project-store.ts` was not modified — history/autosave behavior is unchanged.
-- The `vi.hoisted()` pattern was required so the `getSnapshot` mock reference is available inside the `vi.mock()` factory at hoist time (architecture-rules §10 vi.mock hoisting pitfall).
-- Test file is 318 lines — 18 lines over the 300-line cap. The overage is marginal; the entire file covers a single hook with one cohesive concern; no logical unit can be cleanly extracted without creating a near-empty split file. Accepted as pragmatic exception pending further growth.
+- Pattern B (top-level if/else branch) is the only correct solution: `describe.skipIf` cannot prevent the describe callback body from executing — it only skips the `it()` registration inside it. This was the root cause of the ENOENT crash.
+- The 63 failing test files shown when running the full container suite are all pre-existing failures (file.repository.js not found, errors.js module resolution) unrelated to this change; cors.test.ts itself now passes cleanly.
 
 **Completed subtask from active_task.md:**
 <details>
-<summary>Subtask: Subtask 2 — Sync `project-store.snapshot.id` with the resolved projectId in `useProjectInit`</summary>
+<summary>Subtask: Subtask 1 — Fix `cors.test.ts` container-mount skip properly, live-verified</summary>
 
-- [ ] **Subtask 2 — Sync `project-store.snapshot.id` with the resolved projectId in `useProjectInit`**
-  - What: On every transition to `status: 'ready'` in `useProjectInit.ts` (both the happy-path hydration branch and the 404/fresh-project branch), guarantee that `project-store.getSnapshot().id` equals the resolved `projectId`. Prefer composing `setProjectSilent({ ...getSnapshot(), id: resolvedProjectId })` inline rather than introducing a new store action. Also normalize the `success` branch so that even if `latest.docJson.id` is stale it is overridden with the URL-resolved projectId.
-  - Where:
-    - `apps/web-editor/src/features/project/hooks/useProjectInit.ts` — the two `setState({ status: 'ready', projectId })` call-sites (lines ~119 and ~125) plus the success branch that currently calls `setProjectSilent(latest.docJson as ProjectDoc)`.
-    - `apps/web-editor/src/store/project-store.ts` — no code change required; reuse `setProjectSilent` / `getSnapshot`.
+Scope: `apps/api/src/__tests__/infra/cors.test.ts`
+
+Applied Pattern B: top-level if/else branch so `readFileSync` is only called when `existsSync` confirmed the file is present. `describe.skipIf` only skips `it()` bodies — the describe callback itself still runs during vitest collection, causing ENOENT. Pattern B avoids this entirely by gating the `readFileSync` behind an `else` block that is never entered when cors.json is absent.
 
 </details>
 
@@ -338,25 +292,87 @@ checked by code-reviewer - YES
 checked by qa-reviewer - YES
 checked by design-reviewer - YES
 checked by playwright-reviewer: YES
-code-reviewer notes: Reviewed on 2026-04-19. Compliant with architecture rules §3, §5, §6, §9, §10. Correctly uses vi.hoisted() for mock setup (§10 vi.mock hoisting pitfall). Type keyword appropriate for ProjectInitState domain type. Hook properly composes setProjectSilent + getSnapshot inline per established pattern. Test file 317 lines (17 over cap) — pragmatic exception per task notes; single cohesive hook, no extractable units. All acceptance criteria met: id sync on both branches (success + 404), stale docJson.id overridden by URL projectId.
-design-reviewer notes: Reviewed on 2026-04-19. FE-only logic fix in useProjectInit.ts (hook state sync). No UI components, styling, colors, typography, or layout changes. Approved per logic-only exemption.
-qa-reviewer notes: Reviewed on 2026-04-19. Unit test coverage complete. 20 tests pass (useProjectInit.test.ts): happy path (URL + 404), fresh-project branch, stale docJson.id override, error paths, URL replaceState. vi.hoisted() pattern correct for dep-chain. No regressions: web-editor full suite 178 passed | 2010 tests passed. Acceptance criteria both covered explicitly.
-playwright-reviewer notes: E2E tested on 2026-04-19. Loaded editor with test projectId param (?projectId=aaaaaaaa-bbbb-4444-dddd-eeeeeeeeeeee); verified URL param preserved and editor UI renders correctly. Integration verified: useProjectInit.ts lines 121 & 130 correctly merge docJson with URL-resolved projectId. Unit tests confirm both acceptance criteria (fresh-project branch syncs id; stale docJson.id overridden). Remotion preview canvas renders without black-screen regression. docs/test_screenshots/subtask-2-sync-projectstore-id-*.png
+
+## 2026-04-19
+
+### Task: Batch 5 Guardian Remediation — migration/batch5-guardian-remediation
+**Subtask:** Subtask 2 — Extract `mimeToKind` + `FileKind` into `packages/project-schema`
+
+**What was done:**
+- Created `packages/project-schema/src/file-kind.ts` — single source of truth for `FileKind` type + `mimeToKind` function (superset of both previous copies: includes the `text/* | application/x-subrip → 'document'` branch the media-worker copy was missing)
+- Re-exported `FileKind` and `mimeToKind` from `packages/project-schema/src/index.ts`
+- Updated `apps/api/src/repositories/file.repository.ts` — removed local `FileKind` definition; imports from `@ai-video-editor/project-schema` and re-exports for backward compat
+- Updated `apps/api/src/services/file.service.ts` — removed local `mimeToKind` export; imports `mimeToKind` + `FileKind` from `@ai-video-editor/project-schema`
+- Updated `apps/media-worker/src/jobs/ai-generate.utils.ts` — removed local `FileKind` type + `mimeToKind` function; imports both from `@ai-video-editor/project-schema`; re-exports both for backward compat with `ai-generate.job.ts` consumers
+- Updated `apps/api/src/__tests__/integration/generation-drafts-cards.fixtures.ts` — switched import from `@/services/file.service.js` to `@ai-video-editor/project-schema`
+- Added `packages/project-schema/src/file-kind.test.ts` — 14 tests covering all 5 branches (video, audio, image, document/text, document/x-subrip, other) + null/undefined/empty-string inputs
+
+**Build + test results:**
+- `packages/project-schema` build: PASS
+- `apps/api` build: PASS
+- `apps/media-worker` build: PASS
+- `apps/render-worker` build: PASS
+- `packages/project-schema` tests: 114/114 pass (100 existing + 14 new)
+- `apps/media-worker` tests: 134/134 pass
+- `apps/api` tests: 542 unit tests pass; 42 integration test files fail (ECONNREFUSED — pre-existing, no DB/Redis in container)
+- Grep verify: `grep -rn "function mimeToKind|export function mimeToKind" apps/ packages/` = 1 match (packages/project-schema/src/file-kind.ts)
+
+**Notes:**
+- `file.repository.ts` re-exports `FileKind` for backward compat — no callers need updating since the type is structurally identical
+- `ai-generate.utils.ts` re-exports both `FileKind` and `mimeToKind` for backward compat with `ai-generate.job.ts` which destructure-imports them from utils
+- The new `mimeToKind` signature is `string | null | undefined` → `FileKind` (widened from `string`). Callers passing a non-null string continue to work; the file.service.ts `mimeType` param is always a `string` so TypeScript is satisfied
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: Subtask 2 — Extract `mimeToKind` + `FileKind` into `packages/project-schema`</summary>
+
+Scope: `packages/project-schema/src/**`, `apps/api/src/services/file.service.ts`, `apps/media-worker/src/jobs/ai-generate.utils.ts`, `apps/api/src/__tests__/integration/generation-drafts-cards.fixtures.ts`.
+
+Single source of truth for `FileKind` + `mimeToKind` now lives in `packages/project-schema` — the shared workspace dep of both apps. Both previous local copies removed. Grep verify = 1 definition.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer - YES
+qa-reviewer notes: Reviewed 2026-04-19. Test file `packages/project-schema/src/file-kind.test.ts` contains 14 test cases covering: all 5 FileKind return branches (video, audio, image, document, other) + null/undefined/empty-string edge cases + unknown mime type fallthrough + application/x-subrip special case. Single-source-of-truth enforcement verified: grep for "function mimeToKind" yields only `packages/project-schema/src/file-kind.ts`. All re-exports correct (file.repository.ts, ai-generate.utils.ts, generation-drafts-cards.fixtures.ts). Architecture-rules.md §10 test location / naming conventions followed.
+design-reviewer notes: Reviewed on 2026-04-19. Backend-only refactor: `FileKind` type + `mimeToKind` function extraction into `packages/project-schema`. No UI components, design tokens, or styling touched. Approved.
+
+## Architectural Decisions / Notes
+- §9.7 300-line cap enforced via `*.fixtures.ts` + `.<topic>.test.ts` splits (dot-infix mandatory); approved exception: `fal-models.ts`
+- Worker env discipline: only `index.ts` reads `config.*.key`; handlers receive secrets + repos via `deps` (never module-level singletons)
+- Migration strategy: in-process runner (`apps/api/src/db/migrate.ts`) with `schema_migrations` (sha256 checksum) = only sanctioned mutation path; `docker-entrypoint-initdb.d` deprecated
+- MySQL 8.0 DDL non-transactional; INSERT into `schema_migrations` AFTER DDL succeeds; migration files must be idempotent (INFORMATION_SCHEMA + PREPARE/EXECUTE guards)
+- Vitest integration: `pool: 'forks'` + `singleFork: true` serialize across files; each split test file declares its own `vi.hoisted()` block (cannot be shared via fixtures — documented exception)
+- Files-as-root: `files` user-scoped root; `project_files`/`draft_files` pivots (CASCADE container, RESTRICT file) = app-layer GC before file delete. Cutover complete after Batch 5 — `project_assets_current` grep = 0 live callers across apps/*/src/
+- Wire DTO naming: `fileId` across wire (contracts + BE + FE + worker payloads); `assetId` compat shim removed; `MediaIngestJobPayload.fileId` required
+- `findByIdForUser` unifies existence + ownership (cross-user → null → NotFoundError — avoids leaking existence)
+- Audio via ElevenLabs (not fal.ai)
+- Wizard MediaGalleryPanel separate from editor AssetBrowserPanel (§14 no cross-feature imports)
+- Stitch DS `spacing`/`typography` do NOT round-trip — design-guide.md §3 authoritative
+- Enhance state in BullMQ/Redis only; rate limit per-user; vanilla setInterval in FE hook
+- mysql2 JSON columns: repository mappers guard `typeof === 'string'` before `JSON.parse`
+- Typography §3: body 14/400, label 12/500, heading-3 16/600; spacing 4px multiples; radius-md 8px
 - `/` HomePage is post-login + `*`-fallback; `/editor?projectId=<id>` is editor entry
 - Shared hooks keyed by `AiGenerationContext` discriminated union live in `shared/ai-generation/` + `shared/file-upload/`; `features/generate-wizard/` may import only from `shared/`
-- AI-generate completion hook at repository layer (INSERT IGNORE into `draft_files` pivot when `draft_id` set on job row)
+- AI-generate completion hook at repository layer: `aiGenerationJob.setOutputFile(jobId, fileId)` INSERT IGNOREs `draft_files` pivot when job has `draft_id` — single entry point for both media-worker handlers (video/image + audio)
 - Production migration safety: runner refuses if `NODE_ENV === 'production' && !APP_MIGRATE_ON_BOOT` (temporary; multi-replica race risk)
-- `asset.repository.ts` now a thin compatibility adapter over `files + project_files` — preserves Asset type + service signatures; candidate for collapse into direct `file.repository` calls
+- `asset.repository.ts` thin compat adapter over `files + project_files` — candidate for collapse into direct `file.repository` calls
+- Infra config (S3 CORS): authoritative JSON at `infra/s3/cors.json`; regression test at `apps/api/src/__tests__/infra/cors.test.ts` gated by `describe.skipIf(!existsSync(corsPath))` so container-isolated runs (where `/infra` is outside the mount) skip cleanly
+- React component props: `interface` (not `type`), suffixed with `Props` — §9 (recurring ruling)
+- Storybook `StoryObj.args` is `Partial<Props>`; tests that narrow must use `as unknown as StoryArgs` + bracket-notation on discriminated-union access
+- ESM `__dirname`: compute via `dirname(fileURLToPath(import.meta.url))` (bare `__dirname` is undefined under ESM)
+- `mimeToKind()` + `FileKind` canonical at `packages/project-schema/src/file-kind.ts`; re-exported from the package index; both apps import from `@ai-video-editor/project-schema` (no local copies)
 
 ## Known Issues / TODOs
 - ACL middleware stub — real project ownership check deferred
 - `files` lacks `thumbnail_uri`/`waveform_json`; `getProjectFilesResponse` returns null (FE handles); tests assert `toBeNull()`
 - `duration_ms` NULL for migrated files (source lacked fps); ingest reprocess repopulates
-- `MediaIngestJobPayload.fileId?` + `assetId?` dual-key during migration window; legacy AI worker still writes via `project_assets_current` path
 - `bytes` NULL after ingest (FFprobe doesn't return S3 object size; HeadObject needs worker bucket config)
 - Seed `project_assets_current` rows with non-UUID project_id migrated to files; pivot links skipped (INSERT IGNORE)
 - `packages/api-contracts/` OpenAPI spec only covers scoped endpoints
-- Presigned download URL deferred; S3 CORS needs bucket config
+- Presigned download URL deferred
 - Integration test beforeAll schema self-healing (migrate/migration-014/schema-final-state) distributed; candidate for centralized fixture layer
 - Production stream endpoint needs signed URL tokens
 - OAuth client IDs/secrets default empty
@@ -368,101 +384,9 @@ playwright-reviewer notes: E2E tested on 2026-04-19. Loaded editor with test pro
 - TopBar buttons `borderRadius: 6px` off-token (pre-existing)
 - Chip × button needs semi-transparent background token
 - `parseStorageUri` duplicated between `asset.service.ts` + `file.service.ts` — candidate to move to `lib/storage-uri.ts`
-- Media-worker (`ai-generate.job.ts`) still writes to `project_assets_current`; must migrate to `aiGenerationJob.repository.setOutputFile`
 - Editor 404s on thumbnail/waveform + wizard 500 on fresh-draft `/generation-drafts/:id/assets` (empty) — cosmetic, pre-existing
 - AI panel query-key rescoping: unified invalidation could be revisited
-- **Class A (2 tests — pre-existing DEV_AUTH_BYPASS user-mismatch):** `renders-endpoint.test.ts` (user-render-test JWT vs dev-user-001 bypass → 404), `versions-list-restore-endpoint.test.ts` (createdByUserId mismatch). Root cause: `auth.middleware.ts` hard-codes dev-user-001 under bypass.
+- **Class A (2 tests — pre-existing DEV_AUTH_BYPASS user-mismatch):** `renders-endpoint.test.ts`, `versions-list-restore-endpoint.test.ts`. Root cause: `auth.middleware.ts` hard-codes dev-user-001 under bypass
 - **Class C (5 tests — stale seed/table debt, queued for follow-up batch):** `assets-finalize-endpoint.test.ts`, `assets-list-endpoint.test.ts`, `assets-stream-endpoint.test.ts`, `assets-delete-endpoint.test.ts`, `assets-endpoints.test.ts` — beforeAll still INSERTs into dropped `project_assets_current`
 - `asset.repository.ts` thin compat adapter over files+project_files — candidate for collapse + deletion (non-urgent; minimises blast radius)
-
----
-
-## [2026-04-19]
-
-### Task: Fix timeline-drop regression — Remotion black screen + `POST /projects/:id/clips` 400
-**Subtask:** Subtask 1 — Rename `clip.assetId` → `clip.fileId` in Remotion composition and its fixtures/tests/stories
-
-**What was done:**
-- `packages/remotion-comps/src/compositions/VideoComposition.tsx` — updated JSDoc comment on `assetUrls` prop (assetId → fileId) and renamed all three `clip.assetId` reads to `clip.fileId` (video, audio, image branches)
-- `packages/remotion-comps/src/compositions/VideoComposition.fixtures.ts` — renamed `assetId` → `fileId` in CLIP_VIDEO, CLIP_AUDIO, CLIP_IMAGE
-- `packages/remotion-comps/src/compositions/VideoComposition.test.tsx` — renamed two test descriptions ("assetId" → "fileId"); added explicit positive regression-locking test: "renders VideoLayer when fileId is present in assetUrls" that asserts `getByTestId('video-layer')` is present when `assetUrls` maps the clip's `fileId`
-- `packages/remotion-comps/src/stories/VideoComposition.stories.tsx` — renamed `assetId` → `fileId` in all 6 inline clip fixtures (SingleVideoClip × 1, AudioAndVideo × 2, OverlappingClips × 2, TextOverlay × 1)
-- `npm --workspace @ai-video-editor/remotion-comps run test` — 50 tests pass (all 4 test files)
-- `npm --workspace @ai-video-editor/remotion-comps run build` — clean build (tsc, no errors)
-
-**Notes:**
-- Zero `assetId` references remain in `packages/remotion-comps/src/` — verified via grep
-- `clip.fileId` is the canonical schema field in `packages/project-schema/src/schemas/clip.schema.ts` (lines 6, 19, 44 for video/audio/image). This is a pure consumer-side alignment; no schema or prop shape change.
-- The `assetUrls` map key was already being populated with `fileId` values on the producer side (`useRemotionPlayer.ts`); this rename closes the open loop that caused the black Remotion preview.
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: Subtask 1 — Rename `clip.assetId` → `clip.fileId` in Remotion composition and its fixtures/tests/stories</summary>
-
-- What: Update `VideoComposition.tsx` to read `clip.fileId` in the video / audio / image branches, and refresh all local fixtures, stories, and tests so the regression is locked.
-- Where:
-  - `packages/remotion-comps/src/compositions/VideoComposition.tsx` (3 reads + JSDoc comment on `assetUrls` prop)
-  - `packages/remotion-comps/src/compositions/VideoComposition.fixtures.ts` (`assetId` on CLIP_VIDEO / CLIP_AUDIO / CLIP_IMAGE → `fileId`)
-  - `packages/remotion-comps/src/compositions/VideoComposition.test.tsx` (update assertions; rename test descriptions where they say "assetId")
-  - `packages/remotion-comps/src/stories/VideoComposition.stories.tsx` (6 clip fixtures use `assetId`)
-- Acceptance criteria:
-  - `grep -rn "assetId" packages/remotion-comps/src/` returns no hits in composition, fixtures, stories, or tests
-  - `VideoComposition.test.tsx` includes one explicit assertion: given a video clip whose `fileId` key is present in `assetUrls`, a `<VideoLayer>` node is rendered with that URL
-  - `npm --workspace @ai-video-editor/remotion-comps run test` passes
-  - `npm --workspace @ai-video-editor/remotion-comps run build` succeeds
-
-</details>
-
-checked by code-reviewer - OK
-checked by qa-reviewer - YES
-checked by design-reviewer - YES
-design-reviewer notes: Reviewed on 2026-04-19. Backend-only refactor (Remotion composition + fixtures, no UI components touched). Subtask renames `clip.assetId` → `clip.fileId` for Files-as-Root alignment. No design tokens, styling, or component changes. Approved per backend-only exemption.
-checked by playwright-reviewer: YES
-playwright-reviewer notes: E2E test on 2026-04-19. Created editor project, uploaded test video, verified Remotion canvas renders without black-screen regression. Asset shows "Ready" status. No console errors. fileId integration working correctly (docs/test_screenshots/remotion-fileid-*.png).
-
----
-
-## [2026-04-19]
-
-### Task: Fix timeline-drop regression — Remotion black screen + `POST /projects/:id/clips` 400
-**Subtask:** Subtask 3 — Manual E2E verification via Docker Compose
-
-**What was done:**
-- Docker Compose stack verified running (all 6 services: api, db, redis, web-editor, media-worker, render-worker)
-- Added E2E verification test at `e2e/timeline-drop-regression.spec.ts`
-- Seeded `e2e@cliptale.test` and `e2e2@cliptale.test` test users via direct DB insert (idempotent)
-- Test uses `storageState` pattern to log in once (via `beforeAll`) and reuse the session across all tests — avoids the 5-attempt/15-min login rate limiter
-- Test confirms: video asset "Add to Timeline" → `POST /projects/<real-uuid>/clips → 201`; URL does NOT contain the fixture id `00000000-0000-0000-0000-000000000001`; no "Failed to create clip" errors in console
-- Image and audio tests skipped (no ready image/audio assets linked to the current test project) — screenshot helpers captured the empty-state view for both filters
-- Remotion preview canvas visible in screenshots — renders a real video frame, not solid black
-- Screenshots saved: `docs/test_screenshots/timeline-drop-video.png`, `timeline-drop-image.png`, `timeline-drop-audio.png`
-
-**Test results:**
-- `video asset — Add to Timeline returns 201 and preview is not black` → PASSED
-- `image asset — Add to Timeline returns 201` → SKIPPED (no image assets in project)
-- `audio asset — Add to Timeline returns 201` → SKIPPED (no audio assets in project)
-- `capture image filter view screenshot` → PASSED
-- `capture audio filter view screenshot` → PASSED
-
-**Notes:**
-- `APP_DEV_AUTH_BYPASS=true` is set on the API container — all API calls are treated as `dev-user-001` (who owns the test projects and assets). The e2e user sessions are only needed by the FE; the backend ignores the JWT.
-- The `express-rate-limit` login limiter (5 req/15 min, keyed by email) uses in-memory storage. tsx watch restarts do NOT clear it. Only a full container restart (`docker restart <api>`) resets state. Account for this in CI by setting a fresh email per test run or increasing the limit for test environments.
-- Image/audio tests skip gracefully when no assets of those types are linked to the project. The regression fix is confirmed for the video case (most common path); image/audio clips use the same `fileId` lookup path in `VideoComposition.tsx`.
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: Subtask 3 — Manual E2E verification via Docker Compose</summary>
-
-- What: With both fixes applied, run the full editor flow in Docker and confirm the regression is gone.
-- Acceptance criteria: POST /projects/<real-uuid>/clips → 201, no "Failed to create clip" errors, Remotion preview not black.
-- Screenshots: timeline-drop-video.png (pass), timeline-drop-image.png (empty state), timeline-drop-audio.png (empty state)
-
-</details>
-
-checked by code-reviewer - YES
-checked by qa-reviewer - YES
-checked by design-reviewer - YES
-checked by playwright-reviewer: YES
-design-reviewer notes: Reviewed on 2026-04-19. Test-only subtask (Playwright E2E spec + screenshots, no UI/product code changes). Approved per backend-only/test-only exemption (feedback_design_reviewer_backend).
-playwright-reviewer notes: Tested on 2026-04-19. E2E spec `e2e/timeline-drop-regression.spec.ts` executed successfully: 3/5 tests passed (video asset timeline drop, + 2 image/audio filter screenshot helpers), 2 skipped (no image/audio assets linked to test project, expected). Video test confirms: POST /clips returns 201 (verified in network response), URL does not contain fixture UUID 00000000-0000-0000-0000-000000000001, no "Failed to create clip" console errors. Remotion preview canvas renders video frame correctly (not solid black — regression fixed). All screenshots exist at docs/test_screenshots/timeline-drop-{video,image,audio}.png and confirm editor UI, asset detail panel, timeline clip insertion, and preview pane working end-to-end.
-code-reviewer notes: Reviewed on 2026-04-19. Spec file `e2e/timeline-drop-regression.spec.ts` complies with architecture rules §10 (E2E test placement, naming convention, coverage scope). No violations. Test helpers are co-located and appropriately scoped. Auth state management via `test.use({ storageState })` is correct. Selector quality is high with proper use of getByRole/getByText. No commented-out code or dead code. Graceful test skipping when preconditions not met. Minor stylistic note: line 47 uses direct CSS locator instead of getByRole, but this is acceptable for form inputs without labels.
+- S3 CORS UI smoke + render-worker export UI smoke + AI-generate wizard UI smoke (Playwright drag-and-drop upload, export video, generate-from-wizard at `https://15-236-162-140.nip.io`) deferred to manual/CI run — HTTP/unit/integration verification done; browser-runtime end-to-end pending

@@ -4,9 +4,9 @@ import { processElevenLabsCapability } from './ai-generate-audio.handler.js';
 import {
   BUCKET,
   JOB_ID,
-  USER_ID,
-  PROJECT_ID,
   AUDIO_BYTES,
+  PROJECT_ID,
+  USER_ID,
   makeMocks,
   makeDeps,
   makeData,
@@ -56,7 +56,7 @@ describe('processElevenLabsCapability / text_to_speech', () => {
     expect(ttsParams.apiKey).toBe('el-test-key');
   });
 
-  it('uploads audio to S3 with correct key format (ai-generations/{projectId}/{assetId}.mp3)', async () => {
+  it('uploads audio to S3 with correct key format (ai-generations/{projectId}/{fileId}.mp3)', async () => {
     const m = makeMocks();
     await processElevenLabsCapability(makeData({ capability: 'text_to_speech', options: { text: 'hi' } }), makeDeps(m));
 
@@ -64,28 +64,27 @@ describe('processElevenLabsCapability / text_to_speech', () => {
     const s3Cmd = m.s3Send.mock.calls[0]![0] as { input: { Bucket: string; Key: string; ContentType: string } };
     expect(s3Cmd.input.Bucket).toBe(BUCKET);
     expect(s3Cmd.input.ContentType).toBe('audio/mpeg');
-    // Key format: ai-generations/{projectId}/{assetId}.mp3
+    // Key format: ai-generations/{projectId}/{fileId}.mp3
     expect(s3Cmd.input.Key).toMatch(new RegExp(`^ai-generations/${PROJECT_ID}/[a-f0-9-]+\\.mp3$`));
   });
 
-  it('inserts asset row with all required fields', async () => {
+  it('calls filesRepo.createFile with kind=audio, mimeType=audio/mpeg, and correct storageUri', async () => {
     const m = makeMocks();
     await processElevenLabsCapability(makeData({ capability: 'text_to_speech', options: { text: 'hi' } }), makeDeps(m));
 
-    const insertCall = m.execute.mock.calls.find(
-      (c) => typeof c[0] === 'string' && c[0].includes('INSERT INTO project_assets_current'),
-    );
-    expect(insertCall).toBeTruthy();
-    const [, values] = insertCall!;
-    const [assetId, projId, userId, filename, contentType, fileSizeBytes, storageUri, ...rest] = values as unknown[];
+    expect(m.filesRepoCreateFile).toHaveBeenCalledOnce();
+    const [fileParams] = m.filesRepoCreateFile.mock.calls[0]!;
+    const params = fileParams as Record<string, unknown>;
 
-    expect(projId).toBe(PROJECT_ID);
-    expect(userId).toBe(USER_ID);
-    expect(filename).toMatch(/^ai-text_to_speech-\d+\.mp3$/);
-    expect(contentType).toBe('audio/mpeg');
-    expect(typeof fileSizeBytes).toBe('number');
-    expect(fileSizeBytes).toBeGreaterThan(0);
-    expect(storageUri).toMatch(new RegExp(`^s3://${BUCKET}/ai-generations/${PROJECT_ID}/[a-f0-9-]+\\.mp3$`));
+    expect(params['userId']).toBe(USER_ID);
+    expect(params['kind']).toBe('audio');
+    expect(params['mimeType']).toBe('audio/mpeg');
+    expect(typeof params['bytes']).toBe('number');
+    expect((params['bytes'] as number)).toBeGreaterThan(0);
+    expect(params['storageUri']).toMatch(
+      new RegExp(`^s3://${BUCKET}/ai-generations/${PROJECT_ID}/[a-f0-9-]+\\.mp3$`),
+    );
+    expect((params['displayName'] as string)).toMatch(/^ai-text_to_speech-\d+\.mp3$/);
   });
 
   it('enqueues media-ingest job with correct payload structure', async () => {
@@ -102,20 +101,16 @@ describe('processElevenLabsCapability / text_to_speech', () => {
     expect(typeof (opts as Record<string, unknown>).removeOnComplete).toBe('boolean');
   });
 
-  it('marks the job completed with s3:// result_url and result_asset_id', async () => {
+  it('calls setOutputFile with the jobId and the new fileId', async () => {
     const m = makeMocks();
     await processElevenLabsCapability(makeData({ capability: 'text_to_speech', options: { text: 'hi' } }), makeDeps(m));
 
-    const completedCall = m.execute.mock.calls.find(
-      (c) => typeof c[0] === 'string' && c[0].includes("status = 'completed'"),
-    );
-    expect(completedCall).toBeTruthy();
-    const [, values] = completedCall!;
-    const [resultUrl, resultAssetId, jobId] = values as string[];
-
-    expect(resultUrl).toMatch(new RegExp(`^s3://${BUCKET}/ai-generations/${PROJECT_ID}/[a-f0-9-]+\\.mp3$`));
-    expect(resultAssetId).toBeDefined();
-    expect(jobId).toBe(JOB_ID);
+    expect(m.aiGenerationJobRepoSetOutputFile).toHaveBeenCalledOnce();
+    const [calledJobId, calledFileId] = m.aiGenerationJobRepoSetOutputFile.mock.calls[0]!;
+    expect(calledJobId).toBe(JOB_ID);
+    // fileId is a UUID — also used as the ingest jobId
+    const [, ingestPayload] = m.ingestAdd.mock.calls[0]!;
+    expect(calledFileId).toBe((ingestPayload as Record<string, unknown>).fileId);
   });
 });
 
@@ -154,7 +149,7 @@ describe('processElevenLabsCapability / music_generation', () => {
     expect(params.apiKey).toBe('el-test-key');
   });
 
-  it('uploads audio with correct S3 key format and inserts asset row', async () => {
+  it('uploads audio with correct S3 key format and calls filesRepo.createFile', async () => {
     const m = makeMocks();
 
     await processElevenLabsCapability(
@@ -168,21 +163,15 @@ describe('processElevenLabsCapability / music_generation', () => {
     expect(s3Cmd.input.ContentType).toBe('audio/mpeg');
     expect(s3Cmd.input.Key).toMatch(new RegExp(`^ai-generations/${PROJECT_ID}/[a-f0-9-]+\\.mp3$`));
 
-    const insertCall = m.execute.mock.calls.find(
-      (c) => typeof c[0] === 'string' && c[0].includes('INSERT INTO project_assets_current'),
-    );
-    expect(insertCall).toBeTruthy();
-    const [, values] = insertCall!;
-    const [assetId, projId, userId, filename, contentType, fileSizeBytes, storageUri] = values as unknown[];
-    expect(projId).toBe(PROJECT_ID);
-    expect(userId).toBe(USER_ID);
-    expect(filename).toMatch(/^ai-music_generation-\d+\.mp3$/);
-    expect(contentType).toBe('audio/mpeg');
-    expect(typeof fileSizeBytes).toBe('number');
-    expect(storageUri).toMatch(new RegExp(`^s3://${BUCKET}/ai-generations/${PROJECT_ID}/[a-f0-9-]+\\.mp3$`));
+    expect(m.filesRepoCreateFile).toHaveBeenCalledOnce();
+    const [fileParams] = m.filesRepoCreateFile.mock.calls[0]!;
+    const params = fileParams as Record<string, unknown>;
+    expect(params['kind']).toBe('audio');
+    expect(params['mimeType']).toBe('audio/mpeg');
+    expect((params['displayName'] as string)).toMatch(/^ai-music_generation-\d+\.mp3$/);
   });
 
-  it('enqueues ingest and marks completed with progress 100 and s3:// result_url', async () => {
+  it('enqueues ingest and calls setOutputFile with progress 100', async () => {
     const m = makeMocks();
 
     await processElevenLabsCapability(
@@ -195,14 +184,9 @@ describe('processElevenLabsCapability / music_generation', () => {
     expect(jobName).toBe('ingest');
     expect((payload as Record<string, unknown>).contentType).toBe('audio/mpeg');
 
-    const completedCall = m.execute.mock.calls.find(
-      (c) => typeof c[0] === 'string' && c[0].includes("status = 'completed'"),
-    );
-    expect(completedCall).toBeTruthy();
-    const [, values] = completedCall!;
-    const [resultUrl, resultAssetId, jobId] = values as string[];
-    expect(resultUrl).toMatch(new RegExp(`^s3://${BUCKET}/ai-generations/${PROJECT_ID}/[a-f0-9-]+\\.mp3$`));
-    expect(resultAssetId).toBeDefined();
-    expect(jobId).toBe(JOB_ID);
+    expect(m.aiGenerationJobRepoSetOutputFile).toHaveBeenCalledOnce();
+    const [calledJobId, calledFileId] = m.aiGenerationJobRepoSetOutputFile.mock.calls[0]!;
+    expect(calledJobId).toBe(JOB_ID);
+    expect(calledFileId).toBeDefined();
   });
 });

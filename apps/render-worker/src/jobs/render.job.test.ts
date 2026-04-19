@@ -86,7 +86,7 @@ describe('render.job', () => {
       expect(callArgs.compositionId).toBe('VideoComposition');
       expect(callArgs.doc).toEqual(docJson);
       expect(callArgs.preset.key).toBe('1080p');
-      expect(callArgs.assetUrls).toEqual({ 'asset-aaa': 'https://s3.example.com/presigned' });
+      expect(callArgs.assetUrls).toEqual({ 'file-aaa': 'https://s3.example.com/presigned' });
     });
 
     it('uploads the rendered file to S3 on success', async () => {

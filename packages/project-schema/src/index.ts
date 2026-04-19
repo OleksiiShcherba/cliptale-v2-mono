@@ -1,3 +1,5 @@
+export type { FileKind } from './file-kind.js';
+export { mimeToKind } from './file-kind.js';
 export { projectDocSchema } from './schemas/project-doc.schema.js';
 export { trackSchema } from './schemas/track.schema.js';
 export { clipSchema, videoClipSchema, audioClipSchema, textOverlayClipSchema, imageClipSchema, captionClipSchema } from './schemas/clip.schema.js';

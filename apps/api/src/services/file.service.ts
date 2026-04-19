@@ -4,7 +4,9 @@ import { HeadObjectCommand, GetObjectCommand, PutObjectCommand, type S3Client } 
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import sanitize from 'sanitize-html';
 
-import type { FileRow, FileKind } from '@/repositories/file.repository.js';
+import { mimeToKind, type FileKind } from '@ai-video-editor/project-schema';
+
+import type { FileRow } from '@/repositories/file.repository.js';
 import * as fileRepository from '@/repositories/file.repository.js';
 import { NotFoundError, ValidationError } from '@/lib/errors.js';
 import { enqueueIngestJob } from '@/queues/jobs/enqueue-ingest.js';
@@ -44,15 +46,6 @@ function sanitizeFilename(name: string): string {
     .replace(/\.\./g, '_')
     .replace(/^\.+/, '_')
     .slice(0, 255);
-}
-
-/** Derives the coarse `kind` from a MIME type. */
-function mimeToKind(mimeType: string): FileKind {
-  if (mimeType.startsWith('video/')) return 'video';
-  if (mimeType.startsWith('audio/')) return 'audio';
-  if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType.startsWith('text/') || mimeType === 'application/x-subrip') return 'document';
-  return 'other';
 }
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -103,6 +96,14 @@ export async function createUploadUrl(
   const storageKey = `users/${params.userId}/files/${fileId}/${safeFilename}`;
   const storageUri = `s3://${bucket}/${storageKey}`;
 
+  // Note: ContentType and ContentLength are passed to PutObjectCommand but the
+  // resulting presigned URL signs only `content-length;host` — NOT `content-type`.
+  // Therefore the browser PUT does not need to include a matching Content-Type in its
+  // signature, and the S3 bucket CORS rule's AllowedHeaders only needs to allow
+  // the `Content-Type` header for the browser preflight (AllowedHeaders: ["*"]).
+  // If this presign is ever changed to also sign Content-Type or checksum headers
+  // (e.g. x-amz-checksum-*), revisit infra/s3/cors.json AllowedHeaders accordingly.
+  // See: migration/assetId-to-fileId-cleanup Subtask 6 — Fix S3 upload CORS failure.
   const uploadUrl = await getSignedUrl(
     s3,
     new PutObjectCommand({ Bucket: bucket, Key: storageKey, ContentType: params.mimeType, ContentLength: params.fileSizeBytes }),

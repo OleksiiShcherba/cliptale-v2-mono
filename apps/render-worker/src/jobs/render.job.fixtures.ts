@@ -12,12 +12,12 @@ import type { RenderVideoJobPayload } from '@ai-video-editor/project-schema';
 
 // ── Fixture data ─────────────────────────────────────────────────────────────
 
-/** Default doc fixture with one video clip referencing asset-aaa. */
+/** Default doc fixture with one video clip referencing file-aaa (fileId). */
 export const docJson = {
   title: 'Test Project',
   tracks: [],
   clips: [
-    { id: 'clip-1', type: 'video', assetId: 'asset-aaa', trackId: 't1', startFrame: 0, durationFrames: 90 },
+    { id: 'clip-1', type: 'video', fileId: 'file-aaa', trackId: 't1', startFrame: 0, durationFrames: 90 },
   ],
 };
 
@@ -65,7 +65,7 @@ export function setupSuccessMocks(mockExecute: ReturnType<typeof vi.fn>) {
   mockExecute
     .mockResolvedValueOnce([[], []])                        // updateJobStatus('processing', 0)
     .mockResolvedValueOnce([[{ doc_json: docJson }], []])   // fetchDocJson
-    .mockResolvedValueOnce([[{ asset_id: 'asset-aaa', storage_uri: 's3://test-bucket/assets/asset-aaa.mp4' }], []])  // resolveAssetUrls
+    .mockResolvedValueOnce([[{ file_id: 'file-aaa', storage_uri: 's3://test-bucket/files/file-aaa.mp4' }], []])  // resolveAssetUrls
     .mockResolvedValue([[], []]);                           // completeJob + any further calls
 }
 
@@ -82,6 +82,6 @@ export function setupRenderFailureMocks(mockExecute: ReturnType<typeof vi.fn>) {
   mockExecute
     .mockResolvedValueOnce([[], []])                        // updateJobStatus('processing', 0)
     .mockResolvedValueOnce([[{ doc_json: docJson }], []])   // fetchDocJson
-    .mockResolvedValueOnce([[{ asset_id: 'asset-aaa', storage_uri: 's3://test-bucket/assets/asset-aaa.mp4' }], []])  // resolveAssetUrls
+    .mockResolvedValueOnce([[{ file_id: 'file-aaa', storage_uri: 's3://test-bucket/files/file-aaa.mp4' }], []])  // resolveAssetUrls
     .mockResolvedValue([[], []]);                           // failJob
 }

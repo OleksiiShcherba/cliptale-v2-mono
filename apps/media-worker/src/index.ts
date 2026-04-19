@@ -14,7 +14,7 @@ import {
 } from '@/lib/elevenlabs-client.js';
 import { processIngestJob } from '@/jobs/ingest.job.js';
 import { processTranscribeJob } from '@/jobs/transcribe.job.js';
-import { processAiGenerateJob, type AiGenerateJobPayload } from '@/jobs/ai-generate.job.js';
+import { processAiGenerateJob, type AiGenerateJobPayload, type FilesRepo, type AiGenerationJobRepo, type CreateFileParams } from '@/jobs/ai-generate.job.js';
 import { processEnhancePromptJob } from '@/jobs/enhancePrompt.job.js';
 
 const QUEUE_MEDIA_INGEST = 'media-ingest';
@@ -25,6 +25,67 @@ const QUEUE_AI_ENHANCE = 'ai-enhance';
 const connection = { url: config.redis.url };
 
 const openaiClient = new OpenAI({ apiKey: config.openai.apiKey });
+
+// ── Worker-local repo implementations ─────────────────────────────────────────
+
+/**
+ * Thin worker-local implementation of FilesRepo — inserts into `files` with
+ * status='processing'. The full repository lives in apps/api; workers use this
+ * injected implementation so they do not import across app boundaries.
+ */
+const filesRepo: FilesRepo = {
+  async createFile(params: CreateFileParams): Promise<string> {
+    await pool.execute(
+      `INSERT INTO files
+         (file_id, user_id, kind, storage_uri, mime_type, bytes, width, height, display_name, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing')`,
+      [
+        params.fileId,
+        params.userId,
+        params.kind,
+        params.storageUri,
+        params.mimeType,
+        params.bytes,
+        params.width,
+        params.height,
+        params.displayName,
+      ],
+    );
+    return params.fileId;
+  },
+};
+
+/**
+ * Thin worker-local implementation of AiGenerationJobRepo — mirrors the
+ * setOutputFile contract from apps/api/src/repositories/aiGenerationJob.repository.ts.
+ * Marks the job completed, sets output_file_id, and INSERT IGNOREs into
+ * draft_files when the job has a draft_id set.
+ */
+const aiGenerationJobRepo: AiGenerationJobRepo = {
+  async setOutputFile(jobId: string, fileId: string): Promise<void> {
+    const [rows] = await pool.execute<Array<{ draft_id: string | null } & import('mysql2/promise').RowDataPacket>>(
+      'SELECT draft_id FROM ai_generation_jobs WHERE job_id = ?',
+      [jobId],
+    );
+    const draftId = rows.length ? rows[0]!.draft_id : null;
+
+    await pool.execute(
+      `UPDATE ai_generation_jobs
+       SET status = 'completed', progress = 100, output_file_id = ?
+       WHERE job_id = ?`,
+      [fileId, jobId],
+    );
+
+    if (draftId) {
+      // INSERT IGNORE: if the draft was deleted between job submit and completion
+      // the FK will reject the insert and the link is silently skipped.
+      await pool.execute(
+        'INSERT IGNORE INTO draft_files (draft_id, file_id) VALUES (?, ?)',
+        [draftId, fileId],
+      );
+    }
+  },
+};
 
 // Worker-side producer for media-ingest — used by the ai-generate handler to
 // hand off newly written assets to FFprobe so they get duration/fps/thumbnail.
@@ -90,6 +151,8 @@ const aiGenerateWorker = new Worker<AiGenerateJobPayload>(
     elevenlabsKey: config.elevenlabs.apiKey,
     elevenlabs: { textToSpeech, voiceClone, speechToSpeech, musicGeneration },
     ingestQueue: mediaIngestQueue,
+    filesRepo,
+    aiGenerationJobRepo,
   }),
   { connection, concurrency: 2 },
 );

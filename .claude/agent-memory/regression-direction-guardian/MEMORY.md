@@ -6,4 +6,7 @@
 - [Batch-2 cleanup verification anchors](project_batch2_cleanup_verification.md) — Post-batch invariants (migration runner, 8-value ENUM, zero assetId on wire) future reviews can grep-verify directly
 - [Stale test-debt hotspots after files-as-root rename](project_stale_test_debt_hotspots.md) — assets-patch and generation-drafts-cards still INSERT into dropped project_assets_current; Subtask 3 grep missed this class
 - [Batch-3 verification anchors](project_batch3_verification_anchors.md) — Repo-migration compat-adapter invariants, Class-A/C roster, intentional contract narrowings (fps/thumbnailUri always null), 335L asset.repository.ts ≥300-cap
+- [Batch-4 verification anchors](project_batch4_verification_anchors.md) — cors.test.ts Docker-mount gotcha, full project_assets_current caller roster incl. render-worker, test counts, uncommitted-tree flag
+- [Batch-5 verification anchors](project_batch5_verification_anchors.md) — render-worker+ai-generate CLEAN, cors.test.ts fix CLAIMED done but still FAILING (describe.skipIf callback body still executes), mimeToKind copies already drifted
+- [Batch-6 verification anchors](project_batch6_verification_anchors.md) — cors.test.ts Pattern B verified in container + full-repo; mimeToKind canonical in project-schema (grep=1); Class A/C unchanged
 - [Timeline-drop regression fix anchors](project_timeline_drop_fix_anchors.md) — clip.assetId=0 + useProjectInit must spread-override id on both branches + DEV_PROJECT seed still present

@@ -8,6 +8,7 @@ import type {
   AudioHandlerDeps,
   AudioJobData,
 } from './ai-generate-audio.handler.js';
+import type { CreateFileParams } from './ai-generate.job.js';
 
 export const BUCKET = 'test-bucket';
 export const JOB_ID = 'job-1';
@@ -36,6 +37,12 @@ export function makeMocks() {
     arrayBuffer: async () => AUDIO_BYTES.buffer,
   });
 
+  // filesRepo.createFile resolves with the fileId that was passed in
+  const filesRepoCreateFile = vi.fn().mockImplementation(
+    async (params: CreateFileParams) => params.fileId,
+  );
+  const aiGenerationJobRepoSetOutputFile = vi.fn().mockResolvedValue(undefined);
+
   return {
     pool,
     execute,
@@ -48,6 +55,8 @@ export function makeMocks() {
     speechToSpeech,
     musicGeneration,
     fetchMock,
+    filesRepoCreateFile,
+    aiGenerationJobRepoSetOutputFile,
   };
 }
 
@@ -64,6 +73,12 @@ export function makeDeps(m: ReturnType<typeof makeMocks>): AudioHandlerDeps {
       musicGeneration: m.musicGeneration as unknown as AudioHandlerDeps['elevenlabs']['musicGeneration'],
     },
     ingestQueue: m.ingestQueue,
+    filesRepo: {
+      createFile: m.filesRepoCreateFile as unknown as AudioHandlerDeps['filesRepo']['createFile'],
+    },
+    aiGenerationJobRepo: {
+      setOutputFile: m.aiGenerationJobRepoSetOutputFile as unknown as AudioHandlerDeps['aiGenerationJobRepo']['setOutputFile'],
+    },
   };
 }
 

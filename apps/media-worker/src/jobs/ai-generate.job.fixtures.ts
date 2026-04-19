@@ -14,6 +14,7 @@ import type { MediaIngestJobPayload } from '@ai-video-editor/project-schema';
 import type {
   AiGenerateJobDeps,
   AiGenerateJobPayload,
+  CreateFileParams,
 } from './ai-generate.job.js';
 
 export const BUCKET = 'test-bucket';
@@ -61,6 +62,8 @@ export type Mocks = {
   elevenLabsMusicGeneration: ReturnType<typeof vi.fn>;
   ingestQueue: Queue<MediaIngestJobPayload>;
   ingestAdd: ReturnType<typeof vi.fn>;
+  filesRepoCreateFile: ReturnType<typeof vi.fn>;
+  aiGenerationJobRepoSetOutputFile: ReturnType<typeof vi.fn>;
 };
 
 /** Constructs a fresh set of mocks wired to resolve with the given fal output. */
@@ -94,6 +97,12 @@ export function makeMocks(output: unknown): Mocks {
   const elevenLabsSpeechToSpeech = vi.fn().mockResolvedValue(Buffer.from([0x49, 0x44, 0x33]));
   const elevenLabsMusicGeneration = vi.fn().mockResolvedValue(Buffer.from([0x49, 0x44, 0x33]));
 
+  // filesRepo.createFile resolves with the fileId that was passed in
+  const filesRepoCreateFile = vi.fn().mockImplementation(
+    async (params: CreateFileParams) => params.fileId,
+  );
+  const aiGenerationJobRepoSetOutputFile = vi.fn().mockResolvedValue(undefined);
+
   return {
     pool,
     s3,
@@ -108,6 +117,8 @@ export function makeMocks(output: unknown): Mocks {
     elevenLabsMusicGeneration,
     ingestQueue,
     ingestAdd,
+    filesRepoCreateFile,
+    aiGenerationJobRepoSetOutputFile,
   };
 }
 
@@ -130,6 +141,12 @@ export function makeDeps(m: Mocks): AiGenerateJobDeps {
       musicGeneration: m.elevenLabsMusicGeneration as unknown as AiGenerateJobDeps['elevenlabs']['musicGeneration'],
     },
     ingestQueue: m.ingestQueue,
+    filesRepo: {
+      createFile: m.filesRepoCreateFile as unknown as AiGenerateJobDeps['filesRepo']['createFile'],
+    },
+    aiGenerationJobRepo: {
+      setOutputFile: m.aiGenerationJobRepoSetOutputFile as unknown as AiGenerateJobDeps['aiGenerationJobRepo']['setOutputFile'],
+    },
   };
 }
 
@@ -138,12 +155,11 @@ export function installFetch(m: Mocks): void {
   globalThis.fetch = m.fetchMock as unknown as typeof globalThis.fetch;
 }
 
-/** Locates the `INSERT INTO project_assets_current` call and returns its parameter array. */
-export function findInsertParams(execute: Mocks['execute']): unknown[] {
-  const call = execute.mock.calls.find(
-    (c) =>
-      typeof c[0] === 'string' && c[0].includes('INSERT INTO project_assets_current'),
-  );
-  expect(call).toBeTruthy();
-  return call![1] as unknown[];
+/**
+ * Finds the `filesRepo.createFile` call and returns the params object.
+ * Used in tests to assert the correct kind/mime/storageUri are passed.
+ */
+export function findCreateFileParams(m: Mocks): CreateFileParams {
+  expect(m.filesRepoCreateFile).toHaveBeenCalledOnce();
+  return m.filesRepoCreateFile.mock.calls[0]![0] as CreateFileParams;
 }

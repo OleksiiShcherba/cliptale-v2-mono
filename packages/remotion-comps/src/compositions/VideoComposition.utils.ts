@@ -1,4 +1,4 @@
-import type { ProjectDoc } from '@ai-video-editor/project-schema';
+import type { ProjectDoc, Track } from '@ai-video-editor/project-schema';
 
 type AnyClip = ProjectDoc['clips'][number];
 
@@ -20,10 +20,10 @@ export type PreparedClips = AnyClip[];
  */
 export function prepareClipsForComposition(projectDoc: ProjectDoc): PreparedClips {
   const trackIndexMap = new Map<string, number>(
-    projectDoc.tracks.map((track, index) => [track.id, index])
+    projectDoc.tracks.map((track: Track, index: number) => [track.id, index])
   );
   const mutedTrackIds = new Set<string>(
-    projectDoc.tracks.filter((track) => track.muted).map((track) => track.id)
+    projectDoc.tracks.filter((track: Track) => track.muted).map((track: Track) => track.id)
   );
 
   return [...projectDoc.clips]

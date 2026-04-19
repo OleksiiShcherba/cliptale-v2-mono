@@ -1,6 +1,11 @@
 import type { RowDataPacket } from 'mysql2/promise';
 
+import type { FileKind } from '@ai-video-editor/project-schema';
+
 import { pool } from '@/db/connection.js';
+
+// Re-export so existing imports of FileKind from this module continue to work.
+export type { FileKind };
 
 /**
  * Lifecycle status for a file row.
@@ -10,9 +15,6 @@ import { pool } from '@/db/connection.js';
  * `error`     → ingest failed.
  */
 export type FileStatus = 'pending' | 'processing' | 'ready' | 'error';
-
-/** Broad media kind stored in the `kind` column. */
-export type FileKind = 'video' | 'audio' | 'image' | 'document' | 'other';
 
 /** Full `files` row as returned by the repository. */
 export type FileRow = {
