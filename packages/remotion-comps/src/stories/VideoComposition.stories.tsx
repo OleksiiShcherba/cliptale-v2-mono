@@ -100,7 +100,7 @@ export const SingleVideoClip: Story = {
         {
           id: 'clip-1',
           type: 'video',
-          assetId: 'asset-video',
+          fileId: 'asset-video',
           trackId: 'track-1',
           startFrame: 0,
           durationFrames: 150,
@@ -130,7 +130,7 @@ export const AudioAndVideo: Story = {
         {
           id: 'clip-video',
           type: 'video',
-          assetId: 'asset-video',
+          fileId: 'asset-video',
           trackId: 'track-video',
           startFrame: 0,
           durationFrames: 150,
@@ -142,7 +142,7 @@ export const AudioAndVideo: Story = {
         {
           id: 'clip-audio',
           type: 'audio',
-          assetId: 'asset-audio',
+          fileId: 'asset-audio',
           trackId: 'track-audio',
           startFrame: 0,
           durationFrames: 90,
@@ -174,7 +174,7 @@ export const OverlappingClips: Story = {
         {
           id: 'clip-a',
           type: 'video',
-          assetId: 'asset-video',
+          fileId: 'asset-video',
           trackId: 'track-a',
           startFrame: 0,
           durationFrames: 120,
@@ -186,7 +186,7 @@ export const OverlappingClips: Story = {
         {
           id: 'clip-b',
           type: 'video',
-          assetId: 'asset-video',
+          fileId: 'asset-video',
           trackId: 'track-b',
           startFrame: 30,
           durationFrames: 90,
@@ -216,7 +216,7 @@ export const TextOverlay: Story = {
         {
           id: 'clip-video',
           type: 'video',
-          assetId: 'asset-video',
+          fileId: 'asset-video',
           trackId: 'track-video',
           startFrame: 0,
           durationFrames: 150,

@@ -104,7 +104,7 @@ describe('VideoComposition', () => {
       expect(getAllByTestId('sequence')).toHaveLength(1);
     });
 
-    it('skips image clip rendering when assetId is not in assetUrls', () => {
+    it('skips image clip rendering when fileId is not in assetUrls', () => {
       const doc = makeProjectDoc({
         tracks: [TRACK_OVERLAY],
         clips: [CLIP_IMAGE],
@@ -138,7 +138,19 @@ describe('VideoComposition', () => {
       expect((imgEl as HTMLImageElement).style.opacity).toBe('0.9');
     });
 
-    it('omits a video clip when assetId is not in assetUrls (no broken playback)', () => {
+    it('renders VideoLayer when fileId is present in assetUrls', () => {
+      const doc = makeProjectDoc({
+        tracks: [TRACK_VIDEO],
+        clips: [CLIP_VIDEO],
+      });
+      const { getByTestId } = render(
+        <VideoComposition projectDoc={doc} assetUrls={{ 'asset-001': 'https://example.com/video.mp4' }} />
+      );
+      // fileId 'asset-001' maps to a URL → VideoLayer must be rendered.
+      expect(getByTestId('video-layer')).toBeTruthy();
+    });
+
+    it('omits a video clip when fileId is not in assetUrls (no broken playback)', () => {
       const doc = makeProjectDoc({
         tracks: [TRACK_VIDEO],
         clips: [CLIP_VIDEO],
