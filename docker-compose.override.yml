@@ -1,0 +1,18 @@
+services:
+  api:
+    environment:
+      APP_CORS_ORIGIN: https://15-236-162-140.nip.io
+      APP_FRONTEND_URL: https://15-236-162-140.nip.io
+      APP_OAUTH_REDIRECT_BASE: https://api.15-236-162-140.nip.io
+
+  web-editor:
+    environment:
+      VITE_PUBLIC_API_BASE_URL: https://api.15-236-162-140.nip.io
+    volumes:
+      - ./apps/web-editor/vite.config.ts:/app/apps/web-editor/vite.config.ts
+
+  db:
+    ports: !reset []
+
+  redis:
+    ports: !reset []
