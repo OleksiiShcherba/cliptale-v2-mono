@@ -276,6 +276,50 @@ Closes guardian feedback items 5–11 on 2026-04-19 review — migration-runner 
 - AI-generate completion hook at repository layer (INSERT IGNORE into `draft_files` pivot when `draft_id` set on job row) — avoids worker-side callback plumbing
 - Production migration safety: runner refuses to run if `NODE_ENV === 'production' && !APP_MIGRATE_ON_BOOT` (temporary guard; multi-replica race risk)
 
+---
+
+## [2026-04-19]
+
+### Task: Backend Repository Migration to Files-as-Root (asset.repository + generationDraft.repository + blocked test seeds)
+**Subtask:** Subtask 1 — Migrate `asset.repository.ts` to read/write `files` + `project_files`
+
+**What was done:**
+- Rewrote all 8 SQL statements in `apps/api/src/repositories/asset.repository.ts` to target `files` + `project_files` (no more `project_assets_current` references in SQL)
+- Preserved the public `Asset` type (same keys and types) and all exported function signatures — zero changes required in any service consumer
+- `insertPendingAsset` now INSERTs into `files` (with `kind` derived from the MIME type prefix) then `INSERT IGNORE INTO project_files` for the pivot
+- `getAssetById` and `getAssetsByProjectId` LEFT/INNER JOIN `project_files` to derive `projectId`; a file with no pivot row returns `projectId: ''`
+- `isAssetReferencedByClip` now queries `project_clips_current.file_id` (not the dropped `asset_id` column)
+- `deleteAssetById` removes the `project_files` pivot before deleting the `files` row (FK-safe order)
+- `updateAssetStatus` and `updateAssetDisplayName` target `files` via `file_id`
+- `findReadyForUser` reads `files` directly (user-scoped, no project join) with `mime_type LIKE ?` replacing the old `content_type LIKE ?`
+- `getReadyTotalsForUser` reads `files` directly with `SUM(bytes)` replacing `SUM(file_size_bytes)`
+- Documented inline: `thumbnailUri → null`, `waveformJson → null`, `fps → null`, `filename → display_name ?? file_id`, `fileSizeBytes → bytes coerced to 0 if null`, `durationFrames → duration_ms / 1000 * 30`
+- Updated `apps/api/src/repositories/asset.repository.test.ts`: new row shape (`file_id`, `project_id`, `mime_type`, `bytes`, `duration_ms`), 21 tests covering null/non-null display name, fallback filename, null project_id → empty string, null thumbnailUri/fps/waveformJson, bytes coercion
+- Updated `apps/api/src/repositories/asset.repository.list.test.ts`: new row shape, `mime_type LIKE` assertion replacing old `content_type LIKE`, `file_id` ordering replacing `asset_id`, `FROM files` assertion, `SUM(bytes)` assertion; 21 tests
+- Created `apps/api/src/__tests__/integration/asset-repository.integration.test.ts`: seeds `files + project_files`, calls each exported function, asserts DB side-effects; covers happy path, null-projectId (orphan file), deleteAssetById FK order, isAssetReferencedByClip with clip row, findReadyForUser MIME filter, getReadyTotalsForUser counts
+
+**Notes:**
+- `asset.repository.ts` is retained as a thin compatibility adapter — a follow-up task should collapse service-layer calls directly to `file.repository.ts` / `fileLinks.repository.ts` and delete this module
+- `durationFrames` is a lossy 30fps approximation from `duration_ms`; the old repo used exact fps from the schema column which no longer exists on `files`
+- The unit tests for `getReadyTotalsForUser` assert `SUM(bytes)` (renamed from `SUM(file_size_bytes)`) — the SQL query was updated accordingly
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: Subtask 1 — Migrate `asset.repository.ts` to read/write `files` + `project_files`</summary>
+
+- What: Rewrite every SQL statement in `asset.repository.ts` so it targets `files` (joined with `project_files` when `projectId` is required) and `project_clips_current.file_id` (for the reference check). Preserve the public `Asset` type and every exported function signature so callers (services) need zero changes.
+- Acceptance criteria: 0 `project_assets_current` matches; 0 `asset_id` DB column references; `Asset` type structurally identical; `isAssetReferencedByClip` uses `file_id`; `getAssetById`/`getAssetsByProjectId` LEFT JOIN `project_files`; `findReadyForUser`/`getReadyTotalsForUser` read from `files` with `mime_type LIKE ?`.
+
+</details>
+
+checked by code-reviewer - OK
+checked by qa-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-19. Subtask 1 is backend-only (repository SQL + unit/integration tests). No UI components, design tokens, or visual changes. Approved per APPROVED pattern for backend-only changes.
+checked by playwright-reviewer: APPROVED — Backend repository migration verified by integration tests (asset-repository.integration.test.ts + asset.repository.test.ts + asset.repository.list.test.ts), not E2E. No UI/routes changed.
+
+
+---
+
 ## Known Issues / TODOs
 - ACL middleware stub — real project ownership check deferred
 - `files` table lacks `thumbnail_uri`/`waveform_json`; `getProjectFilesResponse` returns null (FE handles); `projects-list-endpoint.test.ts` thumbnail assertion is `toBeNull()`
