@@ -18,7 +18,7 @@ vi.mock('@/db/connection.js', () => ({
   pool: { query: mockQuery },
 }));
 
-import { findDraftById } from './generationDraft.repository.js';
+import { findDraftById, findAssetPreviewsByIds } from './generationDraft.repository.js';
 import type { PromptDoc } from '@ai-video-editor/project-schema';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -105,5 +105,71 @@ describe('generationDraft.repository — mapRowToDraft JSON column handling', ()
       fileId: '00000000-0000-0000-0000-000000000001',
       label: 'Intro',
     });
+  });
+});
+
+// ── findAssetPreviewsByIds ────────────────────────────────────────────────────
+
+describe('generationDraft.repository — findAssetPreviewsByIds', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns [] immediately without querying the DB when given an empty array', async () => {
+    const result = await findAssetPreviewsByIds([]);
+
+    expect(result).toEqual([]);
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it('returns one row per fileId that exists in files', async () => {
+    const dbRows = [
+      { file_id: 'file-001', mime_type: 'video/mp4' },
+      { file_id: 'file-002', mime_type: 'image/jpeg' },
+    ];
+    mockQuery.mockResolvedValueOnce([dbRows]);
+
+    const result = await findAssetPreviewsByIds(['file-001', 'file-002', 'file-missing']);
+
+    // Only the two DB rows come back; missing file is silently absent.
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ fileId: 'file-001', contentType: 'video/mp4', thumbnailUri: null });
+    expect(result[1]).toEqual({ fileId: 'file-002', contentType: 'image/jpeg', thumbnailUri: null });
+  });
+
+  it('maps mime_type to contentType correctly', async () => {
+    mockQuery.mockResolvedValueOnce([[{ file_id: 'file-audio', mime_type: 'audio/mpeg' }]]);
+
+    const result = await findAssetPreviewsByIds(['file-audio']);
+
+    expect(result[0].contentType).toBe('audio/mpeg');
+  });
+
+  it('always returns thumbnailUri as null (files table has no thumbnail column)', async () => {
+    mockQuery.mockResolvedValueOnce([[{ file_id: 'file-vid', mime_type: 'video/mp4' }]]);
+
+    const result = await findAssetPreviewsByIds(['file-vid']);
+
+    expect(result[0].thumbnailUri).toBeNull();
+  });
+
+  it('returns an empty array when none of the provided fileIds exist in files', async () => {
+    mockQuery.mockResolvedValueOnce([[]]); // DB returns zero rows
+
+    const result = await findAssetPreviewsByIds(['nonexistent-1', 'nonexistent-2']);
+
+    expect(result).toEqual([]);
+  });
+
+  it('issues a single query with IN placeholders for the given fileIds', async () => {
+    mockQuery.mockResolvedValueOnce([[{ file_id: 'file-001', mime_type: 'video/mp4' }]]);
+
+    await findAssetPreviewsByIds(['file-001', 'file-002']);
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    const [sql, params] = mockQuery.mock.calls[0] as [string, string[]];
+    expect(sql).toContain('FROM files');
+    expect(sql).not.toContain('project_assets_current');
+    expect(params).toEqual(['file-001', 'file-002']);
   });
 });

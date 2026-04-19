@@ -77,29 +77,79 @@ beforeAll(async () => {
     password: process.env['APP_DB_PASSWORD'] ?? 'cliptale',
   });
 
-  // Seed asset owned by the dev bypass user.
+  // Seed a secondary test user for the ownership-guard test.
+  // dev-user-001 is already seeded by migration 011; only other-user-777 needs inserting.
   await conn.execute(
-    `INSERT INTO project_assets_current
-       (asset_id, project_id, user_id, filename, content_type, file_size_bytes, storage_uri)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE asset_id = asset_id`,
-    [OWNED_ASSET_ID, TEST_PROJECT_ID, DEV_USER_ID, 'original.mp4', 'video/mp4', 1000, 's3://test/original.mp4'],
+    `INSERT INTO users (user_id, email, display_name, email_verified)
+     VALUES (?, ?, ?, 1)
+     ON DUPLICATE KEY UPDATE user_id = user_id`,
+    ['other-user-777', 'other-user-777@test.com', 'Other User 777'],
   );
 
-  // Seed asset owned by a different user to test the ownership guard.
+  // Seed a project row so the project_files FK constraint is satisfied.
   await conn.execute(
-    `INSERT INTO project_assets_current
-       (asset_id, project_id, user_id, filename, content_type, file_size_bytes, storage_uri)
+    `INSERT INTO projects (project_id, owner_user_id, title)
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE project_id = project_id`,
+    [TEST_PROJECT_ID, DEV_USER_ID, 'Patch Test Project'],
+  );
+
+  // Seed file owned by the dev bypass user (Files-as-Root pattern).
+  // kind is derived from mime_type: 'video/mp4' → 'video'.
+  await conn.execute(
+    `INSERT INTO files
+       (file_id, user_id, kind, storage_uri, mime_type, bytes, display_name)
      VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE asset_id = asset_id`,
-    [OTHER_ASSET_ID, TEST_PROJECT_ID, 'other-user-777', 'other.mp4', 'video/mp4', 2000, 's3://test/other.mp4'],
+     ON DUPLICATE KEY UPDATE file_id = file_id`,
+    [OWNED_ASSET_ID, DEV_USER_ID, 'video', 's3://test/original.mp4', 'video/mp4', 1000, 'original.mp4'],
+  );
+
+  // Link the owned file to the test project via the project_files pivot.
+  await conn.execute(
+    `INSERT INTO project_files (project_id, file_id)
+     VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE project_id = project_id`,
+    [TEST_PROJECT_ID, OWNED_ASSET_ID],
+  );
+
+  // Seed file owned by the other user to test the ownership guard.
+  await conn.execute(
+    `INSERT INTO files
+       (file_id, user_id, kind, storage_uri, mime_type, bytes, display_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE file_id = file_id`,
+    [OTHER_ASSET_ID, 'other-user-777', 'video', 's3://test/other.mp4', 'video/mp4', 2000, 'other.mp4'],
+  );
+
+  // Link the other-user file to the same test project.
+  await conn.execute(
+    `INSERT INTO project_files (project_id, file_id)
+     VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE project_id = project_id`,
+    [TEST_PROJECT_ID, OTHER_ASSET_ID],
   );
 });
 
 afterAll(async () => {
+  // Unlink files from the project first (FK ON DELETE RESTRICT on the files side).
   await conn.execute(
-    'DELETE FROM project_assets_current WHERE asset_id IN (?, ?)',
+    'DELETE FROM project_files WHERE file_id IN (?, ?)',
     [OWNED_ASSET_ID, OTHER_ASSET_ID],
+  );
+  // Delete the file rows after the pivot rows are gone.
+  await conn.execute(
+    'DELETE FROM files WHERE file_id IN (?, ?)',
+    [OWNED_ASSET_ID, OTHER_ASSET_ID],
+  );
+  // Remove the test project (cascades any remaining project_files rows, but they are gone already).
+  await conn.execute(
+    'DELETE FROM projects WHERE project_id = ?',
+    [TEST_PROJECT_ID],
+  );
+  // Remove the secondary test user seeded above (dev-user-001 is kept — it is a migration seed).
+  await conn.execute(
+    'DELETE FROM users WHERE user_id = ?',
+    ['other-user-777'],
   );
   await conn.end();
 });
@@ -154,10 +204,12 @@ describe('PATCH /assets/:id', () => {
       .send({ name: 'My Awesome Clip' });
 
     expect(res.status).toBe(200);
+    // `filename` in the response maps to `display_name ?? file_id` (files table has no
+    // separate filename column). After the rename both displayName and filename reflect
+    // the new value — this is correct Files-as-Root behaviour.
     expect(res.body).toMatchObject({
       id: OWNED_ASSET_ID,
       displayName: 'My Awesome Clip',
-      filename: 'original.mp4',
     });
   });
 
@@ -166,8 +218,9 @@ describe('PATCH /assets/:id', () => {
       .patch(`/assets/${OWNED_ASSET_ID}`)
       .send({ name: 'Persisted Name' });
 
+    // Read from `files.display_name` — the Files-as-Root table (migration 027).
     const [rows] = await conn.execute<mysql.RowDataPacket[]>(
-      'SELECT display_name FROM project_assets_current WHERE asset_id = ?',
+      'SELECT display_name FROM files WHERE file_id = ?',
       [OWNED_ASSET_ID],
     );
     expect(rows[0]?.display_name).toBe('Persisted Name');

@@ -18,7 +18,7 @@ export type GenerationDraft = {
 
 /**
  * A single media-preview entry for the storyboard card — resolved from
- * project_assets_current via the fileId in a MediaRefBlock.
+ * `files` via the fileId in a MediaRefBlock.
  */
 export type MediaPreview = {
   fileId: string;
@@ -71,9 +71,9 @@ type StoryboardCardRow = RowDataPacket & {
 };
 
 type AssetPreviewRow = RowDataPacket & {
-  asset_id: string;
-  content_type: string;
-  thumbnail_uri: string | null;
+  file_id: string;
+  mime_type: string;
+  // thumbnail_uri does not exist on the `files` table yet — backfill is a later milestone.
 };
 
 /** Insert a new generation draft row and return it. */
@@ -203,11 +203,14 @@ export async function findStoryboardDraftsForUser(userId: string): Promise<
 }
 
 /**
- * Batch-fetches asset preview data (fileId, content_type, thumbnail_uri) for
- * a set of asset IDs. Returns only rows that exist in project_assets_current —
- * missing IDs are silently absent from the result (caller handles the skip).
+ * Batch-fetches asset preview data (fileId, contentType, thumbnailUri) for a
+ * set of file IDs. Returns only rows that exist in `files` — missing IDs are
+ * silently absent from the result (caller handles the skip).
  *
  * Accepts an empty array gracefully by returning [] without issuing a query.
+ *
+ * thumbnailUri is always null: the `files` table has no thumbnail_uri column.
+ * Thumbnail backfill is a later milestone (Files-as-Root phase 2).
  */
 export async function findAssetPreviewsByIds(
   fileIds: string[],
@@ -216,15 +219,16 @@ export async function findAssetPreviewsByIds(
 
   const placeholders = fileIds.map(() => '?').join(', ');
   const [rows] = await pool.query<AssetPreviewRow[]>(
-    `SELECT asset_id, content_type, thumbnail_uri
-     FROM project_assets_current
-     WHERE asset_id IN (${placeholders})`,
+    `SELECT file_id, mime_type
+     FROM files
+     WHERE file_id IN (${placeholders})`,
     fileIds,
   );
 
   return rows.map((row) => ({
-    fileId: row.asset_id,
-    contentType: row.content_type,
-    thumbnailUri: row.thumbnail_uri,
+    fileId: row.file_id,
+    contentType: row.mime_type,
+    // thumbnailUri: null — `files` has no thumbnail_uri column yet (backfill pending).
+    thumbnailUri: null,
   }));
 }

@@ -2,6 +2,10 @@
  * Unit tests for `findReadyForUser` and `getReadyTotalsForUser` — the
  * repository layer behind the wizard gallery endpoint (`GET /assets`).
  *
+ * After the Files-as-Root migration (2026-04-19), both functions read from
+ * the `files` table (user-scoped). Row shapes use `mime_type` / `file_id`
+ * instead of the old `content_type` / `asset_id` columns.
+ *
  * Kept in a separate file from `asset.repository.test.ts` so each file
  * stays under the 300-line limit per architecture rules §9.
  */
@@ -18,24 +22,24 @@ import {
   getReadyTotalsForUser,
 } from './asset.repository.js';
 
+/**
+ * Builds a minimal `files` row with the post-migration schema.
+ * `project_id` is NULL because `findReadyForUser` does not join project_files.
+ */
 function makeRow(overrides: Partial<Record<string, unknown>> = {}) {
   return {
-    asset_id: 'asset-001',
-    project_id: 'proj-001',
+    file_id: 'file-001',
+    project_id: null, // findReadyForUser uses "SELECT *, NULL AS project_id FROM files"
     user_id: 'user-001',
-    filename: 'clip.mp4',
     display_name: null,
-    content_type: 'video/mp4',
-    file_size_bytes: 1_000_000,
+    mime_type: 'video/mp4',
+    bytes: 1_000_000,
     storage_uri: 's3://bucket/clip.mp4',
     status: 'ready',
     error_message: null,
-    duration_frames: 300,
+    duration_ms: 10_000,
     width: 1920,
     height: 1080,
-    fps: 30,
-    thumbnail_uri: 's3://bucket/thumb.jpg',
-    waveform_json: null,
     created_at: new Date('2026-01-01T00:00:00Z'),
     updated_at: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
@@ -53,16 +57,24 @@ describe('asset.repository / findReadyForUser', () => {
 
     const [sql, values] = mockQuery.mock.calls[0] as [string, unknown[]];
     expect(sql).toMatch(/WHERE\s+status\s*=\s*\?\s+AND\s+user_id\s*=\s*\?/i);
-    expect(sql).not.toMatch(/content_type\s+LIKE/i);
-    expect(sql).not.toMatch(/\(updated_at,\s*asset_id\)/i);
+    expect(sql).not.toMatch(/mime_type\s+LIKE.*AND.*mime_type\s+LIKE/i); // single filter only
+    expect(sql).not.toMatch(/\(updated_at,\s*file_id\)/i); // no cursor yet
     expect(values).toEqual(['ready', 'user-001']);
   });
 
-  it('adds the MIME prefix LIKE clause when mimePrefix is provided', async () => {
+  it('reads from the files table (not project_assets_current)', async () => {
+    await findReadyForUser({ userId: 'user-001', limit: 24 });
+
+    const [sql] = mockQuery.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/FROM\s+files/i);
+    expect(sql).not.toMatch(/project_assets_current/i);
+  });
+
+  it('adds the MIME prefix LIKE clause against mime_type when mimePrefix is provided', async () => {
     await findReadyForUser({ userId: 'user-001', mimePrefix: 'video/', limit: 24 });
 
     const [sql, values] = mockQuery.mock.calls[0] as [string, unknown[]];
-    expect(sql).toMatch(/content_type\s+LIKE\s+\?/i);
+    expect(sql).toMatch(/mime_type\s+LIKE\s+\?/i);
     expect(values).toEqual(['ready', 'user-001', 'video/%']);
   });
 
@@ -89,15 +101,15 @@ describe('asset.repository / findReadyForUser', () => {
     });
 
     const [sql, values] = mockQuery.mock.calls[0] as [string, unknown[]];
-    expect(sql).toMatch(/\(updated_at,\s*asset_id\)\s*<\s*\(\?,\s*\?\)/);
+    expect(sql).toMatch(/\(updated_at,\s*file_id\)\s*<\s*\(\?,\s*\?\)/);
     expect(values).toEqual(['ready', 'user-001', cursorUpdatedAt, 'cursor-id']);
   });
 
-  it('orders by updated_at DESC then asset_id DESC for stable pagination', async () => {
+  it('orders by updated_at DESC then file_id DESC for stable pagination', async () => {
     await findReadyForUser({ userId: 'user-001', limit: 24 });
 
     const [sql] = mockQuery.mock.calls[0] as [string, unknown[]];
-    expect(sql).toMatch(/ORDER\s+BY\s+updated_at\s+DESC,\s*asset_id\s+DESC/i);
+    expect(sql).toMatch(/ORDER\s+BY\s+updated_at\s+DESC,\s*file_id\s+DESC/i);
   });
 
   it('interpolates a clamped LIMIT into the SQL (not bound as a parameter)', async () => {
@@ -130,7 +142,7 @@ describe('asset.repository / findReadyForUser', () => {
   });
 
   it('maps the returned rows to the camelCase Asset shape', async () => {
-    mockQuery.mockResolvedValueOnce([[makeRow({ asset_id: 'a1', display_name: 'My Cut' })], []]);
+    mockQuery.mockResolvedValueOnce([[makeRow({ file_id: 'a1', display_name: 'My Cut' })], []]);
 
     const result = await findReadyForUser({ userId: 'user-001', limit: 24 });
 
@@ -138,6 +150,22 @@ describe('asset.repository / findReadyForUser', () => {
     expect(result[0]!.fileId).toBe('a1');
     expect(result[0]!.displayName).toBe('My Cut');
     expect(result[0]!.contentType).toBe('video/mp4');
+  });
+
+  it('maps thumbnailUri to null (no thumbnail_uri on files)', async () => {
+    mockQuery.mockResolvedValueOnce([[makeRow()], []]);
+
+    const result = await findReadyForUser({ userId: 'user-001', limit: 24 });
+
+    expect(result[0]!.thumbnailUri).toBeNull();
+  });
+
+  it('maps fps to null (no fps column on files)', async () => {
+    mockQuery.mockResolvedValueOnce([[makeRow()], []]);
+
+    const result = await findReadyForUser({ userId: 'user-001', limit: 24 });
+
+    expect(result[0]!.fps).toBeNull();
   });
 
   it('returns an empty array when no rows match', async () => {
@@ -154,16 +182,18 @@ describe('asset.repository / getReadyTotalsForUser', () => {
     vi.clearAllMocks();
   });
 
-  it('queries per-bucket counts and bytes scoped to the user and status=ready', async () => {
+  it('queries per-bucket counts and bytes scoped to the user and status=ready from files', async () => {
     mockQuery.mockResolvedValueOnce([[], []]);
 
     await getReadyTotalsForUser('user-001');
 
     const [sql, values] = mockQuery.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/FROM\s+files/i);
+    expect(sql).not.toMatch(/project_assets_current/i);
     expect(sql).toMatch(/WHERE\s+user_id\s*=\s*\?\s+AND\s+status\s*=\s*'ready'/i);
     expect(sql).toMatch(/GROUP\s+BY\s+mime_prefix/i);
     expect(sql).toMatch(/COUNT\(\*\)/i);
-    expect(sql).toMatch(/SUM\(file_size_bytes\)/i);
+    expect(sql).toMatch(/SUM\(bytes\)/i);
     expect(values).toEqual(['user-001']);
   });
 
@@ -222,7 +252,7 @@ describe('asset.repository / getReadyTotalsForUser', () => {
     expect(result[0]!.mimePrefix).toBe('video/');
   });
 
-  it('returns an empty array when the user has no ready assets', async () => {
+  it('returns an empty array when the user has no ready files', async () => {
     mockQuery.mockResolvedValueOnce([[], []]);
 
     const result = await getReadyTotalsForUser('user-001');

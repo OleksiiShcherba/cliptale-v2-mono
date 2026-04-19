@@ -1,29 +1,16 @@
 /**
- * Integration tests for GET /generation-drafts/cards.
+ * Integration tests for GET /generation-drafts/cards — auth, listing, ownership, routing.
+ * Shape/data-validation tests live in generation-drafts-cards.shape.test.ts
+ * (split for §9 300-line cap compliance). Seed pattern: Files-as-Root (migration 027+).
  *
- * Verifies the full Express → middleware → service → repository → DB chain
- * against a real MySQL instance.
- *
- * Tests cover:
- * - Auth: 401 when no bearer token
- * - 200 { items: [] } for a user with no drafts
- * - 200 with the correct card shape for a user with one draft
- * - textPreview truncated to 140 chars
- * - mediaPreviews capped at 3 (draft with 5 media refs returns only 3)
- * - Dangling asset ref silently skipped (not a 500)
- * - Ownership isolation: User B's drafts not returned to User A
- * - Route ordering: /cards is not swallowed by /:id
- *
- * Run:
- *   APP_DB_PASSWORD=cliptale vitest run \
- *     src/__tests__/integration/generation-drafts-cards-endpoint.test.ts
+ * Run: APP_DB_PASSWORD=cliptale vitest run src/__tests__/integration/generation-drafts-cards.endpoint.test.ts
  */
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
 import mysql, { type Connection } from 'mysql2/promise';
-import type { RowDataPacket } from 'mysql2/promise';
+import { sha256, makePromptDoc, mimeToKind } from './generation-drafts-cards.fixtures.js';
 
 // ── Mock S3 + presigner — not used by these endpoints but required to load app
 vi.mock('@aws-sdk/s3-request-presigner', () => ({
@@ -55,16 +42,6 @@ Object.assign(process.env, {
 let app: Express;
 let conn: Connection;
 
-/** Compute sha256(token) — mirrors auth.service.ts hashToken(). */
-function sha256(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
-}
-
-/** Build a minimal valid PromptDoc with the given blocks. */
-function makePromptDoc(blocks: unknown[]): string {
-  return JSON.stringify({ schemaVersion: 1, blocks });
-}
-
 // ── Test identifiers ──────────────────────────────────────────────────────────
 
 const TOKEN_A = `tok-cards-a-${randomUUID()}`;
@@ -79,9 +56,9 @@ const SESSION_B_ID = randomUUID();
 let DRAFT_A_MANY_REFS: string;
 /** Draft seeded for User B (must NOT appear in User A responses). */
 let DRAFT_B_ID: string;
-/** Asset IDs seeded in beforeAll — used for assertion + cleanup. */
-const seededAssetIds: string[] = [];
-/** Project ID used to satisfy FK on project_assets_current. */
+/** File IDs seeded in beforeAll — used for pivot + file cleanup. */
+const seededFileIds: string[] = [];
+/** Project ID used to satisfy FK on project_files. */
 let TEST_PROJECT_ID: string;
 
 beforeAll(async () => {
@@ -120,7 +97,7 @@ beforeAll(async () => {
     [SESSION_B_ID, USER_B_ID, sha256(TOKEN_B), expiresAt],
   );
 
-  // Seed a project for User A (assets require a project_id FK).
+  // Seed a project for User A (project_files requires a valid project_id FK).
   TEST_PROJECT_ID = `crd-proj-${randomUUID().slice(0, 8)}`;
   await conn.execute(
     `INSERT INTO projects (project_id, owner_user_id, title) VALUES (?, ?, ?)
@@ -128,48 +105,43 @@ beforeAll(async () => {
     [TEST_PROJECT_ID, USER_A_ID, 'Cards Test Project'],
   );
 
-  // Seed 5 real assets + 1 "deleted" (never inserted) asset id
-  const assetData: Array<[string, string]> = [
+  // Seed 5 real files into `files` (Files-as-Root) + link to project via project_files pivot.
+  const fileData: Array<[string, string]> = [
     [`crd-v-${randomUUID().slice(0, 8)}`, 'video/mp4'],
     [`crd-i1-${randomUUID().slice(0, 8)}`, 'image/jpeg'],
     [`crd-i2-${randomUUID().slice(0, 8)}`, 'image/png'],
     [`crd-i3-${randomUUID().slice(0, 8)}`, 'image/png'],
     [`crd-i4-${randomUUID().slice(0, 8)}`, 'image/gif'],
   ];
-  for (const [fileId, contentType] of assetData) {
+  for (const [fileId, mimeType] of fileData) {
     await conn.execute(
-      `INSERT INTO project_assets_current
-         (asset_id, project_id, user_id, filename, content_type, file_size_bytes, storage_uri, thumbnail_uri)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE asset_id = asset_id`,
-      [
-        fileId,
-        TEST_PROJECT_ID,
-        USER_A_ID,
-        `${fileId}.file`,
-        contentType,
-        1000,
-        `s3://bucket/${fileId}`,
-        `s3://bucket/${fileId}_thumb.jpg`,
-      ],
+      `INSERT INTO files (file_id, user_id, kind, storage_uri, mime_type, bytes)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE file_id = file_id`,
+      [fileId, USER_A_ID, mimeToKind(mimeType), `s3://bucket/${fileId}`, mimeType, 1000],
     );
-    seededAssetIds.push(fileId);
+    await conn.execute(
+      `INSERT INTO project_files (project_id, file_id)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE project_id = project_id`,
+      [TEST_PROJECT_ID, fileId],
+    );
+    seededFileIds.push(fileId);
   }
 
-  // The "deleted" asset id — never inserted into project_assets_current
-  const deletedAssetId = `crd-dead-${randomUUID().slice(0, 8)}`;
+  const deletedFileId = `crd-dead-${randomUUID().slice(0, 8)}`;
 
-  // Draft A: 5 real media refs + 1 deleted ref (6 total), plus a long text block
+  // Draft A: 5 real media refs + 1 deleted ref (6 total), plus a long text block.
   DRAFT_A_MANY_REFS = randomUUID();
-  const longText = 'X'.repeat(200); // will be truncated to 140 in the preview
+  const longText = 'X'.repeat(200);
   const blocksMany = [
     { type: 'text', value: longText },
-    { type: 'media-ref', mediaType: 'video', fileId: assetData[0]![0], label: 'V' },
-    { type: 'media-ref', mediaType: 'image', fileId: assetData[1]![0], label: 'I1' },
-    { type: 'media-ref', mediaType: 'image', fileId: assetData[2]![0], label: 'I2' },
-    { type: 'media-ref', mediaType: 'image', fileId: assetData[3]![0], label: 'I3' },
-    { type: 'media-ref', mediaType: 'image', fileId: assetData[4]![0], label: 'I4' },
-    { type: 'media-ref', mediaType: 'image', fileId: deletedAssetId, label: 'deleted' },
+    { type: 'media-ref', mediaType: 'video', fileId: fileData[0]![0], label: 'V' },
+    { type: 'media-ref', mediaType: 'image', fileId: fileData[1]![0], label: 'I1' },
+    { type: 'media-ref', mediaType: 'image', fileId: fileData[2]![0], label: 'I2' },
+    { type: 'media-ref', mediaType: 'image', fileId: fileData[3]![0], label: 'I3' },
+    { type: 'media-ref', mediaType: 'image', fileId: fileData[4]![0], label: 'I4' },
+    { type: 'media-ref', mediaType: 'image', fileId: deletedFileId, label: 'deleted' },
   ];
   await conn.execute(
     `INSERT INTO generation_drafts (id, user_id, prompt_doc, status) VALUES (?, ?, ?, ?)`,
@@ -180,37 +152,33 @@ beforeAll(async () => {
   DRAFT_B_ID = randomUUID();
   await conn.execute(
     `INSERT INTO generation_drafts (id, user_id, prompt_doc, status) VALUES (?, ?, ?, ?)`,
-    [
-      DRAFT_B_ID,
-      USER_B_ID,
-      makePromptDoc([{ type: 'text', value: 'User B only' }]),
-      'draft',
-    ],
+    [DRAFT_B_ID, USER_B_ID, makePromptDoc([{ type: 'text', value: 'User B only' }]), 'draft'],
   );
 });
 
 afterAll(async () => {
-  // Clean up drafts
-  await conn.execute(
-    `DELETE FROM generation_drafts WHERE id IN (?, ?)`,
-    [DRAFT_A_MANY_REFS, DRAFT_B_ID],
-  );
-
-  // Clean up assets
-  if (seededAssetIds.length) {
+  if (DRAFT_A_MANY_REFS || DRAFT_B_ID) {
+    const draftIds = [DRAFT_A_MANY_REFS, DRAFT_B_ID].filter(Boolean);
     await conn.query(
-      `DELETE FROM project_assets_current WHERE asset_id IN (${seededAssetIds.map(() => '?').join(',')})`,
-      seededAssetIds,
+      `DELETE FROM generation_drafts WHERE id IN (${draftIds.map(() => '?').join(',')})`,
+      draftIds,
     );
   }
-
-  // Clean up project
-  await conn.execute('DELETE FROM projects WHERE project_id = ?', [TEST_PROJECT_ID]);
-
-  // Clean up sessions and users
+  if (seededFileIds.length) {
+    await conn.query(
+      `DELETE FROM project_files WHERE file_id IN (${seededFileIds.map(() => '?').join(',')})`,
+      seededFileIds,
+    );
+    await conn.query(
+      `DELETE FROM files WHERE file_id IN (${seededFileIds.map(() => '?').join(',')})`,
+      seededFileIds,
+    );
+  }
+  if (TEST_PROJECT_ID) {
+    await conn.execute('DELETE FROM projects WHERE project_id = ?', [TEST_PROJECT_ID]);
+  }
   await conn.execute('DELETE FROM sessions WHERE session_id IN (?, ?)', [SESSION_A_ID, SESSION_B_ID]);
   await conn.execute('DELETE FROM users WHERE user_id IN (?, ?)', [USER_A_ID, USER_B_ID]);
-
   await conn.end();
 });
 
@@ -234,7 +202,6 @@ describe('GET /generation-drafts/cards — auth', () => {
 
 describe('GET /generation-drafts/cards — listing', () => {
   it('returns 200 { items: [] } for a user with no drafts', async () => {
-    // Create a fresh user with no drafts
     const emptyUserId = `crd-empty-${randomUUID().slice(0, 8)}`;
     const emptyToken = `tok-crd-empty-${randomUUID()}`;
     const emptySessionId = randomUUID();
@@ -253,7 +220,6 @@ describe('GET /generation-drafts/cards — listing', () => {
       .get('/generation-drafts/cards')
       .set('Authorization', `Bearer ${emptyToken}`);
 
-    // Cleanup
     await conn.execute('DELETE FROM sessions WHERE session_id = ?', [emptySessionId]);
     await conn.execute('DELETE FROM users WHERE user_id = ?', [emptyUserId]);
 
@@ -272,36 +238,6 @@ describe('GET /generation-drafts/cards — listing', () => {
     expect(items.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('truncates textPreview to 140 characters', async () => {
-    const res = await request(app)
-      .get('/generation-drafts/cards')
-      .set('Authorization', `Bearer ${TOKEN_A}`);
-
-    expect(res.status).toBe(200);
-    const { items } = res.body as {
-      items: Array<{ draftId: string; textPreview: string }>;
-    };
-    const card = items.find((c) => c.draftId === DRAFT_A_MANY_REFS);
-    expect(card).toBeDefined();
-    expect(card!.textPreview).toHaveLength(140);
-    expect(card!.textPreview).toBe('X'.repeat(140));
-  });
-
-  it('returns at most 3 mediaPreviews even when 5 real refs + 1 deleted ref exist', async () => {
-    const res = await request(app)
-      .get('/generation-drafts/cards')
-      .set('Authorization', `Bearer ${TOKEN_A}`);
-
-    expect(res.status).toBe(200);
-    const { items } = res.body as {
-      items: Array<{ draftId: string; mediaPreviews: unknown[] }>;
-    };
-    const card = items.find((c) => c.draftId === DRAFT_A_MANY_REFS);
-    expect(card).toBeDefined();
-    expect(card!.mediaPreviews.length).toBeLessThanOrEqual(3);
-    expect(card!.mediaPreviews.length).toBe(3);
-  });
-
   it('does not return User B draft when authenticated as User A', async () => {
     const res = await request(app)
       .get('/generation-drafts/cards')
@@ -309,60 +245,14 @@ describe('GET /generation-drafts/cards — listing', () => {
 
     expect(res.status).toBe(200);
     const { items } = res.body as { items: Array<{ draftId: string }> };
-    const ids = items.map((c) => c.draftId);
-    expect(ids).not.toContain(DRAFT_B_ID);
-  });
-
-  it('returns a card with the correct shape', async () => {
-    const res = await request(app)
-      .get('/generation-drafts/cards')
-      .set('Authorization', `Bearer ${TOKEN_A}`);
-
-    expect(res.status).toBe(200);
-    const { items } = res.body as {
-      items: Array<{
-        draftId: string;
-        status: string;
-        textPreview: string;
-        mediaPreviews: Array<{ fileId: string; type: string; thumbnailUrl: string | null }>;
-        updatedAt: string;
-      }>;
-    };
-    const card = items.find((c) => c.draftId === DRAFT_A_MANY_REFS);
-    expect(card).toBeDefined();
-    expect(card!.status).toBe('step2');
-    expect(typeof card!.textPreview).toBe('string');
-    expect(Array.isArray(card!.mediaPreviews)).toBe(true);
-    expect(typeof card!.updatedAt).toBe('string');
-
-    // Each mediaPreview must have fileId, type, thumbnailUrl
-    for (const preview of card!.mediaPreviews) {
-      expect(preview).toHaveProperty('fileId');
-      expect(preview).toHaveProperty('type');
-      expect(preview).toHaveProperty('thumbnailUrl');
-    }
-  });
-
-  it('does not 500 when a referenced asset is deleted (dangling ref silently skipped)', async () => {
-    // DRAFT_A_MANY_REFS includes a reference to a non-existent deletedAssetId
-    // The endpoint must still return 200 — not 500.
-    const res = await request(app)
-      .get('/generation-drafts/cards')
-      .set('Authorization', `Bearer ${TOKEN_A}`);
-
-    expect(res.status).toBe(200);
-    // The card should still appear; just with fewer mediaPreviews than total refs
-    const { items } = res.body as { items: Array<{ draftId: string }> };
-    expect(items.some((c) => c.draftId === DRAFT_A_MANY_REFS)).toBe(true);
+    expect(items.map((c) => c.draftId)).not.toContain(DRAFT_B_ID);
   });
 
   it('verifies that /generation-drafts/cards route is not swallowed by /:id param route', async () => {
-    // This would return 404 or parse 'cards' as an id if route order were wrong.
     const res = await request(app)
       .get('/generation-drafts/cards')
       .set('Authorization', `Bearer ${TOKEN_A}`);
 
-    // Must be 200 { items: [...] } — not 404 "cards not found" from the /:id handler
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('items');
     expect(Array.isArray(res.body.items)).toBe(true);
@@ -379,17 +269,5 @@ describe('GET /generation-drafts/cards — listing', () => {
     };
     const card = items.find((c) => c.draftId === DRAFT_A_MANY_REFS);
     expect(card!.status).toMatch(/^(draft|step2|step3|completed)$/);
-  });
-});
-
-// ── DB row check: verify status column is read correctly ──────────────────────
-
-describe('GET /generation-drafts/cards — DB state', () => {
-  it('the seeded draft has status step2 in the DB', async () => {
-    const [rows] = await conn.query<RowDataPacket[]>(
-      'SELECT status FROM generation_drafts WHERE id = ?',
-      [DRAFT_A_MANY_REFS],
-    );
-    expect(rows[0]!['status']).toBe('step2');
   });
 });

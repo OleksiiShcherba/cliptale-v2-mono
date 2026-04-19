@@ -5,3 +5,4 @@
 - [Reliable test commands](reference_test_commands.md) — Exact Vitest invocations for apps/api, apps/web-editor, apps/media-worker and DB schema inspection
 - [Batch-2 cleanup verification anchors](project_batch2_cleanup_verification.md) — Post-batch invariants (migration runner, 8-value ENUM, zero assetId on wire) future reviews can grep-verify directly
 - [Stale test-debt hotspots after files-as-root rename](project_stale_test_debt_hotspots.md) — assets-patch and generation-drafts-cards still INSERT into dropped project_assets_current; Subtask 3 grep missed this class
+- [Batch-3 verification anchors](project_batch3_verification_anchors.md) — Repo-migration compat-adapter invariants, Class-A/C roster, intentional contract narrowings (fps/thumbnailUri always null), 335L asset.repository.ts ≥300-cap

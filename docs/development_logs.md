@@ -201,136 +201,123 @@
 - E2E regression (Playwright): 5/5 core workflows PASS (Home Hub, Editor upload, Wizard upload, Editor AI, Wizard AI)
 
 ## EPIC — Guardian Batch-2 Feedback Cleanup (Files-as-Root, 2026-04-19)
-Closes guardian feedback items 5–11 on 2026-04-19 review — migration-runner trust, schema recovery, test-debt cleanup, wire rename.
-
 ### Subtask 1 — In-process migration runner
-- added: `apps/api/src/db/migrations/000_schema_migrations.sql` — bookkeeping table (filename PK, sha256 checksum, applied_at)
-- added: `apps/api/src/db/migrate.ts` — `runPendingMigrations()`, `computeChecksum()`, `sortedMigrationFiles()`, `MigrationChecksumMismatchError`, `MIGRATIONS_DIR`; numeric-prefix order; checksum drift detection; per-migration dedicated mysql2 connection with `multipleStatements: true`; production gate (`NODE_ENV=production && !APP_MIGRATE_ON_BOOT`)
-- updated: `apps/api/src/index.ts` — awaits `runPendingMigrations()` before `app.listen()`; `process.exit(1)` on fatal error
-- updated: `docker-compose.yml` — removed `/docker-entrypoint-initdb.d:ro` mount (runner replaces it)
-- added: `migrate.unit.test.ts` (260 lines, 14 tests) + `migrate.production.test.ts` (111 lines, 2 tests) — each declares its own `vi.hoisted()` block
-- added: `migrate.integration.test.ts` (3 tests against live Docker DB)
-- invariant: MySQL 8.0 DDL non-transactional → INSERT into `schema_migrations` AFTER DDL succeeds; migration files must be idempotent
+- added: `apps/api/src/db/migrations/000_schema_migrations.sql`; `apps/api/src/db/migrate.ts` (`runPendingMigrations`, checksum, numeric-prefix order, per-migration mysql2 conn w/ multipleStatements, production gate `NODE_ENV=production && !APP_MIGRATE_ON_BOOT`)
+- updated: `apps/api/src/index.ts` — awaits runPendingMigrations before listen
+- updated: `docker-compose.yml` — removed `/docker-entrypoint-initdb.d:ro` mount
+- added: `migrate.unit.test.ts` (14), `migrate.production.test.ts` (2), `migrate.integration.test.ts` (3)
+- invariant: MySQL 8.0 DDL non-transactional → INSERT schema_migrations AFTER DDL; migrations must be idempotent
 
 ### Subtask 2 — Live DB recovery + schema final-state guard
-- added: migration `027_drop_project_assets_current.sql` (idempotent)
-- added: `schema-final-state.integration.test.ts` (161 lines, 7 tests) — asserts 8-value `capability` ENUM, `draft_id`+`output_file_id` nullable, `project_id`/`result_asset_id` absent, `project_assets_current` absent
-- recovery: diagnosed live DB in pre-migration state despite `schema_migrations` seeded (test beforeAll had DELETE+re-seed poisoning); chose Path B — `docker volume rm cliptalecom-v2_db_data` + compose up → clean boot via initdb + runner → verified correct target schema
-- hardened test isolation:
-  - `vitest.config.ts` — added `pool: 'forks'` + `poolOptions.forks.singleFork: true` (serialize integration files)
-  - `migrate.integration.test.ts` — schema-broken detection guard in beforeAll: if ENUM missing `text_to_speech`, apply repair SQL (015/023/024/025/026/027) + UPSERT checksums
-  - `migration-014.test.ts` — stub `project_assets_current` in beforeAll (for migration 010 FK); afterAll applies repair SQL + UPSERTs schema_migrations rather than calling runPendingMigrations (avoids non-idempotent 017 re-run)
-  - `migration-001.test.ts` — outer afterAll `DROP TABLE IF EXISTS project_assets_current` (clean up stub)
-  - `schema-final-state.integration.test.ts` — self-healing beforeAll (INFORMATION_SCHEMA-guarded DDL)
-- updated: `.claude/agent-memory/regression-direction-guardian/project_migration_reliability.md` — removed `docker volume rm` workaround; points at `apps/api/src/db/migrate.ts`
-- suite: 828 pass / 27 fail (all pre-existing Class-A DEV_AUTH_BYPASS); schema-final-state 7/7; Class-B AI-generate all pass
+- added: migration 027_drop_project_assets_current; `schema-final-state.integration.test.ts` (7)
+- recovery: diagnosed pre-migration state despite seeded schema_migrations (beforeAll DELETE+re-seed poison); Path B — `docker volume rm cliptalecom-v2_db_data` → clean boot
+- hardened: `vitest.config.ts` `pool: 'forks'` + `singleFork: true`; `migrate.integration.test.ts` schema-broken guard; `migration-014.test.ts` beforeAll stub + UPSERT repair; `migration-001.test.ts` outer DROP cleanup
+- updated: `.claude/agent-memory/regression-direction-guardian/project_migration_reliability.md`
 
 ### Subtask 3 — Stale `asset_id` test debt
-- updated: `migration-002.test.ts` — columns/INSERTs `asset_id` → `file_id`; composite-index test asserts legacy index absent (dropped by 024 step 8); 8/8 pass
-- updated: `projects-list-endpoint.test.ts` — beforeAll seed refactored to `files` + `project_files` pivot; clip INSERT uses `file_id`; FK-aware cleanup; thumbnail assertion → `toBeNull()` (files table has no `thumbnail_uri` yet); 13/13 pass
-- updated: `assets-delete-endpoint.test.ts` — clip INSERT → `file_id`; beforeAll completes
-- acceptance: `grep "Unknown column 'asset_id'"` full suite = 0
+- updated: `migration-002.test.ts` columns/INSERTs asset_id → file_id; composite-index absence assertion
+- updated: `projects-list-endpoint.test.ts` → `files` + `project_files` seed; FK-aware cleanup; thumbnail → `toBeNull()`
+- updated: `assets-delete-endpoint.test.ts` clip INSERT → file_id
+- acceptance: `Unknown column 'asset_id'` full suite = 0
 
 ### Subtask 4 — Delete DEV_AUTH_BYPASS-incompatible auth-contract tests
-- removed: 25 `.toBe(401)` tests across 10 integration files — versions-list-restore (4), versions-persist (2), versions-latest (2), assets-endpoints (4), assets-finalize (2), assets-list (2), assets-stream (2), renders (3), clip-patch (2), assets-delete (2)
-- rationale: `APP_DEV_AUTH_BYPASS=true` is dev/CI default → 401 assertions unreachable; user decision option (a) delete
-- acceptance: 0 Class-A failures remaining; suite 822 pass / 6 pre-existing non-Class-A
+- removed: 25 `.toBe(401)` tests across 10 integration files — versions-list-restore, versions-persist, versions-latest, assets-endpoints, assets-finalize, assets-list, assets-stream, renders, clip-patch, assets-delete
+- rationale: `APP_DEV_AUTH_BYPASS=true` dev/CI default → 401 unreachable
 
-### Subtask 5 — Working-tree hygiene + `.gitignore`
-- deleted: 17 `docs/test_screenshots/wizard-ai-*.png` files; `git rm` for 2 `playwright-screenshots/*.png` + `playwright-review-temp.js`
-- extended: `.gitignore` — appended `# Transient QA artefacts` block covering `docs/test_screenshots/`, `playwright-screenshots/`, `playwright-review-temp.js`
-- verified: `git check-ignore docs/test_screenshots/foo.png` matches; smoke test of new file under ignored dir confirmed excluded
+### Subtask 5 — Working-tree hygiene
+- deleted: 17 `docs/test_screenshots/wizard-ai-*.png`; `git rm` 2 `playwright-screenshots/*.png` + `playwright-review-temp.js`
+- extended: `.gitignore` — transient QA artefact block
 
-### Subtask 6 — Wire rename `assetId` → `fileId` (remove compat shim)
-- renamed: `packages/api-contracts/src/openapi.ts` `MediaPreview.assetId` → `fileId` (rebuilt dist)
-- renamed: `packages/project-schema/src/schemas/clip.schema.ts` (video/audio/image), `promptDoc.schema.ts` (`mediaRefBlockSchema`), `types/job-payloads.ts` (`TranscriptionJobPayload.assetId` → `fileId`; `MediaIngestJobPayload` dual-key: `fileId?` primary, `assetId?` legacy for AI worker); rebuilt dist
-- updated: `apps/api/src/controllers/clips.controller.ts` body field; `aiGeneration.controller.ts` — removed `projectId` compat shim, added `.strict()` to `submitGenerationSchema`
-- updated: ~70 FE files in `apps/web-editor/src` via targeted edits + bulk sed; fixed duplicate-key bug in `apps/api/src/services/file.service.ts` from bulk sed
-- updated: `apps/media-worker/src/jobs/transcribe.job.ts` reads `fileId` directly; `ai-generate.job.ts` + `ai-generate-audio.handler.ts` pass `{ fileId, assetId, ... }` to ingest queue (legacy write path preserved)
-- rewrote: `ai-generation-endpoints.test.ts` compat shim test → asserts 400 on unknown fields
+### Subtask 6 — Wire rename `assetId` → `fileId`
+- renamed: `packages/api-contracts/src/openapi.ts` MediaPreview.assetId → fileId; `packages/project-schema/src/schemas/clip.schema.ts` (video/audio/image) + `promptDoc.schema.ts` mediaRefBlockSchema + `types/job-payloads.ts` (TranscriptionJobPayload.fileId; MediaIngestJobPayload dual-key fileId?+assetId?)
+- updated: `apps/api/src/controllers/clips.controller.ts`, `aiGeneration.controller.ts` (removed projectId shim; `.strict()`)
+- updated: ~70 FE files in `apps/web-editor/src` via targeted + bulk sed; fixed duplicate-key in `file.service.ts`
+- updated: workers `transcribe.job.ts`, `ai-generate.job.ts`, `ai-generate-audio.handler.ts` pass `{ fileId, assetId }`
+- rewrote: `ai-generation-endpoints.test.ts` → asserts 400 on unknown fields
 - verified: `grep 'assetId' packages/api-contracts apps/api/src apps/web-editor/src` = 0
-- tests: project-schema 100/100, web-editor 2006/2006, media-worker 136/136, apps/api 834 pass / 6 pre-existing
-- note: `npm run build` required for both `project-schema` and `api-contracts` after schema source edits (workers import from dist)
+- note: `npm run build` required for project-schema + api-contracts (workers import from dist)
 
 ### Subtask 7 — `general_idea.md` evolution appendix
-- appended: `## Evolution since 2026-03-29` section with sub-sections: Storyboard drafts (migrations 019/022), Files-as-Root (021-026), features/ vs shared/ rule (consumed by ≥2 → shared), In-process migration runner (`apps/api/src/db/migrate.ts`)
-- invariant: no earlier sections edited — guardian uses them as historical anchor
+- appended: `## Evolution since 2026-03-29` — Storyboard drafts (019/022), Files-as-Root (021-026), features/ vs shared/ rule (≥2 consumers → shared), In-process migration runner
+- invariant: no earlier sections edited
+
+## EPIC — Backend Repository Migration to Files-as-Root (Batch 3, 2026-04-19)
+### Subtask 1 — Migrate `asset.repository.ts`
+- rewrote: all 8 SQL statements → `files` + `project_files` LEFT/INNER JOIN; preserved public `Asset` type + signatures (zero service changes)
+- `insertPendingAsset`: derives `kind` from MIME; INSERT files + INSERT IGNORE project_files
+- `getAssetById`/`getAssetsByProjectId`: LEFT/INNER JOIN project_files; projectId='' when no pivot
+- `isAssetReferencedByClip`: `project_clips_current.file_id` (not dropped asset_id)
+- `deleteAssetById`: DELETE project_files then files (FK-safe)
+- `updateAssetStatus`/`updateAssetDisplayName`: target files via file_id
+- `findReadyForUser`: files direct, user-scoped; `mime_type LIKE ?` replaces `content_type LIKE ?`
+- `getReadyTotalsForUser`: files direct; `SUM(bytes)` replaces `SUM(file_size_bytes)`
+- documented inline: thumbnailUri/waveformJson/fps → null; filename → display_name ?? file_id; durationFrames → duration_ms/1000*30 (lossy)
+- updated: `asset.repository.test.ts` (21 tests, new row shape), `asset.repository.list.test.ts` (21 tests, mime_type LIKE assertion)
+- added: `asset-repository.integration.test.ts` — real DB: happy path, null-projectId, deleteAssetById FK order, isAssetReferencedByClip, findReadyForUser MIME filter, totals
+
+### Subtask 2 — Migrate `generationDraft.repository.findAssetPreviewsByIds`
+- rewrote: SELECT `file_id, mime_type` FROM `files` (was asset_id, content_type, thumbnail_uri FROM project_assets_current)
+- updated: `AssetPreviewRow` (file_id, mime_type; removed thumbnail_uri); return shape unchanged — thumbnailUri always null with inline backfill-pending comment
+- added: 6 new unit tests (11 total): empty input no-DB-call, mixed-existing+missing, mime_type→contentType, thumbnailUri null, all-missing, SQL correctness
+- ownership-agnostic by design (upstream draft check)
+
+### Subtask 3 — Fix `assets-patch-endpoint.test.ts` seed
+- replaced: 2× `INSERT project_assets_current` → files + project_files pivot (OWNED_ASSET_ID dev-user-001, OTHER_ASSET_ID other-user-777)
+- added: INSERT users (other-user-777), INSERT projects (TEST_PROJECT_ID, ON DUPLICATE KEY UPDATE)
+- rewrote: afterAll — FK order project_files → files → projects → users
+- updated: "persists displayName" → `SELECT display_name FROM files WHERE file_id = ?`
+- updated: "returns 200" assertion narrowed to id + displayName (files has no separate filename; display_name ?? file_id after rename)
+- result: 9/9 pass
+
+### Subtask 4 — Fix `generation-drafts-cards` seed + undefined-bind + §9 split
+- replaced: 5-asset seed loop → files + project_files pivot; `mimeToKind()` helper mirrors ingest worker mapping
+- renamed: seededAssetIds → seededFileIds; afterAll FK order: generation_drafts → project_files → files → projects → sessions → users
+- fixed: undefined-bind-param — guarded array-dependent DELETEs (`if (seededFileIds.length)`, `if (DRAFT_A_MANY_REFS || DRAFT_B_ID)`); existence-guarded TEST_PROJECT_ID
+- relaxed: thumbnailUrl assertion → `toBeNull()` with "Files-as-Root backfill pending" comment
+- fix round 2: split 423-line file into endpoint (293L, 7 tests) + shape (268L, 5 tests) per §9 300-cap
+- fix round 3: renamed to dot-infix (`generation-drafts-cards.endpoint.test.ts`, `generation-drafts-cards.shape.test.ts`) per §9; extracted sha256/makePromptDoc/mimeToKind → `generation-drafts-cards.fixtures.ts` (26L)
+- `vi.mock()` + env-setup blocks duplicated per Vitest hoisting constraint (documented exception)
+- final: endpoint 273L, shape 248L, fixtures 26L; 12/12 pass
+
+### Subtask 5 — Full regression + dev log reconciliation
+- suite: **886 pass | 7 fail | 4 skip** (82 test files pass, 7 fail, 1 skipped); 3 Batch-3-patched suites 21/21
+- Class A (2, pre-existing DEV_AUTH_BYPASS user-mismatch): versions-list-restore, renders
+- Class B (schema drift): **0** — target achieved
+- Class C (5, pre-existing stale project_assets_current seed, out-of-Batch-3-scope): assets-finalize, assets-list, assets-stream, assets-delete, assets-endpoints
+- reconciled: Batch-2 Subtask 6 count discrepancy (claimed 834, actual 822 — 12-test delta = then-blocked generation-drafts-cards suite); current baseline 886
+- verified: `grep -r project_assets_current apps/api/src/` repositories = 0 live SQL (comment lines + migration-history tests + schema-final-state assertions only)
 
 ## Architectural Decisions / Notes
-- §9.7 300-line cap enforced via `*.fixtures.ts` + `.<topic>.test.ts` splits; approved exception: `fal-models.ts`
+- §9.7 300-line cap enforced via `*.fixtures.ts` + `.<topic>.test.ts` splits (dot-infix mandatory); approved exception: `fal-models.ts`
 - Worker env discipline: only `index.ts` reads `config.*.key`; handlers receive secrets via deps
-- Migration strategy: in-process runner (`apps/api/src/db/migrate.ts`) with `schema_migrations` (sha256 checksum) is the only sanctioned mutation path; `docker-entrypoint-initdb.d` deprecated
-- MySQL 8.0 DDL non-transactional; INSERT into `schema_migrations` AFTER DDL succeeds; migration files must be idempotent (`INFORMATION_SCHEMA` + `PREPARE/EXECUTE` guards; `COUNT(*) WHERE IS_NULLABLE='YES'` for NOT NULL idempotency)
-- Vitest integration suite: `pool: 'forks'` + `singleFork: true` to serialize across files; each split test file declares its own `vi.hoisted()` block (cannot be shared via fixtures)
-- Files-as-root pattern: `files` user-scoped root; `project_files`/`draft_files` pivots (CASCADE container, RESTRICT file) = app-layer GC before file delete
-- Wire DTO naming: `fileId` across the wire (contracts + BE + FE); `assetId` compat shim removed; `submitGenerationSchema` uses `.strict()`
-- `findByIdForUser` unifies existence + ownership in one query (cross-user → null → NotFoundError — avoids leaking existence)
-- Audio routes through ElevenLabs (not fal.ai)
-- Wizard MediaGalleryPanel separate from editor AssetBrowserPanel (no cross-feature imports §14)
+- Migration strategy: in-process runner (`apps/api/src/db/migrate.ts`) with `schema_migrations` (sha256 checksum) = only sanctioned mutation path; `docker-entrypoint-initdb.d` deprecated
+- MySQL 8.0 DDL non-transactional; INSERT into `schema_migrations` AFTER DDL succeeds; migration files must be idempotent (INFORMATION_SCHEMA + PREPARE/EXECUTE guards)
+- Vitest integration: `pool: 'forks'` + `singleFork: true` serialize across files; each split test file declares its own `vi.hoisted()` block (cannot be shared via fixtures — documented exception)
+- Files-as-root: `files` user-scoped root; `project_files`/`draft_files` pivots (CASCADE container, RESTRICT file) = app-layer GC before file delete
+- Wire DTO naming: `fileId` across wire (contracts + BE + FE); `assetId` compat shim removed; `submitGenerationSchema.strict()`
+- `findByIdForUser` unifies existence + ownership (cross-user → null → NotFoundError — avoids leaking existence)
+- Audio via ElevenLabs (not fal.ai)
+- Wizard MediaGalleryPanel separate from editor AssetBrowserPanel (§14 no cross-feature imports)
 - Stitch DS `spacing`/`typography` do NOT round-trip — design-guide.md §3 authoritative
 - Enhance state in BullMQ/Redis only; rate limit per-user; vanilla setInterval in FE hook
-- mysql2 JSON columns: repository mappers must guard `typeof === 'string'` before `JSON.parse`
-- Typography §3: body 14/400, label 12/500, heading-3 16/600; spacing multiples of 4px; radius-md 8px
+- mysql2 JSON columns: repository mappers guard `typeof === 'string'` before `JSON.parse`
+- Typography §3: body 14/400, label 12/500, heading-3 16/600; spacing 4px multiples; radius-md 8px
 - `/` HomePage is post-login + `*`-fallback; `/editor?projectId=<id>` is editor entry
 - Shared hooks keyed by `AiGenerationContext` discriminated union live in `shared/ai-generation/` + `shared/file-upload/`; `features/generate-wizard/` may import only from `shared/`
-- AI-generate completion hook at repository layer (INSERT IGNORE into `draft_files` pivot when `draft_id` set on job row) — avoids worker-side callback plumbing
-- Production migration safety: runner refuses to run if `NODE_ENV === 'production' && !APP_MIGRATE_ON_BOOT` (temporary guard; multi-replica race risk)
-
----
-
-## [2026-04-19]
-
-### Task: Backend Repository Migration to Files-as-Root (asset.repository + generationDraft.repository + blocked test seeds)
-**Subtask:** Subtask 1 — Migrate `asset.repository.ts` to read/write `files` + `project_files`
-
-**What was done:**
-- Rewrote all 8 SQL statements in `apps/api/src/repositories/asset.repository.ts` to target `files` + `project_files` (no more `project_assets_current` references in SQL)
-- Preserved the public `Asset` type (same keys and types) and all exported function signatures — zero changes required in any service consumer
-- `insertPendingAsset` now INSERTs into `files` (with `kind` derived from the MIME type prefix) then `INSERT IGNORE INTO project_files` for the pivot
-- `getAssetById` and `getAssetsByProjectId` LEFT/INNER JOIN `project_files` to derive `projectId`; a file with no pivot row returns `projectId: ''`
-- `isAssetReferencedByClip` now queries `project_clips_current.file_id` (not the dropped `asset_id` column)
-- `deleteAssetById` removes the `project_files` pivot before deleting the `files` row (FK-safe order)
-- `updateAssetStatus` and `updateAssetDisplayName` target `files` via `file_id`
-- `findReadyForUser` reads `files` directly (user-scoped, no project join) with `mime_type LIKE ?` replacing the old `content_type LIKE ?`
-- `getReadyTotalsForUser` reads `files` directly with `SUM(bytes)` replacing `SUM(file_size_bytes)`
-- Documented inline: `thumbnailUri → null`, `waveformJson → null`, `fps → null`, `filename → display_name ?? file_id`, `fileSizeBytes → bytes coerced to 0 if null`, `durationFrames → duration_ms / 1000 * 30`
-- Updated `apps/api/src/repositories/asset.repository.test.ts`: new row shape (`file_id`, `project_id`, `mime_type`, `bytes`, `duration_ms`), 21 tests covering null/non-null display name, fallback filename, null project_id → empty string, null thumbnailUri/fps/waveformJson, bytes coercion
-- Updated `apps/api/src/repositories/asset.repository.list.test.ts`: new row shape, `mime_type LIKE` assertion replacing old `content_type LIKE`, `file_id` ordering replacing `asset_id`, `FROM files` assertion, `SUM(bytes)` assertion; 21 tests
-- Created `apps/api/src/__tests__/integration/asset-repository.integration.test.ts`: seeds `files + project_files`, calls each exported function, asserts DB side-effects; covers happy path, null-projectId (orphan file), deleteAssetById FK order, isAssetReferencedByClip with clip row, findReadyForUser MIME filter, getReadyTotalsForUser counts
-
-**Notes:**
-- `asset.repository.ts` is retained as a thin compatibility adapter — a follow-up task should collapse service-layer calls directly to `file.repository.ts` / `fileLinks.repository.ts` and delete this module
-- `durationFrames` is a lossy 30fps approximation from `duration_ms`; the old repo used exact fps from the schema column which no longer exists on `files`
-- The unit tests for `getReadyTotalsForUser` assert `SUM(bytes)` (renamed from `SUM(file_size_bytes)`) — the SQL query was updated accordingly
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: Subtask 1 — Migrate `asset.repository.ts` to read/write `files` + `project_files`</summary>
-
-- What: Rewrite every SQL statement in `asset.repository.ts` so it targets `files` (joined with `project_files` when `projectId` is required) and `project_clips_current.file_id` (for the reference check). Preserve the public `Asset` type and every exported function signature so callers (services) need zero changes.
-- Acceptance criteria: 0 `project_assets_current` matches; 0 `asset_id` DB column references; `Asset` type structurally identical; `isAssetReferencedByClip` uses `file_id`; `getAssetById`/`getAssetsByProjectId` LEFT JOIN `project_files`; `findReadyForUser`/`getReadyTotalsForUser` read from `files` with `mime_type LIKE ?`.
-
-</details>
-
-checked by code-reviewer - OK
-checked by qa-reviewer - YES
-design-reviewer notes: Reviewed on 2026-04-19. Subtask 1 is backend-only (repository SQL + unit/integration tests). No UI components, design tokens, or visual changes. Approved per APPROVED pattern for backend-only changes.
-checked by playwright-reviewer: APPROVED — Backend repository migration verified by integration tests (asset-repository.integration.test.ts + asset.repository.test.ts + asset.repository.list.test.ts), not E2E. No UI/routes changed.
-
-
----
+- AI-generate completion hook at repository layer (INSERT IGNORE into `draft_files` pivot when `draft_id` set on job row)
+- Production migration safety: runner refuses if `NODE_ENV === 'production' && !APP_MIGRATE_ON_BOOT` (temporary; multi-replica race risk)
+- `asset.repository.ts` now a thin compatibility adapter over `files + project_files` — preserves Asset type + service signatures; candidate for collapse into direct `file.repository` calls
 
 ## Known Issues / TODOs
 - ACL middleware stub — real project ownership check deferred
-- `files` table lacks `thumbnail_uri`/`waveform_json`; `getProjectFilesResponse` returns null (FE handles); `projects-list-endpoint.test.ts` thumbnail assertion is `toBeNull()`
+- `files` lacks `thumbnail_uri`/`waveform_json`; `getProjectFilesResponse` returns null (FE handles); tests assert `toBeNull()`
 - `duration_ms` NULL for migrated files (source lacked fps); ingest reprocess repopulates
 - `MediaIngestJobPayload.fileId?` + `assetId?` dual-key during migration window; legacy AI worker still writes via `project_assets_current` path
 - `bytes` NULL after ingest (FFprobe doesn't return S3 object size; HeadObject needs worker bucket config)
 - Seed `project_assets_current` rows with non-UUID project_id migrated to files; pivot links skipped (INSERT IGNORE)
 - `packages/api-contracts/` OpenAPI spec only covers scoped endpoints
 - Presigned download URL deferred; S3 CORS needs bucket config
-- 27 pre-existing Class-A integration failures cleared by Subtask 4; 6 pre-existing non-Class-A failures remain (stale `project_assets_current` seed, DEV_AUTH_BYPASS user-id mismatch, render-job lookup, generation-drafts-cards bind param)
-- Integration tests carry beforeAll schema self-healing (`migrate`/`migration-014`/`schema-final-state`) — acceptable but distributed; candidate for consolidation into a centralized fixture layer
+- Integration test beforeAll schema self-healing (migrate/migration-014/schema-final-state) distributed; candidate for centralized fixture layer
 - Production stream endpoint needs signed URL tokens
 - OAuth client IDs/secrets default empty
 - Lint workspace-wide fails with ESLint v9 config-migration error
@@ -341,6 +328,9 @@ checked by playwright-reviewer: APPROVED — Backend repository migration verifi
 - TopBar buttons `borderRadius: 6px` off-token (pre-existing)
 - Chip × button needs semi-transparent background token
 - `parseStorageUri` duplicated between `asset.service.ts` + `file.service.ts` — candidate to move to `lib/storage-uri.ts`
-- Media-worker (`ai-generate.job.ts`) still writes to `project_assets_current`; must migrate to call `aiGenerationJob.repository.setOutputFile` so the draft-files completion hook fires from live worker
+- Media-worker (`ai-generate.job.ts`) still writes to `project_assets_current`; must migrate to `aiGenerationJob.repository.setOutputFile`
 - Editor 404s on thumbnail/waveform + wizard 500 on fresh-draft `/generation-drafts/:id/assets` (empty) — cosmetic, pre-existing
-- AI panel query-key rescoping: `AiGenerationPanel` invalidates `[assets, context.kind, context.id]`; wizard gallery uses `[generate-wizard, assets, type]` — unified invalidation could be revisited
+- AI panel query-key rescoping: unified invalidation could be revisited
+- **Class A (2 tests — pre-existing DEV_AUTH_BYPASS user-mismatch):** `renders-endpoint.test.ts` (user-render-test JWT vs dev-user-001 bypass → 404), `versions-list-restore-endpoint.test.ts` (createdByUserId mismatch). Root cause: `auth.middleware.ts` hard-codes dev-user-001 under bypass.
+- **Class C (5 tests — stale seed/table debt, queued for follow-up batch):** `assets-finalize-endpoint.test.ts`, `assets-list-endpoint.test.ts`, `assets-stream-endpoint.test.ts`, `assets-delete-endpoint.test.ts`, `assets-endpoints.test.ts` — beforeAll still INSERTs into dropped `project_assets_current`
+- `asset.repository.ts` thin compat adapter over files+project_files — candidate for collapse + deletion (non-urgent; minimises blast radius)
