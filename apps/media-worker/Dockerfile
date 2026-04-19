@@ -16,6 +16,7 @@ RUN npm install --workspace=apps/media-worker --workspace=packages/project-schem
 COPY packages/project-schema ./packages/project-schema
 COPY apps/media-worker ./apps/media-worker
 
+RUN npm run build --workspace=packages/project-schema
 RUN npm run build --workspace=apps/media-worker
 
 CMD ["node", "apps/media-worker/dist/index.js"]
