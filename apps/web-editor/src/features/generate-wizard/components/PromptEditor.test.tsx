@@ -119,7 +119,7 @@ describe('PromptEditor', () => {
     const last = onChange.mock.calls[onChange.mock.calls.length - 1][0] as PromptDoc;
     expect(last.blocks).toEqual([
       { type: 'text', value: 'hello' },
-      { type: 'media-ref', mediaType: 'video', assetId: 'asset-1', label: 'clip.mp4' },
+      { type: 'media-ref', mediaType: 'video', fileId: 'asset-1', label: 'clip.mp4' },
       { type: 'text', value: ' world' },
     ]);
 
@@ -137,7 +137,7 @@ describe('PromptEditor', () => {
       schemaVersion: 1,
       blocks: [
         { type: 'text', value: 'hi ' },
-        { type: 'media-ref', mediaType: 'video', assetId: 'a1', label: 'vid' },
+        { type: 'media-ref', mediaType: 'video', fileId: 'a1', label: 'vid' },
         { type: 'text', value: ' bye' },
       ],
     };
@@ -163,7 +163,7 @@ describe('PromptEditor', () => {
       schemaVersion: 1,
       blocks: [
         { type: 'text', value: 'hello' },
-        { type: 'media-ref', mediaType: 'image', assetId: 'img', label: 'pic' },
+        { type: 'media-ref', mediaType: 'image', fileId: 'img', label: 'pic' },
         { type: 'text', value: '' },
       ],
     };
@@ -187,7 +187,7 @@ describe('PromptEditor', () => {
       schemaVersion: 1,
       blocks: [
         { type: 'text', value: 'A' },
-        { type: 'media-ref', mediaType: 'image', assetId: 'img1', label: 'pic' },
+        { type: 'media-ref', mediaType: 'image', fileId: 'img1', label: 'pic' },
         { type: 'text', value: 'B' },
       ],
     };
@@ -206,9 +206,9 @@ describe('PromptEditor', () => {
     const last = onChange.mock.calls[onChange.mock.calls.length - 1][0] as PromptDoc;
     expect(last.blocks).toEqual([
       { type: 'text', value: 'A' },
-      { type: 'media-ref', mediaType: 'image', assetId: 'img1', label: 'pic' },
+      { type: 'media-ref', mediaType: 'image', fileId: 'img1', label: 'pic' },
       { type: 'text', value: 'B' },
-      { type: 'media-ref', mediaType: 'video', assetId: 'vid1', label: 'clip' },
+      { type: 'media-ref', mediaType: 'video', fileId: 'vid1', label: 'clip' },
       { type: 'text', value: '' },
     ]);
 
@@ -222,7 +222,7 @@ describe('PromptEditor', () => {
       schemaVersion: 1,
       blocks: [
         { type: 'text', value: 'abc' },
-        { type: 'media-ref', mediaType: 'image', assetId: 'a1', label: 'img' },
+        { type: 'media-ref', mediaType: 'image', fileId: 'a1', label: 'img' },
         { type: 'text', value: 'de' },
       ],
     };
@@ -238,7 +238,7 @@ describe('PromptEditor — chip × cross-icon', () => {
     const initial: PromptDoc = {
       schemaVersion: 1,
       blocks: [
-        { type: 'media-ref', mediaType: 'video', assetId: 'v1', label: 'clip.mp4' },
+        { type: 'media-ref', mediaType: 'video', fileId: 'v1', label: 'clip.mp4' },
       ],
     };
     render(<ControlledEditor initial={initial} />);
@@ -253,7 +253,7 @@ describe('PromptEditor — chip × cross-icon', () => {
       schemaVersion: 1,
       blocks: [
         { type: 'text', value: 'hello ' },
-        { type: 'media-ref', mediaType: 'video', assetId: 'v1', label: 'clip.mp4' },
+        { type: 'media-ref', mediaType: 'video', fileId: 'v1', label: 'clip.mp4' },
         { type: 'text', value: ' world' },
       ],
     };
@@ -272,8 +272,8 @@ describe('PromptEditor — chip × cross-icon', () => {
     const initial: PromptDoc = {
       schemaVersion: 1,
       blocks: [
-        { type: 'media-ref', mediaType: 'video', assetId: 'v1', label: 'first' },
-        { type: 'media-ref', mediaType: 'image', assetId: 'i2', label: 'second' },
+        { type: 'media-ref', mediaType: 'video', fileId: 'v1', label: 'first' },
+        { type: 'media-ref', mediaType: 'image', fileId: 'i2', label: 'second' },
       ],
     };
     render(<ControlledEditor initial={initial} onDocChange={onChange} />);
@@ -284,6 +284,6 @@ describe('PromptEditor — chip × cross-icon', () => {
     const last = onChange.mock.calls[onChange.mock.calls.length - 1][0] as PromptDoc;
     const remaining = last.blocks.filter((b) => b.type === 'media-ref');
     expect(remaining).toHaveLength(1);
-    expect((remaining[0] as { assetId: string }).assetId).toBe('i2');
+    expect((remaining[0] as { fileId: string }).fileId).toBe('i2');
   });
 });

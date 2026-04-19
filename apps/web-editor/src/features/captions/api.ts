@@ -17,8 +17,8 @@ type CaptionsResponse = {
  * Returns the BullMQ job ID on success (202).
  * Throws on 409 (already transcribed) or any other error.
  */
-export async function triggerTranscription(assetId: string): Promise<TranscribeResponse> {
-  const res = await apiClient.post(`/assets/${assetId}/transcribe`, {});
+export async function triggerTranscription(fileId: string): Promise<TranscribeResponse> {
+  const res = await apiClient.post(`/assets/${fileId}/transcribe`, {});
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Failed to trigger transcription (${res.status}): ${body}`);
@@ -31,8 +31,8 @@ export async function triggerTranscription(assetId: string): Promise<TranscribeR
  * Returns `null` when the caption track does not yet exist (404 — not an error).
  * Throws on any other non-OK response.
  */
-export async function getCaptions(assetId: string): Promise<CaptionsResponse | null> {
-  const res = await apiClient.get(`/assets/${assetId}/captions`);
+export async function getCaptions(fileId: string): Promise<CaptionsResponse | null> {
+  const res = await apiClient.get(`/assets/${fileId}/captions`);
   if (res.status === 404) return null;
   if (!res.ok) {
     const body = await res.text();

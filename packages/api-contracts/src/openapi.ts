@@ -645,10 +645,10 @@ export const openApiSpec = {
       },
       MediaPreview: {
         type: 'object',
-        required: ['assetId', 'type', 'thumbnailUrl'],
+        required: ['fileId', 'type', 'thumbnailUrl'],
         description: 'A single resolved media-preview entry on a storyboard card.',
         properties: {
-          assetId: { type: 'string', format: 'uuid', description: 'UUID of the asset.' },
+          fileId: { type: 'string', format: 'uuid', description: 'UUID of the file.' },
           type: {
             type: 'string',
             enum: ['video', 'image', 'audio'],

@@ -32,8 +32,8 @@ vi.mock('./AddToTimelineDropdown', () => ({
 }));
 
 vi.mock('@/features/captions/components/TranscribeButton', () => ({
-  TranscribeButton: ({ assetId }: { assetId: string }) =>
-    React.createElement('button', { 'data-testid': 'transcribe-button', 'data-asset-id': assetId }, 'Transcribe'),
+  TranscribeButton: ({ fileId }: { fileId: string }) =>
+    React.createElement('button', { 'data-testid': 'transcribe-button', 'data-asset-id': fileId }, 'Transcribe'),
 }));
 
 vi.mock('./AssetPreviewModal', () => ({

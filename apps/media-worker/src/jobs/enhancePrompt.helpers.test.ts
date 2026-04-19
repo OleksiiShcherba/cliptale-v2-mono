@@ -19,14 +19,14 @@ import {
 const MEDIA_VIDEO: MediaRefBlock = {
   type: 'media-ref',
   mediaType: 'video',
-  assetId: 'a1b2c3d4-0000-0000-0000-000000000001',
+  fileId: 'a1b2c3d4-0000-0000-0000-000000000001',
   label: 'Clip A',
 };
 
 const MEDIA_IMAGE: MediaRefBlock = {
   type: 'media-ref',
   mediaType: 'image',
-  assetId: 'a1b2c3d4-0000-0000-0000-000000000002',
+  fileId: 'a1b2c3d4-0000-0000-0000-000000000002',
   label: 'Photo B',
 };
 

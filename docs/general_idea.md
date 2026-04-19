@@ -708,3 +708,52 @@ This turns “AI agent friendliness” into a maintained artifact rather than ad
 ---
 
 **Net result:** The updated design is consistent with your decisions: monorepo structure, MySQL snapshots-per-update, clear asset/track/clip document model, explicit separation of persistent vs UI vs derived state, Remotion code isolated in `packages/remotion-comps` with preview/render-specific implementations, and a scalable compute pipeline (SSR worker now, Remotion Lambda later) backed by signed URL uploads and queue-driven background jobs. citeturn0search18turn0search1turn6search15turn7search7turn2search0turn8search2
+---
+
+## Evolution since 2026-03-29
+
+This section documents architectural decisions made after the original vision above was written. Guardian reviews use it as the anchor for the current codebase; the earlier sections are preserved unchanged as a historical record.
+
+### Storyboard drafts
+
+The video-generation wizard introduced a persistent draft document that lives between wizard steps. Migration `019_generation_drafts.sql` creates the `generation_drafts` table: each row is owned by a single `user_id`, carries a `prompt_doc` JSON column (the PromptDoc typed document built through Steps 1-3 of the wizard), and advances through `status` values `draft -> step2 -> step3 -> completed`.
+
+Files produced during a wizard session are linked to the draft via the `draft_files` pivot table (introduced in `022_file_pivots.sql`). On the home page a storyboard-card surface renders the in-progress draft so users can resume mid-session without losing their media selections.
+
+This surface is a sibling to the existing project cards; it reads `generation_drafts` via `GET /generation-drafts` and renders cards in `apps/web-editor/src/features/home/`.
+
+### Files-as-Root
+
+The `project_assets_current` lookup table (described in the original schema section above) has been superseded. The `files` table -- introduced by `021_files.sql` -- is now the single user-scoped root for every blob in the system (uploaded media, AI-generated outputs, and any future blob kind). A `files` row is owned by `user_id` and is independent of any project or draft.
+
+Membership in a container is expressed through two pivot tables, both created by `022_file_pivots.sql`:
+
+- `project_files (project_id, file_id)` -- links a file to a project. `ON DELETE CASCADE` on the project side (deleting a project unlinks its files); `ON DELETE RESTRICT` on the file side (a file cannot be hard-deleted while still linked).
+- `draft_files (draft_id, file_id)` -- same semantics, scoped to a generation draft.
+
+Migrations `023_downstream_file_id_columns.sql` through `026_ai_jobs_draft_id.sql` complete the transition:
+
+| Migration | What it does |
+|---|---|
+| `023` | Adds nullable `file_id` to `project_clips_current`, `caption_tracks`, and `output_file_id` to `ai_generation_jobs`. |
+| `024` | Backfills `file_id` from `asset_id` in all downstream tables and seeds `files` + `project_files` from the old `project_assets_current` data. |
+| `025` | Drops the legacy `project_id` column from `ai_generation_jobs` (no longer needed after the files pivot). |
+| `026` | Adds `draft_id` to `ai_generation_jobs` so the job completion handler can auto-link `output_file_id` into `draft_files`. |
+
+The `asset_id` column name has been renamed to `file_id` throughout the on-disk schema. The corresponding wire-level DTO rename (`assetId` -> `fileId`) was applied across `packages/api-contracts/src/openapi.ts`, `apps/api/src/controllers/clips.controller.ts`, and all consuming `apps/web-editor/src/**` files in the Guardian Batch-2 cleanup (2026-04-19).
+
+### `features/` vs `shared/` split
+
+`apps/web-editor/src/` is partitioned into `features/` (single-consumer modules) and `shared/` (cross-feature utilities and services). The governing rule is:
+
+> **If a module is consumed by two or more features, it belongs in `shared/`.**
+
+`ai-generation` (`apps/web-editor/src/shared/ai-generation/`) was moved from `features/` to `shared/` because both the generate wizard (`features/generate-wizard/`) and the timeline editor (`features/timeline/`) invoke AI generation -- making it a cross-feature concern. A module that starts in `features/` and later gains a second consumer must be migrated to `shared/` in the same PR that adds the second consumer, to prevent circular imports and keep the boundary clean.
+
+### In-process migration runner
+
+Historically, SQL migrations were applied by mounting the `apps/api/src/db/migrations/` directory into the MySQL container via `docker-entrypoint-initdb.d`. This pattern is fragile: `docker-entrypoint-initdb.d` only fires on a fresh volume, so migrations added after the initial `docker compose up` silently never ran against an existing dev database.
+
+The sanctioned mutation path is now `apps/api/src/db/migrate.ts`. This module is imported by `apps/api/src/index.ts` and runs before `app.listen()`; it queries the `schema_migrations` table (created by `000_schema_migrations.sql`) to find unapplied migrations, then executes each one in filename order. Because MySQL 8.0 DDL statements are not transactional, the runner records a successful migration in `schema_migrations` only after the SQL finishes without error; a mid-migration crash leaves the `schema_migrations` row absent, so the runner re-attempts on the next boot rather than skipping silently.
+
+The `docker-entrypoint-initdb.d` volume mount must be removed from `docker-compose.yml` for all environments once the in-process runner is confirmed stable. Do not re-introduce the mount for new migrations.

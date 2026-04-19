@@ -143,7 +143,7 @@ describe('useAddEmptyTrack', () => {
   });
 
   it('should preserve existing clips when adding a track', () => {
-    const existingClip = { id: 'clip-1', type: 'audio', assetId: 'a1', trackId: 't1', startFrame: 0, durationFrames: 60 };
+    const existingClip = { id: 'clip-1', type: 'audio', fileId: 'a1', trackId: 't1', startFrame: 0, durationFrames: 60 };
     mockGetSnapshot.mockReturnValue({
       ...mockProject,
       tracks: [],

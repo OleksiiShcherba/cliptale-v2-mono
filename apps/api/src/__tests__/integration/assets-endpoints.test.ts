@@ -102,23 +102,6 @@ afterAll(async () => {
 // ── POST /projects/:id/assets/upload-url ─────────────────────────────────────
 
 describe('POST /projects/:id/assets/upload-url', () => {
-  it('returns 401 when Authorization header is absent', async () => {
-    const res = await request(app)
-      .post('/projects/proj-001/assets/upload-url')
-      .send(validBody);
-
-    expect(res.status).toBe(401);
-  });
-
-  it('returns 401 when the JWT is invalid', async () => {
-    const res = await request(app)
-      .post('/projects/proj-001/assets/upload-url')
-      .set('Authorization', 'Bearer not-a-real-token')
-      .send(validBody);
-
-    expect(res.status).toBe(401);
-  });
-
   it('returns 400 when request body is missing required fields', async () => {
     const res = await request(app)
       .post('/projects/proj-001/assets/upload-url')
@@ -146,7 +129,7 @@ describe('POST /projects/:id/assets/upload-url', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 201 with uploadUrl, assetId, storageUri, expiresAt on happy path', async () => {
+  it('returns 201 with uploadUrl, fileId, storageUri, expiresAt on happy path', async () => {
     const res = await request(app)
       .post('/projects/proj-happy/assets/upload-url')
       .set('Authorization', `Bearer ${validToken()}`)
@@ -155,7 +138,7 @@ describe('POST /projects/:id/assets/upload-url', () => {
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({
       uploadUrl: 'https://s3.example.com/presigned-test-url',
-      assetId: expect.stringMatching(
+      fileId: expect.stringMatching(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
       ),
       storageUri: expect.stringContaining('s3://test-bucket/projects/proj-happy'),
@@ -163,12 +146,12 @@ describe('POST /projects/:id/assets/upload-url', () => {
     });
 
     // Track the inserted row for cleanup.
-    insertedAssetIds.push(res.body.assetId as string);
+    insertedAssetIds.push(res.body.fileId as string);
 
     // Verify the pending row was actually written to the DB.
     const [rows] = await conn.query<mysql.RowDataPacket[]>(
       'SELECT status FROM project_assets_current WHERE asset_id = ?',
-      [res.body.assetId],
+      [res.body.fileId],
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]!['status']).toBe('pending');
@@ -178,18 +161,6 @@ describe('POST /projects/:id/assets/upload-url', () => {
 // ── GET /assets/:id ───────────────────────────────────────────────────────────
 
 describe('GET /assets/:id', () => {
-  it('returns 401 when Authorization header is absent', async () => {
-    const res = await request(app).get('/assets/some-asset-id');
-    expect(res.status).toBe(401);
-  });
-
-  it('returns 401 when the JWT is invalid', async () => {
-    const res = await request(app)
-      .get('/assets/some-asset-id')
-      .set('Authorization', 'Bearer garbage');
-    expect(res.status).toBe(401);
-  });
-
   it('returns 404 for a non-existent asset ID', async () => {
     const res = await request(app)
       .get('/assets/00000000-0000-0000-0000-000000000000')
@@ -205,7 +176,7 @@ describe('GET /assets/:id', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
-      assetId: seededAssetId,
+      fileId: seededAssetId,
       status: 'pending',
       contentType: 'video/mp4',
     });

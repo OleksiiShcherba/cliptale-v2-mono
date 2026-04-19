@@ -5,7 +5,7 @@ import type { CaptionClip, Clip } from '@ai-video-editor/project-schema';
 export const videoClip: Clip & { layer?: number } = {
   id: 'clip-001',
   type: 'video',
-  assetId: 'asset-001',
+  fileId: 'asset-001',
   trackId: 'track-001',
   startFrame: 10,
   durationFrames: 60,
@@ -17,7 +17,7 @@ export const videoClip: Clip & { layer?: number } = {
 export const audioClip: Clip & { layer?: number } = {
   id: 'clip-002',
   type: 'audio',
-  assetId: 'asset-002',
+  fileId: 'asset-002',
   trackId: 'track-001',
   startFrame: 0,
   durationFrames: 90,

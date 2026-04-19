@@ -12,12 +12,12 @@ import type {
 describe('TranscriptionJobPayload', () => {
   it('should accept a valid payload with all required fields and no language', () => {
     const payload: TranscriptionJobPayload = {
-      assetId: 'asset-001',
+      fileId: 'asset-001',
       storageUri: 's3://bucket/path/to/file.mp4',
       contentType: 'video/mp4',
     };
 
-    expect(payload.assetId).toBe('asset-001');
+    expect(payload.fileId).toBe('asset-001');
     expect(payload.storageUri).toBe('s3://bucket/path/to/file.mp4');
     expect(payload.contentType).toBe('video/mp4');
     expect(payload.language).toBeUndefined();
@@ -25,7 +25,7 @@ describe('TranscriptionJobPayload', () => {
 
   it('should accept a payload with an explicit language', () => {
     const payload: TranscriptionJobPayload = {
-      assetId: 'asset-002',
+      fileId: 'asset-002',
       storageUri: 's3://bucket/path/to/audio.mp3',
       contentType: 'audio/mpeg',
       language: 'fr',
@@ -36,7 +36,7 @@ describe('TranscriptionJobPayload', () => {
 
   it('should accept language as undefined explicitly', () => {
     const payload: TranscriptionJobPayload = {
-      assetId: 'asset-003',
+      fileId: 'asset-003',
       storageUri: 's3://bucket/audio.wav',
       contentType: 'audio/wav',
       language: undefined,
@@ -193,7 +193,19 @@ describe('CaptionWord', () => {
 });
 
 describe('MediaIngestJobPayload (regression)', () => {
-  it('should still be exported correctly and have the expected shape', () => {
+  it('accepts a new-path payload with fileId', () => {
+    const payload: MediaIngestJobPayload = {
+      fileId: 'file-100',
+      storageUri: 's3://bucket/video.mp4',
+      contentType: 'video/mp4',
+    };
+
+    expect(payload.fileId).toBe('file-100');
+    expect(payload.storageUri).toBe('s3://bucket/video.mp4');
+    expect(payload.contentType).toBe('video/mp4');
+  });
+
+  it('accepts a legacy-path payload with assetId only', () => {
     const payload: MediaIngestJobPayload = {
       assetId: 'asset-100',
       storageUri: 's3://bucket/video.mp4',
@@ -201,7 +213,6 @@ describe('MediaIngestJobPayload (regression)', () => {
     };
 
     expect(payload.assetId).toBe('asset-100');
-    expect(payload.storageUri).toBe('s3://bucket/video.mp4');
-    expect(payload.contentType).toBe('video/mp4');
+    expect(payload.fileId).toBeUndefined();
   });
 });

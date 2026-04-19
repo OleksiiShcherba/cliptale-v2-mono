@@ -60,7 +60,7 @@ describe('processAiGenerateJob — happy paths by capability', () => {
     expect(params[7]).toBe(1024);
     expect(params[8]).toBe(1024);
 
-    // Ingest enqueue with idempotent jobId = assetId
+    // Ingest enqueue with idempotent jobId = fileId (which is the local assetId UUID)
     expect(m.ingestAdd).toHaveBeenCalledTimes(1);
     const [name, payload, opts] = m.ingestAdd.mock.calls[0] as [
       string,
@@ -68,10 +68,10 @@ describe('processAiGenerateJob — happy paths by capability', () => {
       { jobId?: string },
     ];
     expect(name).toBe('ingest');
-    expect(payload.assetId).toMatch(/^[0-9a-f-]+$/);
+    expect(payload.fileId).toMatch(/^[0-9a-f-]+$/);
     expect(payload.contentType).toBe('image/png');
     expect(payload.storageUri).toMatch(new RegExp(`^s3://${BUCKET}/`));
-    expect(opts.jobId).toBe(payload.assetId);
+    expect(opts.jobId).toBe(payload.fileId);
 
     // Terminal update → completed with s3:// URI
     expect(m.execute).toHaveBeenCalledWith(

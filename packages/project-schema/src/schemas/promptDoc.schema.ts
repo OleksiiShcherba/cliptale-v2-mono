@@ -16,7 +16,7 @@ const textBlockSchema = z.object({
 const mediaRefBlockSchema = z.object({
   type: z.literal('media-ref'),
   mediaType: z.enum(['video', 'image', 'audio']),
-  assetId: z.string().uuid(),
+  fileId: z.string().uuid(),
   label: z.string(),
 });
 

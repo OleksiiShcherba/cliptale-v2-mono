@@ -50,8 +50,8 @@ describe('useDeleteAsset', () => {
     const project = makeProject({
       tracks: [{ id: 'track-1', name: 'Video 1', type: 'video', muted: false, locked: false }],
       clips: [
-        { id: 'clip-1', type: 'video', assetId: 'asset-a', trackId: 'track-1', startFrame: 0, durationFrames: 90, trimInFrame: 0, trimOutFrame: 90, opacity: 1, volume: 1 },
-        { id: 'clip-2', type: 'video', assetId: 'asset-b', trackId: 'track-1', startFrame: 100, durationFrames: 60, trimInFrame: 0, trimOutFrame: 60, opacity: 1, volume: 1 },
+        { id: 'clip-1', type: 'video', fileId: 'asset-a', trackId: 'track-1', startFrame: 0, durationFrames: 90, trimInFrame: 0, trimOutFrame: 90, opacity: 1, volume: 1 },
+        { id: 'clip-2', type: 'video', fileId: 'asset-b', trackId: 'track-1', startFrame: 100, durationFrames: 60, trimInFrame: 0, trimOutFrame: 60, opacity: 1, volume: 1 },
       ],
     });
     mockGetSnapshot.mockReturnValue(project as ReturnType<typeof getSnapshot>);
@@ -72,9 +72,9 @@ describe('useDeleteAsset', () => {
         { id: 'track-2', name: 'Video 2', type: 'video', muted: false, locked: false },
       ],
       clips: [
-        { id: 'clip-1', type: 'video', assetId: 'asset-a', trackId: 'track-1', startFrame: 0, durationFrames: 90, trimInFrame: 0, trimOutFrame: 90, opacity: 1, volume: 1 },
-        { id: 'clip-2', type: 'video', assetId: 'asset-a', trackId: 'track-2', startFrame: 100, durationFrames: 60, trimInFrame: 0, trimOutFrame: 60, opacity: 1, volume: 1 },
-        { id: 'clip-3', type: 'video', assetId: 'asset-b', trackId: 'track-1', startFrame: 200, durationFrames: 30, trimInFrame: 0, trimOutFrame: 30, opacity: 1, volume: 1 },
+        { id: 'clip-1', type: 'video', fileId: 'asset-a', trackId: 'track-1', startFrame: 0, durationFrames: 90, trimInFrame: 0, trimOutFrame: 90, opacity: 1, volume: 1 },
+        { id: 'clip-2', type: 'video', fileId: 'asset-a', trackId: 'track-2', startFrame: 100, durationFrames: 60, trimInFrame: 0, trimOutFrame: 60, opacity: 1, volume: 1 },
+        { id: 'clip-3', type: 'video', fileId: 'asset-b', trackId: 'track-1', startFrame: 200, durationFrames: 30, trimInFrame: 0, trimOutFrame: 30, opacity: 1, volume: 1 },
       ],
     });
     mockGetSnapshot.mockReturnValue(project as ReturnType<typeof getSnapshot>);
@@ -94,8 +94,8 @@ describe('useDeleteAsset', () => {
         { id: 'track-2', name: 'Video 2', type: 'video', muted: false, locked: false },
       ],
       clips: [
-        { id: 'clip-1', type: 'video', assetId: 'asset-a', trackId: 'track-1', startFrame: 0, durationFrames: 90, trimInFrame: 0, trimOutFrame: 90, opacity: 1, volume: 1 },
-        { id: 'clip-2', type: 'video', assetId: 'asset-b', trackId: 'track-2', startFrame: 0, durationFrames: 60, trimInFrame: 0, trimOutFrame: 60, opacity: 1, volume: 1 },
+        { id: 'clip-1', type: 'video', fileId: 'asset-a', trackId: 'track-1', startFrame: 0, durationFrames: 90, trimInFrame: 0, trimOutFrame: 90, opacity: 1, volume: 1 },
+        { id: 'clip-2', type: 'video', fileId: 'asset-b', trackId: 'track-2', startFrame: 0, durationFrames: 60, trimInFrame: 0, trimOutFrame: 60, opacity: 1, volume: 1 },
       ],
     });
     mockGetSnapshot.mockReturnValue(project as ReturnType<typeof getSnapshot>);
@@ -112,8 +112,8 @@ describe('useDeleteAsset', () => {
     const project = makeProject({
       tracks: [{ id: 'track-1', name: 'Video 1', type: 'video', muted: false, locked: false }],
       clips: [
-        { id: 'clip-1', type: 'video', assetId: 'asset-a', trackId: 'track-1', startFrame: 0, durationFrames: 90, trimInFrame: 0, trimOutFrame: 90, opacity: 1, volume: 1 },
-        { id: 'clip-2', type: 'video', assetId: 'asset-b', trackId: 'track-1', startFrame: 100, durationFrames: 60, trimInFrame: 0, trimOutFrame: 60, opacity: 1, volume: 1 },
+        { id: 'clip-1', type: 'video', fileId: 'asset-a', trackId: 'track-1', startFrame: 0, durationFrames: 90, trimInFrame: 0, trimOutFrame: 90, opacity: 1, volume: 1 },
+        { id: 'clip-2', type: 'video', fileId: 'asset-b', trackId: 'track-1', startFrame: 100, durationFrames: 60, trimInFrame: 0, trimOutFrame: 60, opacity: 1, volume: 1 },
       ],
     });
     mockGetSnapshot.mockReturnValue(project as ReturnType<typeof getSnapshot>);
@@ -126,11 +126,11 @@ describe('useDeleteAsset', () => {
     expect(updatedProject.tracks[0].id).toBe('track-1');
   });
 
-  it('preserves clips without assetId (e.g. text overlay clips)', () => {
+  it('preserves clips without fileId (e.g. text overlay clips)', () => {
     const project = makeProject({
       tracks: [{ id: 'track-1', name: 'Caption', type: 'caption', muted: false, locked: false }],
       clips: [
-        { id: 'clip-1', type: 'video', assetId: 'asset-a', trackId: 'track-1', startFrame: 0, durationFrames: 90, trimInFrame: 0, trimOutFrame: 90, opacity: 1, volume: 1 },
+        { id: 'clip-1', type: 'video', fileId: 'asset-a', trackId: 'track-1', startFrame: 0, durationFrames: 90, trimInFrame: 0, trimOutFrame: 90, opacity: 1, volume: 1 },
         { id: 'clip-2', type: 'caption', text: 'Hello', trackId: 'track-1', startFrame: 0, durationFrames: 30, fontSize: 24, color: '#fff', position: 'bottom', opacity: 1 },
       ],
     });
@@ -148,7 +148,7 @@ describe('useDeleteAsset', () => {
     const project = makeProject({
       tracks: [{ id: 'track-1', name: 'Audio 1', type: 'audio', muted: false, locked: false }],
       clips: [
-        { id: 'clip-1', type: 'audio', assetId: 'asset-a', trackId: 'track-1', startFrame: 0, durationFrames: 300, trimInFrame: 0, trimOutFrame: 300, volume: 1 },
+        { id: 'clip-1', type: 'audio', fileId: 'asset-a', trackId: 'track-1', startFrame: 0, durationFrames: 300, trimInFrame: 0, trimOutFrame: 300, volume: 1 },
       ],
     });
     mockGetSnapshot.mockReturnValue(project as ReturnType<typeof getSnapshot>);
@@ -165,7 +165,7 @@ describe('useDeleteAsset', () => {
     const project = makeProject({
       tracks: [{ id: 'track-1', name: 'Overlay 1', type: 'overlay', muted: false, locked: false }],
       clips: [
-        { id: 'clip-1', type: 'image', assetId: 'asset-a', trackId: 'track-1', startFrame: 0, durationFrames: 60, opacity: 1 },
+        { id: 'clip-1', type: 'image', fileId: 'asset-a', trackId: 'track-1', startFrame: 0, durationFrames: 60, opacity: 1 },
       ],
     });
     mockGetSnapshot.mockReturnValue(project as ReturnType<typeof getSnapshot>);
@@ -182,7 +182,7 @@ describe('useDeleteAsset', () => {
     const project = makeProject({
       tracks: [{ id: 'track-1', name: 'Video 1', type: 'video', muted: false, locked: false }],
       clips: [
-        { id: 'clip-1', type: 'video', assetId: 'asset-b', trackId: 'track-1', startFrame: 0, durationFrames: 90, trimInFrame: 0, trimOutFrame: 90, opacity: 1, volume: 1 },
+        { id: 'clip-1', type: 'video', fileId: 'asset-b', trackId: 'track-1', startFrame: 0, durationFrames: 90, trimInFrame: 0, trimOutFrame: 90, opacity: 1, volume: 1 },
       ],
     });
     mockGetSnapshot.mockReturnValue(project as ReturnType<typeof getSnapshot>);

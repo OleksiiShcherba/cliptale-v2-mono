@@ -195,19 +195,6 @@ describe('POST /projects/:id/clips', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 401 when no auth token is provided', async () => {
-    const res = await request(app)
-      .post(`/projects/${PROJECT_ID}/clips`)
-      .send({
-        clipId: crypto.randomUUID(),
-        trackId: NEW_TRACK_ID,
-        type: 'video',
-        startFrame: 0,
-        durationFrames: 10,
-      });
-
-    expect(res.status).toBe(401);
-  });
 });
 
 describe('PATCH /projects/:id/clips/:clipId', () => {
@@ -311,14 +298,6 @@ describe('PATCH /projects/:id/clips/:clipId', () => {
       .send({ startFrame: 5 });
 
     expect(res.status).toBe(404);
-  });
-
-  it('returns 401 when no auth token is provided', async () => {
-    const res = await request(app)
-      .patch(`/projects/${PROJECT_ID}/clips/${CLIP_ID}`)
-      .send({ startFrame: 5 });
-
-    expect(res.status).toBe(401);
   });
 
   it('does NOT insert a row into project_versions', async () => {

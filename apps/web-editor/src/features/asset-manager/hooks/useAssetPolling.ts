@@ -6,18 +6,18 @@ import type { Asset } from '@/features/asset-manager/types';
 const POLL_INTERVAL_MS = 2000;
 
 type UseAssetPollingOptions = {
-  /** Asset to poll. Pass `null` to disable polling. */
-  assetId: string | null;
+  /** File ID to poll. Pass `null` to disable polling. */
+  fileId: string | null;
   onReady: (asset: Asset) => void;
   onError?: (asset: Asset) => void;
 };
 
 /**
  * Polls GET /assets/:id every 2 s until status transitions to `ready` or `error`.
- * Cleans up the interval on unmount or when assetId changes.
+ * Cleans up the interval on unmount or when fileId changes.
  * Callbacks are held in refs so the interval is not restarted on every render.
  */
-export function useAssetPolling({ assetId, onReady, onError }: UseAssetPollingOptions): void {
+export function useAssetPolling({ fileId, onReady, onError }: UseAssetPollingOptions): void {
   const onReadyRef = useRef(onReady);
   const onErrorRef = useRef(onError);
 
@@ -27,13 +27,13 @@ export function useAssetPolling({ assetId, onReady, onError }: UseAssetPollingOp
   });
 
   useEffect(() => {
-    if (!assetId) return;
+    if (!fileId) return;
 
     let active = true;
 
     const poll = async () => {
       try {
-        const asset = await getAsset(assetId);
+        const asset = await getAsset(fileId);
         if (!active) return;
         if (asset.status === 'ready') {
           active = false;
@@ -54,5 +54,5 @@ export function useAssetPolling({ assetId, onReady, onError }: UseAssetPollingOp
       active = false;
       clearInterval(id);
     };
-  }, [assetId]);
+  }, [fileId]);
 }

@@ -78,7 +78,7 @@ const CARDS: StoryboardCardSummary[] = [
     status: 'step2',
     textPreview: 'Second storyboard text',
     mediaPreviews: [
-      { assetId: 'asset-1', type: 'video', thumbnailUrl: 'https://example.com/thumb1.jpg' },
+      { fileId: 'asset-1', type: 'video', thumbnailUrl: 'https://example.com/thumb1.jpg' },
     ],
     updatedAt: new Date().toISOString(),
   },

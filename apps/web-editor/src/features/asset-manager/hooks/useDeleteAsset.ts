@@ -3,8 +3,8 @@ import { useCallback } from 'react';
 import { getSnapshot, setProject } from '@/store/project-store';
 
 /**
- * Returns a `deleteAsset(assetId)` callback that removes all clips referencing
- * `assetId` from the project document, along with any tracks that become empty
+ * Returns a `deleteAsset(fileId)` callback that removes all clips referencing
+ * `fileId` from the project document, along with any tracks that become empty
  * as a result.
  *
  * This is a soft operation — the asset file is NOT deleted from storage. The
@@ -12,19 +12,19 @@ import { getSnapshot, setProject } from '@/store/project-store';
  * history store. The user can undo with Ctrl+Z or restore a prior version from
  * Version History.
  */
-export function useDeleteAsset(): (assetId: string) => void {
-  return useCallback((assetId: string) => {
+export function useDeleteAsset(): (fileId: string) => void {
+  return useCallback((fileId: string) => {
     const project = getSnapshot();
 
     // Remove all clips that reference the deleted asset
     const remainingClips = project.clips.filter(
-      (clip) => !('assetId' in clip) || clip.assetId !== assetId,
+      (clip) => !('fileId' in clip) || clip.fileId !== fileId,
     );
 
     // Find track IDs of clips that were removed
     const removedClipTrackIds = new Set(
       project.clips
-        .filter((clip) => 'assetId' in clip && clip.assetId === assetId)
+        .filter((clip) => 'fileId' in clip && clip.fileId === fileId)
         .map((clip) => clip.trackId),
     );
 

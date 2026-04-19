@@ -61,7 +61,7 @@ export const deps: TranscribeJobDeps = { s3: mockS3, pool: mockPool, openai: moc
 export function makeJob(payload: Partial<TranscriptionJobPayload> = {}): Job<TranscriptionJobPayload> {
   return {
     data: {
-      assetId: 'file-123',
+      fileId: 'file-123',
       storageUri: 's3://test-bucket/files/file-123/video.mp4',
       contentType: 'video/mp4',
       language: 'en',

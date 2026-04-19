@@ -68,21 +68,21 @@ export function AssetPickerField({
         ? [value]
         : [];
 
-  const handlePick = (assetId: string) => {
+  const handlePick = (fileId: string) => {
     if (mode === 'single') {
-      onChange(assetId);
+      onChange(fileId);
       setIsPickerOpen(false);
       return;
     }
-    const next = selectedIds.includes(assetId)
-      ? selectedIds.filter((id) => id !== assetId)
-      : [...selectedIds, assetId];
+    const next = selectedIds.includes(fileId)
+      ? selectedIds.filter((id) => id !== fileId)
+      : [...selectedIds, fileId];
     onChange(next);
   };
 
   const handleClearSingle = () => onChange(undefined);
-  const handleRemoveFromMulti = (assetId: string) => {
-    const next = selectedIds.filter((id) => id !== assetId);
+  const handleRemoveFromMulti = (fileId: string) => {
+    const next = selectedIds.filter((id) => id !== fileId);
     onChange(next.length > 0 ? next : undefined);
   };
 
@@ -191,7 +191,7 @@ export function AssetPickerField({
   );
 }
 
-function describeAsset(assets: AssetSummary[], assetId: string): string {
-  const match = assets.find((asset) => asset.id === assetId);
-  return match ? match.filename : assetId;
+function describeAsset(assets: AssetSummary[], fileId: string): string {
+  const match = assets.find((asset) => asset.id === fileId);
+  return match ? match.filename : fileId;
 }

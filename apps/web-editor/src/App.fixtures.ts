@@ -24,7 +24,7 @@ export function makeImageClip(overrides: Partial<ImageClip> = {}): ImageClip {
   return {
     id: CLIP_ID,
     type: 'image',
-    assetId: 'asset-001',
+    fileId: 'asset-001',
     trackId: TRACK_ID,
     startFrame: 0,
     durationFrames: 150,
@@ -38,7 +38,7 @@ export function makeVideoClip(overrides: Partial<VideoClip> = {}): VideoClip {
   return {
     id: CLIP_ID,
     type: 'video',
-    assetId: 'asset-001',
+    fileId: 'asset-001',
     trackId: TRACK_ID,
     startFrame: 0,
     durationFrames: 150,
@@ -54,7 +54,7 @@ export function makeAudioClip(overrides: Partial<AudioClip> = {}): AudioClip {
   return {
     id: CLIP_ID,
     type: 'audio',
-    assetId: 'asset-001',
+    fileId: 'asset-001',
     trackId: TRACK_ID,
     startFrame: 0,
     durationFrames: 150,

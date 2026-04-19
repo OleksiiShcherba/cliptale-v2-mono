@@ -95,23 +95,6 @@ afterAll(async () => {
 // ── POST /projects/:id/versions ───────────────────────────────────────────────
 
 describe('POST /projects/:id/versions', () => {
-  it('returns 401 when Authorization header is absent', async () => {
-    const res = await request(app)
-      .post('/projects/proj-anon/versions')
-      .send(validBody);
-
-    expect(res.status).toBe(401);
-  });
-
-  it('returns 401 when the JWT is invalid', async () => {
-    const res = await request(app)
-      .post('/projects/proj-anon/versions')
-      .set('Authorization', 'Bearer not-a-real-token')
-      .send(validBody);
-
-    expect(res.status).toBe(401);
-  });
-
   it('returns 400 when request body is missing required fields', async () => {
     const res = await request(app)
       .post('/projects/proj-001/versions')

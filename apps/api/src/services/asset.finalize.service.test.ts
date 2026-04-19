@@ -21,7 +21,7 @@ const mockS3Send = vi.fn();
 const mockS3 = { send: mockS3Send } as unknown as S3Client;
 
 const pendingAsset = {
-  assetId: 'asset-fin-001',
+  fileId: 'asset-fin-001',
   projectId: 'proj-123',
   userId: 'user-456',
   filename: 'clip.mp4',
@@ -53,15 +53,15 @@ describe('asset.service', () => {
     it('transitions status to processing and enqueues ingest job for a pending asset', async () => {
       vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(pendingAsset);
 
-      const result = await finalizeAsset(pendingAsset.assetId, mockS3);
+      const result = await finalizeAsset(pendingAsset.fileId, mockS3);
 
       expect(result.status).toBe('processing');
       expect(assetRepository.updateAssetStatus).toHaveBeenCalledWith(
-        pendingAsset.assetId,
+        pendingAsset.fileId,
         'processing',
       );
       expect(enqueueIngest.enqueueIngestJob).toHaveBeenCalledWith({
-        assetId: pendingAsset.assetId,
+        fileId: pendingAsset.fileId,
         storageUri: pendingAsset.storageUri,
         contentType: pendingAsset.contentType,
       });
@@ -73,7 +73,7 @@ describe('asset.service', () => {
         status: 'processing',
       });
 
-      const result = await finalizeAsset(pendingAsset.assetId, mockS3);
+      const result = await finalizeAsset(pendingAsset.fileId, mockS3);
 
       expect(result.status).toBe('processing');
       expect(assetRepository.updateAssetStatus).not.toHaveBeenCalled();
@@ -86,7 +86,7 @@ describe('asset.service', () => {
         status: 'ready',
       });
 
-      const result = await finalizeAsset(pendingAsset.assetId, mockS3);
+      const result = await finalizeAsset(pendingAsset.fileId, mockS3);
 
       expect(result.status).toBe('ready');
       expect(assetRepository.updateAssetStatus).not.toHaveBeenCalled();
@@ -104,7 +104,7 @@ describe('asset.service', () => {
       const notFoundErr = Object.assign(new Error('Not Found'), { name: 'NotFound' });
       mockS3Send.mockRejectedValueOnce(notFoundErr);
 
-      await expect(finalizeAsset(pendingAsset.assetId, mockS3)).rejects.toBeInstanceOf(
+      await expect(finalizeAsset(pendingAsset.fileId, mockS3)).rejects.toBeInstanceOf(
         ValidationError,
       );
       expect(assetRepository.updateAssetStatus).not.toHaveBeenCalled();
@@ -115,7 +115,7 @@ describe('asset.service', () => {
       const networkErr = new Error('ECONNREFUSED');
       mockS3Send.mockRejectedValueOnce(networkErr);
 
-      await expect(finalizeAsset(pendingAsset.assetId, mockS3)).rejects.toBe(networkErr);
+      await expect(finalizeAsset(pendingAsset.fileId, mockS3)).rejects.toBe(networkErr);
     });
 
     it('re-finalizes an asset that previously errored (error status is not guarded)', async () => {
@@ -125,11 +125,11 @@ describe('asset.service', () => {
         errorMessage: 'ffprobe failed',
       });
 
-      const result = await finalizeAsset(pendingAsset.assetId, mockS3);
+      const result = await finalizeAsset(pendingAsset.fileId, mockS3);
 
       expect(result.status).toBe('processing');
       expect(assetRepository.updateAssetStatus).toHaveBeenCalledWith(
-        pendingAsset.assetId,
+        pendingAsset.fileId,
         'processing',
       );
     });

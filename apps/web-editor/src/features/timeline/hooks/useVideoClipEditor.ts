@@ -17,7 +17,7 @@ export function useVideoClipEditor(clip: VideoClip): {
   setVolume: (volume: number) => void;
 } {
   const patchClip = useCallback(
-    (patch: Partial<Omit<VideoClip, 'id' | 'type' | 'trackId' | 'assetId'>>) => {
+    (patch: Partial<Omit<VideoClip, 'id' | 'type' | 'trackId' | 'fileId'>>) => {
       const current = getSnapshot();
       setProject({
         ...current,

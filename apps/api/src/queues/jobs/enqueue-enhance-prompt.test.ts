@@ -96,9 +96,9 @@ describe('enqueueEnhancePrompt', () => {
         schemaVersion: 1,
         blocks: [
           { type: 'text', value: 'Make a video about ' },
-          { type: 'media-ref', mediaType: 'video', assetId: '00000000-0000-0000-0000-000000000001', label: 'my cat video' },
+          { type: 'media-ref', mediaType: 'video', fileId: '00000000-0000-0000-0000-000000000001', label: 'my cat video' },
           { type: 'text', value: ' with some music' },
-          { type: 'media-ref', mediaType: 'audio', assetId: '00000000-0000-0000-0000-000000000002', label: 'background track' },
+          { type: 'media-ref', mediaType: 'audio', fileId: '00000000-0000-0000-0000-000000000002', label: 'background track' },
         ],
       },
     };
@@ -109,7 +109,7 @@ describe('enqueueEnhancePrompt', () => {
     expect(jobPayload.promptDoc.blocks).toHaveLength(4);
     expect(jobPayload.promptDoc.blocks[1]).toMatchObject({
       type: 'media-ref',
-      assetId: '00000000-0000-0000-0000-000000000001',
+      fileId: '00000000-0000-0000-0000-000000000001',
     });
   });
 });

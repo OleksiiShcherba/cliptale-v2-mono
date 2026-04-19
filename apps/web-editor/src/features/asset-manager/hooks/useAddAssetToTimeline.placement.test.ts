@@ -151,7 +151,7 @@ describe('useAddAssetToTimeline — duration and naming edge cases', () => {
   it('always creates a new track for addAssetToNewTrack — even when a same-named track exists', () => {
     const existingTrack: Track = { id: 'video-track-id', type: 'video', name: 'test', muted: false, locked: false };
     const existingClip: Clip = {
-      id: 'clip-first', type: 'video', assetId: 'asset-001', trackId: 'video-track-id',
+      id: 'clip-first', type: 'video', fileId: 'asset-001', trackId: 'video-track-id',
       startFrame: 0, durationFrames: 300, trimInFrame: 0, opacity: 1, volume: 1,
     };
     mockGetSnapshot.mockReturnValue(makeProject({ tracks: [existingTrack], clips: [existingClip] }));

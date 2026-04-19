@@ -6,11 +6,11 @@
  * Verifies the full Express → middleware → service → repository → DB chain.
  * Requires a live MySQL instance: docker compose up -d db
  *
- * After Batch 1 Subtask 8:
+ * After Batch 2 Subtask 6:
  *   - Jobs are user-scoped only; no project_id stored in ai_generation_jobs.
  *   - The resolver uses file.repository.findByIdForUser (files table).
  *   - project_assets_current is gone (migration 024 dropped it).
- *   - Legacy body.projectId is accepted by the compat shim but not stored.
+ *   - The projectId compat shim is removed; schema is now strict (unknown fields → 400).
  *
  * Run:
  *   APP_DB_PASSWORD=cliptale vitest run src/__tests__/integration/ai-generation-endpoints.test.ts
@@ -186,28 +186,19 @@ describe('POST /projects/:id/ai/generate', () => {
     expect(rows[0]).not.toHaveProperty('project_id');
   });
 
-  it('compat shim: accepts legacy body.projectId without 400', async () => {
+  it('rejects unknown fields (e.g. legacy projectId) with 400', async () => {
     const res = await request(app)
       .post(`/projects/${testProjectId}/ai/generate`)
       .send({
         modelId: 'fal-ai/nano-banana-2',
-        prompt: 'compat shim test',
+        prompt: 'strict schema test',
         options: {},
         projectId: 'legacy-project-id-from-fe',
       });
 
-    // Should be 202 (not 400) — projectId is stripped by the compat shim.
-    expect(res.status).toBe(202);
-    const jobId = res.body['jobId'] as string;
-    insertedJobIds.push(jobId);
-
-    const [rows] = await conn.query<mysql.RowDataPacket[]>(
-      `SELECT user_id, model_id, status FROM ai_generation_jobs WHERE job_id = ?`,
-      [jobId],
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!['user_id']).toBe('dev-user-001');
-    expect(rows[0]!['status']).toBe('queued');
+    // The compat shim is removed; schema is strict — unknown fields are rejected.
+    expect(res.status).toBe(400);
+    expect(res.body['error']).toBe('Validation failed');
   });
 
   it('returns 400 when modelId is not in the catalog', async () => {

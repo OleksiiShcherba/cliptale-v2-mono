@@ -154,7 +154,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(
           const chip: MediaRefBlock = {
             type: 'media-ref',
             mediaType: asset.type,
-            assetId: asset.id,
+            fileId: asset.id,
             label: asset.label,
           };
           const nextDoc = insertMediaRefAtOffset(currentDoc, caretOffset, chip);

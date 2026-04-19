@@ -27,7 +27,7 @@ export type ProjectSummary = {
  * thumbnailUrl may be null — components MUST render a placeholder SVG.
  */
 export type MediaPreview = {
-  assetId: string;
+  fileId: string;
   type: string;
   thumbnailUrl: string | null;
 };

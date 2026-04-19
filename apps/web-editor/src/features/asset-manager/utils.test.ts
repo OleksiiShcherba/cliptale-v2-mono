@@ -131,7 +131,7 @@ describe('buildClipForAsset', () => {
     const clip = buildClipForAsset('video/mp4', ASSET_ID, TRACK_ID, START_FRAME, DURATION_FRAMES);
     expect(clip).not.toBeNull();
     expect(clip!.type).toBe('video');
-    expect(clip!.assetId).toBe(ASSET_ID);
+    expect(clip!.fileId).toBe(ASSET_ID);
     expect(clip!.trackId).toBe(TRACK_ID);
     expect(clip!.startFrame).toBe(START_FRAME);
     expect(clip!.durationFrames).toBe(DURATION_FRAMES);
@@ -149,7 +149,7 @@ describe('buildClipForAsset', () => {
     const clip = buildClipForAsset('audio/mpeg', ASSET_ID, TRACK_ID, START_FRAME, DURATION_FRAMES);
     expect(clip).not.toBeNull();
     expect(clip!.type).toBe('audio');
-    expect(clip!.assetId).toBe(ASSET_ID);
+    expect(clip!.fileId).toBe(ASSET_ID);
     expect(clip!.trackId).toBe(TRACK_ID);
     expect(clip!.startFrame).toBe(START_FRAME);
     expect(clip!.durationFrames).toBe(DURATION_FRAMES);
@@ -159,7 +159,7 @@ describe('buildClipForAsset', () => {
     const clip = buildClipForAsset('image/png', ASSET_ID, TRACK_ID, START_FRAME, DURATION_FRAMES);
     expect(clip).not.toBeNull();
     expect(clip!.type).toBe('image');
-    expect(clip!.assetId).toBe(ASSET_ID);
+    expect(clip!.fileId).toBe(ASSET_ID);
     expect(clip!.trackId).toBe(TRACK_ID);
     expect(clip!.startFrame).toBe(START_FRAME);
     expect(clip!.durationFrames).toBe(DURATION_FRAMES);

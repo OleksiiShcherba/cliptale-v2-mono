@@ -44,7 +44,7 @@ export function AssetThumbCard({
 
   function handleDragStart(e: React.DragEvent<HTMLButtonElement>): void {
     const payload = JSON.stringify({
-      assetId: asset.id,
+      fileId: asset.id,
       type: asset.type,
       label: asset.label,
     });
@@ -56,7 +56,7 @@ export function AssetThumbCard({
     const chipEl = createChipElement({
       type: 'media-ref',
       mediaType: asset.type,
-      assetId: asset.id,
+      fileId: asset.id,
       label: asset.label,
     });
     // Mount off-screen so the browser can snapshot it.

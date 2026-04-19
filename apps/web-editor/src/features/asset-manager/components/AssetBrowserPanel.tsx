@@ -15,13 +15,13 @@ import { UploadDropzone } from './UploadDropzone';
 
 /** Renders nothing; runs useAssetPolling for one asset and calls onSettled when done. */
 function AssetPoller({
-  assetId,
+  fileId,
   onSettled,
 }: {
-  assetId: string;
+  fileId: string;
   onSettled: () => void;
 }): null {
-  useAssetPolling({ assetId, onReady: onSettled, onError: onSettled });
+  useAssetPolling({ fileId, onReady: onSettled, onError: onSettled });
   return null;
 }
 
@@ -278,7 +278,7 @@ export function AssetBrowserPanel({ projectId, areFilterTabsHidden = false }: As
         .map((a) => (
           <AssetPoller
             key={a.id}
-            assetId={a.id}
+            fileId={a.id}
             onSettled={() => void queryClient.invalidateQueries({ queryKey: ['assets', projectId] })}
           />
         ))}

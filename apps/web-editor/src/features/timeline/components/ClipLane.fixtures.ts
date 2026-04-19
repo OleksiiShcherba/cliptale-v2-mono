@@ -15,7 +15,7 @@ export const videoTrack: Track = {
 export const clip1: Clip = {
   id: 'clip-001',
   type: 'video',
-  assetId: 'asset-001',
+  fileId: 'asset-001',
   trackId: 'track-001',
   startFrame: 0,
   durationFrames: 30,
@@ -27,7 +27,7 @@ export const clip1: Clip = {
 export const clip2: Clip = {
   id: 'clip-002',
   type: 'video',
-  assetId: 'asset-002',
+  fileId: 'asset-002',
   trackId: 'track-001',
   startFrame: 50,
   durationFrames: 20,

@@ -45,10 +45,10 @@ describe('useReplaceAsset', () => {
     expect(typeof result.current).toBe('function');
   });
 
-  it('should update clips with old assetId to use the new assetId', () => {
+  it('should update clips with old fileId to use the new fileId', () => {
     const clips = [
-      { id: 'clip-1', type: 'video', assetId: 'asset-old', trackId: 't1', startFrame: 0, durationFrames: 90, trimInFrame: 0, opacity: 1, volume: 1 },
-      { id: 'clip-2', type: 'video', assetId: 'asset-other', trackId: 't1', startFrame: 90, durationFrames: 60, trimInFrame: 0, opacity: 1, volume: 1 },
+      { id: 'clip-1', type: 'video', fileId: 'asset-old', trackId: 't1', startFrame: 0, durationFrames: 90, trimInFrame: 0, opacity: 1, volume: 1 },
+      { id: 'clip-2', type: 'video', fileId: 'asset-other', trackId: 't1', startFrame: 90, durationFrames: 60, trimInFrame: 0, opacity: 1, volume: 1 },
     ];
     const project = makeProject(clips);
     mockGetSnapshot.mockReturnValue(project as ReturnType<typeof getSnapshot>);
@@ -58,14 +58,14 @@ describe('useReplaceAsset', () => {
 
     expect(mockSetProject).toHaveBeenCalledOnce();
     const updated = mockSetProject.mock.calls[0][0];
-    expect(updated.clips[0].assetId).toBe('asset-new');
-    expect(updated.clips[1].assetId).toBe('asset-other'); // untouched
+    expect(updated.clips[0].fileId).toBe('asset-new');
+    expect(updated.clips[1].fileId).toBe('asset-other'); // untouched
   });
 
-  it('should update multiple clips that share the same old assetId', () => {
+  it('should update multiple clips that share the same old fileId', () => {
     const clips = [
-      { id: 'clip-1', type: 'video', assetId: 'asset-old', trackId: 't1', startFrame: 0, durationFrames: 60, trimInFrame: 0, opacity: 1, volume: 1 },
-      { id: 'clip-2', type: 'video', assetId: 'asset-old', trackId: 't2', startFrame: 0, durationFrames: 60, trimInFrame: 0, opacity: 1, volume: 1 },
+      { id: 'clip-1', type: 'video', fileId: 'asset-old', trackId: 't1', startFrame: 0, durationFrames: 60, trimInFrame: 0, opacity: 1, volume: 1 },
+      { id: 'clip-2', type: 'video', fileId: 'asset-old', trackId: 't2', startFrame: 0, durationFrames: 60, trimInFrame: 0, opacity: 1, volume: 1 },
     ];
     const project = makeProject(clips);
     mockGetSnapshot.mockReturnValue(project as ReturnType<typeof getSnapshot>);
@@ -74,8 +74,8 @@ describe('useReplaceAsset', () => {
     result.current('asset-old', 'asset-new');
 
     const updated = mockSetProject.mock.calls[0][0];
-    expect(updated.clips[0].assetId).toBe('asset-new');
-    expect(updated.clips[1].assetId).toBe('asset-new');
+    expect(updated.clips[0].fileId).toBe('asset-new');
+    expect(updated.clips[1].fileId).toBe('asset-new');
   });
 
   it('should not call setProject when oldAssetId equals newAssetId', () => {
@@ -88,11 +88,11 @@ describe('useReplaceAsset', () => {
     expect(mockSetProject).not.toHaveBeenCalled();
   });
 
-  it('should not modify clips that have no assetId (text overlay clips)', () => {
+  it('should not modify clips that have no fileId (text overlay clips)', () => {
     const clips = [
-      // TextOverlayClip has no assetId
+      // TextOverlayClip has no fileId
       { id: 'clip-text', type: 'textOverlay', trackId: 't1', startFrame: 0, durationFrames: 30, text: 'Hello' },
-      { id: 'clip-video', type: 'video', assetId: 'asset-old', trackId: 't2', startFrame: 0, durationFrames: 30, trimInFrame: 0, opacity: 1, volume: 1 },
+      { id: 'clip-video', type: 'video', fileId: 'asset-old', trackId: 't2', startFrame: 0, durationFrames: 30, trimInFrame: 0, opacity: 1, volume: 1 },
     ];
     const project = makeProject(clips);
     mockGetSnapshot.mockReturnValue(project as ReturnType<typeof getSnapshot>);
@@ -104,12 +104,12 @@ describe('useReplaceAsset', () => {
     // Text overlay clip unchanged
     expect(updated.clips[0]).toEqual(clips[0]);
     // Video clip updated
-    expect(updated.clips[1].assetId).toBe('asset-new');
+    expect(updated.clips[1].fileId).toBe('asset-new');
   });
 
   it('should handle audio clips as well as video clips', () => {
     const clips = [
-      { id: 'clip-a', type: 'audio', assetId: 'asset-old', trackId: 't1', startFrame: 0, durationFrames: 120, trimInFrame: 0, volume: 0.8 },
+      { id: 'clip-a', type: 'audio', fileId: 'asset-old', trackId: 't1', startFrame: 0, durationFrames: 120, trimInFrame: 0, volume: 0.8 },
     ];
     const project = makeProject(clips);
     mockGetSnapshot.mockReturnValue(project as ReturnType<typeof getSnapshot>);
@@ -118,12 +118,12 @@ describe('useReplaceAsset', () => {
     result.current('asset-old', 'asset-new');
 
     const updated = mockSetProject.mock.calls[0][0];
-    expect(updated.clips[0].assetId).toBe('asset-new');
+    expect(updated.clips[0].fileId).toBe('asset-new');
   });
 
   it('should handle image clips', () => {
     const clips = [
-      { id: 'clip-i', type: 'image', assetId: 'asset-old', trackId: 't1', startFrame: 0, durationFrames: 150, opacity: 0.9 },
+      { id: 'clip-i', type: 'image', fileId: 'asset-old', trackId: 't1', startFrame: 0, durationFrames: 150, opacity: 0.9 },
     ];
     const project = makeProject(clips);
     mockGetSnapshot.mockReturnValue(project as ReturnType<typeof getSnapshot>);
@@ -132,12 +132,12 @@ describe('useReplaceAsset', () => {
     result.current('asset-old', 'asset-new');
 
     const updated = mockSetProject.mock.calls[0][0];
-    expect(updated.clips[0].assetId).toBe('asset-new');
+    expect(updated.clips[0].fileId).toBe('asset-new');
   });
 
   it('should call setProject with all other project fields intact', () => {
     const clips = [
-      { id: 'clip-1', type: 'video', assetId: 'asset-old', trackId: 't1', startFrame: 0, durationFrames: 30, trimInFrame: 0, opacity: 1, volume: 1 },
+      { id: 'clip-1', type: 'video', fileId: 'asset-old', trackId: 't1', startFrame: 0, durationFrames: 30, trimInFrame: 0, opacity: 1, volume: 1 },
     ];
     const project = makeProject(clips);
     mockGetSnapshot.mockReturnValue(project as ReturnType<typeof getSnapshot>);
@@ -153,7 +153,7 @@ describe('useReplaceAsset', () => {
 
   it('should still call setProject when no clips reference oldAssetId (clips array unchanged)', () => {
     const clips = [
-      { id: 'clip-1', type: 'video', assetId: 'asset-other', trackId: 't1', startFrame: 0, durationFrames: 30, trimInFrame: 0, opacity: 1, volume: 1 },
+      { id: 'clip-1', type: 'video', fileId: 'asset-other', trackId: 't1', startFrame: 0, durationFrames: 30, trimInFrame: 0, opacity: 1, volume: 1 },
     ];
     const project = makeProject(clips);
     mockGetSnapshot.mockReturnValue(project as ReturnType<typeof getSnapshot>);
@@ -163,6 +163,6 @@ describe('useReplaceAsset', () => {
 
     // setProject is called but clips are unchanged
     const updated = mockSetProject.mock.calls[0][0];
-    expect(updated.clips[0].assetId).toBe('asset-other');
+    expect(updated.clips[0].fileId).toBe('asset-other');
   });
 });

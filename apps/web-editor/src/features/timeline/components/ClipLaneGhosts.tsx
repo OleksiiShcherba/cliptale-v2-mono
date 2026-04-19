@@ -33,8 +33,8 @@ export function ClipLaneGhosts({
     const ghostLeftPx = dragInfo.ghostPositions.get(clip.id);
     if (ghostLeftPx === undefined) return null;
 
-    const assetId = 'assetId' in clip ? (clip as { assetId: string }).assetId : undefined;
-    const assetData = assetId && assetDataMap ? assetDataMap[assetId] : undefined;
+    const fileId = 'fileId' in clip ? (clip as { fileId: string }).fileId : undefined;
+    const assetData = fileId && assetDataMap ? assetDataMap[fileId] : undefined;
 
     return (
       <ClipBlock

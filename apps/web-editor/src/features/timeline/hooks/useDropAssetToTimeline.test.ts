@@ -94,7 +94,7 @@ describe('useDropAssetToTimeline', () => {
     expect(mockCreateClip).toHaveBeenCalledOnce();
     expect(mockCreateClip.mock.calls[0]![0]).toBe('proj-001');
     const clip = mockCreateClip.mock.calls[0]![1] as Clip;
-    expect(clip.assetId).toBe('asset-001');
+    expect(clip.fileId).toBe('asset-001');
   });
 
   it('does NOT call setProject or createClip for an unsupported content type', () => {
@@ -122,7 +122,7 @@ describe('useDropAssetToTimeline', () => {
     const existingClip = {
       id: 'existing-clip',
       type: 'video' as const,
-      assetId: 'asset-000',
+      fileId: 'asset-000',
       trackId: 'track-001',
       startFrame: 0,
       durationFrames: 90,
@@ -140,11 +140,11 @@ describe('useDropAssetToTimeline', () => {
     expect(updated.clips.find((c: Clip) => c.id === 'existing-clip')).toBeDefined();
   });
 
-  it('allows adding the same asset (same assetId) more than once to the same track', () => {
+  it('allows adding the same asset (same fileId) more than once to the same track', () => {
     const existingClip = {
       id: 'clip-first',
       type: 'video' as const,
-      assetId: 'asset-001', // same assetId as the asset being dropped
+      fileId: 'asset-001', // same fileId as the asset being dropped
       trackId: 'track-001',
       startFrame: 0,
       durationFrames: 150,
@@ -160,8 +160,8 @@ describe('useDropAssetToTimeline', () => {
     const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
     // Both clips should be present
     expect(updated.clips).toHaveLength(2);
-    // Both reference the same assetId
-    expect(updated.clips.filter((c: Clip) => (c as { assetId: string }).assetId === 'asset-001')).toHaveLength(2);
+    // Both reference the same fileId
+    expect(updated.clips.filter((c: Clip) => (c as { fileId: string }).fileId === 'asset-001')).toHaveLength(2);
     // New clip has a different id
     const newClip = updated.clips.find((c: Clip) => c.id !== 'clip-first');
     expect(newClip).toBeDefined();

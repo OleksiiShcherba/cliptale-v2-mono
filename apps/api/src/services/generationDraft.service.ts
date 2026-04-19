@@ -231,7 +231,7 @@ function mimeToMediaType(contentType: string): 'video' | 'image' | 'audio' | nul
  *
  * For each draft:
  * - textPreview: first 140 chars of concatenated TextBlock values.
- * - mediaPreviews: first 3 MediaRefBlock assetIds resolved from
+ * - mediaPreviews: first 3 MediaRefBlock fileIds resolved from
  *   project_assets_current. Dangling refs (asset deleted) are silently skipped
  *   — the endpoint never throws 500 on a missing asset.
  */
@@ -240,13 +240,13 @@ export async function listStoryboardCardsForUser(userId: string): Promise<Storyb
 
   if (drafts.length === 0) return [];
 
-  // Collect the first MEDIA_PREVIEW_MAX_COUNT media-ref assetIds per draft.
+  // Collect the first MEDIA_PREVIEW_MAX_COUNT media-ref fileIds per draft.
   const draftMediaRefs = drafts.map((d) => {
     const blocks = d.promptDoc.blocks;
     const mediaRefs: string[] = [];
     for (const block of blocks) {
       if (block.type === 'media-ref' && mediaRefs.length < MEDIA_PREVIEW_MAX_COUNT) {
-        mediaRefs.push((block as MediaRefBlock).assetId);
+        mediaRefs.push((block as MediaRefBlock).fileId);
       }
     }
     return { draft: d, mediaRefs };
@@ -257,7 +257,7 @@ export async function listStoryboardCardsForUser(userId: string): Promise<Storyb
   const assetRows = await generationDraftRepository.findAssetPreviewsByIds(allAssetIds);
 
   // Build a lookup map for O(1) access.
-  const assetMap = new Map(assetRows.map((a) => [a.assetId, a]));
+  const assetMap = new Map(assetRows.map((a) => [a.fileId, a]));
 
   return draftMediaRefs.map(({ draft, mediaRefs }) => {
     // Build text preview from TextBlocks.
@@ -272,12 +272,12 @@ export async function listStoryboardCardsForUser(userId: string): Promise<Storyb
 
     // Resolve media previews, silently skipping missing assets.
     const mediaPreviews: StoryboardCard['mediaPreviews'] = [];
-    for (const assetId of mediaRefs) {
-      const asset = assetMap.get(assetId);
+    for (const fileId of mediaRefs) {
+      const asset = assetMap.get(fileId);
       if (!asset) continue; // silently skip dangling reference
       const type = mimeToMediaType(asset.contentType);
       if (!type) continue;
-      mediaPreviews.push({ assetId, type, thumbnailUrl: asset.thumbnailUri });
+      mediaPreviews.push({ fileId, type, thumbnailUrl: asset.thumbnailUri });
     }
 
     return {

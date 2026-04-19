@@ -42,7 +42,7 @@ export type CreateUploadUrlParams = {
 
 /** Returned to the client after a successful presigned URL request. */
 export type UploadUrlResult = {
-  assetId: string;
+  fileId: string;
   uploadUrl: string;
   storageUri: string;
   /** ISO 8601 timestamp after which the presigned URL is no longer valid. */
@@ -93,8 +93,8 @@ export async function createUploadUrl(
     throw new ValidationError('filename is invalid after sanitization');
   }
 
-  const assetId = randomUUID();
-  const storageKey = `projects/${params.projectId}/assets/${assetId}/${safeFilename}`;
+  const fileId = randomUUID();
+  const storageKey = `projects/${params.projectId}/assets/${fileId}/${safeFilename}`;
   const storageUri = `s3://${bucket}/${storageKey}`;
 
   const command = new PutObjectCommand({
@@ -113,7 +113,7 @@ export async function createUploadUrl(
   ).toISOString();
 
   await assetRepository.insertPendingAsset({
-    assetId,
+    fileId,
     projectId: params.projectId,
     userId: params.userId,
     filename: safeFilename,
@@ -122,7 +122,7 @@ export async function createUploadUrl(
     storageUri,
   });
 
-  return { assetId, uploadUrl, storageUri, expiresAt };
+  return { fileId, uploadUrl, storageUri, expiresAt };
 }
 
 /**
@@ -134,10 +134,10 @@ export async function getProjectAssets(projectId: string): Promise<Asset[]> {
 }
 
 /** Returns an asset by ID, or throws NotFoundError if it does not exist. */
-export async function getAsset(assetId: string): Promise<Asset> {
-  const asset = await assetRepository.getAssetById(assetId);
+export async function getAsset(fileId: string): Promise<Asset> {
+  const asset = await assetRepository.getAssetById(fileId);
   if (!asset) {
-    throw new NotFoundError(`Asset "${assetId}" not found`);
+    throw new NotFoundError(`Asset "${fileId}" not found`);
   }
   return asset;
 }
@@ -149,20 +149,20 @@ export async function getAsset(assetId: string): Promise<Asset> {
  * Throws ConflictError (409) if the asset is referenced by at least one clip — the
  * referential integrity rule prevents deleting assets that are in use on a timeline.
  */
-export async function deleteAsset(assetId: string, userId: string): Promise<void> {
-  const asset = await assetRepository.getAssetById(assetId);
+export async function deleteAsset(fileId: string, userId: string): Promise<void> {
+  const asset = await assetRepository.getAssetById(fileId);
   if (!asset || asset.userId !== userId) {
-    throw new NotFoundError(`Asset "${assetId}" not found`);
+    throw new NotFoundError(`Asset "${fileId}" not found`);
   }
 
-  const inUse = await assetRepository.isAssetReferencedByClip(assetId);
+  const inUse = await assetRepository.isAssetReferencedByClip(fileId);
   if (inUse) {
     throw new ConflictError(
-      `Asset "${assetId}" is referenced by one or more clips and cannot be deleted`,
+      `Asset "${fileId}" is referenced by one or more clips and cannot be deleted`,
     );
   }
 
-  await assetRepository.deleteAssetById(assetId);
+  await assetRepository.deleteAssetById(fileId);
 }
 
 /**
@@ -176,29 +176,29 @@ export async function deleteAsset(assetId: string, userId: string): Promise<void
  * trimming is treated as clearing the display name (sets column to null),
  * which causes the UI to fall back to the original filename.
  *
- * @param assetId - Primary key of the asset to rename.
+ * @param fileId - Primary key of the asset to rename.
  * @param userId - ID of the authenticated caller.
  * @param displayName - New display name (1–255 characters, will be trimmed).
  * @returns The updated asset fetched fresh from the database.
  */
 export async function renameAsset(
-  assetId: string,
+  fileId: string,
   userId: string,
   displayName: string,
 ): Promise<Asset> {
-  const asset = await assetRepository.getAssetById(assetId);
+  const asset = await assetRepository.getAssetById(fileId);
   if (!asset || asset.userId !== userId) {
-    throw new NotFoundError(`Asset "${assetId}" not found`);
+    throw new NotFoundError(`Asset "${fileId}" not found`);
   }
 
   const trimmed = displayName.trim();
   // Store null when the trimmed value is empty so the UI falls back to filename.
-  await assetRepository.updateAssetDisplayName(assetId, trimmed || null);
+  await assetRepository.updateAssetDisplayName(fileId, trimmed || null);
 
-  const updated = await assetRepository.getAssetById(assetId);
+  const updated = await assetRepository.getAssetById(fileId);
   // The asset was confirmed above; a null here would be a race-condition DB error.
   if (!updated) {
-    throw new NotFoundError(`Asset "${assetId}" not found after update`);
+    throw new NotFoundError(`Asset "${fileId}" not found after update`);
   }
   return updated;
 }
@@ -222,10 +222,10 @@ export function parseStorageUri(storageUri: string): { bucket: string; key: stri
  *
  * @param s3 - Caller-provided S3Client (allows injection in tests).
  */
-export async function finalizeAsset(assetId: string, s3: S3Client): Promise<Asset> {
-  const asset = await assetRepository.getAssetById(assetId);
+export async function finalizeAsset(fileId: string, s3: S3Client): Promise<Asset> {
+  const asset = await assetRepository.getAssetById(fileId);
   if (!asset) {
-    throw new NotFoundError(`Asset "${assetId}" not found`);
+    throw new NotFoundError(`Asset "${fileId}" not found`);
   }
 
   // Idempotency: already in-flight or done — nothing to do.
@@ -242,16 +242,16 @@ export async function finalizeAsset(assetId: string, s3: S3Client): Promise<Asse
       err instanceof Error && (err.name === 'NotFound' || err.name === 'NoSuchKey');
     if (isNotFound) {
       throw new ValidationError(
-        `Asset "${assetId}" has not been uploaded to storage yet`,
+        `Asset "${fileId}" has not been uploaded to storage yet`,
       );
     }
     throw err;
   }
 
-  await assetRepository.updateAssetStatus(assetId, 'processing');
+  await assetRepository.updateAssetStatus(fileId, 'processing');
 
   await enqueueIngestJob({
-    assetId,
+    fileId,
     storageUri: asset.storageUri,
     contentType: asset.contentType,
   });

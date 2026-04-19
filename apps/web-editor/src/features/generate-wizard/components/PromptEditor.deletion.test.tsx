@@ -117,7 +117,7 @@ describe('PromptEditor chip deletion — 3 chips in a row', () => {
     const last = onChange.mock.calls[onChange.mock.calls.length - 1][0] as PromptDoc;
     const chipIds = last.blocks
       .filter((b) => b.type === 'media-ref')
-      .map((b) => (b as { assetId: string }).assetId);
+      .map((b) => (b as { fileId: string }).fileId);
     expect(chipIds).toContain('a1');
     expect(chipIds).toContain('a2');
     expect(chipIds).not.toContain('a3');
@@ -182,8 +182,8 @@ describe('PromptEditor chip deletion — mixed text + chip + chip + text', () =>
       schemaVersion: 1,
       blocks: [
         { type: 'text', value: 'intro ' },
-        { type: 'media-ref', mediaType: 'video', assetId: 'c1', label: 'vid1' },
-        { type: 'media-ref', mediaType: 'image', assetId: 'c2', label: 'img2' },
+        { type: 'media-ref', mediaType: 'video', fileId: 'c1', label: 'vid1' },
+        { type: 'media-ref', mediaType: 'image', fileId: 'c2', label: 'img2' },
         { type: 'text', value: ' outro' },
       ],
     };
@@ -204,7 +204,7 @@ describe('PromptEditor chip deletion — mixed text + chip + chip + text', () =>
     const last = onChange.mock.calls[onChange.mock.calls.length - 1][0] as PromptDoc;
     const chipIds = last.blocks
       .filter((b) => b.type === 'media-ref')
-      .map((b) => (b as { assetId: string }).assetId);
+      .map((b) => (b as { fileId: string }).fileId);
 
     // c2 should be gone, c1 should remain.
     expect(chipIds).not.toContain('c2');
@@ -220,7 +220,7 @@ describe('PromptEditor chip deletion — mixed text + chip + chip + text', () =>
     const last2 = onChange.mock.calls[onChange.mock.calls.length - 1][0] as PromptDoc;
     const chipIds2 = last2.blocks
       .filter((b) => b.type === 'media-ref')
-      .map((b) => (b as { assetId: string }).assetId);
+      .map((b) => (b as { fileId: string }).fileId);
     expect(chipIds2).not.toContain('c1');
     expect(editor.querySelector('[data-media-ref-id="c1"]')).toBeNull();
   });

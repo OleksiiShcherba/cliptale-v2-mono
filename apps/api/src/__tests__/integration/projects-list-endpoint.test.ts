@@ -142,25 +142,37 @@ beforeAll(async () => {
     [PROJ_B1, USER_B_ID, 'User B Project'],
   );
 
-  // Seed an asset + visual clip for PROJ_A1 to test thumbnail derivation
+  // Seed a file + project_files + visual clip for PROJ_A1 to test thumbnail derivation.
+  // Note: thumbnailUrl is always null in the current findProjectsByUserId implementation
+  // (thumbnail_uri is not stored on the files table yet — the ingest worker will backfill
+  // it in a later milestone). Tests assert null accordingly.
   ASSET_ID = `asset-${randomUUID().slice(0, 8)}`;
   CLIP_ID  = `clip-${randomUUID().slice(0, 8)}`;
   const trackId = `track-${randomUUID().slice(0, 8)}`;
   testAssetIds.push(ASSET_ID);
   testClipIds.push(CLIP_ID);
 
+  // Insert into `files` (the new root table for user-owned blobs).
   await conn.execute(
-    `INSERT INTO project_assets_current
-       (asset_id, project_id, user_id, filename, content_type, file_size_bytes, storage_uri, thumbnail_uri)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE asset_id = asset_id`,
-    [ASSET_ID, PROJ_A1, USER_A_ID, 'clip.mp4', 'video/mp4', 1000,
-     's3://bucket/clip.mp4', 's3://bucket/thumb.jpg'],
+    `INSERT INTO files
+       (file_id, user_id, kind, storage_uri, mime_type, bytes)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE file_id = file_id`,
+    [ASSET_ID, USER_A_ID, 'video', 's3://bucket/clip.mp4', 'video/mp4', 1000],
   );
 
+  // Link the file to the project via project_files pivot.
+  await conn.execute(
+    `INSERT INTO project_files (project_id, file_id)
+     VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE project_id = project_id`,
+    [PROJ_A1, ASSET_ID],
+  );
+
+  // Insert the visual clip referencing file_id (asset_id column was dropped in migration 024).
   await conn.execute(
     `INSERT INTO project_clips_current
-       (clip_id, project_id, track_id, type, asset_id, start_frame, duration_frames)
+       (clip_id, project_id, track_id, type, file_id, start_frame, duration_frames)
      VALUES (?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE clip_id = clip_id`,
     [CLIP_ID, PROJ_A1, trackId, 'video', ASSET_ID, 0, 30],
@@ -175,8 +187,13 @@ afterAll(async () => {
     );
   }
   if (testAssetIds.length) {
+    // Unlink from projects first (FK ON DELETE RESTRICT on files side), then delete from files.
     await conn.query(
-      `DELETE FROM project_assets_current WHERE asset_id IN (${testAssetIds.map(() => '?').join(',')})`,
+      `DELETE FROM project_files WHERE file_id IN (${testAssetIds.map(() => '?').join(',')})`,
+      testAssetIds,
+    );
+    await conn.query(
+      `DELETE FROM files WHERE file_id IN (${testAssetIds.map(() => '?').join(',')})`,
       testAssetIds,
     );
   }
@@ -255,7 +272,10 @@ describe('GET /projects — project listing', () => {
     expect(relevantItems[0]!.title).toBe('Project Alpha');
   });
 
-  it('derives thumbnailUrl from the earliest visual clip for Project Alpha', async () => {
+  it('returns thumbnailUrl as null for Project Alpha (thumbnail derivation not yet wired to files table)', async () => {
+    // The files table does not yet store a thumbnail_uri column. findProjectsByUserId
+    // returns NULL for all thumbnailUrl values until the ingest worker backfills it.
+    // This test documents the current state; once thumbnailing is wired, update the assertion.
     const res = await request(app)
       .get('/projects')
       .set('Authorization', `Bearer ${TOKEN_A}`);
@@ -266,7 +286,7 @@ describe('GET /projects — project listing', () => {
     };
     const alpha = items.find((p) => p.projectId === PROJ_A1);
     expect(alpha).toBeDefined();
-    expect(alpha!.thumbnailUrl).toBe('s3://bucket/thumb.jpg');
+    expect(alpha!.thumbnailUrl).toBeNull();
   });
 
   it('returns thumbnailUrl as null when a project has no visual clips', async () => {

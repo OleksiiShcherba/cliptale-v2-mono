@@ -14,8 +14,8 @@ vi.mock('@/lib/config', () => ({
 // ── Mock TranscribeButton so AssetCard can be tested in isolation ────────────
 
 vi.mock('@/features/captions/components/TranscribeButton', () => ({
-  TranscribeButton: ({ assetId }: { assetId: string }) =>
-    React.createElement('button', { 'data-testid': 'transcribe-button', 'data-asset-id': assetId }, 'Transcribe'),
+  TranscribeButton: ({ fileId }: { fileId: string }) =>
+    React.createElement('button', { 'data-testid': 'transcribe-button', 'data-asset-id': fileId }, 'Transcribe'),
 }));
 
 // ── TranscribeButton visibility tests ─────────────────────────────────────────
@@ -104,7 +104,7 @@ describe('AssetCard / TranscribeButton visibility', () => {
     expect(screen.queryByTestId('transcribe-button')).toBeNull();
   });
 
-  it('passes the correct assetId to TranscribeButton', () => {
+  it('passes the correct fileId to TranscribeButton', () => {
     render(
       <AssetCard
         asset={makeAsset({ id: 'asset-xyz', status: 'ready', contentType: 'video/mp4' })}

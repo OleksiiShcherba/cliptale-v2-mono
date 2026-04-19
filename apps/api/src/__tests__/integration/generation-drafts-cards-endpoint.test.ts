@@ -136,24 +136,24 @@ beforeAll(async () => {
     [`crd-i3-${randomUUID().slice(0, 8)}`, 'image/png'],
     [`crd-i4-${randomUUID().slice(0, 8)}`, 'image/gif'],
   ];
-  for (const [assetId, contentType] of assetData) {
+  for (const [fileId, contentType] of assetData) {
     await conn.execute(
       `INSERT INTO project_assets_current
          (asset_id, project_id, user_id, filename, content_type, file_size_bytes, storage_uri, thumbnail_uri)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE asset_id = asset_id`,
       [
-        assetId,
+        fileId,
         TEST_PROJECT_ID,
         USER_A_ID,
-        `${assetId}.file`,
+        `${fileId}.file`,
         contentType,
         1000,
-        `s3://bucket/${assetId}`,
-        `s3://bucket/${assetId}_thumb.jpg`,
+        `s3://bucket/${fileId}`,
+        `s3://bucket/${fileId}_thumb.jpg`,
       ],
     );
-    seededAssetIds.push(assetId);
+    seededAssetIds.push(fileId);
   }
 
   // The "deleted" asset id — never inserted into project_assets_current
@@ -164,12 +164,12 @@ beforeAll(async () => {
   const longText = 'X'.repeat(200); // will be truncated to 140 in the preview
   const blocksMany = [
     { type: 'text', value: longText },
-    { type: 'media-ref', mediaType: 'video', assetId: assetData[0]![0], label: 'V' },
-    { type: 'media-ref', mediaType: 'image', assetId: assetData[1]![0], label: 'I1' },
-    { type: 'media-ref', mediaType: 'image', assetId: assetData[2]![0], label: 'I2' },
-    { type: 'media-ref', mediaType: 'image', assetId: assetData[3]![0], label: 'I3' },
-    { type: 'media-ref', mediaType: 'image', assetId: assetData[4]![0], label: 'I4' },
-    { type: 'media-ref', mediaType: 'image', assetId: deletedAssetId, label: 'deleted' },
+    { type: 'media-ref', mediaType: 'video', fileId: assetData[0]![0], label: 'V' },
+    { type: 'media-ref', mediaType: 'image', fileId: assetData[1]![0], label: 'I1' },
+    { type: 'media-ref', mediaType: 'image', fileId: assetData[2]![0], label: 'I2' },
+    { type: 'media-ref', mediaType: 'image', fileId: assetData[3]![0], label: 'I3' },
+    { type: 'media-ref', mediaType: 'image', fileId: assetData[4]![0], label: 'I4' },
+    { type: 'media-ref', mediaType: 'image', fileId: deletedAssetId, label: 'deleted' },
   ];
   await conn.execute(
     `INSERT INTO generation_drafts (id, user_id, prompt_doc, status) VALUES (?, ?, ?, ?)`,
@@ -324,7 +324,7 @@ describe('GET /generation-drafts/cards — listing', () => {
         draftId: string;
         status: string;
         textPreview: string;
-        mediaPreviews: Array<{ assetId: string; type: string; thumbnailUrl: string | null }>;
+        mediaPreviews: Array<{ fileId: string; type: string; thumbnailUrl: string | null }>;
         updatedAt: string;
       }>;
     };
@@ -335,9 +335,9 @@ describe('GET /generation-drafts/cards — listing', () => {
     expect(Array.isArray(card!.mediaPreviews)).toBe(true);
     expect(typeof card!.updatedAt).toBe('string');
 
-    // Each mediaPreview must have assetId, type, thumbnailUrl
+    // Each mediaPreview must have fileId, type, thumbnailUrl
     for (const preview of card!.mediaPreviews) {
-      expect(preview).toHaveProperty('assetId');
+      expect(preview).toHaveProperty('fileId');
       expect(preview).toHaveProperty('type');
       expect(preview).toHaveProperty('thumbnailUrl');
     }

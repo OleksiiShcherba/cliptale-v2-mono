@@ -24,7 +24,7 @@ export const TRACK_ROW_HEIGHT = 36;
 export const makeClip = (id: string, startFrame: number, trackId = 'track-001'): Clip => ({
   id,
   type: 'video',
-  assetId: 'asset-001',
+  fileId: 'asset-001',
   trackId,
   startFrame,
   durationFrames: 30,

@@ -55,7 +55,7 @@ export function AssetDetailPanel({ asset, projectId, onDelete, onClose, onReplac
       </div>
 
       {/* Inline-editable display name */}
-      <InlineRenameField assetId={asset.id} projectId={projectId} displayedName={displayedName} />
+      <InlineRenameField fileId={asset.id} projectId={projectId} displayedName={displayedName} />
 
       {/* Metadata row */}
       <div style={s.metadataRow}>
@@ -69,7 +69,7 @@ export function AssetDetailPanel({ asset, projectId, onDelete, onClose, onReplac
         )}
       </div>
 
-      {isAV && <TranscribeButton assetId={asset.id} />}
+      {isAV && <TranscribeButton fileId={asset.id} />}
 
       <div style={{ flex: 1 }} />
 

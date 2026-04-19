@@ -83,9 +83,10 @@ describe('migration 002 — caption_tracks', () => {
       expect(columns['caption_track_id']!['CHARACTER_MAXIMUM_LENGTH']).toBe(36);
 
       // Foreign-key-like identifiers
-      expect(columns['asset_id']!['DATA_TYPE']).toBe('char');
-      expect(columns['asset_id']!['IS_NULLABLE']).toBe('NO');
-      expect(columns['asset_id']!['CHARACTER_MAXIMUM_LENGTH']).toBe(36);
+      // asset_id was renamed to file_id in migration 023/024 (Files-as-Root refactor)
+      expect(columns['file_id']!['DATA_TYPE']).toBe('char');
+      expect(columns['file_id']!['IS_NULLABLE']).toBe('NO');
+      expect(columns['file_id']!['CHARACTER_MAXIMUM_LENGTH']).toBe(36);
 
       expect(columns['project_id']!['DATA_TYPE']).toBe('char');
       expect(columns['project_id']!['IS_NULLABLE']).toBe('NO');
@@ -121,7 +122,7 @@ describe('migration 002 — caption_tracks', () => {
     it('should accept an INSERT with language defaulting to "en"', async () => {
       await conn.query(
         `INSERT INTO caption_tracks
-           (caption_track_id, asset_id, project_id, segments_json)
+           (caption_track_id, file_id, project_id, segments_json)
          VALUES (?, ?, ?, ?)`,
         [
           testTrackId,
@@ -144,7 +145,7 @@ describe('migration 002 — caption_tracks', () => {
 
       await conn.query(
         `INSERT INTO caption_tracks
-           (caption_track_id, asset_id, project_id, language, segments_json)
+           (caption_track_id, file_id, project_id, language, segments_json)
          VALUES (?, ?, ?, ?, ?)`,
         [
           trackId2,
@@ -191,7 +192,7 @@ describe('migration 002 — caption_tracks', () => {
       await expect(
         conn.query(
           `INSERT INTO caption_tracks
-             (caption_track_id, asset_id, project_id, segments_json)
+             (caption_track_id, file_id, project_id, segments_json)
            VALUES (?, ?, ?, NULL)`,
           [randomUUID(), randomUUID(), randomUUID()],
         ),
@@ -200,18 +201,16 @@ describe('migration 002 — caption_tracks', () => {
   });
 
   describe('composite index', () => {
-    it('should have the index idx_caption_tracks_asset_project on (asset_id, project_id)', async () => {
+    it('should NOT have the legacy idx_caption_tracks_asset_project index (dropped in migration 024)', async () => {
+      // Migration 024 (step 8) dropped this index when asset_id was renamed to file_id.
       const [rows] = await conn.query<mysql.RowDataPacket[]>(
-        `SELECT INDEX_NAME, COLUMN_NAME, SEQ_IN_INDEX
+        `SELECT INDEX_NAME
          FROM information_schema.STATISTICS
          WHERE TABLE_SCHEMA = DATABASE()
            AND TABLE_NAME = 'caption_tracks'
-           AND INDEX_NAME = 'idx_caption_tracks_asset_project'
-         ORDER BY SEQ_IN_INDEX`,
+           AND INDEX_NAME = 'idx_caption_tracks_asset_project'`,
       );
-      expect(rows).toHaveLength(2);
-      expect(rows[0]!['COLUMN_NAME']).toBe('asset_id');
-      expect(rows[1]!['COLUMN_NAME']).toBe('project_id');
+      expect(rows).toHaveLength(0);
     });
   });
 });

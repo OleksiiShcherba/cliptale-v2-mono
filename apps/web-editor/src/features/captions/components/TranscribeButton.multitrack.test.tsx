@@ -44,7 +44,7 @@ describe('TranscribeButton / ready state (after transcription flow)', () => {
   });
 
   it('renders "Add Captions to Timeline" label when ready (on mount, no click needed)', () => {
-    render(<TranscribeButton assetId="asset-001" />);
+    render(<TranscribeButton fileId="asset-001" />);
     expect(
       screen.getByRole('button', { name: 'Add Captions to Timeline' }),
     ).toBeDefined();
@@ -54,7 +54,7 @@ describe('TranscribeButton / ready state (after transcription flow)', () => {
     const addCaptionsToTimeline = vi.fn();
     mockUseAddCaptionsToTimeline.mockReturnValue({ addCaptionsToTimeline });
 
-    render(<TranscribeButton assetId="asset-001" />);
+    render(<TranscribeButton fileId="asset-001" />);
     fireEvent.click(screen.getByRole('button', { name: 'Add Captions to Timeline' }));
     expect(addCaptionsToTimeline).toHaveBeenCalledWith(TEST_SEGMENTS);
   });
@@ -71,7 +71,7 @@ describe('TranscribeButton / adding captions to timeline (multiple tracks allowe
     const addCaptionsToTimeline = vi.fn();
     mockUseAddCaptionsToTimeline.mockReturnValue({ addCaptionsToTimeline });
 
-    render(<TranscribeButton assetId="asset-001" />);
+    render(<TranscribeButton fileId="asset-001" />);
     fireEvent.click(screen.getByRole('button', { name: 'Add Captions to Timeline' }));
 
     // Button stays in "ready" state — not disabled — so user can add another track.
@@ -83,7 +83,7 @@ describe('TranscribeButton / adding captions to timeline (multiple tracks allowe
     const addCaptionsToTimeline = vi.fn();
     mockUseAddCaptionsToTimeline.mockReturnValue({ addCaptionsToTimeline });
 
-    render(<TranscribeButton assetId="asset-001" />);
+    render(<TranscribeButton fileId="asset-001" />);
     fireEvent.click(screen.getByRole('button', { name: 'Add Captions to Timeline' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add Captions to Timeline' }));
 

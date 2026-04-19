@@ -38,7 +38,7 @@ export const MEDIA_REF_ORIGINAL: PromptDoc = {
     {
       type: 'media-ref',
       mediaType: 'video',
-      assetId: '00000000-0000-0000-0000-000000000001',
+      fileId: '00000000-0000-0000-0000-000000000001',
       label: 'Rocket Launch',
     },
     { type: 'text', value: ' and then describe the mission.' },
@@ -53,7 +53,7 @@ export const MEDIA_REF_PROPOSED: PromptDoc = {
     {
       type: 'media-ref',
       mediaType: 'video',
-      assetId: '00000000-0000-0000-0000-000000000001',
+      fileId: '00000000-0000-0000-0000-000000000001',
       label: 'Rocket Launch',
     },
     {

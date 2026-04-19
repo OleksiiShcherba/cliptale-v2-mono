@@ -9,23 +9,23 @@ import type { PromptDoc } from '../schemas/promptDoc.schema.js';
 /**
  * Payload for a `media-ingest` job — carries everything the worker needs to process an asset.
  *
- * Either `assetId` (legacy `project_assets_current` row) or `fileId` (new `files` row) must
- * be provided. Workers check which field is present to decide which table to update.
- * Both are allowed simultaneously during the migration window; after Batch 1 is complete
- * and `project_assets_current` is retired, `assetId` will be removed.
+ * One of `fileId` or `assetId` must be provided:
+ * - `fileId` is the primary identifier for the new `files`-table path.
+ * - `assetId` is retained for the AI-generation worker legacy path that writes to `project_assets_current`.
+ * Once the legacy AI-generation path is removed, `assetId` will be deleted from this type.
  */
 export type MediaIngestJobPayload = {
-  /** Legacy asset row ID — for existing `project_assets_current` ingest jobs. */
-  assetId: string;
+  /** New `files` table row ID — the primary identifier; used as the BullMQ jobId for deduplication. */
+  fileId?: string;
   storageUri: string;
   contentType: string;
-  /** New `files` table row ID — present when the upload was initiated via `POST /files/upload-url`. */
-  fileId?: string;
+  /** Legacy asset row ID — only present for `project_assets_current` ingest jobs from the AI generation worker. */
+  assetId?: string;
 };
 
 /** Payload for a `transcription` job — carries everything the worker needs to transcribe an asset via Whisper. */
 export type TranscriptionJobPayload = {
-  assetId: string;
+  fileId: string;
   storageUri: string;
   contentType: string;
   language?: string;

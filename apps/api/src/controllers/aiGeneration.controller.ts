@@ -12,18 +12,12 @@ import { ValidationError } from '@/lib/errors.js';
  * validates `modelId` against the unified `AI_MODELS` catalog (fal + ElevenLabs)
  * and returns the specific error message. Here we only enforce the structural
  * shape.
- *
- * `projectId` is accepted but stripped (compat shim for Batch 1 → Batch 2
- * window). The FE editor currently sends it; the service no longer uses it.
- * Batch 2 Subtask 4 will remove the field from the FE payload.
  */
 export const submitGenerationSchema = z.object({
   modelId: z.string().min(1),
   prompt: z.string().min(1).max(4000).optional(),
   options: z.record(z.unknown()).default({}),
-  // Compat shim: accept but discard projectId sent by the legacy FE panel.
-  projectId: z.string().optional(),
-});
+}).strict();
 
 /** POST /projects/:id/ai/generate — submit a generation request (project-scoped route, compat). */
 export async function submitGeneration(

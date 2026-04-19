@@ -9,7 +9,7 @@ const validTextBlock = { type: 'text', value: 'Hello world' };
 const validMediaRef = {
   type: 'media-ref',
   mediaType: 'video',
-  assetId: '00000000-0000-0000-0000-000000000001',
+  fileId: '00000000-0000-0000-0000-000000000001',
   label: 'My clip',
 };
 
@@ -51,7 +51,7 @@ describe('promptDocSchema', () => {
     expect(result.success === false && JSON.stringify(result.error.issues)).toContain('Invalid');
   });
 
-  it('rejects a media-ref block missing assetId', () => {
+  it('rejects a media-ref block missing fileId', () => {
     const doc = {
       schemaVersion: 1,
       blocks: [{ type: 'media-ref', mediaType: 'video', label: 'My clip' }],
@@ -60,10 +60,10 @@ describe('promptDocSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('rejects a media-ref block with a non-UUID assetId', () => {
+  it('rejects a media-ref block with a non-UUID fileId', () => {
     const doc = {
       schemaVersion: 1,
-      blocks: [{ ...validMediaRef, assetId: 'not-a-uuid' }],
+      blocks: [{ ...validMediaRef, fileId: 'not-a-uuid' }],
     };
     const result = promptDocSchema.safeParse(doc);
     expect(result.success).toBe(false);

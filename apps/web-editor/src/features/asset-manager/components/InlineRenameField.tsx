@@ -6,12 +6,12 @@ import { updateAsset } from '@/features/asset-manager/api';
 import { inlineRenameStyles as s } from './assetDetailPanel.styles';
 
 export interface InlineRenameFieldProps {
-  assetId: string;
+  fileId: string;
   projectId: string;
   displayedName: string;
 }
 
-export function InlineRenameField({ assetId, projectId, displayedName }: InlineRenameFieldProps): React.ReactElement {
+export function InlineRenameField({ fileId, projectId, displayedName }: InlineRenameFieldProps): React.ReactElement {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -48,7 +48,7 @@ export function InlineRenameField({ assetId, projectId, displayedName }: InlineR
     setIsRenaming(true);
     setRenameError(null);
     try {
-      await updateAsset(assetId, trimmed);
+      await updateAsset(fileId, trimmed);
       await queryClient.invalidateQueries({ queryKey: ['assets', projectId] });
       setIsEditing(false);
     } catch {
@@ -56,7 +56,7 @@ export function InlineRenameField({ assetId, projectId, displayedName }: InlineR
     } finally {
       setIsRenaming(false);
     }
-  }, [assetId, editValue, displayedName, projectId, queryClient]);
+  }, [fileId, editValue, displayedName, projectId, queryClient]);
 
   if (isEditing) {
     return (

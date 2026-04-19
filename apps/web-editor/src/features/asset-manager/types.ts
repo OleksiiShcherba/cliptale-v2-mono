@@ -35,7 +35,7 @@ export type UploadUrlRequest = {
 
 /** Response from POST /assets/upload-url. */
 export type UploadUrlResponse = {
-  assetId: string;
+  fileId: string;
   uploadUrl: string;
   /** ISO timestamp after which the presigned URL must be re-requested. */
   expiresAt: string;

@@ -83,11 +83,11 @@ describe('createClipSchema', () => {
   });
 
   describe('optional fields', () => {
-    it('accepts caption type with optional assetId null', () => {
+    it('accepts caption type with optional fileId null', () => {
       const result = createClipSchema.safeParse({
         ...BASE_VALID_BODY,
         type: 'caption',
-        assetId: null,
+        fileId: null,
       });
       expect(result.success).toBe(true);
     });

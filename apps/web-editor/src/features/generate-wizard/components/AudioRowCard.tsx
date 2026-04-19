@@ -55,7 +55,7 @@ export function AudioRowCard({
 
   function handleDragStart(e: React.DragEvent<HTMLButtonElement>): void {
     const payload = JSON.stringify({
-      assetId: asset.id,
+      fileId: asset.id,
       type: asset.type,
       label: asset.label,
     });
@@ -65,7 +65,7 @@ export function AudioRowCard({
     const chipEl = createChipElement({
       type: 'media-ref',
       mediaType: asset.type,
-      assetId: asset.id,
+      fileId: asset.id,
       label: asset.label,
     });
     Object.assign(chipEl.style, {

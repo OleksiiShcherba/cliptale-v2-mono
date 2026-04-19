@@ -250,10 +250,24 @@
   - Reuse audit highlights: `apps/api/src/repositories/project.repository.ts`, `apps/api/src/services/project.service.ts`, `apps/api/src/repositories/generationDraft.repository.ts` (list fn exists), `apps/web-editor/src/main.tsx` (router), `apps/web-editor/src/features/generate-wizard/hooks/useGenerationDraft.ts` (resume target), `apps/web-editor/src/features/asset-manager/components/AssetCard.tsx` (card pattern reference only).
   - Recommended build order: **Start with `[DB] 020 migration`** (unblocks the Projects list slice). Then land `[BE] Projects list slice` and, in parallel, `[BE] Storyboard cards endpoint` (independent). As soon as the API contract is stable, kick off `[FE] HomePage shell + routing`; the two panel tickets (`[FE] Projects panel`, `[FE] Storyboard panel`) can then run in parallel against the real endpoints. `[FE] Wizard resume-draft support` is independent and can slot in any time after the shell lands — ship last so it consumes the Storyboard card deep-link.
 
+---
 
-FEEDBACK:
+GUARDIAN FEEDBACK (Batch 2 of 2 Files-as-Root, 2026-04-19) — user verdict: **BOTH BLOCKING, fix in current phase**:
 
-1. Projects page is not scrollable
-2. Create Storyboad should create new storyboard, and there should be possiblity to reopen it from storyboard page
-3. Project and Storyboard files upload should by default first upload files through general files upload process, that keep files available for specific user through full system, and later once that done, these files can be linked to specific assets on project level or stroryboard level
-4. Add files apload process same as we have on project page into storyboard page, same aswell for AI generation it shoudl also be available on storyboard pages.
+5. **[BLOCKING] Deterministic migration runner infrastructure.** The `INFORMATION_SCHEMA + PREPARE/EXECUTE` guards in migrations 015, 024, 025, 026 silently no-op under `docker-entrypoint-initdb.d` in some conditions — some migrations apply partially, others not at all, on the same container startup. This threatens the "snapshot-per-update + idempotent migrations" guarantee from `general_idea.md §9`. Replace the `docker-entrypoint-initdb.d` hook with a proper runner: create `schema_migrations` table (id, filename, applied_at, checksum); write `apps/api/src/db/migrate.ts` that walks `apps/api/src/db/migrations/*.sql`, checks `schema_migrations`, applies pending in a transaction, records checksum; call it on API boot before Express init. Add unit + integration tests (pending detection, checksum drift, transactional rollback). Must remove reliance on `docker volume rm` workaround.
+
+6. **[BLOCKING] Apply pending migrations to live DB + drop legacy table.** On the current Docker DB, migrations 015 (widen `capability` ENUM to 8 values for ElevenLabs audio), 025 (drop `ai_generation_jobs.project_id`), and 026 (add `ai_generation_jobs.draft_id` + `output_file_id`) never applied. `aiGenerationJob.repository.ts:93-106, 149-190` already writes those columns — any live AI-generate call 500s. Also `project_assets_current` table still exists despite migration 024 step 12 dropping it — two sources of truth for reads. Use the new runner from item 5 to apply 015/025/026 to the live DB; add migration 027: `DROP TABLE IF EXISTS project_assets_current`; add integration test asserting final schema state; remove "wipe-volume workaround" notes from memory.
+
+7. **[BLOCKING] Fix stale tests blocked by Batch 1 refactor.** `apps/api/src/__tests__/integration/migration-002.test.ts:86-92, 121-141` asserts dropped `caption_tracks.asset_id` column — update to `file_id` (5 failing tests). `apps/api/src/__tests__/integration/projects-list-endpoint.test.ts:161-162` and `apps/api/src/__tests__/integration/assets-delete-endpoint.test.ts:93-94` seed `project_clips_current (asset_id, ...)` — column renamed to `file_id` (20 tests blocked at beforeAll). After fix, full API suite must show only ~23 DEV_AUTH_BYPASS-class failures remaining; 14 schema-drift + 5 stale + 6 knock-on + 20 blocked must return to PASS.
+
+---
+
+DEFERRED (non-blocking, can batch later):
+
+8. **Audit DEV_AUTH_BYPASS failure cluster.** 23 tests expect 401 but receive 2xx/409 because the `APP_DEV_AUTH_BYPASS` flag lets requests through. Pick one: (a) delete them (cannot run in dev-bypass mode), (b) gate them with `it.skipIf(process.env.APP_DEV_AUTH_BYPASS === 'true')`, or (c) build a harness that temporarily disables bypass for the auth-contract test block. Leaving them as "known failures" poisons every future guardian review.
+
+9. **DTO rename `assetId` → `fileId` on the wire.** The on-disk model is `files` but API contracts still expose `assetId`. `apps/api/src/controllers/aiGeneration.controller.ts` has a Zod compat shim that silently strips `body.projectId` — every day it stays, risk grows that a consumer bakes it in. Rename the field across `packages/api-contracts/src/openapi.ts`, all controllers, all FE callers; remove the compat shim.
+
+10. **Document new architectural decisions in `general_idea.md`.** Append an "Evolution since 2026-03-29" section covering: storyboard drafts (`generation_drafts` + card surface), files-as-root (user-scoped `files` root + `project_files`/`draft_files` pivots with CASCADE container / RESTRICT file), and the `features/` vs `shared/` split now that `ai-generation` moved to `shared/`. Future guardian reviews need an anchor that matches the codebase.
+
+11. **Clean up working-tree noise.** 15 untracked `docs/test_screenshots/wizard-ai-*.png` and 2 deleted `playwright-screenshots/*.png` leftover from Subtask 7 sweep. Either add to `.gitignore` or commit/delete before next batch starts.

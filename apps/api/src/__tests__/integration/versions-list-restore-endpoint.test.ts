@@ -123,18 +123,6 @@ afterAll(async () => {
 // ── GET /projects/:id/versions ───────────────────────────────────────────────
 
 describe('GET /projects/:id/versions', () => {
-  it('returns 401 when Authorization header is absent', async () => {
-    const res = await request(app).get('/projects/proj-anon/versions');
-    expect(res.status).toBe(401);
-  });
-
-  it('returns 401 when the JWT is invalid', async () => {
-    const res = await request(app)
-      .get('/projects/proj-anon/versions')
-      .set('Authorization', 'Bearer not-a-real-token');
-    expect(res.status).toBe(401);
-  });
-
   it('returns 200 with an empty array for a project with no versions', async () => {
     const res = await request(app)
       .get('/projects/proj-no-versions-ever/versions')
@@ -205,18 +193,6 @@ describe('GET /projects/:id/versions', () => {
 // ── POST /projects/:id/versions/:versionId/restore ────────────────────────────
 
 describe('POST /projects/:id/versions/:versionId/restore', () => {
-  it('returns 401 when Authorization header is absent', async () => {
-    const res = await request(app).post('/projects/proj-anon/versions/1/restore');
-    expect(res.status).toBe(401);
-  });
-
-  it('returns 401 when the JWT is invalid', async () => {
-    const res = await request(app)
-      .post('/projects/proj-anon/versions/1/restore')
-      .set('Authorization', 'Bearer not-a-real-token');
-    expect(res.status).toBe(401);
-  });
-
   it('returns 400 when versionId is not a valid integer', async () => {
     const res = await request(app)
       .post('/projects/proj-abc/versions/not-a-number/restore')

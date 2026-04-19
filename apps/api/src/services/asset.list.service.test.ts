@@ -102,7 +102,7 @@ describe('asset.list.service / listForUser', () => {
 
     it('builds a thumbnail proxy URL when thumbnailUri is set', async () => {
       mockFindReady.mockResolvedValueOnce([
-        makeAsset({ assetId: 'asset-abc', thumbnailUri: 's3://bucket/thumb.jpg' }),
+        makeAsset({ fileId: 'asset-abc', thumbnailUri: 's3://bucket/thumb.jpg' }),
       ]);
 
       const result = await listForUser({
@@ -160,8 +160,8 @@ describe('asset.list.service / listForUser', () => {
 
     it('maps MIME prefix to the correct enum bucket for images and audio', async () => {
       mockFindReady.mockResolvedValueOnce([
-        makeAsset({ assetId: 'a1', contentType: 'image/png' }),
-        makeAsset({ assetId: 'a2', contentType: 'audio/mpeg' }),
+        makeAsset({ fileId: 'a1', contentType: 'image/png' }),
+        makeAsset({ fileId: 'a2', contentType: 'audio/mpeg' }),
       ]);
 
       const result = await listForUser({

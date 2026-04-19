@@ -81,7 +81,7 @@ describe('caption.service', () => {
       await transcribeAsset('file-001');
 
       expect(enqueueTranscriptionJob).toHaveBeenCalledWith({
-        assetId: 'file-001',
+        fileId: 'file-001',
         storageUri: mockFile.storageUri,
         contentType: 'video/mp4',
         language: 'en',

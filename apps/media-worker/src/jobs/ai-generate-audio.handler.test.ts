@@ -97,7 +97,7 @@ describe('processElevenLabsCapability / text_to_speech', () => {
 
     expect(jobName).toBe('ingest');
     expect((ingestPayload as Record<string, unknown>).contentType).toBe('audio/mpeg');
-    expect((ingestPayload as Record<string, unknown>).assetId).toBeDefined();
+    expect((ingestPayload as Record<string, unknown>).fileId).toBeDefined();
     expect((ingestPayload as Record<string, unknown>).storageUri).toBeDefined();
     expect(typeof (opts as Record<string, unknown>).removeOnComplete).toBe('boolean');
   });

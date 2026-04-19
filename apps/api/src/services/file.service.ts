@@ -141,9 +141,7 @@ export async function finalizeFile(
   }
 
   await fileRepository.finalize({ fileId, mimeType: file.mimeType ?? '' });
-  // assetId is required by the legacy payload type; reuse fileId as the BullMQ jobId
-  // so deduplication still works. The worker checks `fileId` first.
-  await enqueueIngestJob({ assetId: fileId, fileId, storageUri: file.storageUri, contentType: file.mimeType ?? '' });
+  await enqueueIngestJob({ fileId, storageUri: file.storageUri, contentType: file.mimeType ?? '' });
   return { ...file, status: 'processing' };
 }
 

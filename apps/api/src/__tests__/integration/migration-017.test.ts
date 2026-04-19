@@ -80,25 +80,25 @@ afterAll(async () => {
 async function insertAsset(
   overrides: Partial<{ displayName: string | null }> = {},
 ): Promise<string> {
-  const assetId = randomUUID();
-  testAssetIds.push(assetId);
+  const fileId = randomUUID();
+  testAssetIds.push(fileId);
 
   await conn.query(
     `INSERT INTO project_assets_current
        (asset_id, project_id, user_id, filename, display_name, content_type, file_size_bytes, storage_uri)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      assetId,
+      fileId,
       randomUUID(),
       randomUUID(),
       'original-filename.mp4',
       overrides.displayName ?? null,
       'video/mp4',
       1024,
-      `s3://test-bucket/${assetId}/original-filename.mp4`,
+      `s3://test-bucket/${fileId}/original-filename.mp4`,
     ],
   );
-  return assetId;
+  return fileId;
 }
 
 describe('migration 017 — display_name column existence', () => {
@@ -143,20 +143,20 @@ describe('migration 017 — display_name column existence', () => {
 
 describe('migration 017 — INSERT behaviour', () => {
   it('should accept NULL as the display_name value', async () => {
-    const assetId = await insertAsset({ displayName: null });
+    const fileId = await insertAsset({ displayName: null });
     const [rows] = await conn.query<mysql.RowDataPacket[]>(
       'SELECT display_name FROM project_assets_current WHERE asset_id = ?',
-      [assetId],
+      [fileId],
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]!['display_name']).toBeNull();
   });
 
   it('should accept a non-null display_name string', async () => {
-    const assetId = await insertAsset({ displayName: 'My Favourite Clip' });
+    const fileId = await insertAsset({ displayName: 'My Favourite Clip' });
     const [rows] = await conn.query<mysql.RowDataPacket[]>(
       'SELECT display_name FROM project_assets_current WHERE asset_id = ?',
-      [assetId],
+      [fileId],
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]!['display_name']).toBe('My Favourite Clip');
@@ -164,37 +164,37 @@ describe('migration 017 — INSERT behaviour', () => {
 
   it('should accept a display_name at the maximum length of 255 characters', async () => {
     const longName = 'A'.repeat(255);
-    const assetId = await insertAsset({ displayName: longName });
+    const fileId = await insertAsset({ displayName: longName });
     const [rows] = await conn.query<mysql.RowDataPacket[]>(
       'SELECT display_name FROM project_assets_current WHERE asset_id = ?',
-      [assetId],
+      [fileId],
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]!['display_name']).toBe(longName);
   });
 
   it('should allow UPDATE of display_name on an existing row', async () => {
-    const assetId = await insertAsset({ displayName: null });
+    const fileId = await insertAsset({ displayName: null });
     await conn.query(
       'UPDATE project_assets_current SET display_name = ? WHERE asset_id = ?',
-      ['Renamed Asset', assetId],
+      ['Renamed Asset', fileId],
     );
     const [rows] = await conn.query<mysql.RowDataPacket[]>(
       'SELECT display_name FROM project_assets_current WHERE asset_id = ?',
-      [assetId],
+      [fileId],
     );
     expect(rows[0]!['display_name']).toBe('Renamed Asset');
   });
 
   it('should allow UPDATE of display_name back to NULL', async () => {
-    const assetId = await insertAsset({ displayName: 'Some Name' });
+    const fileId = await insertAsset({ displayName: 'Some Name' });
     await conn.query(
       'UPDATE project_assets_current SET display_name = NULL WHERE asset_id = ?',
-      [assetId],
+      [fileId],
     );
     const [rows] = await conn.query<mysql.RowDataPacket[]>(
       'SELECT display_name FROM project_assets_current WHERE asset_id = ?',
-      [assetId],
+      [fileId],
     );
     expect(rows[0]!['display_name']).toBeNull();
   });

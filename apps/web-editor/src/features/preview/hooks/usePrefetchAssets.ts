@@ -13,8 +13,8 @@ import { prefetch } from 'remotion';
  * Cleanup revokes blob URLs on unmount or when the input URLs change, preventing
  * memory leaks for assets that are no longer in the project.
  *
- * @param streamUrls - Stable map from assetId to stream URL (keyed by assetId).
- * @returns Map from assetId to blob URL (or stream URL if not yet resolved).
+ * @param streamUrls - Stable map from fileId to stream URL (keyed by fileId).
+ * @returns Map from fileId to blob URL (or stream URL if not yet resolved).
  */
 export function usePrefetchAssets(streamUrls: Record<string, string>): Record<string, string> {
   const [blobUrls, setBlobUrls] = useState<Record<string, string>>({});
@@ -29,13 +29,13 @@ export function usePrefetchAssets(streamUrls: Record<string, string>): Record<st
     let isMounted = true;
     const cleanups: Array<() => void> = [];
 
-    entries.forEach(([assetId, streamUrl]) => {
+    entries.forEach(([fileId, streamUrl]) => {
       const { free, waitUntilDone } = prefetch(streamUrl, { method: 'blob-url' });
       cleanups.push(free);
       void waitUntilDone()
         .then((blobUrl) => {
           if (isMounted) {
-            setBlobUrls((prev) => ({ ...prev, [assetId]: blobUrl }));
+            setBlobUrls((prev) => ({ ...prev, [fileId]: blobUrl }));
           }
         })
         .catch(() => {

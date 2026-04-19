@@ -26,17 +26,17 @@ export type UseTranscriptionStatusResult = {
  * - `error`  — API returned a non-404 error.
  * - `idle`   — API returned 404 (no captions yet).
  *
- * Pass `null` for `assetId` to disable the query entirely.
+ * Pass `null` for `fileId` to disable the query entirely.
  * Pass `pollingEnabled = true` to start the 3-second poll loop.
  */
 export function useTranscriptionStatus(
-  assetId: string | null,
+  fileId: string | null,
   pollingEnabled = false,
 ): UseTranscriptionStatusResult {
   const { data, isError, isFetching } = useQuery({
-    queryKey: ['captions', assetId],
-    queryFn: () => getCaptions(assetId!),
-    enabled: assetId !== null,
+    queryKey: ['captions', fileId],
+    queryFn: () => getCaptions(fileId!),
+    enabled: fileId !== null,
     // Poll only when the caller has started transcription; otherwise one-shot.
     refetchInterval: (query) => {
       if (!pollingEnabled) return false;

@@ -30,7 +30,7 @@ if (typeof PointerEvent === 'undefined') {
 const makeClip = (id: string, startFrame: number, durationFrames = 60): Clip => ({
   id,
   type: 'video',
-  assetId: 'asset-001',
+  fileId: 'asset-001',
   trackId: 'track-001',
   startFrame,
   durationFrames,

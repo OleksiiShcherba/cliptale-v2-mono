@@ -117,7 +117,7 @@ describe('asset.repository — updateAssetDisplayName', () => {
     expect(params[0]).toBeNull();
   });
 
-  it('scopes the UPDATE to the given assetId', async () => {
+  it('scopes the UPDATE to the given fileId', async () => {
     mockExecute.mockResolvedValueOnce([{ affectedRows: 0 } as ResultSetHeader, []]);
 
     await updateAssetDisplayName('target-asset-id', 'A Name');

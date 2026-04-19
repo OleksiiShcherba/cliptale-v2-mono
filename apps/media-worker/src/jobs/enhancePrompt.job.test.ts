@@ -25,14 +25,14 @@ import {
 const MEDIA_VIDEO = {
   type: 'media-ref' as const,
   mediaType: 'video' as const,
-  assetId: 'a1b2c3d4-0000-0000-0000-000000000001',
+  fileId: 'a1b2c3d4-0000-0000-0000-000000000001',
   label: 'Clip A',
 };
 
 const MEDIA_IMAGE = {
   type: 'media-ref' as const,
   mediaType: 'image' as const,
-  assetId: 'a1b2c3d4-0000-0000-0000-000000000002',
+  fileId: 'a1b2c3d4-0000-0000-0000-000000000002',
   label: 'Photo B',
 };
 

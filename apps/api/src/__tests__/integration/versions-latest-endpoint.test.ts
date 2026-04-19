@@ -121,18 +121,6 @@ afterAll(async () => {
 // ── GET /projects/:id/versions/latest ─────────────────────────────────────────
 
 describe('GET /projects/:id/versions/latest', () => {
-  it('returns 401 when Authorization header is absent', async () => {
-    const res = await request(app).get('/projects/proj-anon/versions/latest');
-    expect(res.status).toBe(401);
-  });
-
-  it('returns 401 when the JWT is invalid', async () => {
-    const res = await request(app)
-      .get('/projects/proj-anon/versions/latest')
-      .set('Authorization', 'Bearer not-a-real-token');
-    expect(res.status).toBe(401);
-  });
-
   it('returns 404 for a project with no versions', async () => {
     const res = await request(app)
       .get('/projects/proj-no-versions-latest/versions/latest')

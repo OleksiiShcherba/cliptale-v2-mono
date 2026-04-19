@@ -135,13 +135,13 @@ describe('useRemotionPlayer', () => {
       expect(result.current.assetUrls).toEqual({});
     });
 
-    it('passes one query per unique assetId in video and audio clips', () => {
+    it('passes one query per unique fileId in video and audio clips', () => {
       const doc = makeProjectDoc({
         clips: [
           {
             id: 'c1',
             type: 'video',
-            assetId: 'asset-a',
+            fileId: 'asset-a',
             trackId: 't1',
             startFrame: 0,
             durationFrames: 30,
@@ -149,7 +149,7 @@ describe('useRemotionPlayer', () => {
           {
             id: 'c2',
             type: 'audio',
-            assetId: 'asset-b',
+            fileId: 'asset-b',
             trackId: 't2',
             startFrame: 0,
             durationFrames: 30,
@@ -161,7 +161,7 @@ describe('useRemotionPlayer', () => {
 
       renderHook(() => useRemotionPlayer());
 
-      // useQueries should be called with 2 queries (one per assetId)
+      // useQueries should be called with 2 queries (one per fileId)
       expect(mockUseQueries).toHaveBeenCalledWith(
         expect.objectContaining({
           queries: expect.arrayContaining([
@@ -172,11 +172,11 @@ describe('useRemotionPlayer', () => {
       );
     });
 
-    it('deduplicates clips sharing the same assetId', () => {
+    it('deduplicates clips sharing the same fileId', () => {
       const doc = makeProjectDoc({
         clips: [
-          { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 10 },
-          { id: 'c2', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 10, durationFrames: 10 },
+          { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 10 },
+          { id: 'c2', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 10, durationFrames: 10 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
@@ -194,7 +194,7 @@ describe('useRemotionPlayer', () => {
           {
             id: 'c1',
             type: 'image',
-            assetId: 'asset-img',
+            fileId: 'asset-img',
             trackId: 't1',
             startFrame: 0,
             durationFrames: 30,
@@ -236,7 +236,7 @@ describe('useRemotionPlayer', () => {
     it('builds assetUrls map using the API stream URL (never a raw s3:// URI)', () => {
       const doc = makeProjectDoc({
         clips: [
-          { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+          { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
@@ -259,7 +259,7 @@ describe('useRemotionPlayer', () => {
       localStorage.setItem('auth_token', 'test-auth-token-123');
       const doc = makeProjectDoc({
         clips: [
-          { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+          { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
@@ -282,7 +282,7 @@ describe('useRemotionPlayer', () => {
 
       const doc = makeProjectDoc({
         clips: [
-          { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+          { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
@@ -302,7 +302,7 @@ describe('useRemotionPlayer', () => {
     it('stream URL uses the configured apiBaseUrl', () => {
       const doc = makeProjectDoc({
         clips: [
-          { id: 'c1', type: 'video', assetId: 'asset-xyz', trackId: 't1', startFrame: 0, durationFrames: 30 },
+          { id: 'c1', type: 'video', fileId: 'asset-xyz', trackId: 't1', startFrame: 0, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
@@ -322,7 +322,7 @@ describe('useRemotionPlayer', () => {
     it('stream URL does not contain s3:// scheme', () => {
       const doc = makeProjectDoc({
         clips: [
-          { id: 'c1', type: 'video', assetId: 'asset-b', trackId: 't1', startFrame: 0, durationFrames: 30 },
+          { id: 'c1', type: 'video', fileId: 'asset-b', trackId: 't1', startFrame: 0, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
@@ -344,7 +344,7 @@ describe('useRemotionPlayer', () => {
     it('omits assets with status pending (not yet ready)', () => {
       const doc = makeProjectDoc({
         clips: [
-          { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+          { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
@@ -360,7 +360,7 @@ describe('useRemotionPlayer', () => {
     it('omits assets with status processing', () => {
       const doc = makeProjectDoc({
         clips: [
-          { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+          { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
@@ -376,7 +376,7 @@ describe('useRemotionPlayer', () => {
     it('omits assets whose query is still loading', () => {
       const doc = makeProjectDoc({
         clips: [
-          { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+          { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
@@ -398,7 +398,7 @@ describe('useRemotionPlayer', () => {
       // redundant prefetch cycle.
       const doc = makeProjectDoc({
         clips: [
-          { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+          { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
@@ -420,8 +420,8 @@ describe('useRemotionPlayer', () => {
     it('returns a new assetUrls reference when a new asset becomes ready', () => {
       const doc = makeProjectDoc({
         clips: [
-          { id: 'c1', type: 'video', assetId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
-          { id: 'c2', type: 'video', assetId: 'asset-b', trackId: 't1', startFrame: 30, durationFrames: 30 },
+          { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+          { id: 'c2', type: 'video', fileId: 'asset-b', trackId: 't1', startFrame: 30, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);

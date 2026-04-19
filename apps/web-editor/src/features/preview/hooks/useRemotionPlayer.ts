@@ -25,7 +25,7 @@ type UseRemotionPlayerResult = {
  * Remotion <Player>.
  *
  * Asset URL fetching is batched using `useQueries` — one query per unique
- * assetId found across all clips. The resulting map is keyed by assetId.
+ * fileId found across all clips. The resulting map is keyed by fileId.
  */
 export function useRemotionPlayer(): UseRemotionPlayerResult {
   const playerRef = useRef<PlayerRef | null>(null);
@@ -33,42 +33,42 @@ export function useRemotionPlayer(): UseRemotionPlayerResult {
   const projectDoc = useSyncExternalStore(subscribeProject, getProjectSnapshot);
   const ephemeral = useSyncExternalStore(subscribeEphemeral, getEphemeralSnapshot);
 
-  // Collect unique assetIds from media clips — text-overlay clips have no asset.
-  const assetIds = Array.from(
+  // Collect unique fileIds from media clips — text-overlay clips have no asset.
+  const fileIds = Array.from(
     new Set(
       projectDoc.clips
         .filter((clip) => clip.type === 'video' || clip.type === 'audio' || clip.type === 'image')
-        .map((clip) => (clip as { assetId: string }).assetId),
+        .map((clip) => (clip as { fileId: string }).fileId),
     ),
   );
 
   const assetResults = useQueries({
-    queries: assetIds.map((assetId) => ({
-      queryKey: ['asset', assetId] as const,
-      queryFn: () => getAsset(assetId),
+    queries: fileIds.map((fileId) => ({
+      queryKey: ['asset', fileId] as const,
+      queryFn: () => getAsset(fileId),
       // Assets that have been fetched once are stable — stale for 5 min.
       staleTime: 5 * 60 * 1000,
     })),
   });
 
-  // Stable key: changes only when the set of ready asset IDs changes.
+  // Stable key: changes only when the set of ready file IDs changes.
   // Prevents assetUrls from getting a new reference on every render,
   // which would otherwise cause unnecessary prefetch re-runs downstream.
-  const readyAssetIds = assetResults
-    .map((r, i) => (r.data?.status === 'ready' ? assetIds[i] : null))
+  const readyFileIds = assetResults
+    .map((r, i) => (r.data?.status === 'ready' ? fileIds[i] : null))
     .filter((id): id is string => id !== null)
     .join(',');
 
-  // Build the assetId → URL map from successfully-loaded assets.
+  // Build the fileId → URL map from successfully-loaded assets.
   // Assets still loading are omitted — the layer will receive an empty src.
   // The API stream endpoint is used so the browser never receives a raw s3:// URI.
   const assetUrls = useMemo(() => {
     const urls: AssetUrls = {};
-    readyAssetIds.split(',').filter(Boolean).forEach((assetId) => {
-      urls[assetId] = buildAuthenticatedUrl(`${config.apiBaseUrl}/assets/${assetId}/stream`);
+    readyFileIds.split(',').filter(Boolean).forEach((fileId) => {
+      urls[fileId] = buildAuthenticatedUrl(`${config.apiBaseUrl}/assets/${fileId}/stream`);
     });
     return urls;
-  }, [readyAssetIds]);
+  }, [readyFileIds]);
 
   return {
     projectDoc,

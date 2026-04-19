@@ -6,3 +6,8 @@ dist/
 *.tsbuildinfo
 coverage/
 .turbo/
+
+# Transient QA artefacts
+docs/test_screenshots/
+playwright-screenshots/
+playwright-review-temp.js

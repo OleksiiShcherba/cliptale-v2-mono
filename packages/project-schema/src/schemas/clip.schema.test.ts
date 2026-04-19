@@ -5,7 +5,7 @@ import { clipSchema, videoClipSchema, audioClipSchema, textOverlayClipSchema, im
 const baseVideoClip = {
   id: '00000000-0000-0000-0000-000000000001',
   type: 'video' as const,
-  assetId: '00000000-0000-0000-0000-000000000002',
+  fileId: '00000000-0000-0000-0000-000000000002',
   trackId: '00000000-0000-0000-0000-000000000003',
   startFrame: 0,
   durationFrames: 90,
@@ -14,7 +14,7 @@ const baseVideoClip = {
 const baseAudioClip = {
   id: '00000000-0000-0000-0000-000000000001',
   type: 'audio' as const,
-  assetId: '00000000-0000-0000-0000-000000000002',
+  fileId: '00000000-0000-0000-0000-000000000002',
   trackId: '00000000-0000-0000-0000-000000000003',
   startFrame: 0,
   durationFrames: 90,
@@ -152,7 +152,7 @@ describe('textOverlayClipSchema', () => {
 const baseImageClip = {
   id: '00000000-0000-0000-0000-000000000001',
   type: 'image' as const,
-  assetId: '00000000-0000-0000-0000-000000000002',
+  fileId: '00000000-0000-0000-0000-000000000002',
   trackId: '00000000-0000-0000-0000-000000000003',
   startFrame: 0,
   durationFrames: 150,

@@ -21,7 +21,7 @@ vi.mock('@/store/project-store.js', () => ({
 
 function makeVideoClip(overrides: Partial<{
   id: string;
-  assetId: string;
+  fileId: string;
   trackId: string;
   startFrame: number;
   durationFrames: number;
@@ -32,7 +32,7 @@ function makeVideoClip(overrides: Partial<{
   return {
     id: 'clip-1',
     type: 'video' as const,
-    assetId: 'asset-1',
+    fileId: 'asset-1',
     trackId: 'track-1',
     startFrame: 0,
     durationFrames: 150,

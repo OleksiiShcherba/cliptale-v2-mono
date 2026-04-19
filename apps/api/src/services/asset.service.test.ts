@@ -41,11 +41,11 @@ describe('asset.service', () => {
       vi.clearAllMocks();
     });
 
-    it('returns uploadUrl, assetId, storageUri, and expiresAt for a valid request', async () => {
+    it('returns uploadUrl, fileId, storageUri, and expiresAt for a valid request', async () => {
       const result = await createUploadUrl(baseParams, mockS3, TEST_BUCKET);
 
       expect(result.uploadUrl).toBe('https://s3.example.com/presigned-url');
-      expect(result.assetId).toMatch(
+      expect(result.fileId).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
       );
       expect(result.storageUri).toContain(`s3://${TEST_BUCKET}/projects/${baseParams.projectId}`);
@@ -63,7 +63,7 @@ describe('asset.service', () => {
       expect(insertCall.filename).toBe('my-video.mp4');
       expect(insertCall.contentType).toBe('video/mp4');
       expect(insertCall.fileSizeBytes).toBe(baseParams.fileSizeBytes);
-      expect(insertCall.storageUri).toContain(insertCall.assetId);
+      expect(insertCall.storageUri).toContain(insertCall.fileId);
     });
 
     it('throws ValidationError for a disallowed content type', async () => {
@@ -156,7 +156,7 @@ describe('asset.service', () => {
 
     it('returns the asset when it exists', async () => {
       const mockAsset = {
-        assetId: 'asset-abc',
+        fileId: 'asset-abc',
         projectId: 'proj-123',
         userId: 'user-456',
         filename: 'video.mp4',
@@ -199,7 +199,7 @@ describe('asset.service', () => {
     it('returns an array of assets when assets exist for the project', async () => {
       const mockAssets = [
         {
-          assetId: 'asset-001',
+          fileId: 'asset-001',
           projectId: 'proj-abc',
           userId: 'user-1',
           filename: 'a.mp4',

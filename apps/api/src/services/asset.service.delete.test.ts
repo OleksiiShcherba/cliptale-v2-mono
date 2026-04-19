@@ -25,7 +25,7 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
 describe('asset.service', () => {
   describe('deleteAsset', () => {
     const mockAsset = {
-      assetId: 'asset-del-001',
+      fileId: 'asset-del-001',
       projectId: 'proj-123',
       userId: 'user-456',
       filename: 'to-delete.mp4',

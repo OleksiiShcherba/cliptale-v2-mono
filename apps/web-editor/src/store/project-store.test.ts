@@ -74,7 +74,7 @@ describe('project-store', () => {
       const clip: Clip = {
         id: '00000000-0000-0000-0000-000000000099',
         type: 'video',
-        assetId: '00000000-0000-0000-0000-000000000098',
+        fileId: '00000000-0000-0000-0000-000000000098',
         trackId: '00000000-0000-0000-0000-000000000097',
         startFrame: 0,
         durationFrames: 600,

@@ -6,4 +6,5 @@
 - [Project: Home Hub EPIC progress](project_home_hub_epic.md) — EPIC Home hub; ALL 7 subtasks complete (2026-04-17)
 - [Project: UX Feedback Batch progress](project_ux_feedback_batch.md) — Editor+Wizard UX batch; ALL 6 subtasks COMPLETE (2026-04-17)
 - [Project: Files-as-root Batch 1 progress](project_files_as_root_batch1.md) — Files-as-root BATCH 1 (8 subtasks); ALL 8 subtasks COMPLETE (2026-04-18)
-- [Project: Files-as-root Batch 2 progress](project_files_as_root_batch2.md) — Files-as-root BATCH 2 (7 subtasks); Subtasks 1-6 COMPLETE (2026-04-18), 1 remaining (7)
+- [Project: Files-as-root Batch 2 progress](project_files_as_root_batch2.md) — Files-as-root BATCH 2 (7 subtasks); ALL 7 subtasks COMPLETE (2026-04-18)
+- [Project: Guardian Batch-2 progress](project_guardian_batch2.md) — Guardian Batch-2 Feedback Cleanup; ALL 7 subtasks COMPLETE (2026-04-19)

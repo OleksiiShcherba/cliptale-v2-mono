@@ -98,10 +98,10 @@ describe('StoryboardCard', () => {
   it('should render at most 3 media preview thumbs even if more are provided', () => {
     const card = makeCard({
       mediaPreviews: [
-        { assetId: 'a1', type: 'video', thumbnailUrl: 'https://example.com/1.jpg' },
-        { assetId: 'a2', type: 'video', thumbnailUrl: 'https://example.com/2.jpg' },
-        { assetId: 'a3', type: 'video', thumbnailUrl: 'https://example.com/3.jpg' },
-        { assetId: 'a4', type: 'image', thumbnailUrl: 'https://example.com/4.jpg' },
+        { fileId: 'a1', type: 'video', thumbnailUrl: 'https://example.com/1.jpg' },
+        { fileId: 'a2', type: 'video', thumbnailUrl: 'https://example.com/2.jpg' },
+        { fileId: 'a3', type: 'video', thumbnailUrl: 'https://example.com/3.jpg' },
+        { fileId: 'a4', type: 'image', thumbnailUrl: 'https://example.com/4.jpg' },
       ],
     });
     renderCard(card);
@@ -112,7 +112,7 @@ describe('StoryboardCard', () => {
   it('should render placeholder SVG when thumbnailUrl is null', () => {
     const card = makeCard({
       mediaPreviews: [
-        { assetId: 'a1', type: 'video', thumbnailUrl: null },
+        { fileId: 'a1', type: 'video', thumbnailUrl: null },
       ],
     });
     renderCard(card);
@@ -126,7 +126,7 @@ describe('StoryboardCard', () => {
   it('should render an img element when thumbnailUrl is provided', () => {
     const card = makeCard({
       mediaPreviews: [
-        { assetId: 'a1', type: 'video', thumbnailUrl: 'https://example.com/thumb.jpg' },
+        { fileId: 'a1', type: 'video', thumbnailUrl: 'https://example.com/thumb.jpg' },
       ],
     });
     renderCard(card);

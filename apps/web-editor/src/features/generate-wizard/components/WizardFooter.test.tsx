@@ -57,7 +57,7 @@ const DOC_WITH_TEXT: PromptDoc = {
 
 const DOC_WITH_MEDIA: PromptDoc = {
   schemaVersion: 1,
-  blocks: [{ type: 'media-ref', assetId: '00000000-0000-0000-0000-000000000001', mediaType: 'video', label: 'clip.mp4' }],
+  blocks: [{ type: 'media-ref', fileId: '00000000-0000-0000-0000-000000000001', mediaType: 'video', label: 'clip.mp4' }],
 };
 
 function makeQueryClient() {

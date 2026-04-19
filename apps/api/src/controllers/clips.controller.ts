@@ -6,16 +6,14 @@ import * as clipService from '@/services/clip.service.js';
 /**
  * Zod schema for POST /projects/:id/clips request body.
  *
- * Wire-level field naming: `assetId` is kept for Batch 1 FE compatibility.
- * The controller maps `assetId` → `fileId` before calling the service.
- * A rename to `fileId` on the wire is deferred to Batch 2.
+ * Wire-level field naming: `fileId` matches the on-disk model (`file_id` column).
  */
 export const createClipSchema = z.object({
   clipId: z.string().uuid(),
   trackId: z.string().uuid(),
   type: z.enum(['video', 'audio', 'text-overlay', 'image', 'caption']),
-  /** Wire-level name kept for FE compat (Batch 1). Maps to `file_id` in the DB. */
-  assetId: z.string().uuid().nullable().optional(),
+  /** Maps to `file_id` in the DB and `fileId` in the project document model. */
+  fileId: z.string().uuid().nullable().optional(),
   startFrame: z.number().int().nonnegative(),
   durationFrames: z.number().int().positive(),
   trimInFrames: z.number().int().nonnegative().optional(),
@@ -43,8 +41,7 @@ export async function createClip(
       projectId: req.params['id']!,
       trackId: body.trackId,
       type: body.type,
-      // Map wire-level `assetId` → service-level `fileId`
-      fileId: body.assetId ?? null,
+      fileId: body.fileId ?? null,
       startFrame: body.startFrame,
       durationFrames: body.durationFrames,
       trimInFrames: body.trimInFrames,

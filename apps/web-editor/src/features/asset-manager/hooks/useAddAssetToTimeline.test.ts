@@ -96,7 +96,7 @@ describe('useAddAssetToTimeline / addAssetToNewTrack', () => {
     expect(updated.clips[0]!.type).toBe('video');
     expect(updated.clips[0]!.durationFrames).toBe(300); // 10s * 30fps
     expect(updated.clips[0]!.startFrame).toBe(0);
-    expect(updated.clips[0]!.assetId).toBe('asset-001');
+    expect(updated.clips[0]!.fileId).toBe('asset-001');
     expect(updated.clips[0]!.trackId).toBe(updated.tracks[0]!.id);
   });
 
@@ -214,7 +214,7 @@ describe('useAddAssetToTimeline / addAssetToExistingTrack', () => {
     const trackId = 'track-001';
     const existingTrack: Track = { id: trackId, type: 'video', name: 'Main', muted: false, locked: false };
     const existingClip: Clip = {
-      id: 'clip-existing', type: 'video', assetId: 'a1', trackId,
+      id: 'clip-existing', type: 'video', fileId: 'a1', trackId,
       startFrame: 0, durationFrames: 120, trimInFrame: 0, opacity: 1, volume: 1,
     };
     mockGetSnapshot.mockReturnValue(makeProject({ tracks: [existingTrack], clips: [existingClip] }));
@@ -231,8 +231,8 @@ describe('useAddAssetToTimeline / addAssetToExistingTrack', () => {
     const trackId = 'track-001';
     const track: Track = { id: trackId, type: 'video', name: 'Main', muted: false, locked: false };
     const clips: Clip[] = [
-      { id: 'a', type: 'video', assetId: 'a1', trackId, startFrame: 0, durationFrames: 200, trimInFrame: 0, opacity: 1, volume: 1 },
-      { id: 'b', type: 'video', assetId: 'a2', trackId, startFrame: 50, durationFrames: 100, trimInFrame: 0, opacity: 1, volume: 1 },
+      { id: 'a', type: 'video', fileId: 'a1', trackId, startFrame: 0, durationFrames: 200, trimInFrame: 0, opacity: 1, volume: 1 },
+      { id: 'b', type: 'video', fileId: 'a2', trackId, startFrame: 50, durationFrames: 100, trimInFrame: 0, opacity: 1, volume: 1 },
     ];
     mockGetSnapshot.mockReturnValue(makeProject({ tracks: [track], clips }));
 
@@ -249,7 +249,7 @@ describe('useAddAssetToTimeline / addAssetToExistingTrack', () => {
     const videoTrack: Track = { id: videoTrackId, type: 'video', name: 'Main', muted: false, locked: false };
     const audioTrack: Track = { id: audioTrackId, type: 'audio', name: 'Audio', muted: false, locked: false };
     const audioClipLong: Clip = {
-      id: 'clip-audio', type: 'audio', assetId: 'a1', trackId: audioTrackId,
+      id: 'clip-audio', type: 'audio', fileId: 'a1', trackId: audioTrackId,
       startFrame: 0, durationFrames: 900, trimInFrame: 0, volume: 1,
     };
     mockGetSnapshot.mockReturnValue(makeProject({ tracks: [videoTrack, audioTrack], clips: [audioClipLong] }));

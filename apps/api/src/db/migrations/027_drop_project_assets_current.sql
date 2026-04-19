@@ -1,0 +1,23 @@
+-- Migration: 027_drop_project_assets_current
+-- Formally drops the legacy `project_assets_current` table.
+--
+-- Context:
+--   Migration 024 intended to drop this table in step 12, but the
+--   INFORMATION_SCHEMA + PREPARE/EXECUTE guard pattern used by 024 is
+--   unreliable under docker-entrypoint-initdb.d (see project_migration_reliability.md).
+--   On DBs where 024 fully applied, the table is already gone and this migration
+--   is a no-op. On DBs where 024 partially applied (step 12 did not execute),
+--   this migration cleans up the residual table.
+--
+--   After migration 024's data-copy steps ran, all data that was in
+--   project_assets_current is now in `files` + `project_files`. The FK
+--   fk_ai_generation_jobs_asset was also dropped by 024 step 7, so
+--   no constraint prevents this DROP.
+--
+-- Idempotent: DROP TABLE IF EXISTS — safe to run on any DB state.
+--
+-- Manual rollback (destructive — requires a backup):
+--   Restore from a backup taken before this migration ran. No DDL-level rollback
+--   is possible once the table is dropped.
+
+DROP TABLE IF EXISTS project_assets_current;

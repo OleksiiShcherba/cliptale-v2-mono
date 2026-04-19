@@ -40,7 +40,7 @@ function makeAudioClip(overrides: Partial<{
   return {
     id: 'clip-1',
     type: 'audio' as const,
-    assetId: 'asset-1',
+    fileId: 'asset-1',
     trackId: 'track-1',
     startFrame: 0,
     durationFrames: 150,

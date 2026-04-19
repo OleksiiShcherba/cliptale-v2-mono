@@ -44,7 +44,7 @@ describe('useAssetPolling', () => {
     const onReady = vi.fn();
 
     await act(async () => {
-      renderHook(() => useAssetPolling({ assetId: 'asset-1', onReady }));
+      renderHook(() => useAssetPolling({ fileId: 'asset-1', onReady }));
     });
 
     expect(onReady).toHaveBeenCalledWith(expect.objectContaining({ status: 'ready' }));
@@ -56,7 +56,7 @@ describe('useAssetPolling', () => {
     const onError = vi.fn();
 
     await act(async () => {
-      renderHook(() => useAssetPolling({ assetId: 'asset-1', onReady, onError }));
+      renderHook(() => useAssetPolling({ fileId: 'asset-1', onReady, onError }));
     });
 
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({ status: 'error' }));
@@ -70,7 +70,7 @@ describe('useAssetPolling', () => {
       .mockResolvedValue(makeAsset('ready'));
     const onReady = vi.fn();
 
-    renderHook(() => useAssetPolling({ assetId: 'asset-1', onReady }));
+    renderHook(() => useAssetPolling({ fileId: 'asset-1', onReady }));
     // Advance past two 2-second intervals
     await act(async () => {
       await vi.advanceTimersByTimeAsync(4500);
@@ -80,11 +80,11 @@ describe('useAssetPolling', () => {
     expect(onReady).toHaveBeenCalledTimes(1);
   });
 
-  it('does not poll when assetId is null', async () => {
+  it('does not poll when fileId is null', async () => {
     const onReady = vi.fn();
 
     await act(async () => {
-      renderHook(() => useAssetPolling({ assetId: null, onReady }));
+      renderHook(() => useAssetPolling({ fileId: null, onReady }));
       await vi.advanceTimersByTimeAsync(6000);
     });
 
@@ -98,7 +98,7 @@ describe('useAssetPolling', () => {
 
     let unmount!: () => void;
     await act(async () => {
-      ({ unmount } = renderHook(() => useAssetPolling({ assetId: 'asset-1', onReady })));
+      ({ unmount } = renderHook(() => useAssetPolling({ fileId: 'asset-1', onReady })));
       await vi.advanceTimersByTimeAsync(2500);
     });
 
@@ -118,7 +118,7 @@ describe('useAssetPolling', () => {
       .mockResolvedValue(makeAsset('ready'));
     const onReady = vi.fn();
 
-    renderHook(() => useAssetPolling({ assetId: 'asset-1', onReady }));
+    renderHook(() => useAssetPolling({ fileId: 'asset-1', onReady }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2500);
     });

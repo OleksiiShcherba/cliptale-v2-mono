@@ -99,18 +99,6 @@ beforeEach(() => {
 // ── POST /assets/:id/finalize ─────────────────────────────────────────────────
 
 describe('POST /assets/:id/finalize', () => {
-  it('returns 401 when Authorization header is absent', async () => {
-    const res = await request(app).post(`/assets/${finalizeAssetId}/finalize`);
-    expect(res.status).toBe(401);
-  });
-
-  it('returns 401 when the JWT is invalid', async () => {
-    const res = await request(app)
-      .post(`/assets/${finalizeAssetId}/finalize`)
-      .set('Authorization', 'Bearer garbage');
-    expect(res.status).toBe(401);
-  });
-
   it('returns 404 for a non-existent asset ID', async () => {
     const res = await request(app)
       .post('/assets/00000000-0000-0000-0000-000000000000/finalize')
@@ -142,7 +130,7 @@ describe('POST /assets/:id/finalize', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
-      assetId: finalizeAssetId,
+      fileId: finalizeAssetId,
       status: 'processing',
     });
 

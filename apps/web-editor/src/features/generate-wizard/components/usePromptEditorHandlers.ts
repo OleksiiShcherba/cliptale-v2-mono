@@ -127,10 +127,10 @@ export function usePromptEditorHandlers({
       const root = editorRef.current;
       if (!root) return;
 
-      let payload: { assetId: string; type: string; label: string } | null = null;
+      let payload: { fileId: string; type: string; label: string } | null = null;
       try {
         payload = JSON.parse(e.dataTransfer.getData(ASSET_DRAG_MIME)) as {
-          assetId: string;
+          fileId: string;
           type: string;
           label: string;
         };
@@ -143,7 +143,7 @@ export function usePromptEditorHandlers({
       const chip: MediaRefBlock = {
         type: 'media-ref',
         mediaType: payload.type as MediaRefBlock['mediaType'],
-        assetId: payload.assetId,
+        fileId: payload.fileId,
         label: payload.label,
       };
       const currentDoc = serializeDOMToDoc(root);

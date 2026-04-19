@@ -11,7 +11,7 @@ export type AssetStatus = 'pending' | 'processing' | 'ready' | 'error';
 
 /** Full asset record as stored in `project_assets_current`. */
 export type Asset = {
-  assetId: string;
+  fileId: string;
   projectId: string;
   userId: string;
   filename: string;
@@ -33,7 +33,7 @@ export type Asset = {
 
 /** Parameters for inserting a new pending asset row. */
 type InsertPendingAssetParams = {
-  assetId: string;
+  fileId: string;
   projectId: string;
   userId: string;
   filename: string;
@@ -65,7 +65,7 @@ type AssetRow = RowDataPacket & {
 
 function mapRowToAsset(row: AssetRow): Asset {
   return {
-    assetId: row.asset_id,
+    fileId: row.asset_id,
     projectId: row.project_id,
     userId: row.user_id,
     filename: row.filename,
@@ -93,7 +93,7 @@ export async function insertPendingAsset(params: InsertPendingAssetParams): Prom
        (asset_id, project_id, user_id, filename, content_type, file_size_bytes, storage_uri)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
-      params.assetId,
+      params.fileId,
       params.projectId,
       params.userId,
       params.filename,
@@ -105,10 +105,10 @@ export async function insertPendingAsset(params: InsertPendingAssetParams): Prom
 }
 
 /** Returns an asset by its primary key, or null if not found. */
-export async function getAssetById(assetId: string): Promise<Asset | null> {
+export async function getAssetById(fileId: string): Promise<Asset | null> {
   const [rows] = await pool.execute<AssetRow[]>(
     'SELECT * FROM project_assets_current WHERE asset_id = ?',
-    [assetId],
+    [fileId],
   );
   return rows.length ? mapRowToAsset(rows[0]!) : null;
 }
@@ -126,28 +126,28 @@ export async function getAssetsByProjectId(projectId: string): Promise<Asset[]> 
  * Returns true when at least one clip in `project_clips_current` references the given asset.
  * Used to enforce the referential-integrity rule before deletion.
  */
-export async function isAssetReferencedByClip(assetId: string): Promise<boolean> {
+export async function isAssetReferencedByClip(fileId: string): Promise<boolean> {
   const [rows] = await pool.execute<RowDataPacket[]>(
     'SELECT 1 FROM project_clips_current WHERE asset_id = ? LIMIT 1',
-    [assetId],
+    [fileId],
   );
   return rows.length > 0;
 }
 
 /**
  * Hard-deletes an asset row from `project_assets_current`.
- * Silent no-op when no row matches the given `assetId` — does not throw.
+ * Silent no-op when no row matches the given `fileId` — does not throw.
  */
-export async function deleteAssetById(assetId: string): Promise<void> {
+export async function deleteAssetById(fileId: string): Promise<void> {
   await pool.execute(
     'DELETE FROM project_assets_current WHERE asset_id = ?',
-    [assetId],
+    [fileId],
   );
 }
 
 /** Updates the status (and optional error message) of an asset in-place. */
 export async function updateAssetStatus(
-  assetId: string,
+  fileId: string,
   status: AssetStatus,
   errorMessage?: string,
 ): Promise<void> {
@@ -155,24 +155,24 @@ export async function updateAssetStatus(
     `UPDATE project_assets_current
      SET status = ?, error_message = ?
      WHERE asset_id = ?`,
-    [status, errorMessage ?? null, assetId],
+    [status, errorMessage ?? null, fileId],
   );
 }
 
 /**
  * Sets the `display_name` column on an asset row.
  * Pass `null` to clear a previously set display name.
- * Silent no-op when no row matches `assetId`.
+ * Silent no-op when no row matches `fileId`.
  */
 export async function updateAssetDisplayName(
-  assetId: string,
+  fileId: string,
   displayName: string | null,
 ): Promise<void> {
   await pool.execute(
     `UPDATE project_assets_current
      SET display_name = ?
      WHERE asset_id = ?`,
-    [displayName, assetId],
+    [displayName, fileId],
   );
 }
 
@@ -187,8 +187,8 @@ type FindReadyParams = {
   userId: string;
   /** Optional MIME prefix filter. Omit to return all three buckets. */
   mimePrefix?: AssetMimePrefix;
-  /** Seek cursor: only return rows strictly older than `(updatedAt, assetId)`. */
-  cursor?: { updatedAt: Date; assetId: string };
+  /** Seek cursor: only return rows strictly older than `(updatedAt, fileId)`. */
+  cursor?: { updatedAt: Date; fileId: string };
   /** Maximum rows to return. Clamped by the caller (1–100). */
   limit: number;
 };
@@ -213,7 +213,7 @@ export async function findReadyForUser(params: FindReadyParams): Promise<Asset[]
 
   if (params.cursor) {
     clauses.push('(updated_at, asset_id) < (?, ?)');
-    values.push(params.cursor.updatedAt, params.cursor.assetId);
+    values.push(params.cursor.updatedAt, params.cursor.fileId);
   }
 
   const safeLimit = Math.max(1, Math.min(100, Math.floor(Number(params.limit))));

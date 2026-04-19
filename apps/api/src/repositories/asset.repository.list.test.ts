@@ -80,11 +80,11 @@ describe('asset.repository / findReadyForUser', () => {
     expect(values).toContain('audio/%');
   });
 
-  it('adds a keyset seek clause binding the cursor (updatedAt, assetId) tuple', async () => {
+  it('adds a keyset seek clause binding the cursor (updatedAt, fileId) tuple', async () => {
     const cursorUpdatedAt = new Date('2026-02-15T12:00:00Z');
     await findReadyForUser({
       userId: 'user-001',
-      cursor: { updatedAt: cursorUpdatedAt, assetId: 'cursor-id' },
+      cursor: { updatedAt: cursorUpdatedAt, fileId: 'cursor-id' },
       limit: 24,
     });
 
@@ -135,7 +135,7 @@ describe('asset.repository / findReadyForUser', () => {
     const result = await findReadyForUser({ userId: 'user-001', limit: 24 });
 
     expect(result).toHaveLength(1);
-    expect(result[0]!.assetId).toBe('a1');
+    expect(result[0]!.fileId).toBe('a1');
     expect(result[0]!.displayName).toBe('My Cut');
     expect(result[0]!.contentType).toBe('video/mp4');
   });

@@ -80,7 +80,7 @@ describe('transcribe.job', () => {
       ]);
     });
 
-    it('queries project_files using file_id (from assetId payload field)', async () => {
+    it('queries project_files using fileId from payload', async () => {
       await processTranscribeJob(makeJob(), deps);
 
       const selectCall = mockDbExecute.mock.calls.find(

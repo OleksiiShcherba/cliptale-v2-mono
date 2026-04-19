@@ -42,7 +42,7 @@ interface ClipLaneProps {
    * Forwarded to each `ClipBlock` so clip positions track the ruler.
    */
   scrollOffsetX: number;
-  /** Optional asset lookup map: assetId → ClipAssetData. */
+  /** Optional asset lookup map: fileId → ClipAssetData. */
   assetDataMap?: Readonly<Record<string, ClipAssetData>>;
   /** Current drag state from `useClipDrag`. Null when no drag is in progress. */
   dragInfo: ClipDragInfo | null;
@@ -164,8 +164,8 @@ export function ClipLane({
       )}
 
       {clips.map((clip) => {
-        const assetId = 'assetId' in clip ? (clip as { assetId: string }).assetId : undefined;
-        const assetData = assetId && assetDataMap ? assetDataMap[assetId] : undefined;
+        const fileId = 'fileId' in clip ? (clip as { fileId: string }).fileId : undefined;
+        const assetData = fileId && assetDataMap ? assetDataMap[fileId] : undefined;
         const isDragging = dragInfo?.draggingClipIds.has(clip.id) ?? false;
 
         // During trim: render the trimmed clip at its ghost dimensions.

@@ -89,7 +89,7 @@ describe('generationDraft.repository — mapRowToDraft JSON column handling', ()
       schemaVersion: 1,
       blocks: [
         { type: 'text', value: 'Start ' },
-        { type: 'media-ref', mediaType: 'video', assetId: '00000000-0000-0000-0000-000000000001', label: 'Intro' },
+        { type: 'media-ref', mediaType: 'video', fileId: '00000000-0000-0000-0000-000000000001', label: 'Intro' },
         { type: 'text', value: ' End' },
       ],
     };
@@ -102,7 +102,7 @@ describe('generationDraft.repository — mapRowToDraft JSON column handling', ()
     expect(draft!.promptDoc.blocks[1]).toEqual({
       type: 'media-ref',
       mediaType: 'video',
-      assetId: '00000000-0000-0000-0000-000000000001',
+      fileId: '00000000-0000-0000-0000-000000000001',
       label: 'Intro',
     });
   });

@@ -119,12 +119,12 @@ describe('generationDraft.service — listStoryboardCardsForUser', () => {
     vi.mocked(generationDraftRepository.findStoryboardDraftsForUser).mockResolvedValue([
       makeDraftRow({
         promptDoc: makePromptDoc([
-          { type: 'media-ref', mediaType: 'video', assetId: ASSET_VIDEO, label: 'Video' },
+          { type: 'media-ref', mediaType: 'video', fileId: ASSET_VIDEO, label: 'Video' },
         ]),
       }),
     ]);
     vi.mocked(generationDraftRepository.findAssetPreviewsByIds).mockResolvedValue([
-      { assetId: ASSET_VIDEO, contentType: 'video/mp4', thumbnailUri: 'http://thumb.example.com/v.jpg' },
+      { fileId: ASSET_VIDEO, contentType: 'video/mp4', thumbnailUri: 'http://thumb.example.com/v.jpg' },
     ]);
 
     const [card] = await listStoryboardCardsForUser(USER_ID);
@@ -138,23 +138,23 @@ describe('generationDraft.service — listStoryboardCardsForUser', () => {
     vi.mocked(generationDraftRepository.findStoryboardDraftsForUser).mockResolvedValue([
       makeDraftRow({
         promptDoc: makePromptDoc([
-          { type: 'media-ref', mediaType: 'image', assetId: ASSET_IMAGE_1, label: 'Img1' },
-          { type: 'media-ref', mediaType: 'image', assetId: ASSET_IMAGE_2, label: 'Img2' },
-          { type: 'media-ref', mediaType: 'image', assetId: ASSET_IMAGE_3, label: 'Img3' },
-          { type: 'media-ref', mediaType: 'image', assetId: ASSET_IMAGE_4, label: 'Img4' },
-          { type: 'media-ref', mediaType: 'image', assetId: ASSET_IMAGE_4, label: 'Img5' },
+          { type: 'media-ref', mediaType: 'image', fileId: ASSET_IMAGE_1, label: 'Img1' },
+          { type: 'media-ref', mediaType: 'image', fileId: ASSET_IMAGE_2, label: 'Img2' },
+          { type: 'media-ref', mediaType: 'image', fileId: ASSET_IMAGE_3, label: 'Img3' },
+          { type: 'media-ref', mediaType: 'image', fileId: ASSET_IMAGE_4, label: 'Img4' },
+          { type: 'media-ref', mediaType: 'image', fileId: ASSET_IMAGE_4, label: 'Img5' },
         ]),
       }),
     ]);
     vi.mocked(generationDraftRepository.findAssetPreviewsByIds).mockResolvedValue([
-      { assetId: ASSET_IMAGE_1, contentType: 'image/jpeg', thumbnailUri: null },
-      { assetId: ASSET_IMAGE_2, contentType: 'image/jpeg', thumbnailUri: null },
-      { assetId: ASSET_IMAGE_3, contentType: 'image/jpeg', thumbnailUri: null },
+      { fileId: ASSET_IMAGE_1, contentType: 'image/jpeg', thumbnailUri: null },
+      { fileId: ASSET_IMAGE_2, contentType: 'image/jpeg', thumbnailUri: null },
+      { fileId: ASSET_IMAGE_3, contentType: 'image/jpeg', thumbnailUri: null },
     ]);
 
     const [card] = await listStoryboardCardsForUser(USER_ID);
 
-    // Only the first 3 assetIds were passed to the repository
+    // Only the first 3 fileIds were passed to the repository
     const passedIds = vi.mocked(generationDraftRepository.findAssetPreviewsByIds).mock.calls[0]![0];
     expect(passedIds).toHaveLength(3);
     expect(passedIds).toContain(ASSET_IMAGE_1);
@@ -171,27 +171,27 @@ describe('generationDraft.service — listStoryboardCardsForUser', () => {
     vi.mocked(generationDraftRepository.findStoryboardDraftsForUser).mockResolvedValue([
       makeDraftRow({
         promptDoc: makePromptDoc([
-          { type: 'media-ref', mediaType: 'video', assetId: ASSET_VIDEO, label: 'V' },
-          { type: 'media-ref', mediaType: 'image', assetId: ASSET_DELETED, label: 'deleted' },
+          { type: 'media-ref', mediaType: 'video', fileId: ASSET_VIDEO, label: 'V' },
+          { type: 'media-ref', mediaType: 'image', fileId: ASSET_DELETED, label: 'deleted' },
         ]),
       }),
     ]);
     // Only ASSET_VIDEO comes back from the DB — ASSET_DELETED is absent
     vi.mocked(generationDraftRepository.findAssetPreviewsByIds).mockResolvedValue([
-      { assetId: ASSET_VIDEO, contentType: 'video/mp4', thumbnailUri: 'http://thumb/v.jpg' },
+      { fileId: ASSET_VIDEO, contentType: 'video/mp4', thumbnailUri: 'http://thumb/v.jpg' },
     ]);
 
     const [card] = await listStoryboardCardsForUser(USER_ID);
 
     expect(card!.mediaPreviews).toHaveLength(1);
-    expect(card!.mediaPreviews[0]!.assetId).toBe(ASSET_VIDEO);
+    expect(card!.mediaPreviews[0]!.fileId).toBe(ASSET_VIDEO);
   });
 
   it('should return empty mediaPreviews when all asset refs are deleted', async () => {
     vi.mocked(generationDraftRepository.findStoryboardDraftsForUser).mockResolvedValue([
       makeDraftRow({
         promptDoc: makePromptDoc([
-          { type: 'media-ref', mediaType: 'image', assetId: ASSET_DELETED, label: 'gone' },
+          { type: 'media-ref', mediaType: 'image', fileId: ASSET_DELETED, label: 'gone' },
         ]),
       }),
     ]);
@@ -247,25 +247,25 @@ describe('generationDraft.service — listStoryboardCardsForUser', () => {
     vi.mocked(generationDraftRepository.findStoryboardDraftsForUser).mockResolvedValue([
       makeDraftRow({
         promptDoc: makePromptDoc([
-          { type: 'media-ref', mediaType: 'video', assetId: ASSET_VIDEO, label: 'V' },
-          { type: 'media-ref', mediaType: 'image', assetId: ASSET_IMAGE_1, label: 'I' },
+          { type: 'media-ref', mediaType: 'video', fileId: ASSET_VIDEO, label: 'V' },
+          { type: 'media-ref', mediaType: 'image', fileId: ASSET_IMAGE_1, label: 'I' },
         ]),
       }),
     ]);
     vi.mocked(generationDraftRepository.findAssetPreviewsByIds).mockResolvedValue([
-      { assetId: ASSET_VIDEO, contentType: 'video/mp4', thumbnailUri: 'http://thumb/v.jpg' },
-      { assetId: ASSET_IMAGE_1, contentType: 'image/jpeg', thumbnailUri: null },
+      { fileId: ASSET_VIDEO, contentType: 'video/mp4', thumbnailUri: 'http://thumb/v.jpg' },
+      { fileId: ASSET_IMAGE_1, contentType: 'image/jpeg', thumbnailUri: null },
     ]);
 
     const [card] = await listStoryboardCardsForUser(USER_ID);
 
     expect(card!.mediaPreviews[0]).toEqual({
-      assetId: ASSET_VIDEO,
+      fileId: ASSET_VIDEO,
       type: 'video',
       thumbnailUrl: 'http://thumb/v.jpg',
     });
     expect(card!.mediaPreviews[1]).toEqual({
-      assetId: ASSET_IMAGE_1,
+      fileId: ASSET_IMAGE_1,
       type: 'image',
       thumbnailUrl: null,
     });

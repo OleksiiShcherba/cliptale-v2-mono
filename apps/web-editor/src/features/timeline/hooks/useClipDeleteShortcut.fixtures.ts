@@ -15,7 +15,7 @@ export function makeClip(id: string, trackId: string): Clip {
   return {
     id,
     type: 'video',
-    assetId: 'asset-001',
+    fileId: 'asset-001',
     trackId,
     startFrame: 0,
     durationFrames: 30,

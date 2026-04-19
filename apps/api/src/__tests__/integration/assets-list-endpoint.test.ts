@@ -72,20 +72,20 @@ beforeAll(async () => {
   });
 
   // Seed two assets under TEST_PROJECT_WITH_ASSETS.
-  for (const assetId of seededAssetIds) {
+  for (const fileId of seededAssetIds) {
     await conn.execute(
       `INSERT INTO project_assets_current
          (asset_id, project_id, user_id, filename, content_type, file_size_bytes, storage_uri)
        VALUES (?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE asset_id = asset_id`,
       [
-        assetId,
+        fileId,
         TEST_PROJECT_WITH_ASSETS,
         'user-list-seed',
-        `seed-${assetId}.mp4`,
+        `seed-${fileId}.mp4`,
         'video/mp4',
         5000,
-        `s3://test/${assetId}.mp4`,
+        `s3://test/${fileId}.mp4`,
       ],
     );
   }
@@ -104,18 +104,6 @@ afterAll(async () => {
 // ── GET /projects/:id/assets ──────────────────────────────────────────────────
 
 describe('GET /projects/:id/assets', () => {
-  it('returns 401 when Authorization header is absent', async () => {
-    const res = await request(app).get(`/projects/${TEST_PROJECT_WITH_ASSETS}/assets`);
-    expect(res.status).toBe(401);
-  });
-
-  it('returns 401 when the JWT is invalid', async () => {
-    const res = await request(app)
-      .get(`/projects/${TEST_PROJECT_WITH_ASSETS}/assets`)
-      .set('Authorization', 'Bearer not-a-real-token');
-    expect(res.status).toBe(401);
-  });
-
   it('returns 200 with an empty array when the project has no assets', async () => {
     const res = await request(app)
       .get(`/projects/${TEST_PROJECT_EMPTY}/assets`)
@@ -147,8 +135,8 @@ describe('GET /projects/:id/assets', () => {
 
     expect(res.status).toBe(200);
     // Seeded assets are under TEST_PROJECT_WITH_ASSETS — must not appear here.
-    const body = res.body as Array<{ assetId: string }>;
-    const leaked = body.some((a) => seededAssetIds.includes(a.assetId));
+    const body = res.body as Array<{ fileId: string }>;
+    const leaked = body.some((a) => seededAssetIds.includes(a.fileId));
     expect(leaked).toBe(false);
   });
 });

@@ -12,7 +12,7 @@ export const USER_ID = 'user-001';
 /** Builds a fully-populated `Asset` row with sensible defaults, overridable per test. */
 export function makeAsset(overrides: Partial<Asset> = {}): Asset {
   return {
-    assetId: 'asset-001',
+    fileId: 'asset-001',
     projectId: 'proj-001',
     userId: USER_ID,
     filename: 'clip.mp4',

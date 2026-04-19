@@ -40,11 +40,8 @@ export async function transcribeAsset(fileId: string): Promise<TranscribeResult>
     throw new ConflictError(`Caption track for file "${fileId}" already exists`);
   }
 
-  // enqueueTranscriptionJob payload retains `assetId` field name because the
-  // worker and shared job-payload type haven't been migrated yet (Subtask 8).
-  // The value is now a file_id reused from the old asset_id.
   const jobId = await enqueueTranscriptionJob({
-    assetId: fileId,
+    fileId,
     storageUri: file.storageUri,
     contentType: file.mimeType ?? 'application/octet-stream',
     language: DEFAULT_TRANSCRIPTION_LANGUAGE,

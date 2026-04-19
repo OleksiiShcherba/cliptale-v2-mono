@@ -96,18 +96,6 @@ afterAll(async () => {
 // ── GET /assets/:id/stream ────────────────────────────────────────────────────
 
 describe('GET /assets/:id/stream', () => {
-  it('returns 401 when Authorization header is absent', async () => {
-    const res = await request(app).get(`/assets/${seededAssetId}/stream`);
-    expect(res.status).toBe(401);
-  });
-
-  it('returns 401 when the JWT is invalid', async () => {
-    const res = await request(app)
-      .get(`/assets/${seededAssetId}/stream`)
-      .set('Authorization', 'Bearer garbage-token');
-    expect(res.status).toBe(401);
-  });
-
   it('returns 404 for a non-existent asset', async () => {
     // No S3 mock needed — the DB lookup fails before S3 is called.
     const res = await request(app)

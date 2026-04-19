@@ -222,7 +222,7 @@ export function AssetCard({ asset, isSelected, onSelect }: AssetCardProps): Reac
 
       {/* Transcription CTA — only for video and audio assets */}
       {asset.status === 'ready' && isTranscribable(asset.contentType) && (
-        <TranscribeButton assetId={asset.id} />
+        <TranscribeButton fileId={asset.id} />
       )}
     </div>
   );

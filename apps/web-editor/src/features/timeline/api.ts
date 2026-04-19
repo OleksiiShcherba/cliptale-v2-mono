@@ -16,7 +16,7 @@ export type ClipPatchPayload = {
  * before any subsequent PATCH operations are attempted.
  */
 export async function createClip(projectId: string, clip: Clip): Promise<void> {
-  const assetId = 'assetId' in clip ? (clip as { assetId: string }).assetId : undefined;
+  const fileId = 'fileId' in clip ? (clip as { fileId: string }).fileId : undefined;
   const trimInFrame = 'trimInFrame' in clip ? (clip as { trimInFrame?: number }).trimInFrame : undefined;
   const trimOutFrame = 'trimOutFrame' in clip ? (clip as { trimOutFrame?: number }).trimOutFrame : undefined;
   const layer = 'layer' in clip ? (clip as { layer?: number }).layer : undefined;
@@ -25,7 +25,7 @@ export async function createClip(projectId: string, clip: Clip): Promise<void> {
     clipId: clip.id,
     trackId: clip.trackId,
     type: clip.type,
-    assetId: assetId ?? null,
+    fileId: fileId ?? null,
     startFrame: clip.startFrame,
     durationFrames: clip.durationFrames,
     trimInFrames: trimInFrame ?? 0,

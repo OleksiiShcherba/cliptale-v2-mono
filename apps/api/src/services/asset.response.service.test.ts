@@ -66,7 +66,7 @@ function makeAsset(overrides: Partial<ReturnType<typeof baseAsset>> = {}) {
 
 function baseAsset() {
   return {
-    assetId: 'asset-resp-001',
+    fileId: 'asset-resp-001',
     projectId: 'proj-123',
     userId: 'user-456',
     filename: 'video.mp4',
@@ -109,13 +109,13 @@ describe('asset.service — getAssetResponse', () => {
     expect(result.downloadUrl).not.toContain('s3://');
   });
 
-  it('maps id from assetId (the API key is "id", not "assetId")', async () => {
+  it('maps id from fileId (the API key is "id", not "fileId")', async () => {
     vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(makeAsset());
 
     const result = await getAssetResponse('asset-resp-001', mockS3, 'http://localhost:3001');
 
     expect(result.id).toBe('asset-resp-001');
-    expect((result as Record<string, unknown>)['assetId']).toBeUndefined();
+    expect((result as Record<string, unknown>)['fileId']).toBeUndefined();
   });
 
   it('computes durationSeconds from durationFrames / fps', async () => {
@@ -141,7 +141,7 @@ describe('asset.service — getAssetResponse', () => {
   it('returns the API thumbnail proxy URL when a thumbnail exists', async () => {
     vi.mocked(assetRepository.getAssetById).mockResolvedValueOnce(
       makeAsset({
-        assetId: 'asset-resp-001',
+        fileId: 'asset-resp-001',
         thumbnailUri: 's3://test-bucket/projects/proj-123/assets/asset-resp-001/thumb.jpg',
       }),
     );
@@ -205,8 +205,8 @@ describe('asset.service — getProjectAssetsResponse', () => {
   });
 
   it('returns an array of AssetApiResponse objects for a project with assets', async () => {
-    const asset1 = makeAsset({ assetId: 'a1', filename: 'one.mp4' });
-    const asset2 = makeAsset({ assetId: 'a2', filename: 'two.mp4' });
+    const asset1 = makeAsset({ fileId: 'a1', filename: 'one.mp4' });
+    const asset2 = makeAsset({ fileId: 'a2', filename: 'two.mp4' });
     vi.mocked(assetRepository.getAssetsByProjectId).mockResolvedValueOnce([asset1, asset2]);
 
     const result = await getProjectAssetsResponse('proj-123', mockS3, 'http://localhost:3001');
@@ -226,8 +226,8 @@ describe('asset.service — getProjectAssetsResponse', () => {
 
   it('applies presigned URL transformation to each asset storageUri', async () => {
     vi.mocked(assetRepository.getAssetsByProjectId).mockResolvedValueOnce([
-      makeAsset({ assetId: 'a1' }),
-      makeAsset({ assetId: 'a2' }),
+      makeAsset({ fileId: 'a1' }),
+      makeAsset({ fileId: 'a2' }),
     ]);
 
     const result = await getProjectAssetsResponse('proj-123', mockS3, 'http://localhost:3001');

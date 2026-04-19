@@ -222,7 +222,7 @@ async function saveAudioAsset(
   // Enqueue media-ingest so FFprobe populates waveform + duration_frames.
   await ingestQueue.add(
     'ingest',
-    { assetId, storageUri, contentType },
+    { fileId: assetId, assetId, storageUri, contentType },
     { jobId: assetId, removeOnComplete: true, removeOnFail: false },
   );
 

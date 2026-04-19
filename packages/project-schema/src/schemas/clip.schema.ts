@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const videoClipSchema = z.object({
   id: z.string().uuid(),
   type: z.literal('video'),
-  assetId: z.string().uuid(),
+  fileId: z.string().uuid(),
   trackId: z.string().uuid(),
   startFrame: z.number().int().nonnegative(),
   durationFrames: z.number().int().positive(),
@@ -16,7 +16,7 @@ export const videoClipSchema = z.object({
 export const audioClipSchema = z.object({
   id: z.string().uuid(),
   type: z.literal('audio'),
-  assetId: z.string().uuid(),
+  fileId: z.string().uuid(),
   trackId: z.string().uuid(),
   startFrame: z.number().int().nonnegative(),
   durationFrames: z.number().int().positive(),
@@ -41,7 +41,7 @@ export const textOverlayClipSchema = z.object({
 export const imageClipSchema = z.object({
   id: z.string().uuid(),
   type: z.literal('image'),
-  assetId: z.string().uuid(),
+  fileId: z.string().uuid(),
   trackId: z.string().uuid(),
   startFrame: z.number().int().nonnegative(),
   durationFrames: z.number().int().positive(),

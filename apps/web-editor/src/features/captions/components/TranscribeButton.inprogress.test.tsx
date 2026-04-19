@@ -46,18 +46,18 @@ describe('TranscribeButton / pending state on mount (job already queued when pag
   });
 
   it('renders "Transcribing…" label when hook returns pending on mount', () => {
-    render(<TranscribeButton assetId="asset-001" />);
+    render(<TranscribeButton fileId="asset-001" />);
     expect(screen.getByRole('button', { name: 'Transcribing…' })).toBeDefined();
   });
 
   it('button is disabled in pending state', () => {
-    render(<TranscribeButton assetId="asset-001" />);
+    render(<TranscribeButton fileId="asset-001" />);
     const button = screen.getByRole('button', { name: 'Transcribing…' });
     expect((button as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('has aria-busy true in pending state', () => {
-    render(<TranscribeButton assetId="asset-001" />);
+    render(<TranscribeButton fileId="asset-001" />);
     const button = screen.getByRole('button', { name: 'Transcribing…' });
     expect(button.getAttribute('aria-busy')).toBe('true');
   });
@@ -71,18 +71,18 @@ describe('TranscribeButton / processing state on mount (Whisper actively transcr
   });
 
   it('renders "Transcribing…" label when hook returns processing on mount', () => {
-    render(<TranscribeButton assetId="asset-001" />);
+    render(<TranscribeButton fileId="asset-001" />);
     expect(screen.getByRole('button', { name: 'Transcribing…' })).toBeDefined();
   });
 
   it('button is disabled in processing state', () => {
-    render(<TranscribeButton assetId="asset-001" />);
+    render(<TranscribeButton fileId="asset-001" />);
     const button = screen.getByRole('button', { name: 'Transcribing…' });
     expect((button as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('has aria-busy true in processing state', () => {
-    render(<TranscribeButton assetId="asset-001" />);
+    render(<TranscribeButton fileId="asset-001" />);
     const button = screen.getByRole('button', { name: 'Transcribing…' });
     expect(button.getAttribute('aria-busy')).toBe('true');
   });
@@ -96,14 +96,14 @@ describe('TranscribeButton / aria-busy is false in terminal states', () => {
 
   it('has aria-busy false in ready state', () => {
     mockUseTranscriptionStatus.mockReturnValue(makeReadyStatus());
-    render(<TranscribeButton assetId="asset-001" />);
+    render(<TranscribeButton fileId="asset-001" />);
     const button = screen.getByRole('button', { name: 'Add Captions to Timeline' });
     expect(button.getAttribute('aria-busy')).toBe('false');
   });
 
   it('has aria-busy false in error state', () => {
     mockUseTranscriptionStatus.mockReturnValue(makeErrorStatus());
-    render(<TranscribeButton assetId="asset-001" />);
+    render(<TranscribeButton fileId="asset-001" />);
     const button = screen.getByRole('button', { name: 'Transcription failed — Retry' });
     expect(button.getAttribute('aria-busy')).toBe('false');
   });

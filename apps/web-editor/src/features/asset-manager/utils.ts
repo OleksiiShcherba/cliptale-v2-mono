@@ -35,20 +35,20 @@ export function getTypeLabel(contentType: string): string {
  */
 export function buildClipForAsset(
   contentType: string,
-  assetId: string,
+  fileId: string,
   trackId: string,
   startFrame: number,
   durationFrames: number,
 ): VideoClip | AudioClip | ImageClip | null {
   const id = crypto.randomUUID();
   if (contentType.startsWith('video/')) {
-    return { id, type: 'video', assetId, trackId, startFrame, durationFrames, trimInFrame: 0, opacity: 1, volume: 1 };
+    return { id, type: 'video', fileId, trackId, startFrame, durationFrames, trimInFrame: 0, opacity: 1, volume: 1 };
   }
   if (contentType.startsWith('audio/')) {
-    return { id, type: 'audio', assetId, trackId, startFrame, durationFrames, trimInFrame: 0, volume: 1 };
+    return { id, type: 'audio', fileId, trackId, startFrame, durationFrames, trimInFrame: 0, volume: 1 };
   }
   if (contentType.startsWith('image/')) {
-    return { id, type: 'image', assetId, trackId, startFrame, durationFrames, opacity: 1 };
+    return { id, type: 'image', fileId, trackId, startFrame, durationFrames, opacity: 1 };
   }
   return null;
 }

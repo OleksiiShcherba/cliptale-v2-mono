@@ -243,7 +243,7 @@ describe('ReplaceAssetDialog', () => {
       expect(mockUploadFiles).toHaveBeenCalled();
     });
 
-    it('calls replaceAsset with old and new assetId when onUploadComplete fires', () => {
+    it('calls replaceAsset with old and new fileId when onUploadComplete fires', () => {
       render(<ReplaceAssetDialog {...defaultProps} />);
       // Simulate the upload hook completing with a new asset id
       capturedOnUploadComplete!('asset-uploaded-001');

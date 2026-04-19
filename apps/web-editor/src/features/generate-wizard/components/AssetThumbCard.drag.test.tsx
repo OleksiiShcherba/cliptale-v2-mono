@@ -91,7 +91,7 @@ describe('AssetThumbCard / drag-and-drop', () => {
     expect(setData).toHaveBeenCalledWith(ASSET_DRAG_MIME, expect.any(String));
   });
 
-  it('encodes assetId, type, and label in the JSON payload for a video asset', () => {
+  it('encodes fileId, type, and label in the JSON payload for a video asset', () => {
     const asset = makeVideoAsset({ id: 'vid-123', label: 'my-clip.mp4' });
     render(<AssetThumbCard asset={asset} onAssetSelected={onAssetSelected} />);
     const card = screen.getByRole('button', { name: 'my-clip.mp4' });
@@ -103,13 +103,13 @@ describe('AssetThumbCard / drag-and-drop', () => {
 
     const [mime, json] = setData.mock.calls[0] as [string, string];
     expect(mime).toBe(ASSET_DRAG_MIME);
-    const payload = JSON.parse(json) as { assetId: string; type: string; label: string };
-    expect(payload.assetId).toBe('vid-123');
+    const payload = JSON.parse(json) as { fileId: string; type: string; label: string };
+    expect(payload.fileId).toBe('vid-123');
     expect(payload.type).toBe('video');
     expect(payload.label).toBe('my-clip.mp4');
   });
 
-  it('encodes assetId, type, and label in the JSON payload for an audio asset', () => {
+  it('encodes fileId, type, and label in the JSON payload for an audio asset', () => {
     const asset = makeAudioAsset({ id: 'aud-456', label: 'beat.mp3' });
     render(<AssetThumbCard asset={asset} onAssetSelected={onAssetSelected} />);
     const card = screen.getByRole('button', { name: 'beat.mp3' });
@@ -120,8 +120,8 @@ describe('AssetThumbCard / drag-and-drop', () => {
     });
 
     const [, json] = setData.mock.calls[0] as [string, string];
-    const payload = JSON.parse(json) as { assetId: string; type: string; label: string };
-    expect(payload.assetId).toBe('aud-456');
+    const payload = JSON.parse(json) as { fileId: string; type: string; label: string };
+    expect(payload.fileId).toBe('aud-456');
     expect(payload.type).toBe('audio');
     expect(payload.label).toBe('beat.mp3');
   });

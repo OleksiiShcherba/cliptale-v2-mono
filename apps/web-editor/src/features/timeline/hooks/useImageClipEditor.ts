@@ -15,7 +15,7 @@ export function useImageClipEditor(clip: ImageClip): {
   setOpacity: (opacity: number) => void;
 } {
   const patchClip = useCallback(
-    (patch: Partial<Omit<ImageClip, 'id' | 'type' | 'trackId' | 'assetId'>>) => {
+    (patch: Partial<Omit<ImageClip, 'id' | 'type' | 'trackId' | 'fileId'>>) => {
       const current = getSnapshot();
       setProject({
         ...current,

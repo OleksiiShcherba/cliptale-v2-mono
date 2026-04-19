@@ -77,7 +77,7 @@ describe('useTranscriptionStatus', () => {
     expect(result.current.segments).toBeNull();
   });
 
-  it('does not call getCaptions when assetId is null', async () => {
+  it('does not call getCaptions when fileId is null', async () => {
     const { Wrapper } = createWrapper();
 
     const { result } = renderHook(
@@ -92,7 +92,7 @@ describe('useTranscriptionStatus', () => {
     expect(result.current.segments).toBeNull();
   });
 
-  it('calls getCaptions with the provided assetId', async () => {
+  it('calls getCaptions with the provided fileId', async () => {
     mockGetCaptions.mockResolvedValue(null);
     const { Wrapper } = createWrapper();
 

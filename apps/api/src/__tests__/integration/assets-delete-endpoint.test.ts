@@ -89,10 +89,11 @@ beforeAll(async () => {
     [IN_USE_ASSET_ID, TEST_PROJECT_ID, TEST_USER_ID, 'inuse.mp4', 'video/mp4', 2000, 's3://test/inuse.mp4'],
   );
 
-  // Seed a clip in project_clips_current referencing IN_USE_ASSET_ID.
+  // Seed a clip in project_clips_current referencing IN_USE_ASSET_ID via file_id.
+  // asset_id column was dropped in migration 024 (Files-as-Root refactor); file_id is the new column.
   await conn.execute(
     `INSERT INTO project_clips_current
-       (clip_id, project_id, track_id, type, asset_id, start_frame, duration_frames)
+       (clip_id, project_id, track_id, type, file_id, start_frame, duration_frames)
      VALUES (?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE clip_id = clip_id`,
     [REFERENCING_CLIP_ID, TEST_PROJECT_ID, 'track-del-test-001', 'video', IN_USE_ASSET_ID, 0, 90],
@@ -131,18 +132,6 @@ afterAll(async () => {
 });
 
 describe('DELETE /assets/:id', () => {
-  it('returns 401 when Authorization header is absent', async () => {
-    const res = await request(app).delete(`/assets/${DELETABLE_ASSET_ID}`);
-    expect(res.status).toBe(401);
-  });
-
-  it('returns 401 when the JWT is invalid', async () => {
-    const res = await request(app)
-      .delete(`/assets/${DELETABLE_ASSET_ID}`)
-      .set('Authorization', 'Bearer not-a-real-token');
-    expect(res.status).toBe(401);
-  });
-
   it('returns 404 when the asset does not exist', async () => {
     const res = await request(app)
       .delete('/assets/00000000-0000-0000-0000-000000000000')

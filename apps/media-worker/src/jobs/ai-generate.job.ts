@@ -164,7 +164,7 @@ export async function processAiGenerateJob(
     // `ready`, matching the flow for client-uploaded media.
     await ingestQueue.add(
       'ingest',
-      { assetId, storageUri, contentType: parsed.contentType },
+      { fileId: assetId, assetId, storageUri, contentType: parsed.contentType },
       { jobId: assetId, removeOnComplete: true, removeOnFail: false },
     );
 

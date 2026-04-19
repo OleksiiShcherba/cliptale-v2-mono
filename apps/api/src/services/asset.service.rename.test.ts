@@ -23,7 +23,7 @@ const OTHER_USER_ID = 'user-789';
 const ASSET_ID = 'asset-rename-001';
 
 const mockAsset = {
-  assetId: ASSET_ID,
+  fileId: ASSET_ID,
   projectId: 'proj-123',
   userId: OWNER_USER_ID,
   filename: 'original.mp4',

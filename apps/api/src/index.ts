@@ -4,6 +4,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 
 import { config } from '@/config.js';
+import { runPendingMigrations } from '@/db/migrate.js';
 import { authRouter } from '@/routes/auth.routes.js';
 import { assetsRouter } from '@/routes/assets.routes.js';
 import { fileRouter } from '@/routes/file.routes.js';
@@ -59,9 +60,16 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 
 // Only bind the port when running as the entry point, not when imported by tests.
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'))) {
-  app.listen(config.server.port, () => {
-    console.log(`API listening on port ${config.server.port}`);
-  });
+  runPendingMigrations()
+    .then(() => {
+      app.listen(config.server.port, () => {
+        console.log(`API listening on port ${config.server.port}`);
+      });
+    })
+    .catch((err: unknown) => {
+      console.error('[migrate] Fatal migration error — aborting startup:', err);
+      process.exit(1);
+    });
 }
 
 export default app;

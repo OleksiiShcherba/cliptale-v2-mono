@@ -57,7 +57,7 @@ function ControlledEditor({
 }
 
 function validPayload(id = 'asset-001', type = 'video', label = 'clip.mp4'): string {
-  return JSON.stringify({ assetId: id, type, label });
+  return JSON.stringify({ fileId: id, type, label });
 }
 
 // ── dragover tests ────────────────────────────────────────────────────────────
@@ -119,7 +119,7 @@ describe('PromptEditor / drop', () => {
     expect(chipBlocks[0]).toMatchObject({
       type: 'media-ref',
       mediaType: 'video',
-      assetId: 'asset-v1',
+      fileId: 'asset-v1',
       label: 'clip.mp4',
     });
   });
@@ -140,7 +140,7 @@ describe('PromptEditor / drop', () => {
 
     const last = onDocChange.mock.calls[onDocChange.mock.calls.length - 1][0] as PromptDoc;
     const chip = last.blocks.find((b) => b.type === 'media-ref');
-    expect(chip).toMatchObject({ mediaType: 'audio', assetId: 'aud-1', label: 'beat.mp3' });
+    expect(chip).toMatchObject({ mediaType: 'audio', fileId: 'aud-1', label: 'beat.mp3' });
   });
 
   it('appends the chip at end when caretPositionFromPoint is unavailable (jsdom)', () => {
@@ -213,7 +213,7 @@ describe('PromptEditor / drop', () => {
       schemaVersion: 1,
       blocks: [
         { type: 'text', value: 'intro ' },
-        { type: 'media-ref', mediaType: 'image', assetId: 'img-1', label: 'photo' },
+        { type: 'media-ref', mediaType: 'image', fileId: 'img-1', label: 'photo' },
         { type: 'text', value: '' },
       ],
     };
@@ -232,7 +232,7 @@ describe('PromptEditor / drop', () => {
     const last = onDocChange.mock.calls[onDocChange.mock.calls.length - 1][0] as PromptDoc;
     const chipIds = last.blocks
       .filter((b) => b.type === 'media-ref')
-      .map((b) => (b as { assetId: string }).assetId);
+      .map((b) => (b as { fileId: string }).fileId);
     // Both chips must be present.
     expect(chipIds).toContain('img-1');
     expect(chipIds).toContain('vid-2');

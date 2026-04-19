@@ -71,7 +71,7 @@ function MediaThumb({ preview }: MediaThumbProps): React.ReactElement {
   return (
     <img
       src={preview.thumbnailUrl}
-      alt={`Preview for ${preview.assetId}`}
+      alt={`Preview for ${preview.fileId}`}
       style={{
         width: 56,
         height: 56,
@@ -215,7 +215,7 @@ export function StoryboardCard({ card }: StoryboardCardProps): React.ReactElemen
           }}
         >
           {card.mediaPreviews.slice(0, 3).map((preview) => (
-            <MediaThumb key={preview.assetId} preview={preview} />
+            <MediaThumb key={preview.fileId} preview={preview} />
           ))}
         </div>
       )}

@@ -37,7 +37,7 @@ export function isChipNode(node: Node): boolean {
 export function createChipElement(block: MediaRefBlock): HTMLSpanElement {
   const span = document.createElement('span');
   span.setAttribute('contenteditable', 'false');
-  span.setAttribute('data-media-ref-id', block.assetId);
+  span.setAttribute('data-media-ref-id', block.fileId);
   span.setAttribute('data-media-type', block.mediaType);
   span.setAttribute('data-label', block.label);
   Object.assign(span.style, {
@@ -156,7 +156,7 @@ export function serializeDOMToDoc(root: HTMLElement): PromptDoc {
       blocks.push({
         type: 'media-ref',
         mediaType: el.getAttribute('data-media-type') as MediaRefBlock['mediaType'],
-        assetId: el.getAttribute('data-media-ref-id') ?? '',
+        fileId: el.getAttribute('data-media-ref-id') ?? '',
         label: el.getAttribute('data-label') ?? '',
       });
     } else {

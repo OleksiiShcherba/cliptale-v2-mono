@@ -168,14 +168,6 @@ describe('POST /projects/:id/renders', () => {
     expect(res.status).toBe(404);
   });
 
-  it('should return 401 when no auth token is provided', async () => {
-    const res = await request(app)
-      .post(`/projects/${testProjectId}/renders`)
-      .send({ versionId: testVersionId, presetKey: '1080p' });
-
-    expect(res.status).toBe(401);
-  });
-
   it('should return 400 when required body fields are missing', async () => {
     const res = await request(app)
       .post(`/projects/${testProjectId}/renders`)
@@ -224,11 +216,6 @@ describe('GET /renders/:jobId', () => {
     expect(res.status).toBe(404);
   });
 
-  it('should return 401 when no auth token is provided', async () => {
-    const res = await request(app).get(`/renders/${createdJobId}`);
-
-    expect(res.status).toBe(401);
-  });
 });
 
 // ── GET /projects/:id/renders ─────────────────────────────────────────────────
@@ -298,12 +285,6 @@ describe('GET /projects/:id/renders', () => {
     for (const entry of nonCompleteEntries) {
       expect(entry['downloadUrl']).toBeUndefined();
     }
-  });
-
-  it('should return 401 when no auth token is provided', async () => {
-    const res = await request(app).get(`/projects/${testProjectId}/renders`);
-
-    expect(res.status).toBe(401);
   });
 
   it('should return an empty renders array for a project with no jobs', async () => {

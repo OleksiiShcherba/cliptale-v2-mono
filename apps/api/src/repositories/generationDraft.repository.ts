@@ -18,10 +18,10 @@ export type GenerationDraft = {
 
 /**
  * A single media-preview entry for the storyboard card — resolved from
- * project_assets_current via the assetId in a MediaRefBlock.
+ * project_assets_current via the fileId in a MediaRefBlock.
  */
 export type MediaPreview = {
-  assetId: string;
+  fileId: string;
   type: 'video' | 'image' | 'audio';
   thumbnailUrl: string | null;
 };
@@ -203,27 +203,27 @@ export async function findStoryboardDraftsForUser(userId: string): Promise<
 }
 
 /**
- * Batch-fetches asset preview data (assetId, content_type, thumbnail_uri) for
+ * Batch-fetches asset preview data (fileId, content_type, thumbnail_uri) for
  * a set of asset IDs. Returns only rows that exist in project_assets_current —
  * missing IDs are silently absent from the result (caller handles the skip).
  *
  * Accepts an empty array gracefully by returning [] without issuing a query.
  */
 export async function findAssetPreviewsByIds(
-  assetIds: string[],
-): Promise<Array<{ assetId: string; contentType: string; thumbnailUri: string | null }>> {
-  if (assetIds.length === 0) return [];
+  fileIds: string[],
+): Promise<Array<{ fileId: string; contentType: string; thumbnailUri: string | null }>> {
+  if (fileIds.length === 0) return [];
 
-  const placeholders = assetIds.map(() => '?').join(', ');
+  const placeholders = fileIds.map(() => '?').join(', ');
   const [rows] = await pool.query<AssetPreviewRow[]>(
     `SELECT asset_id, content_type, thumbnail_uri
      FROM project_assets_current
      WHERE asset_id IN (${placeholders})`,
-    assetIds,
+    fileIds,
   );
 
   return rows.map((row) => ({
-    assetId: row.asset_id,
+    fileId: row.asset_id,
     contentType: row.content_type,
     thumbnailUri: row.thumbnail_uri,
   }));

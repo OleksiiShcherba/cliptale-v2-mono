@@ -67,16 +67,16 @@ function contentTypeToBucket(contentType: string): 'video' | 'image' | 'audio' |
   return null;
 }
 
-/** Encodes a `(updatedAt, assetId)` pair as an opaque base64 cursor. */
-function encodeCursor(updatedAt: Date, assetId: string): string {
-  return Buffer.from(`${updatedAt.toISOString()}|${assetId}`, 'utf8').toString('base64');
+/** Encodes a `(updatedAt, fileId)` pair as an opaque base64 cursor. */
+function encodeCursor(updatedAt: Date, fileId: string): string {
+  return Buffer.from(`${updatedAt.toISOString()}|${fileId}`, 'utf8').toString('base64');
 }
 
 /**
  * Decodes a cursor produced by `encodeCursor`.
  * Throws `ValidationError` on malformed input — the client sent garbage.
  */
-function decodeCursor(raw: string): { updatedAt: Date; assetId: string } {
+function decodeCursor(raw: string): { updatedAt: Date; fileId: string } {
   let decoded: string;
   try {
     decoded = Buffer.from(raw, 'base64').toString('utf8');
@@ -88,17 +88,17 @@ function decodeCursor(raw: string): { updatedAt: Date; assetId: string } {
     throw new ValidationError('Invalid cursor');
   }
   const iso = decoded.slice(0, pipeIndex);
-  const assetId = decoded.slice(pipeIndex + 1);
+  const fileId = decoded.slice(pipeIndex + 1);
   const updatedAt = new Date(iso);
   if (Number.isNaN(updatedAt.getTime())) {
     throw new ValidationError('Invalid cursor');
   }
-  return { updatedAt, assetId };
+  return { updatedAt, fileId };
 }
 
-function buildThumbnailUrl(baseUrl: string, assetId: string, thumbnailUri: string | null): string | null {
+function buildThumbnailUrl(baseUrl: string, fileId: string, thumbnailUri: string | null): string | null {
   if (!thumbnailUri) return null;
-  return `${baseUrl}/assets/${assetId}/thumbnail`;
+  return `${baseUrl}/assets/${fileId}/thumbnail`;
 }
 
 /**
@@ -133,11 +133,11 @@ export async function listForUser(params: ListAssetsParams): Promise<ListAssetsR
         : null;
     return [
       {
-        id: asset.assetId,
+        id: asset.fileId,
         type: bucket,
         label: asset.displayName ?? asset.filename,
         durationSeconds,
-        thumbnailUrl: buildThumbnailUrl(params.baseUrl, asset.assetId, asset.thumbnailUri),
+        thumbnailUrl: buildThumbnailUrl(params.baseUrl, asset.fileId, asset.thumbnailUri),
         createdAt: asset.createdAt instanceof Date ? asset.createdAt.toISOString() : asset.createdAt,
       },
     ];
@@ -145,7 +145,7 @@ export async function listForUser(params: ListAssetsParams): Promise<ListAssetsR
 
   const nextCursor =
     rows.length === params.limit
-      ? encodeCursor(rows[rows.length - 1]!.updatedAt, rows[rows.length - 1]!.assetId)
+      ? encodeCursor(rows[rows.length - 1]!.updatedAt, rows[rows.length - 1]!.fileId)
       : null;
 
   const totals: AssetTotals = { videos: 0, images: 0, audio: 0, bytesUsed: 0 };

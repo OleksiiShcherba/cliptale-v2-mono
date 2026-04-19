@@ -7,8 +7,8 @@ import type { CaptionTrackStatus } from '@/features/captions/types';
 
 /** Props for the TranscribeButton component. */
 export interface TranscribeButtonProps {
-  /** ID of the video or audio asset to transcribe. */
-  assetId: string;
+  /** ID of the file (asset) to transcribe. */
+  fileId: string;
 }
 
 /** Extended button states (superset of CaptionTrackStatus). */
@@ -47,14 +47,14 @@ const STATUS_COLOR: Record<ButtonState, string> = {
  * `useTranscriptionStatus` is enabled only after the user clicks "Transcribe" —
  * no caption polling happens on mount.
  */
-export function TranscribeButton({ assetId }: TranscribeButtonProps): React.ReactElement {
+export function TranscribeButton({ fileId }: TranscribeButtonProps): React.ReactElement {
   const [isTriggering, setIsTriggering] = useState(false);
   const [hasPendingTranscription, setHasPendingTranscription] = useState(false);
 
   // Always fetch once on mount to detect existing captions.
   // Polling (3 s interval) only activates after the user triggers transcription.
   const { status: queryStatus, segments, isFetching } = useTranscriptionStatus(
-    assetId,
+    fileId,
     hasPendingTranscription,
   );
   const { addCaptionsToTimeline } = useAddCaptionsToTimeline();
@@ -76,14 +76,14 @@ export function TranscribeButton({ assetId }: TranscribeButtonProps): React.Reac
     if (isTriggering) return;
     setIsTriggering(true);
     try {
-      await triggerTranscription(assetId);
+      await triggerTranscription(fileId);
       setHasPendingTranscription(true);
     } catch {
       // Trigger failed — stay in idle so user can retry.
     } finally {
       setIsTriggering(false);
     }
-  }, [assetId, isTriggering]);
+  }, [fileId, isTriggering]);
 
   const handleAddToTimeline = useCallback(() => {
     if (!segments) return;

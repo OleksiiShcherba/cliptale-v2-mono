@@ -31,7 +31,7 @@ describe('asset.list.service / cursor pagination', () => {
   it('returns a non-null nextCursor when the page is full', async () => {
     const rows = Array.from({ length: 3 }, (_, i) =>
       makeAsset({
-        assetId: `asset-${i}`,
+        fileId: `asset-${i}`,
         updatedAt: new Date(`2026-01-0${i + 1}T00:00:00Z`),
       }),
     );
@@ -60,9 +60,9 @@ describe('asset.list.service / cursor pagination', () => {
     expect(result.nextCursor).toBeNull();
   });
 
-  it('round-trips a cursor — next call passes the decoded (updatedAt, assetId) to the repo', async () => {
+  it('round-trips a cursor — next call passes the decoded (updatedAt, fileId) to the repo', async () => {
     const firstPageLastRow = makeAsset({
-      assetId: 'cursor-id',
+      fileId: 'cursor-id',
       updatedAt: new Date('2026-02-15T12:00:00Z'),
     });
     mockFindReady.mockResolvedValueOnce([firstPageLastRow]);
@@ -86,7 +86,7 @@ describe('asset.list.service / cursor pagination', () => {
     });
 
     const secondCallParams = mockFindReady.mock.calls[1]![0];
-    expect(secondCallParams.cursor.assetId).toBe('cursor-id');
+    expect(secondCallParams.cursor.fileId).toBe('cursor-id');
     expect(secondCallParams.cursor.updatedAt.toISOString()).toBe('2026-02-15T12:00:00.000Z');
   });
 

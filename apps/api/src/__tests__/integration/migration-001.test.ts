@@ -41,6 +41,12 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // migration-001 creates project_assets_current. This table was superseded by
+  // the `files` table (migrations 021-024) and dropped in migration 024/027.
+  // Re-creating it here (even via IF NOT EXISTS) would leave the live DB in a
+  // schema-drift state that breaks schema-final-state.integration.test.ts.
+  // Drop the table in afterAll to restore the correct post-024 schema.
+  await conn?.query('DROP TABLE IF EXISTS project_assets_current');
   await conn?.end();
 });
 

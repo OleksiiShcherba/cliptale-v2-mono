@@ -16,7 +16,7 @@ export function useAudioClipEditor(clip: AudioClip): {
   setVolume: (volume: number) => void;
 } {
   const patchClip = useCallback(
-    (patch: Partial<Omit<AudioClip, 'id' | 'type' | 'trackId' | 'assetId'>>) => {
+    (patch: Partial<Omit<AudioClip, 'id' | 'type' | 'trackId' | 'fileId'>>) => {
       const current = getSnapshot();
       setProject({
         ...current,
