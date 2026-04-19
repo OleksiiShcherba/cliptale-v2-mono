@@ -9,3 +9,4 @@
 - [Batch-4 verification anchors](project_batch4_verification_anchors.md) — cors.test.ts Docker-mount gotcha, full project_assets_current caller roster incl. render-worker, test counts, uncommitted-tree flag
 - [Batch-5 verification anchors](project_batch5_verification_anchors.md) — render-worker+ai-generate CLEAN, cors.test.ts fix CLAIMED done but still FAILING (describe.skipIf callback body still executes), mimeToKind copies already drifted
 - [Batch-6 verification anchors](project_batch6_verification_anchors.md) — cors.test.ts Pattern B verified in container + full-repo; mimeToKind canonical in project-schema (grep=1); Class A/C unchanged
+- [Timeline-drop regression fix anchors](project_timeline_drop_fix_anchors.md) — clip.assetId=0 + useProjectInit must spread-override id on both branches + DEV_PROJECT seed still present

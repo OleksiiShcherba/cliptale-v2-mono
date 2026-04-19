@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 
 import { createProject } from '@/features/project/api';
 import { fetchLatestVersion } from '@/features/version-history/api';
-import { setProjectSilent, setCurrentVersionId } from '@/store/project-store';
+import { getSnapshot, setProjectSilent, setCurrentVersionId } from '@/store/project-store';
 import type { ProjectDoc } from '@ai-video-editor/project-schema';
 
 // ---------------------------------------------------------------------------
@@ -59,8 +59,8 @@ function isNotFoundError(err: unknown): boolean {
  * - Fetches `GET /projects/:id/versions/latest`.
  * - On success: calls `setProjectSilent(docJson)` + `setCurrentVersionId(versionId)`
  *   (no patches pushed into history-store) then transitions to `ready`.
- * - On 404 (new project, no versions yet): falls through to `ready` with the
- *   existing blank `DEV_PROJECT` seed — no store mutation needed.
+ * - On 404 (new project, no versions yet): calls `setProjectSilent` to sync
+ *   the store's `id` field with the resolved projectId, then transitions to `ready`.
  * - On other fetch errors: transitions to `error`.
  *
  * Returns a discriminated union so callers can render loading / error states.
@@ -114,14 +114,20 @@ export function useProjectInit(): ProjectInitState {
         if (cancelled) return;
         // Hydrate silently — no patches pushed into history-store so the first
         // autosave does not re-send the entire doc as a patch.
-        setProjectSilent(latest.docJson as ProjectDoc);
+        // Always override docJson.id with the URL-resolved projectId: the URL is
+        // the authoritative identity source; a stale or mismatched docJson.id
+        // would otherwise cause every downstream POST (clips, versions) to target
+        // the wrong project.
+        setProjectSilent({ ...(latest.docJson as ProjectDoc), id: projectId });
         setCurrentVersionId(latest.versionId);
         setState({ status: 'ready', projectId });
       })
       .catch((err: unknown) => {
         if (cancelled) return;
         if (isNotFoundError(err)) {
-          // New project: no versions yet — fall through to the blank seed.
+          // New project: no versions yet — sync the store id with the resolved
+          // projectId so downstream writes target the correct project.
+          setProjectSilent({ ...getSnapshot(), id: projectId });
           setState({ status: 'ready', projectId });
           return;
         }

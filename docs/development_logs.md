@@ -208,6 +208,14 @@
 - split: `generation-drafts-cards` test → endpoint (293L, 7) + shape (268L, 5) + fixtures.ts per §9 300-cap
 - regression: 886 pass | 7 fail | 4 skip (Class A pre-existing user-mismatch; Class C pre-existing stale seeds; Class B schema-drift = 0 target)
 
+## Fix: Timeline-drop regression (Remotion black screen + POST /clips 400, 2026-04-19, master parallel)
+- fixed: `packages/remotion-comps/src/compositions/VideoComposition.tsx` — `clip.assetId` → `clip.fileId` in video/audio/image branches (stale field from Files-as-Root rename was returning undefined → black preview)
+- updated: `VideoComposition.fixtures.ts`, `VideoComposition.test.tsx` (+ 1 regression-locking test "renders VideoLayer when fileId is present in assetUrls"), `stories/VideoComposition.stories.tsx` (6 fixtures); 50/50 tests pass (superseded by Batch 4 S2/S3 UUID-constant migration)
+- fixed: `apps/web-editor/src/features/project/hooks/useProjectInit.ts` — both success and 404 branches now call `setProjectSilent({ ...docJson|getSnapshot(), id: projectId })` so `project-store.snapshot.id` is always the URL-resolved projectId (not the stale `DEV_PROJECT.id = '00000000-…-000001'` seed → was the 400 cause)
+- updated: `useProjectInit.test.ts` — `vi.hoisted()` mock for `getSnapshot`; 2 new acceptance tests; 20/20 pass
+- added: `e2e/timeline-drop-regression.spec.ts` — Playwright `beforeAll` login + `storageState` reuse; asserts POST /projects/<real-uuid>/clips → 201, URL ≠ fixture UUID, no "Failed to create clip" console errors, canvas not black
+- seeded: `e2e2@cliptale.test` test user; screenshots `docs/test_screenshots/timeline-drop-{video,image,audio}.png`
+
 ## EPIC — assetId → fileId Migration Cleanup (Batch 4, 2026-04-19)
 - Subtask 1 (editor-core tests): fileId on 3 clip factories in `index.test.ts`; `import { randomUUID } from 'node:crypto'`; removed `**/*.test.ts` exclude from tsconfig; added `@types/node` devDep; 10/10 pass
 - Subtask 2 (remotion-comps tests): fileId on CLIP_VIDEO/AUDIO/IMAGE fixtures; explicit `Track` type annotations in `VideoComposition.utils.ts` + typed `calculateMetadata` in `remotion-entry.tsx` (pre-existing implicit-any, surfaced by tsconfig fix); removed test excludes; 49/49 pass
@@ -218,8 +226,8 @@
 
 ## EPIC — Files-as-Root Cutover Finish (Batch 5, 2026-04-19, post-guardian findings)
 - S7.1 render-worker: rewrote `resolveAssetUrls()` in `apps/render-worker/src/jobs/render.job.ts` — filter `'fileId' in c`, `SELECT file_id, storage_uri FROM files WHERE file_id IN (?)`, return map keyed by fileId; renamed locals; JSDoc sync in `remotion-renderer.ts`; updated `render.job.fixtures.ts` + `render.job.assets.test.ts` + `render.job.test.ts`. Fix round 1 added 6 regression tests (exclude text-overlay/caption, image-clip resolve, mixed-clip doc, orphan safety, SQL-query guard). 26/26 pass. Unblocks export pipeline (was silently producing black frames in prod)
-- S7.2 ai-generate handlers: removed `insertAssetRow()`/`saveAudioAsset()` from `ai-generate.job.ts` + `ai-generate-audio.handler.ts`; both now call `deps.filesRepo.createFile(...)` → `deps.aiGenerationJobRepo.setOutputFile(jobId, fileId)`; worker-local thin repo implementations wired in `media-worker/src/index.ts` (no cross-app import); `voice_cloning` path unchanged (produces voice_id, not a file); updated fixtures + tests (findCreateFileParams helper); 134/134 pass. Fix round 1: extracted 6 helpers (pollFalWithProgress, downloadArtifact, setJobStatus, setJobProgress, sleep, mimeToKind) + `FileKind` type into `ai-generate.utils.ts` (125L); `ai-generate.job.ts` 308→223L. `mimeToKind` centralized: canonical export at `apps/api/src/services/file.service.ts`; test fixture `generation-drafts-cards.fixtures.ts` imports from there; media-worker retains 1 local copy (cross-app-boundary, commented). AI-generate outputs now actually land in `files` + `draft_files` pivot
-- S7.3 cors.test.ts: gated suite behind `describe.skipIf(!corsReachable)` with `readFileSync` moved inside callback (module-load crash fix); `console.warn` explains skip path; all 9 CORS assertions intact when cors.json reachable (Option A, no duplication)
+- S7.2 ai-generate handlers: removed `insertAssetRow()`/`saveAudioAsset()` from `ai-generate.job.ts` + `ai-generate-audio.handler.ts`; both now call `deps.filesRepo.createFile(...)` → `deps.aiGenerationJobRepo.setOutputFile(jobId, fileId)`; worker-local thin repo implementations wired in `media-worker/src/index.ts` (no cross-app import); `voice_cloning` path unchanged (produces voice_id, not a file); updated fixtures + tests (findCreateFileParams helper); 134/134 pass. Fix round 1: extracted 6 helpers (pollFalWithProgress, downloadArtifact, setJobStatus, setJobProgress, sleep, mimeToKind) + `FileKind` type into `ai-generate.utils.ts` (125L); `ai-generate.job.ts` 308→223L. AI-generate outputs now actually land in `files` + `draft_files` pivot
+- S7.3 cors.test.ts: gated suite behind `describe.skipIf(!corsReachable)` with `readFileSync` moved inside callback (module-load crash fix); later fixed in Batch 6 — see below
 
 ## EPIC — Batch 5 Guardian Remediation (Batch 6, 2026-04-19)
 - S8.1 cors.test.ts real fix: replaced broken `describe.skipIf` (which only skips `it()` bodies, not the callback — callback's `readFileSync` still fired ENOENT during test collection) with Pattern B — top-level `if (!corsReachable) { describe.skip(...) } else { ...readFileSync + 9 assertions }`. Live-verified: container `sudo docker exec cliptale-v2-mono-api-1 npx vitest run src/__tests__/infra/cors.test.ts` → 1 skipped, no ENOENT; full-repo `docker run ... node:20-slim ... -- src/__tests__/infra/cors.test.ts` → 10/10 pass
@@ -232,7 +240,8 @@
 - MySQL 8.0 DDL non-transactional; INSERT into `schema_migrations` AFTER DDL succeeds; migration files must be idempotent (INFORMATION_SCHEMA + PREPARE/EXECUTE guards)
 - Vitest integration: `pool: 'forks'` + `singleFork: true` serialize across files; each split test file declares its own `vi.hoisted()` block (cannot be shared via fixtures — documented exception)
 - Files-as-root: `files` user-scoped root; `project_files`/`draft_files` pivots (CASCADE container, RESTRICT file) = app-layer GC before file delete. Cutover complete after Batch 5 — `project_assets_current` grep = 0 live callers across apps/*/src/
-- Wire DTO naming: `fileId` across wire (contracts + BE + FE + worker payloads); `assetId` compat shim removed; `MediaIngestJobPayload.fileId` required
+- Wire DTO naming: `fileId` across wire (contracts + BE + FE + worker payloads); `assetId` compat shim removed; `MediaIngestJobPayload.fileId` required; `submitGenerationSchema.strict()`; consumers (Remotion comps, project-store) must read `clip.fileId` not `clip.assetId`
+- `project-store.snapshot.id` must be kept in sync with `useProjectInit` URL-resolved projectId on both success and 404 branches (inline `setProjectSilent({ ...docJson|getSnapshot(), id })` — no new store action)
 - `findByIdForUser` unifies existence + ownership (cross-user → null → NotFoundError — avoids leaking existence)
 - Audio via ElevenLabs (not fal.ai)
 - Wizard MediaGalleryPanel separate from editor AssetBrowserPanel (§14 no cross-feature imports)
@@ -251,13 +260,14 @@
 - ESM `__dirname`: compute via `dirname(fileURLToPath(import.meta.url))` (bare `__dirname` is undefined under ESM)
 - `mimeToKind()` + `FileKind` canonical at `packages/project-schema/src/file-kind.ts`; re-exported from the package index; both apps import from `@ai-video-editor/project-schema` (no local copies)
 - Test-infra subtasks: any skip/gate on filesystem/env preconditions MUST be live-verified in the actual container BEFORE marking done. "Correct by static analysis" is not acceptable evidence — ENOENT from `describe.skipIf` shipped once under that justification
+- `express-rate-limit` login limiter in-memory; `tsx watch` restarts do NOT clear; only `docker restart <api>` resets — E2E tests should use fresh emails or `storageState` reuse
+- `APP_DEV_AUTH_BYPASS=true` hard-codes `dev-user-001` in `auth.middleware.ts`; backend ignores JWT; E2E user sessions are FE-only under bypass
 
 ## Known Issues / TODOs
 - ACL middleware stub — real project ownership check deferred
 - `files` lacks `thumbnail_uri`/`waveform_json`; `getProjectFilesResponse` returns null (FE handles); tests assert `toBeNull()`
 - `duration_ms` NULL for migrated files (source lacked fps); ingest reprocess repopulates
 - `bytes` NULL after ingest (FFprobe doesn't return S3 object size; HeadObject needs worker bucket config)
-- Seed `project_assets_current` rows with non-UUID project_id migrated to files; pivot links skipped (INSERT IGNORE)
 - `packages/api-contracts/` OpenAPI spec only covers scoped endpoints
 - Presigned download URL deferred
 - Integration test beforeAll schema self-healing (migrate/migration-014/schema-final-state) distributed; candidate for centralized fixture layer
@@ -267,7 +277,7 @@
 - Pre-existing TS errors in unrelated test files
 - Stitch OQ-S1..S4 (dup Landing, tablet/mobile variants, secondary screens, spacing/typography echo)
 - Sidebar nav: no top-level nav; wizard "Generate" highlight deferred
-- `DEV_PROJECT` fixture in `project-store.ts` — candidate for removal
+- `DEV_PROJECT` fixture in `project-store.ts` — candidate for removal (now that `useProjectInit` overrides id on both branches it's cosmetic-only)
 - TopBar buttons `borderRadius: 6px` off-token (pre-existing)
 - Chip × button needs semi-transparent background token
 - `parseStorageUri` duplicated between `asset.service.ts` + `file.service.ts` — candidate to move to `lib/storage-uri.ts`
@@ -277,3 +287,5 @@
 - **Class C (5 tests — stale seed/table debt, queued for follow-up batch):** `assets-finalize-endpoint.test.ts`, `assets-list-endpoint.test.ts`, `assets-stream-endpoint.test.ts`, `assets-delete-endpoint.test.ts`, `assets-endpoints.test.ts` — beforeAll still INSERTs into dropped `project_assets_current`
 - `asset.repository.ts` thin compat adapter over files+project_files — candidate for collapse + deletion (non-urgent; minimises blast radius)
 - S3 CORS UI smoke + render-worker export UI smoke + AI-generate wizard UI smoke (Playwright drag-and-drop upload, export video, generate-from-wizard at `https://15-236-162-140.nip.io`) deferred to manual/CI run — HTTP/unit/integration verification done; browser-runtime end-to-end pending
+- `useProjectInit.test.ts` = 318 lines (18 over §9 cap) — pragmatic exception for single cohesive hook
+- E2E image/audio timeline-drop tests skip when no assets of those types are linked to test project — only video path is E2E-covered (image/audio share same `fileId` lookup)

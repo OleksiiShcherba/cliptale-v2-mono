@@ -11,7 +11,24 @@ vi.mock('@/features/version-history/api', () => ({
   fetchLatestVersion: vi.fn(),
 }));
 
+const { mockGetSnapshot } = vi.hoisted(() => ({
+  mockGetSnapshot: vi.fn().mockReturnValue({
+    schemaVersion: 1,
+    id: '00000000-0000-0000-0000-000000000001',
+    title: 'Dev Project',
+    fps: 30,
+    durationFrames: 300,
+    width: 1920,
+    height: 1080,
+    tracks: [],
+    clips: [],
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }),
+}));
+
 vi.mock('@/store/project-store', () => ({
+  getSnapshot: mockGetSnapshot,
   setProjectSilent: vi.fn(),
   setCurrentVersionId: vi.fn(),
 }));
@@ -97,14 +114,18 @@ describe('useProjectInit', () => {
       await waitFor(() => expect(mockFetchLatestVersion).toHaveBeenCalledWith('url-project-123'));
     });
 
-    it('calls setProjectSilent with the fetched docJson on success', async () => {
+    it('calls setProjectSilent with docJson merged with the URL-resolved projectId', async () => {
       setUrlSearch('?projectId=url-project-123');
       mockFetchLatestVersion.mockResolvedValue(mockLatestVersion);
       const { result } = renderHook(() => useProjectInit());
 
       await waitFor(() => expect(result.current.status).toBe('ready'));
 
-      expect(mockSetProjectSilent).toHaveBeenCalledWith(mockLatestVersion.docJson);
+      // The id in the call must be the URL-resolved projectId, not whatever docJson.id was.
+      expect(mockSetProjectSilent).toHaveBeenCalledWith({
+        ...mockLatestVersion.docJson,
+        id: 'url-project-123',
+      });
     });
 
     it('calls setCurrentVersionId with the fetched versionId on success', async () => {
@@ -126,12 +147,30 @@ describe('useProjectInit', () => {
 
       expect(result.current.projectId).toBe('url-project-123');
     });
+
+    // Acceptance criterion 2: URL-resolved projectId wins over stale docJson.id.
+    it('overrides a stale docJson.id with the URL-resolved projectId in the store', async () => {
+      setUrlSearch('?projectId=real-uuid');
+      mockFetchLatestVersion.mockResolvedValue({
+        versionId: 3,
+        docJson: { id: 'stale-uuid', title: 'Old Project', durationFrames: 150 },
+        createdAt: '2026-04-01T00:00:00.000Z',
+      });
+      const { result } = renderHook(() => useProjectInit());
+
+      await waitFor(() => expect(result.current.status).toBe('ready'));
+
+      expect(mockSetProjectSilent).toHaveBeenCalledOnce();
+      const calledWith = mockSetProjectSilent.mock.calls[0]?.[0];
+      // URL projectId ('real-uuid') must override the stale docJson.id ('stale-uuid').
+      expect(calledWith?.id).toBe('real-uuid');
+    });
   });
 
-  // ── 404 from fetchLatestVersion — fall through to blank seed ─────────────
+  // ── 404 from fetchLatestVersion — sync store id, fall through to blank seed ─
 
   describe('when fetchLatestVersion returns 404 (new project, no versions)', () => {
-    it('transitions to ready without mutating the store', async () => {
+    it('transitions to ready with the resolved projectId', async () => {
       setUrlSearch('?projectId=new-project-456');
       mockFetchLatestVersion.mockRejectedValue(makeNotFoundError());
       const { result } = renderHook(() => useProjectInit());
@@ -139,8 +178,42 @@ describe('useProjectInit', () => {
       await waitFor(() => expect(result.current.status).toBe('ready'));
 
       expect(result.current.projectId).toBe('new-project-456');
-      expect(mockSetProjectSilent).not.toHaveBeenCalled();
+    });
+
+    it('calls setProjectSilent with the resolved projectId overriding the seed id', async () => {
+      setUrlSearch('?projectId=new-project-456');
+      mockFetchLatestVersion.mockRejectedValue(makeNotFoundError());
+      const { result } = renderHook(() => useProjectInit());
+
+      await waitFor(() => expect(result.current.status).toBe('ready'));
+
+      expect(mockSetProjectSilent).toHaveBeenCalledOnce();
+      const calledWith = mockSetProjectSilent.mock.calls[0]?.[0];
+      expect(calledWith?.id).toBe('new-project-456');
+    });
+
+    it('does NOT call setCurrentVersionId (no version exists yet)', async () => {
+      setUrlSearch('?projectId=new-project-456');
+      mockFetchLatestVersion.mockRejectedValue(makeNotFoundError());
+      const { result } = renderHook(() => useProjectInit());
+
+      await waitFor(() => expect(result.current.status).toBe('ready'));
+
       expect(mockSetCurrentVersionId).not.toHaveBeenCalled();
+    });
+
+    // Acceptance criterion 1: fresh-project branch syncs store id.
+    it('syncs store snapshot id with the projectId from createProject (fresh project)', async () => {
+      setUrlSearch('');
+      mockCreateProject.mockResolvedValue({ projectId: 'new-uuid' });
+      mockFetchLatestVersion.mockRejectedValue(makeNotFoundError());
+      const { result } = renderHook(() => useProjectInit());
+
+      await waitFor(() => expect(result.current.status).toBe('ready'));
+
+      expect(mockSetProjectSilent).toHaveBeenCalledOnce();
+      const calledWith = mockSetProjectSilent.mock.calls[0]?.[0];
+      expect(calledWith?.id).toBe('new-uuid');
     });
   });
 

@@ -11,3 +11,4 @@
 - [Project: Asset Repository Migration (Batch 3)](project_asset_repo_migration.md) — asset.repository + generationDraft.repository migration; ALL 5 SUBTASKS COMPLETE (2026-04-19); 886 pass / 7 fail baseline
 - [Project: assetId→fileId migration cleanup](project_assetid_migration.md) — branch fix/docker-dev-deploy; Subtask 1 DONE; 5 remaining (editor-core build + tests green)
 - [Project: Batch 5 Guardian Remediation](project_batch5_guardian_remediation.md) — cors.test.ts Pattern B fix + mimeToKind extraction; ALL COMPLETE (2026-04-19)
+- [Project: Timeline-drop regression fix](project_timeline_drop_regression.md) — POST /clips 400 + Remotion black screen; ALL 3 SUBTASKS COMPLETE (2026-04-19); video drop → 201 confirmed via E2E
