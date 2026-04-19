@@ -36,7 +36,7 @@ export function VideoComposition({ projectDoc, assetUrls }: VideoCompositionProp
     <AbsoluteFill style={{ background: '#000' }}>
       {clips.map((clip) => {
         if (clip.type === 'video') {
-          const src = assetUrls[clip.assetId] ?? '';
+          const src = assetUrls[clip.fileId] ?? '';
           if (!src) return null;
           return (
             <Sequence key={clip.id} from={clip.startFrame} durationInFrames={clip.durationFrames}>
@@ -51,7 +51,7 @@ export function VideoComposition({ projectDoc, assetUrls }: VideoCompositionProp
         }
 
         if (clip.type === 'audio') {
-          const src = assetUrls[clip.assetId] ?? '';
+          const src = assetUrls[clip.fileId] ?? '';
           if (!src) return null;
           return (
             <Sequence key={clip.id} from={clip.startFrame} durationInFrames={clip.durationFrames}>
@@ -66,7 +66,7 @@ export function VideoComposition({ projectDoc, assetUrls }: VideoCompositionProp
         }
 
         if (clip.type === 'image') {
-          const src = assetUrls[clip.assetId] ?? '';
+          const src = assetUrls[clip.fileId] ?? '';
           if (!src) return null;
           return (
             <Sequence key={clip.id} from={clip.startFrame} durationInFrames={clip.durationFrames}>
