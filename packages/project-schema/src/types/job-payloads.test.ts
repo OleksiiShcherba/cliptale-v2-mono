@@ -192,8 +192,8 @@ describe('CaptionWord', () => {
   });
 });
 
-describe('MediaIngestJobPayload (regression)', () => {
-  it('accepts a new-path payload with fileId', () => {
+describe('MediaIngestJobPayload', () => {
+  it('requires fileId, storageUri, and contentType', () => {
     const payload: MediaIngestJobPayload = {
       fileId: 'file-100',
       storageUri: 's3://bucket/video.mp4',
@@ -205,14 +205,13 @@ describe('MediaIngestJobPayload (regression)', () => {
     expect(payload.contentType).toBe('video/mp4');
   });
 
-  it('accepts a legacy-path payload with assetId only', () => {
-    const payload: MediaIngestJobPayload = {
-      assetId: 'asset-100',
-      storageUri: 's3://bucket/video.mp4',
-      contentType: 'video/mp4',
-    };
+  it('accepts video, audio, and image content types', () => {
+    const video: MediaIngestJobPayload = { fileId: 'f-1', storageUri: 's3://b/v.mp4', contentType: 'video/mp4' };
+    const audio: MediaIngestJobPayload = { fileId: 'f-2', storageUri: 's3://b/a.mp3', contentType: 'audio/mpeg' };
+    const image: MediaIngestJobPayload = { fileId: 'f-3', storageUri: 's3://b/i.jpg', contentType: 'image/jpeg' };
 
-    expect(payload.assetId).toBe('asset-100');
-    expect(payload.fileId).toBeUndefined();
+    expect(video.contentType).toBe('video/mp4');
+    expect(audio.contentType).toBe('audio/mpeg');
+    expect(image.contentType).toBe('image/jpeg');
   });
 });

@@ -10,12 +10,6 @@ import {
   makeMocks,
 } from './ai-generate.job.fixtures.js';
 
-const hasInsertCall = (execute: ReturnType<typeof vi.fn>): boolean =>
-  execute.mock.calls.some(
-    (c) =>
-      typeof c[0] === 'string' && c[0].includes('INSERT INTO project_assets_current'),
-  );
-
 describe('processAiGenerateJob — failure paths', () => {
   let originalFetch: typeof globalThis.fetch;
 
@@ -28,7 +22,7 @@ describe('processAiGenerateJob — failure paths', () => {
     vi.clearAllMocks();
   });
 
-  it('marks job failed when submitFalJob throws; no INSERT and no ingest', async () => {
+  it('marks job failed when submitFalJob throws; no files row and no ingest', async () => {
     const m = makeMocks(IMAGE_OUTPUT);
     installFetch(m);
     m.submitFalJob.mockRejectedValueOnce(new Error('fal submit boom'));
@@ -41,8 +35,9 @@ describe('processAiGenerateJob — failure paths', () => {
       expect.stringContaining('SET status = ?, error_message = ?'),
       ['failed', 'fal submit boom', 'job-1'],
     );
-    expect(hasInsertCall(m.execute)).toBe(false);
+    expect(m.filesRepoCreateFile).not.toHaveBeenCalled();
     expect(m.ingestAdd).not.toHaveBeenCalled();
+    expect(m.aiGenerationJobRepoSetOutputFile).not.toHaveBeenCalled();
   });
 
   it('marks job failed when getFalJobStatus throws during polling', async () => {
@@ -58,8 +53,9 @@ describe('processAiGenerateJob — failure paths', () => {
       expect.stringContaining('SET status = ?, error_message = ?'),
       ['failed', 'fal status boom', 'job-1'],
     );
-    expect(hasInsertCall(m.execute)).toBe(false);
+    expect(m.filesRepoCreateFile).not.toHaveBeenCalled();
     expect(m.ingestAdd).not.toHaveBeenCalled();
+    expect(m.aiGenerationJobRepoSetOutputFile).not.toHaveBeenCalled();
   });
 
   it('marks job failed when the output is missing the expected image URL', async () => {
@@ -74,8 +70,9 @@ describe('processAiGenerateJob — failure paths', () => {
       expect.stringContaining('SET status = ?, error_message = ?'),
       ['failed', expect.stringContaining('did not contain'), 'job-1'],
     );
-    expect(hasInsertCall(m.execute)).toBe(false);
+    expect(m.filesRepoCreateFile).not.toHaveBeenCalled();
     expect(m.ingestAdd).not.toHaveBeenCalled();
+    expect(m.aiGenerationJobRepoSetOutputFile).not.toHaveBeenCalled();
   });
 
   it('marks job failed for an unsupported capability', async () => {
@@ -93,7 +90,8 @@ describe('processAiGenerateJob — failure paths', () => {
       expect.stringContaining('SET status = ?, error_message = ?'),
       ['failed', expect.stringContaining('Unsupported capability'), 'job-1'],
     );
-    expect(hasInsertCall(m.execute)).toBe(false);
+    expect(m.filesRepoCreateFile).not.toHaveBeenCalled();
+    expect(m.aiGenerationJobRepoSetOutputFile).not.toHaveBeenCalled();
   });
 
   it('marks job failed when S3 PutObject rejects', async () => {
@@ -108,6 +106,7 @@ describe('processAiGenerateJob — failure paths', () => {
       ['failed', 's3 down', 'job-1'],
     );
     expect(m.ingestAdd).not.toHaveBeenCalled();
+    expect(m.aiGenerationJobRepoSetOutputFile).not.toHaveBeenCalled();
   });
 
   it('marks job failed when the fal CDN fetch returns !ok', async () => {
@@ -127,5 +126,7 @@ describe('processAiGenerateJob — failure paths', () => {
       expect.stringContaining('SET status = ?, error_message = ?'),
       ['failed', expect.stringContaining('HTTP 502'), 'job-1'],
     );
+    expect(m.filesRepoCreateFile).not.toHaveBeenCalled();
+    expect(m.aiGenerationJobRepoSetOutputFile).not.toHaveBeenCalled();
   });
 });

@@ -3,8 +3,7 @@
  *
  * Dispatches on the four ElevenLabs audio capabilities:
  *   text_to_speech, speech_to_speech, music_generation — produce audio files
- *   that are uploaded to S3 and inserted as project assets (same pipeline as
- *   fal.ai artifacts).
+ *   that are uploaded to S3 and registered as `files` rows (Files-as-Root flow).
  *
  *   voice_cloning — produces an ElevenLabs voice_id rather than an audio file.
  *   The cloned voice is persisted to `user_voices` (migration 016) so the
@@ -31,6 +30,7 @@ import type {
   VoiceCloneResult,
 } from '@/lib/elevenlabs-client.js';
 import type { AudioCapability } from '@/jobs/ai-generate.output.js';
+import type { FilesRepo, AiGenerationJobRepo } from '@/jobs/ai-generate.job.js';
 
 /** The ElevenLabs function surface injected into the audio handler. */
 export type ElevenLabsClientFns = {
@@ -48,6 +48,8 @@ export type AudioHandlerDeps = {
   elevenlabsKey: string;
   elevenlabs: ElevenLabsClientFns;
   ingestQueue: Queue<MediaIngestJobPayload>;
+  filesRepo: FilesRepo;
+  aiGenerationJobRepo: AiGenerationJobRepo;
 };
 
 /** Job data fields consumed by the audio handler. */
@@ -106,7 +108,7 @@ async function handleTextToSpeech(
     similarityBoost: options.similarity_boost as number | undefined,
   });
 
-  await saveAudioAsset({ audioBytes, capability, jobId, userId, projectId }, deps);
+  await saveAudioFile({ audioBytes, capability, jobId, userId, projectId }, deps);
 }
 
 async function handleVoiceCloning(
@@ -163,7 +165,7 @@ async function handleSpeechToSpeech(
     stability: options.stability as number | undefined,
   });
 
-  await saveAudioAsset({ audioBytes, capability, jobId, userId, projectId }, deps);
+  await saveAudioFile({ audioBytes, capability, jobId, userId, projectId }, deps);
 }
 
 async function handleMusicGeneration(
@@ -178,7 +180,7 @@ async function handleMusicGeneration(
     durationSeconds: options.duration as number | undefined,
   });
 
-  await saveAudioAsset({ audioBytes, capability, jobId, userId, projectId }, deps);
+  await saveAudioFile({ audioBytes, capability, jobId, userId, projectId }, deps);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -191,47 +193,49 @@ type SaveAudioParams = {
   projectId: string;
 };
 
-async function saveAudioAsset(
+async function saveAudioFile(
   { audioBytes, capability, jobId, userId, projectId }: SaveAudioParams,
   deps: AudioHandlerDeps,
 ): Promise<void> {
-  const { s3, pool, bucket, ingestQueue } = deps;
-  const assetId = randomUUID();
-  const storageKey = `ai-generations/${projectId}/${assetId}.mp3`;
+  const { s3, bucket, ingestQueue } = deps;
+  const fileId = randomUUID();
+  const storageKey = `ai-generations/${projectId}/${fileId}.mp3`;
   const storageUri = `s3://${bucket}/${storageKey}`;
-  const contentType = 'audio/mpeg';
+  const mimeType = 'audio/mpeg';
+  const displayName = `ai-${capability}-${Date.now()}.mp3`;
 
   await s3.send(
     new PutObjectCommand({
       Bucket: bucket,
       Key: storageKey,
       Body: audioBytes,
-      ContentType: contentType,
+      ContentType: mimeType,
     }),
   );
 
-  await pool.execute(
-    `INSERT INTO project_assets_current
-       (asset_id, project_id, user_id, filename, content_type, file_size_bytes,
-        storage_uri, status, width, height)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'processing', NULL, NULL)`,
-    [assetId, projectId, userId, `ai-${capability}-${Date.now()}.mp3`,
-     contentType, audioBytes.length, storageUri],
-  );
+  await deps.filesRepo.createFile({
+    fileId,
+    userId,
+    kind: 'audio',
+    storageUri,
+    mimeType,
+    bytes: audioBytes.length,
+    width: null,
+    height: null,
+    displayName,
+  });
 
   // Enqueue media-ingest so FFprobe populates waveform + duration_frames.
   await ingestQueue.add(
     'ingest',
-    { fileId: assetId, assetId, storageUri, contentType },
-    { jobId: assetId, removeOnComplete: true, removeOnFail: false },
+    { fileId, storageUri, contentType: mimeType },
+    { jobId: fileId, removeOnComplete: true, removeOnFail: false },
   );
 
-  await pool.execute(
-    `UPDATE ai_generation_jobs
-       SET status = 'completed', progress = 100, result_url = ?, result_asset_id = ?
-     WHERE job_id = ?`,
-    [storageUri, assetId, jobId],
-  );
+  // Mark the job completed and set output_file_id. This also INSERT IGNOREs
+  // into draft_files when the job has a draft_id, completing the
+  // Files-as-Root generation-draft linkage.
+  await deps.aiGenerationJobRepo.setOutputFile(jobId, fileId);
 }
 
 async function downloadAudio(url: string): Promise<Buffer> {

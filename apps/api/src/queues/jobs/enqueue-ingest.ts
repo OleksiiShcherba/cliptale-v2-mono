@@ -12,7 +12,7 @@ export type { MediaIngestJobPayload };
  * is added. Re-enqueue is allowed only when the previous attempt failed or
  * completed.
  */
-export async function enqueueIngestJob(payload: MediaIngestJobPayload & { fileId: string }): Promise<void> {
+export async function enqueueIngestJob(payload: MediaIngestJobPayload): Promise<void> {
   const existing = await mediaIngestQueue.getJob(payload.fileId);
   if (existing) {
     const state = await existing.getState();

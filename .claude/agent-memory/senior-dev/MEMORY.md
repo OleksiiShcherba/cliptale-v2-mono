@@ -9,3 +9,5 @@
 - [Project: Files-as-root Batch 2 progress](project_files_as_root_batch2.md) — Files-as-root BATCH 2 (7 subtasks); ALL 7 subtasks COMPLETE (2026-04-18)
 - [Project: Guardian Batch-2 progress](project_guardian_batch2.md) — Guardian Batch-2 Feedback Cleanup; ALL 7 subtasks COMPLETE (2026-04-19)
 - [Project: Asset Repository Migration (Batch 3)](project_asset_repo_migration.md) — asset.repository + generationDraft.repository migration; ALL 5 SUBTASKS COMPLETE (2026-04-19); 886 pass / 7 fail baseline
+- [Project: assetId→fileId migration cleanup](project_assetid_migration.md) — branch fix/docker-dev-deploy; Subtask 1 DONE; 5 remaining (editor-core build + tests green)
+- [Project: Batch 5 Guardian Remediation](project_batch5_guardian_remediation.md) — cors.test.ts Pattern B fix + mimeToKind extraction; ALL COMPLETE (2026-04-19)

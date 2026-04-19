@@ -9,18 +9,14 @@ import type { PromptDoc } from '../schemas/promptDoc.schema.js';
 /**
  * Payload for a `media-ingest` job — carries everything the worker needs to process an asset.
  *
- * One of `fileId` or `assetId` must be provided:
- * - `fileId` is the primary identifier for the new `files`-table path.
- * - `assetId` is retained for the AI-generation worker legacy path that writes to `project_assets_current`.
- * Once the legacy AI-generation path is removed, `assetId` will be deleted from this type.
+ * `fileId` is the primary identifier for the `files`-table row that the worker
+ * will update once FFprobe metadata has been extracted.
  */
 export type MediaIngestJobPayload = {
-  /** New `files` table row ID — the primary identifier; used as the BullMQ jobId for deduplication. */
-  fileId?: string;
+  /** `files` table row ID — the primary identifier; used as the BullMQ jobId for deduplication. */
+  fileId: string;
   storageUri: string;
   contentType: string;
-  /** Legacy asset row ID — only present for `project_assets_current` ingest jobs from the AI generation worker. */
-  assetId?: string;
 };
 
 /** Payload for a `transcription` job — carries everything the worker needs to transcribe an asset via Whisper. */

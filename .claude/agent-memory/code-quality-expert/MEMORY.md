@@ -1,5 +1,7 @@
 # Agent Memory — Code Quality Expert
 
+- [Subtask 4 assetId removal — architecture review](ruling_subtask4_assetid_removal.md) — Approved: all code compliant with rules. Known issue (ai-generate writing to dropped table) is out-of-scope and tracked in backlog.
+- [Ruling — Storybook type assertions and bracket notation narrowing](ruling_storybook_type_assertions.md) — `as unknown as StoryArgs` + bracket notation for discriminated union narrowing is acceptable in story tests; do not flag as violation
 - [Architecture gray area: data transforms in Remotion compositions](ruling_remotion_composition_transforms.md) — sort/filter inside VideoComposition is a warning, not a violation; rule is ambiguous
 - [Known stub: ACL middleware](known_stub_acl_middleware.md) — do not flag ACL middleware as incomplete; intentionally deferred
 - [Ruling: split test files and fixture extraction](ruling_split_test_files.md) — .seek.test.ts multi-part suffix is a warning not violation; duplicated fixtures across split files are a warning

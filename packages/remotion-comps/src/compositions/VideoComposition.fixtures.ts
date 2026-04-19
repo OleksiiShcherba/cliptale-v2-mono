@@ -54,7 +54,7 @@ export const TRACK_OVERLAY = {
 export const CLIP_VIDEO = {
   id: 'clip-video-001',
   type: 'video' as const,
-  assetId: 'asset-001',
+  fileId: 'asset-001',
   trackId: TRACK_VIDEO.id,
   startFrame: 0,
   durationFrames: 90,
@@ -68,7 +68,7 @@ export const CLIP_VIDEO = {
 export const CLIP_AUDIO = {
   id: 'clip-audio-001',
   type: 'audio' as const,
-  assetId: 'asset-002',
+  fileId: 'asset-002',
   trackId: TRACK_AUDIO.id,
   startFrame: 0,
   durationFrames: 90,
@@ -81,7 +81,7 @@ export const CLIP_AUDIO = {
 export const CLIP_IMAGE = {
   id: 'clip-image-001',
   type: 'image' as const,
-  assetId: 'asset-img-001',
+  fileId: 'asset-img-001',
   trackId: TRACK_OVERLAY.id,
   startFrame: 0,
   durationFrames: 60,

@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { processElevenLabsCapability } from './ai-generate-audio.handler.js';
 import {
-  BUCKET,
   JOB_ID,
   USER_ID,
   PROJECT_ID,
@@ -57,11 +56,11 @@ describe('processElevenLabsCapability / voice_cloning', () => {
     // No S3 upload for voice cloning
     expect(m.s3Send).not.toHaveBeenCalled();
 
-    // No asset row inserted for voice cloning
-    const assetInsert = m.execute.mock.calls.find(
-      (c) => typeof c[0] === 'string' && c[0].includes('INSERT INTO project_assets_current'),
-    );
-    expect(assetInsert).toBeFalsy();
+    // No files row inserted for voice cloning
+    expect(m.filesRepoCreateFile).not.toHaveBeenCalled();
+
+    // No setOutputFile call for voice cloning (job is completed directly via pool.execute)
+    expect(m.aiGenerationJobRepoSetOutputFile).not.toHaveBeenCalled();
 
     const completedCall = m.execute.mock.calls.find(
       (c) => typeof c[0] === 'string' && c[0].includes("status = 'completed'"),
@@ -177,7 +176,7 @@ describe('processElevenLabsCapability / speech_to_speech', () => {
     expect(s3Cmd.input.Key).toMatch(new RegExp(`^ai-generations/${PROJECT_ID}/[a-f0-9-]+\\.mp3$`));
   });
 
-  it('inserts asset row and enqueues ingest after upload', async () => {
+  it('calls filesRepo.createFile and enqueues ingest after upload', async () => {
     const m = makeMocks();
     globalThis.fetch = m.fetchMock as unknown as typeof fetch;
 
@@ -186,14 +185,19 @@ describe('processElevenLabsCapability / speech_to_speech', () => {
       makeDeps(m),
     );
 
-    const assetInsert = m.execute.mock.calls.find(
-      (c) => typeof c[0] === 'string' && c[0].includes('INSERT INTO project_assets_current'),
-    );
-    expect(assetInsert).toBeTruthy();
+    expect(m.filesRepoCreateFile).toHaveBeenCalledOnce();
+    const [fileParams] = m.filesRepoCreateFile.mock.calls[0]!;
+    expect((fileParams as Record<string, unknown>)['kind']).toBe('audio');
+    expect((fileParams as Record<string, unknown>)['mimeType']).toBe('audio/mpeg');
 
     expect(m.ingestAdd).toHaveBeenCalledOnce();
     const [jobName, payload] = m.ingestAdd.mock.calls[0]!;
     expect(jobName).toBe('ingest');
     expect((payload as Record<string, unknown>).contentType).toBe('audio/mpeg');
+
+    // setOutputFile called to mark job complete
+    expect(m.aiGenerationJobRepoSetOutputFile).toHaveBeenCalledOnce();
+    const [calledJobId] = m.aiGenerationJobRepoSetOutputFile.mock.calls[0]!;
+    expect(calledJobId).toBe(JOB_ID);
   });
 });

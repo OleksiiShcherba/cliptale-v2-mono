@@ -35,17 +35,10 @@ vi.mock('node:stream/promises', () => ({
   pipeline: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Mock fluent-ffmpeg: ffprobe + screenshot + pipe
+// Mock fluent-ffmpeg: ffprobe only (thumbnail / waveform generation removed).
 // vi.mock factories are hoisted above variable declarations, so any variable
 // referenced inside a factory must itself be hoisted via vi.hoisted().
-const { mockPipeStream, mockFfprobeData } = vi.hoisted(() => {
-  const mockPipeStream = {
-    on: vi.fn().mockImplementation(function (this: unknown, event: string, cb: (...args: unknown[]) => void) {
-      if (event === 'end') setTimeout(() => cb(), 0);
-      return this;
-    }),
-  };
-
+const { mockFfprobeData } = vi.hoisted(() => {
   const mockFfprobeData = {
     streams: [
       { codec_type: 'video', r_frame_rate: '30/1', width: 1920, height: 1080 } as never,
@@ -55,23 +48,11 @@ const { mockPipeStream, mockFfprobeData } = vi.hoisted(() => {
     chapters: [] as never[],
   };
 
-  return { mockPipeStream, mockFfprobeData };
+  return { mockFfprobeData };
 });
 
 vi.mock('fluent-ffmpeg', () => {
-  const mockFfmpeg = vi.fn().mockReturnValue({
-    screenshots: vi.fn().mockReturnValue({
-      on: vi.fn().mockImplementation(function (this: unknown, event: string, cb: () => void) {
-        if (event === 'end') setTimeout(cb, 0);
-        return this;
-      }),
-    }),
-    noVideo: vi.fn().mockReturnThis(),
-    audioChannels: vi.fn().mockReturnThis(),
-    audioFrequency: vi.fn().mockReturnThis(),
-    format: vi.fn().mockReturnThis(),
-    pipe: vi.fn().mockReturnValue(mockPipeStream),
-  });
+  const mockFfmpeg = vi.fn().mockReturnValue({});
   (mockFfmpeg as never as { ffprobe: unknown }).ffprobe = vi.fn(
     (_input: string, cb: (err: null, data: typeof mockFfprobeData) => void) => cb(null, mockFfprobeData),
   );
@@ -91,8 +72,8 @@ const deps: IngestJobDeps = { s3: mockS3, pool: mockPool };
 function makeJob(payload: Partial<MediaIngestJobPayload> = {}): Job<MediaIngestJobPayload> {
   return {
     data: {
-      assetId: 'asset-123',
-      storageUri: 's3://bucket/projects/p/assets/a/video.mp4',
+      fileId: 'file-123',
+      storageUri: 's3://bucket/files/file-123/video.mp4',
       contentType: 'video/mp4',
       ...payload,
     },
@@ -170,132 +151,22 @@ describe('ingest.job', () => {
       mockDbExecute.mockResolvedValue([]);
     });
 
-    it('marks asset ready with extracted metadata on happy path', async () => {
+    it('writes to the files table (not project_assets_current) on happy path', async () => {
       await processIngestJob(makeJob(), deps);
 
-      expect(mockDbExecute).toHaveBeenCalledWith(
-        expect.stringContaining("SET status = 'ready'"),
-        expect.arrayContaining(['asset-123']),
-      );
-    });
-
-    it('marks asset error and re-throws when S3 download fails', async () => {
-      const s3Err = new Error('S3 network error');
-      mockS3Send.mockRejectedValueOnce(s3Err);
-
-      await expect(processIngestJob(makeJob(), deps)).rejects.toBe(s3Err);
-
-      expect(mockDbExecute).toHaveBeenCalledWith(
-        expect.stringContaining("SET status = 'error'"),
-        expect.arrayContaining(['S3 network error', 'asset-123']),
-      );
-    });
-
-    it('skips thumbnail and waveform for image assets', async () => {
-      const ffmpegMod = await import('fluent-ffmpeg');
-      const mockFfprobe = vi.mocked(ffmpegMod.default as never as { ffprobe: (...args: unknown[]) => void });
-
-      // Image: no video/audio streams, no duration.
-      const imageProbe = { streams: [], format: { duration: undefined }, chapters: [] };
-      mockFfprobe.ffprobe.mockImplementationOnce(
-        (_input, cb: (err: null, data: typeof imageProbe) => void) => cb(null, imageProbe),
-      );
-
-      await processIngestJob(makeJob({ contentType: 'image/jpeg' }), deps);
-
-      // waveform_json column should be null (no audio stream).
-      const call = mockDbExecute.mock.calls[0]!;
-      const params = call[1] as (string | null | number)[];
-      // thumbnailUri (index 4) and waveformJson (index 5) are null for images.
-      expect(params[4]).toBeNull();
-      expect(params[5]).toBeNull();
-    });
-
-    it('stores correct durationFrames for audio-only assets using AUDIO_FPS_FALLBACK=30', async () => {
-      const ffmpegMod = await import('fluent-ffmpeg');
-      const mockFfprobe = vi.mocked(ffmpegMod.default as never as { ffprobe: (...args: unknown[]) => void });
-
-      // Audio-only: no video stream, one audio stream, 107 seconds duration.
-      const audioProbe = {
-        streams: [{ codec_type: 'audio' } as never],
-        format: { duration: '107' } as never,
-        chapters: [] as never[],
-      };
-      mockFfprobe.ffprobe.mockImplementationOnce(
-        (_input, cb: (err: null, data: typeof audioProbe) => void) => cb(null, audioProbe),
-      );
-
-      await processIngestJob(makeJob({ contentType: 'audio/mpeg' }), deps);
-
-      const call = mockDbExecute.mock.calls[0]!;
-      const params = call[1] as (string | null | number)[];
-      // setAssetReady params: [durationFrames, width, height, fps, thumbnailUri, waveformJson, assetId]
-      // 107s * 30fps = 3210 frames
-      expect(params[0]).toBe(3210);        // durationFrames
-      expect(params[1]).toBeNull();        // width (no video)
-      expect(params[2]).toBeNull();        // height (no video)
-      expect(params[3]).toBe(30);          // fps = AUDIO_FPS_FALLBACK
-      expect(params[4]).toBeNull();        // thumbnailUri (no video)
-    });
-
-    it('stores null durationFrames for audio-only assets with zero duration', async () => {
-      const ffmpegMod = await import('fluent-ffmpeg');
-      const mockFfprobe = vi.mocked(ffmpegMod.default as never as { ffprobe: (...args: unknown[]) => void });
-
-      // Audio-only: duration is 0 (unknown/unreadable).
-      const audioProbe = {
-        streams: [{ codec_type: 'audio' } as never],
-        format: { duration: '0' } as never,
-        chapters: [] as never[],
-      };
-      mockFfprobe.ffprobe.mockImplementationOnce(
-        (_input, cb: (err: null, data: typeof audioProbe) => void) => cb(null, audioProbe),
-      );
-
-      await processIngestJob(makeJob({ contentType: 'audio/wav' }), deps);
-
-      const call = mockDbExecute.mock.calls[0]!;
-      const params = call[1] as (string | null | number)[];
-      // durationSec=0 means durationFrames stays null (fps && durationSec is falsy when durationSec=0)
-      expect(params[0]).toBeNull();        // durationFrames = null
-      expect(params[3]).toBe(30);          // fps still set to AUDIO_FPS_FALLBACK
-    });
-
-    it('does not apply audio fallback fps to video assets', async () => {
-      // Default mock ffprobe returns a video stream with r_frame_rate='30/1'.
-      await processIngestJob(makeJob({ contentType: 'video/mp4' }), deps);
-
-      const call = mockDbExecute.mock.calls[0]!;
-      const params = call[1] as (string | null | number)[];
-      // Video: fps comes from the video stream, not the fallback.
-      expect(params[3]).toBe(30);          // fps=30 from the actual video stream
-      expect(params[0]).toBe(300);         // durationFrames = 10s * 30fps = 300
-    });
-
-    // ── fileId branch tests ───────────────────────────────────────────────────
-
-    it('calls setFileReady (not setAssetReady) when fileId is present — happy path', async () => {
-      await processIngestJob(
-        makeJob({ fileId: 'file-abc', contentType: 'video/mp4' }),
-        deps,
-      );
-
-      // setFileReady issues an UPDATE against `files`; setAssetReady targets `project_assets_current`.
       const call = mockDbExecute.mock.calls[0]!;
       const sql = call[0] as string;
       expect(sql).toContain('UPDATE files');
       expect(sql).not.toContain('project_assets_current');
-      // The last bind parameter must be the fileId, not assetId.
+      expect(sql).toContain("SET status = 'ready'");
+      // Last bind param must be the fileId.
       const params = call[1] as (string | null | number)[];
-      expect(params[params.length - 1]).toBe('file-abc');
+      expect(params[params.length - 1]).toBe('file-123');
     });
 
-    it('converts durationSec to durationMs via Math.round(durationSec * 1000) and writes bytes=null', async () => {
+    it('converts durationSec to durationMs via Math.round(durationSec * 1000)', async () => {
       // Default ffprobe mock returns format.duration='10' → durationSec=10.
-      await processIngestJob(
-        makeJob({ fileId: 'file-abc', contentType: 'video/mp4' }),
-        deps,
-      );
+      await processIngestJob(makeJob(), deps);
 
       // setFileReady params: [durationMs, width, height, bytes, fileId]
       const params = mockDbExecute.mock.calls[0]![1] as (string | null | number)[];
@@ -303,7 +174,7 @@ describe('ingest.job', () => {
       expect(params[1]).toBe(1920);        // width from ffprobe
       expect(params[2]).toBe(1080);        // height from ffprobe
       expect(params[3]).toBeNull();        // bytes intentionally null (S3 HEAD not available)
-      expect(params[4]).toBe('file-abc');  // fileId as row identifier
+      expect(params[4]).toBe('file-123'); // fileId as row identifier
     });
 
     it('produces null durationMs when durationSec is 0', async () => {
@@ -322,25 +193,40 @@ describe('ingest.job', () => {
         (_input, cb: (err: null, data: typeof zeroDurationProbe) => void) => cb(null, zeroDurationProbe),
       );
 
-      await processIngestJob(
-        makeJob({ fileId: 'file-zero', contentType: 'video/mp4' }),
-        deps,
-      );
+      await processIngestJob(makeJob({ fileId: 'file-zero', contentType: 'video/mp4' }), deps);
 
       // durationSec=0 → durationMs must be null (condition: durationSec > 0).
       const params = mockDbExecute.mock.calls[0]![1] as (string | null | number)[];
       expect(params[0]).toBeNull();        // durationMs = null
     });
 
-    it('calls setFileError (not setAssetError) when fileId is present and ingest fails', async () => {
-      const s3Err = new Error('S3 file network error');
+    it('sets width and height to null for audio-only assets (no video stream)', async () => {
+      const ffmpegMod = await import('fluent-ffmpeg');
+      const mockFfprobe = vi.mocked(ffmpegMod.default as never as { ffprobe: (...args: unknown[]) => void });
+
+      const audioProbe = {
+        streams: [{ codec_type: 'audio' } as never],
+        format: { duration: '107' } as never,
+        chapters: [] as never[],
+      };
+      mockFfprobe.ffprobe.mockImplementationOnce(
+        (_input, cb: (err: null, data: typeof audioProbe) => void) => cb(null, audioProbe),
+      );
+
+      await processIngestJob(makeJob({ contentType: 'audio/mpeg' }), deps);
+
+      const params = mockDbExecute.mock.calls[0]![1] as (string | null | number)[];
+      expect(params[1]).toBeNull();  // width = null (no video stream)
+      expect(params[2]).toBeNull();  // height = null (no video stream)
+      expect(params[0]).toBe(107_000); // durationMs = 107 * 1000
+    });
+
+    it('marks error in files table and re-throws when S3 download fails', async () => {
+      const s3Err = new Error('S3 network error');
       mockS3Send.mockRejectedValueOnce(s3Err);
 
-      await expect(
-        processIngestJob(makeJob({ fileId: 'file-err', contentType: 'video/mp4' }), deps),
-      ).rejects.toBe(s3Err);
+      await expect(processIngestJob(makeJob(), deps)).rejects.toBe(s3Err);
 
-      // setFileError targets `files`; setAssetError targets `project_assets_current`.
       const call = mockDbExecute.mock.calls[0]!;
       const sql = call[0] as string;
       expect(sql).toContain('UPDATE files');
@@ -348,8 +234,38 @@ describe('ingest.job', () => {
       expect(sql).not.toContain('project_assets_current');
       // Error params: [errorMessage, fileId]
       const params = call[1] as (string | null | number)[];
-      expect(params[0]).toBe('S3 file network error');
-      expect(params[1]).toBe('file-err');
+      expect(params[0]).toBe('S3 network error');
+      expect(params[1]).toBe('file-123');
+    });
+
+    it('uses fileId in the tmp directory name', async () => {
+      const fsMod = await import('node:fs/promises');
+      const mkdtempSpy = vi.mocked(fsMod.default.mkdtemp);
+
+      await processIngestJob(makeJob({ fileId: 'file-abc' }), deps);
+
+      expect(mkdtempSpy).toHaveBeenCalledWith(
+        expect.stringContaining('ingest-file-abc-'),
+      );
+    });
+
+    it('cleans up the tmp directory in the finally block on success', async () => {
+      const fsMod = await import('node:fs/promises');
+      const rmSpy = vi.mocked(fsMod.default.rm);
+
+      await processIngestJob(makeJob(), deps);
+
+      expect(rmSpy).toHaveBeenCalledWith('/tmp/ingest-test', { recursive: true, force: true });
+    });
+
+    it('cleans up the tmp directory in the finally block on error', async () => {
+      const fsMod = await import('node:fs/promises');
+      const rmSpy = vi.mocked(fsMod.default.rm);
+      mockS3Send.mockRejectedValueOnce(new Error('fail'));
+
+      await expect(processIngestJob(makeJob(), deps)).rejects.toThrow();
+
+      expect(rmSpy).toHaveBeenCalledWith('/tmp/ingest-test', { recursive: true, force: true });
     });
   });
 });

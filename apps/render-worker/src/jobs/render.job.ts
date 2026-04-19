@@ -115,51 +115,55 @@ export async function processRenderJob(
 const ASSET_URL_EXPIRY_SECONDS = 3600;
 
 /**
- * Extracts every unique assetId from the project clips, looks up their
- * `storage_uri` in `project_assets_current`, and generates a presigned S3 GET
- * URL for each.  Returns a map from assetId → presigned URL that the Remotion
- * composition uses to load media files.
+ * Extracts every unique fileId from the project clips (video, audio, and image
+ * clip types carry a `fileId`; text-overlay and caption clips do not reference
+ * a file), looks up their `storage_uri` in the `files` table, and generates a
+ * presigned S3 GET URL for each.
+ *
+ * Returns a map from fileId → presigned URL that the Remotion composition uses
+ * to load media files (keyed by `fileId` to match `assetUrls[clip.fileId]` in
+ * VideoComposition.tsx).
  */
 async function resolveAssetUrls(
   pool: Pool,
   s3: S3Client,
   doc: ProjectDoc,
 ): Promise<Record<string, string>> {
-  const assetIds = [
+  const fileIds = [
     ...new Set(
       doc.clips
-        .filter((c): c is { assetId: string } & typeof c => 'assetId' in c)
-        .map((c) => c.assetId),
+        .filter((c): c is { fileId: string } & typeof c => 'fileId' in c)
+        .map((c) => c.fileId),
     ),
   ];
 
-  if (assetIds.length === 0) return {};
+  if (fileIds.length === 0) return {};
 
-  // Fetch storage URIs for all referenced assets in one query.
-  const placeholders = assetIds.map(() => '?').join(',');
+  // Fetch storage URIs for all referenced files in one query.
+  const placeholders = fileIds.map(() => '?').join(',');
   const [rows] = await pool.execute<RowDataPacket[]>(
-    `SELECT asset_id, storage_uri FROM project_assets_current WHERE asset_id IN (${placeholders})`,
-    assetIds,
+    `SELECT file_id, storage_uri FROM files WHERE file_id IN (${placeholders})`,
+    fileIds,
   );
 
-  const uriByAssetId = new Map<string, string>();
+  const uriByFileId = new Map<string, string>();
   for (const row of rows) {
-    uriByAssetId.set(row['asset_id'] as string, row['storage_uri'] as string);
+    uriByFileId.set(row['file_id'] as string, row['storage_uri'] as string);
   }
 
   // Generate presigned URLs in parallel.
   const entries = await Promise.all(
-    assetIds
-      .filter((id) => uriByAssetId.has(id))
-      .map(async (assetId) => {
-        const storageUri = uriByAssetId.get(assetId)!;
+    fileIds
+      .filter((id) => uriByFileId.has(id))
+      .map(async (fileId) => {
+        const storageUri = uriByFileId.get(fileId)!;
         const key = extractS3KeyFromUri(storageUri);
         const url = await getSignedUrl(
           s3,
           new GetObjectCommand({ Bucket: config.s3.bucket, Key: key }),
           { expiresIn: ASSET_URL_EXPIRY_SECONDS },
         );
-        return [assetId, url] as const;
+        return [fileId, url] as const;
       }),
   );
 

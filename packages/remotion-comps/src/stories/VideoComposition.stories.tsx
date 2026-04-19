@@ -21,6 +21,13 @@ const STUB_VIDEO_URL =
   'https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4';
 const STUB_AUDIO_URL = STUB_VIDEO_URL; // reuse — any media file with audio works
 
+// ---------------------------------------------------------------------------
+// Stub fileIds — must be valid UUIDs to satisfy the clip schema, and must
+// match the keys in the assetUrls map passed to the same story.
+// ---------------------------------------------------------------------------
+const FILE_ID_VIDEO = '11111111-1111-1111-1111-111111111111';
+const FILE_ID_AUDIO = '22222222-2222-2222-2222-222222222222';
+
 const NOW = new Date().toISOString();
 
 function makeDoc(overrides: Partial<ProjectDoc>): ProjectDoc {
@@ -43,10 +50,10 @@ function makeDoc(overrides: Partial<ProjectDoc>): ProjectDoc {
 // ---------------------------------------------------------------------------
 // Shared Player wrapper — used by every story.
 // ---------------------------------------------------------------------------
-type PlayerWrapperProps = {
+interface PlayerWrapperProps {
   projectDoc: ProjectDoc;
   assetUrls: Record<string, string>;
-};
+}
 
 function PlayerWrapper({ projectDoc, assetUrls }: PlayerWrapperProps): React.ReactElement {
   return (
@@ -100,7 +107,7 @@ export const SingleVideoClip: Story = {
         {
           id: 'clip-1',
           type: 'video',
-          assetId: 'asset-video',
+          fileId: FILE_ID_VIDEO,
           trackId: 'track-1',
           startFrame: 0,
           durationFrames: 150,
@@ -111,7 +118,7 @@ export const SingleVideoClip: Story = {
         },
       ],
     }),
-    assetUrls: { 'asset-video': STUB_VIDEO_URL },
+    assetUrls: { [FILE_ID_VIDEO]: STUB_VIDEO_URL },
   },
 };
 
@@ -130,7 +137,7 @@ export const AudioAndVideo: Story = {
         {
           id: 'clip-video',
           type: 'video',
-          assetId: 'asset-video',
+          fileId: FILE_ID_VIDEO,
           trackId: 'track-video',
           startFrame: 0,
           durationFrames: 150,
@@ -142,7 +149,7 @@ export const AudioAndVideo: Story = {
         {
           id: 'clip-audio',
           type: 'audio',
-          assetId: 'asset-audio',
+          fileId: FILE_ID_AUDIO,
           trackId: 'track-audio',
           startFrame: 0,
           durationFrames: 90,
@@ -153,8 +160,8 @@ export const AudioAndVideo: Story = {
       ],
     }),
     assetUrls: {
-      'asset-video': STUB_VIDEO_URL,
-      'asset-audio': STUB_AUDIO_URL,
+      [FILE_ID_VIDEO]: STUB_VIDEO_URL,
+      [FILE_ID_AUDIO]: STUB_AUDIO_URL,
     },
   },
 };
@@ -174,7 +181,7 @@ export const OverlappingClips: Story = {
         {
           id: 'clip-a',
           type: 'video',
-          assetId: 'asset-video',
+          fileId: FILE_ID_VIDEO,
           trackId: 'track-a',
           startFrame: 0,
           durationFrames: 120,
@@ -186,7 +193,7 @@ export const OverlappingClips: Story = {
         {
           id: 'clip-b',
           type: 'video',
-          assetId: 'asset-video',
+          fileId: FILE_ID_VIDEO,
           trackId: 'track-b',
           startFrame: 30,
           durationFrames: 90,
@@ -197,7 +204,7 @@ export const OverlappingClips: Story = {
         },
       ],
     }),
-    assetUrls: { 'asset-video': STUB_VIDEO_URL },
+    assetUrls: { [FILE_ID_VIDEO]: STUB_VIDEO_URL },
   },
 };
 
@@ -216,7 +223,7 @@ export const TextOverlay: Story = {
         {
           id: 'clip-video',
           type: 'video',
-          assetId: 'asset-video',
+          fileId: FILE_ID_VIDEO,
           trackId: 'track-video',
           startFrame: 0,
           durationFrames: 150,
@@ -238,6 +245,6 @@ export const TextOverlay: Story = {
         },
       ],
     }),
-    assetUrls: { 'asset-video': STUB_VIDEO_URL },
+    assetUrls: { [FILE_ID_VIDEO]: STUB_VIDEO_URL },
   },
 };

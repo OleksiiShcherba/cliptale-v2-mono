@@ -13,7 +13,7 @@ import { prepareClipsForComposition } from './VideoComposition.utils.js';
 interface VideoCompositionProps {
   /** The full project document — passed as Remotion inputProps. */
   projectDoc: ProjectDoc;
-  /** Map from assetId to presigned URL; resolved before rendering starts. */
+  /** Map from fileId to presigned URL; resolved before rendering starts. */
   assetUrls: Record<string, string>;
 }
 

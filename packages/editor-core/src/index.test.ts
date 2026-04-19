@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { describe, it, expect } from 'vitest';
 
 import { computeProjectDuration } from './index.js';
@@ -7,10 +9,10 @@ const fps = 30;
 
 function makeVideoClip(startFrame: number, durationFrames: number): Clip {
   return {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     type: 'video',
-    assetId: crypto.randomUUID(),
-    trackId: crypto.randomUUID(),
+    fileId: randomUUID(),
+    trackId: randomUUID(),
     startFrame,
     durationFrames,
     trimInFrame: 0,
@@ -21,10 +23,10 @@ function makeVideoClip(startFrame: number, durationFrames: number): Clip {
 
 function makeAudioClip(startFrame: number, durationFrames: number): Clip {
   return {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     type: 'audio',
-    assetId: crypto.randomUUID(),
-    trackId: crypto.randomUUID(),
+    fileId: randomUUID(),
+    trackId: randomUUID(),
     startFrame,
     durationFrames,
     trimInFrame: 0,
@@ -34,10 +36,10 @@ function makeAudioClip(startFrame: number, durationFrames: number): Clip {
 
 function makeImageClip(startFrame: number, durationFrames: number): Clip {
   return {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     type: 'image',
-    assetId: crypto.randomUUID(),
-    trackId: crypto.randomUUID(),
+    fileId: randomUUID(),
+    trackId: randomUUID(),
     startFrame,
     durationFrames,
     opacity: 1,

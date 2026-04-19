@@ -50,7 +50,7 @@ function Root(): React.ReactElement {
         updatedAt: '',
         assetUrls: {},
       }}
-      calculateMetadata={async ({ props }) => ({
+      calculateMetadata={async ({ props }: { props: VideoRootProps }) => ({
         durationInFrames: props.durationFrames,
         fps: props.fps,
         width: props.width,

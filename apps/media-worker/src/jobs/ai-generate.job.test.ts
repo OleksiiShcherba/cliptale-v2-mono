@@ -6,7 +6,7 @@ import {
   BUCKET,
   IMAGE_OUTPUT,
   VIDEO_OUTPUT,
-  findInsertParams,
+  findCreateFileParams,
   installFetch,
   makeDeps,
   makeJob,
@@ -25,7 +25,7 @@ describe('processAiGenerateJob — happy paths by capability', () => {
     vi.clearAllMocks();
   });
 
-  it('text_to_image: uploads image, inserts asset row, enqueues ingest, marks completed', async () => {
+  it('text_to_image: uploads image, creates files row, enqueues ingest, calls setOutputFile', async () => {
     const m = makeMocks(IMAGE_OUTPUT);
     installFetch(m);
 
@@ -47,20 +47,20 @@ describe('processAiGenerateJob — happy paths by capability', () => {
       apiKey: 'fal-key',
     });
 
-    // Asset row: [assetId, projectId, userId, filename, contentType, size, storageUri, width, height]
-    const params = findInsertParams(m.execute);
-    expect(params[1]).toBe('proj-1');
-    expect(params[2]).toBe('user-1');
-    expect(params[3]).toMatch(/^ai-text_to_image-\d+\.png$/);
-    expect(params[4]).toBe('image/png');
-    expect(params[5]).toBe(4);
-    expect(params[6]).toMatch(
+    // filesRepo.createFile called with correct kind, mimeType, storageUri
+    const fileParams = findCreateFileParams(m);
+    expect(fileParams.userId).toBe('user-1');
+    expect(fileParams.kind).toBe('image');
+    expect(fileParams.mimeType).toBe('image/png');
+    expect(fileParams.storageUri).toMatch(
       new RegExp(`^s3://${BUCKET}/ai-generations/proj-1/[0-9a-f-]+\\.png$`),
     );
-    expect(params[7]).toBe(1024);
-    expect(params[8]).toBe(1024);
+    expect(fileParams.bytes).toBe(4);
+    expect(fileParams.width).toBe(1024);
+    expect(fileParams.height).toBe(1024);
+    expect(fileParams.displayName).toMatch(/^ai-text_to_image-\d+\.png$/);
 
-    // Ingest enqueue with idempotent jobId = fileId (which is the local assetId UUID)
+    // Ingest enqueue with idempotent jobId = fileId
     expect(m.ingestAdd).toHaveBeenCalledTimes(1);
     const [name, payload, opts] = m.ingestAdd.mock.calls[0] as [
       string,
@@ -73,14 +73,14 @@ describe('processAiGenerateJob — happy paths by capability', () => {
     expect(payload.storageUri).toMatch(new RegExp(`^s3://${BUCKET}/`));
     expect(opts.jobId).toBe(payload.fileId);
 
-    // Terminal update → completed with s3:// URI
-    expect(m.execute).toHaveBeenCalledWith(
-      expect.stringContaining("status = 'completed'"),
-      [expect.stringMatching(new RegExp(`^s3://${BUCKET}/`)), expect.any(String), 'job-1'],
-    );
+    // setOutputFile called with jobId and the new fileId
+    expect(m.aiGenerationJobRepoSetOutputFile).toHaveBeenCalledOnce();
+    const [calledJobId, calledFileId] = m.aiGenerationJobRepoSetOutputFile.mock.calls[0]!;
+    expect(calledJobId).toBe('job-1');
+    expect(calledFileId).toBe(payload.fileId);
   });
 
-  it('image_edit: parses the image output shape and writes image/png asset', async () => {
+  it('image_edit: creates files row with kind=image and mime=image/png', async () => {
     const m = makeMocks(IMAGE_OUTPUT);
     installFetch(m);
 
@@ -89,14 +89,15 @@ describe('processAiGenerateJob — happy paths by capability', () => {
       makeDeps(m),
     );
 
-    const params = findInsertParams(m.execute);
-    expect(params[3]).toMatch(/^ai-image_edit-\d+\.png$/);
-    expect(params[4]).toBe('image/png');
-    expect(params[6]).toMatch(new RegExp(`^s3://${BUCKET}/`));
+    const fileParams = findCreateFileParams(m);
+    expect(fileParams.kind).toBe('image');
+    expect(fileParams.mimeType).toBe('image/png');
+    expect(fileParams.displayName).toMatch(/^ai-image_edit-\d+\.png$/);
     expect(m.ingestAdd).toHaveBeenCalledTimes(1);
+    expect(m.aiGenerationJobRepoSetOutputFile).toHaveBeenCalledOnce();
   });
 
-  it('text_to_video: writes video/mp4 asset with .mp4 filename and s3:// URI', async () => {
+  it('text_to_video: creates files row with kind=video, mime=video/mp4, and .mp4 URI', async () => {
     const m = makeMocks(VIDEO_OUTPUT);
     installFetch(m);
 
@@ -108,17 +109,19 @@ describe('processAiGenerateJob — happy paths by capability', () => {
       makeDeps(m),
     );
 
-    const params = findInsertParams(m.execute);
-    expect(params[3]).toMatch(/^ai-text_to_video-\d+\.mp4$/);
-    expect(params[4]).toBe('video/mp4');
-    expect(params[6]).toMatch(
+    const fileParams = findCreateFileParams(m);
+    expect(fileParams.kind).toBe('video');
+    expect(fileParams.mimeType).toBe('video/mp4');
+    expect(fileParams.displayName).toMatch(/^ai-text_to_video-\d+\.mp4$/);
+    expect(fileParams.storageUri).toMatch(
       new RegExp(`^s3://${BUCKET}/ai-generations/proj-1/[0-9a-f-]+\\.mp4$`),
     );
-    expect(params[7]).toBeNull();
-    expect(params[8]).toBeNull();
+    expect(fileParams.width).toBeNull();
+    expect(fileParams.height).toBeNull();
+    expect(m.aiGenerationJobRepoSetOutputFile).toHaveBeenCalledOnce();
   });
 
-  it('image_to_video: reuses video output shape', async () => {
+  it('image_to_video: creates files row with kind=video and enqueues ingest', async () => {
     const m = makeMocks(VIDEO_OUTPUT);
     installFetch(m);
 
@@ -130,10 +133,11 @@ describe('processAiGenerateJob — happy paths by capability', () => {
       makeDeps(m),
     );
 
-    const params = findInsertParams(m.execute);
-    expect(params[4]).toBe('video/mp4');
-    expect(params[6]).toMatch(new RegExp(`^s3://${BUCKET}/`));
+    const fileParams = findCreateFileParams(m);
+    expect(fileParams.kind).toBe('video');
+    expect(fileParams.mimeType).toBe('video/mp4');
     expect(m.ingestAdd).toHaveBeenCalledTimes(1);
+    expect(m.aiGenerationJobRepoSetOutputFile).toHaveBeenCalledOnce();
   });
 });
 
@@ -149,7 +153,7 @@ describe('processAiGenerateJob — ElevenLabs provider dispatch', () => {
     vi.clearAllMocks();
   });
 
-  it('text_to_speech: calls elevenlabs.textToSpeech, skips fal, uploads audio to S3', async () => {
+  it('text_to_speech: calls elevenlabs.textToSpeech, skips fal, uploads audio, calls setOutputFile', async () => {
     const m = makeMocks(IMAGE_OUTPUT);
     installFetch(m);
 
@@ -167,14 +171,19 @@ describe('processAiGenerateJob — ElevenLabs provider dispatch', () => {
     expect(m.s3Send).toHaveBeenCalledTimes(1);
     expect(m.ingestAdd).toHaveBeenCalledTimes(1);
 
-    // DB must be marked completed
-    expect(m.execute).toHaveBeenCalledWith(
-      expect.stringContaining("status = 'completed'"),
-      expect.arrayContaining(['job-1']),
-    );
+    // filesRepo.createFile must have been called with kind=audio
+    expect(m.filesRepoCreateFile).toHaveBeenCalledOnce();
+    const fileParams = m.filesRepoCreateFile.mock.calls[0]![0] as { kind: string; mimeType: string };
+    expect(fileParams.kind).toBe('audio');
+    expect(fileParams.mimeType).toBe('audio/mpeg');
+
+    // setOutputFile called (not the legacy execute UPDATE)
+    expect(m.aiGenerationJobRepoSetOutputFile).toHaveBeenCalledOnce();
+    const [calledJobId] = m.aiGenerationJobRepoSetOutputFile.mock.calls[0]!;
+    expect(calledJobId).toBe('job-1');
   });
 
-  it('music_generation: calls elevenlabs.musicGeneration, skips fal, uploads audio to S3', async () => {
+  it('music_generation: calls elevenlabs.musicGeneration, skips fal, creates audio files row', async () => {
     const m = makeMocks(IMAGE_OUTPUT);
     installFetch(m);
 
@@ -191,5 +200,7 @@ describe('processAiGenerateJob — ElevenLabs provider dispatch', () => {
     expect(m.submitFalJob).not.toHaveBeenCalled();
     expect(m.s3Send).toHaveBeenCalledTimes(1);
     expect(m.ingestAdd).toHaveBeenCalledTimes(1);
+    expect(m.filesRepoCreateFile).toHaveBeenCalledOnce();
+    expect(m.aiGenerationJobRepoSetOutputFile).toHaveBeenCalledOnce();
   });
 });

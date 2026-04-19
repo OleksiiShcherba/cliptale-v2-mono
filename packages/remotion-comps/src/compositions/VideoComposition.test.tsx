@@ -104,7 +104,7 @@ describe('VideoComposition', () => {
       expect(getAllByTestId('sequence')).toHaveLength(1);
     });
 
-    it('skips image clip rendering when assetId is not in assetUrls', () => {
+    it('skips image clip rendering when fileId is not in assetUrls', () => {
       const doc = makeProjectDoc({
         tracks: [TRACK_OVERLAY],
         clips: [CLIP_IMAGE],
@@ -138,7 +138,7 @@ describe('VideoComposition', () => {
       expect((imgEl as HTMLImageElement).style.opacity).toBe('0.9');
     });
 
-    it('omits a video clip when assetId is not in assetUrls (no broken playback)', () => {
+    it('omits a video clip when fileId is not in assetUrls (no broken playback)', () => {
       const doc = makeProjectDoc({
         tracks: [TRACK_VIDEO],
         clips: [CLIP_VIDEO],
