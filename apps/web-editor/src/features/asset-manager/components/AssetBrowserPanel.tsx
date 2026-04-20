@@ -253,6 +253,7 @@ export function AssetBrowserPanel({ projectId, areFilterTabsHidden = false }: As
       {isDeleteOpen && selectedAsset && (
         <DeleteAssetDialog
           asset={selectedAsset}
+          projectId={projectId}
           onClose={() => setIsDeleteOpen(false)}
           onDeleted={() => {
             setIsDeleteOpen(false);
