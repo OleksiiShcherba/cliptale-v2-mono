@@ -12,6 +12,8 @@ import { deleteAssetDialogStyles as styles } from './deleteAssetDialog.styles';
 export interface DeleteAssetDialogProps {
   /** The asset to be deleted. */
   asset: Asset;
+  /** Project the asset is currently linked to; used for query invalidation. */
+  projectId: string;
   onClose: () => void;
   /** Called after the deletion is committed so the browser can refresh. */
   onDeleted: () => void;
@@ -24,27 +26,38 @@ export interface DeleteAssetDialogProps {
 /**
  * Confirmation dialog for the "Delete Asset" action.
  *
- * Shows a warning explaining that all clips using this asset will be removed
- * from the timeline and their tracks deleted if empty. The asset file itself is
- * NOT physically deleted — only the project document is updated. The change is
- * tracked in the Immer patch history and can be reverted with Ctrl+Z or via
- * Version History.
+ * Clears every clip that references the asset from the timeline, then calls
+ * `DELETE /assets/:id` to remove the file from the user's library. The asset
+ * list refetches after deletion. Timeline removal is undoable with Ctrl+Z;
+ * the file itself is permanently removed.
  */
 export function DeleteAssetDialog({
   asset,
+  projectId,
   onClose,
   onDeleted,
 }: DeleteAssetDialogProps): React.ReactElement {
-  const deleteAsset = useDeleteAsset();
+  const deleteAsset = useDeleteAsset({ projectId });
   const [isDeleteHovered, setIsDeleteHovered] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleConfirm = (): void => {
-    deleteAsset(asset.id);
-    onDeleted();
+  const handleConfirm = async (): Promise<void> => {
+    if (isDeleting) return;
+    setIsDeleting(true);
+    setErrorMessage(null);
+    try {
+      await deleteAsset(asset.id);
+      onDeleted();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to delete asset';
+      setErrorMessage(message);
+      setIsDeleting(false);
+    }
   };
 
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>): void => {
-    if (e.target === e.currentTarget) onClose();
+    if (e.target === e.currentTarget && !isDeleting) onClose();
   };
 
   return (
@@ -66,6 +79,7 @@ export function DeleteAssetDialog({
             type="button"
             style={styles.closeButton}
             onClick={onClose}
+            disabled={isDeleting}
             aria-label="Close delete asset dialog"
           >
             &#x2715;
@@ -81,11 +95,17 @@ export function DeleteAssetDialog({
               timeline. Tracks that become empty after removal will also be deleted.
             </p>
             <p style={styles.warningTextSecondary}>
-              The original file is not deleted. You can undo this action with Ctrl+Z or restore a
-              previous version from Version History.
+              The file will be removed from your library permanently. Timeline removal can be
+              undone with Ctrl+Z, but the file itself cannot be recovered.
             </p>
           </div>
         </div>
+
+        {errorMessage && (
+          <p role="alert" style={{ color: '#EF4444', fontSize: 12, margin: '0 24px 12px', fontFamily: 'Inter, sans-serif' }}>
+            {errorMessage}
+          </p>
+        )}
 
         {/* Actions */}
         <div style={styles.actions}>
@@ -93,6 +113,7 @@ export function DeleteAssetDialog({
             type="button"
             style={styles.cancelButton}
             onClick={onClose}
+            disabled={isDeleting}
             aria-label="Cancel delete"
           >
             Cancel
@@ -100,12 +121,13 @@ export function DeleteAssetDialog({
           <button
             type="button"
             style={isDeleteHovered ? styles.deleteButtonHover : styles.deleteButton}
-            onClick={handleConfirm}
+            onClick={() => { void handleConfirm(); }}
             onMouseEnter={() => setIsDeleteHovered(true)}
             onMouseLeave={() => setIsDeleteHovered(false)}
+            disabled={isDeleting}
             aria-label={`Delete asset ${asset.filename}`}
           >
-            Delete Asset
+            {isDeleting ? 'Deleting…' : 'Delete Asset'}
           </button>
         </div>
       </div>
