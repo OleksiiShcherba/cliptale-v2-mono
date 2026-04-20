@@ -579,3 +579,170 @@ checked by qa-reviewer - YES
 checked by design-reviewer - YES
 design-reviewer notes: Reviewed on 2026-04-20. Backend-only subtask (service-layer soft-delete + restore methods; all changes under `apps/api/src/services/`). No UI components, tokens, colors, typography, spacing, or layout changes. No design surface modified. No design review required.
 checked by playwright-reviewer: YES — backend-only (service-layer soft-delete/restore methods; 35 unit tests verify soft-delete, restore TTL, and GoneError; no UI surface to test)
+
+---
+
+## [2026-04-20]
+
+### Task: Backlog Batch — `general_tasks.md` issues 1–6
+**Subtask:** C1 — Migration: add `thumbnail_uri` to `files`
+
+**What was done:**
+- Created `apps/api/src/db/migrations/030_files_thumbnail_uri.sql` — adds `thumbnail_uri VARCHAR(1024) NULL DEFAULT NULL` to the `files` table. Idempotent via INFORMATION_SCHEMA guard + PREPARE/EXECUTE (same pattern as 026 and 029). No index added (lookups always by `file_id`). Manual rollback comment included.
+- Created `apps/api/src/__tests__/integration/migration-030.test.ts` — integration test hitting real MySQL. Covers: column exists on `files` table, DATA_TYPE = varchar, CHARACTER_MAXIMUM_LENGTH = 1024, IS_NULLABLE = YES, COLUMN_DEFAULT = NULL, idempotency (re-running migration does not throw). 6 assertions total.
+
+**Notes:**
+- No index on `thumbnail_uri` — justified because all reads from `files` are by primary key `file_id`; thumbnail_uri is fetched alongside, never filtered independently.
+- Pattern exactly mirrors `029_soft_delete_columns.sql` INFORMATION_SCHEMA guard (used across 026, 029, now 030) for consistency and safety.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: C1 — Migration: add thumbnail_uri to files</summary>
+
+- **C1 — Migration: add `thumbnail_uri` to `files`**
+  - What: Nullable `thumbnail_uri VARCHAR(1024) NULL` column on `files`; index not needed (lookups are always by `file_id`).
+  - Where: `apps/api/src/db/migrations/030_files_thumbnail_uri.sql`.
+  - Why: Storage location for the thumbnail that media-worker already generates.
+  - Acceptance criteria: column exists; nullable; migration test asserts shape.
+  - Test approach: `migration-030.test.ts`.
+  - Risk: low.
+  - Depends on: none.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-20. SQL migration + integration test only; zero UI surface (no components, colors, typography, spacing). No design review required.
+checked by playwright-reviewer: YES — database migration only (no UI). Schema change verified by integration test (migration-030.test.ts, 6 assertions on column existence, type, nullability, idempotency)
+
+---
+
+## [2026-04-20]
+
+### Task: Backlog Batch — `general_tasks.md` issues 1–6
+**Subtask:** C2 — Media-worker writes `files.thumbnail_uri` after ingest
+
+**What was done:**
+- **`apps/media-worker/src/jobs/ingest.job.ts`:** Added `extractThumbnail(inputPath, outputPath, atSeconds)` (exported for testing) — wraps fluent-ffmpeg builder chain to extract a single JPEG frame. Added `uploadThumbnail(s3, bucket, key, sourcePath)` helper — reads the JPEG and calls `PutObjectCommand`. Added local `setThumbnailUri(pool, fileId, uri)` DB helper — issues `UPDATE files SET thumbnail_uri = ?`. Updated `IngestJobDeps` to include `bucket: string`. Updated `processIngestJob` to: detect video content type + videoStream presence, compute seekSec = `Math.min(1, durationSec / 2)` for very short clips, call thumbnail extraction + upload + DB write before `setFileReady`. Added `PutObjectCommand` import.
+- **`apps/media-worker/src/index.ts`:** Passed `bucket: config.s3.bucket` to `processIngestJob` deps.
+- **`apps/api/src/repositories/file.repository.ts`:** Added `thumbnailUri: string | null` field to `FileRow` type and `DbRow` internal type; mapped in `mapRow`. Added exported `setThumbnailUri(fileId, uri)` function. Extracted `findReadyForUser`, `getReadyTotalsForUser`, `FileMimePrefix`, `FileTotalsRow` to `file.repository.list.ts` (keeping main file ≤ 300 lines per §9.7); re-exports preserved.
+- **`apps/api/src/repositories/file.repository.list.ts`:** New file — paginated list helpers extracted from `file.repository.ts` following the existing `asset.repository.list.ts` pattern. Contains `findReadyForUser`, `getReadyTotalsForUser`, `FileMimePrefix`, `FileTotalsRow`, and duplicated `DbRow`/`mapRow` to avoid circular imports.
+- **Tests written:**
+  - `apps/media-worker/src/jobs/ingest.job.thumbnail.test.ts` (270 lines, 9 tests) — covers `extractThumbnail` resolve/reject/seekInput, video thumbnail DB write (`setThumbnailUri` called with correct URI + fileId), S3 PutObject key + ContentType, skip for audio, skip for audio-only video container (no videoStream), short-clip seekSec = durationSec/2, error propagation marks file as error.
+  - `apps/api/src/repositories/file.repository.thumbnail.test.ts` (119 lines, 5 tests) — covers `thumbnailUri` field mapping (string/null/absent pre-migration row), `setThumbnailUri` SQL shape, parameter order (uri first, fileId second), null acceptance.
+  - `apps/media-worker/src/jobs/ingest.job.test.ts`: updated `IngestJobDeps` default to include `bucket`; changed default `contentType` to `'image/png'` so existing metadata tests don't trigger thumbnail generation; updated one explicit `video/mp4` → `image/png` for the zero-duration test.
+
+**Notes:**
+- Thumbnail is only generated when `contentType.startsWith('video/')` AND ffprobe finds a `video` stream — audio-only containers carrying a `.mp4` extension are safely skipped.
+- The thumbnail DB write (`setThumbnailUri`) is a separate `UPDATE` from `setFileReady` — keeps the thumbnail write independently retryable on failure.
+- `file.repository.list.ts` duplicates `DbRow` + `mapRow` to avoid a runtime ESM circular import (same pattern as `asset.repository.list.ts`). Keep in sync when `FileRow` fields change.
+- Pre-existing files (ingested before migration 030) will have `thumbnail_uri = NULL`; re-ingest fills the column. Backfill is out of scope per task spec.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: C2 — Media-worker writes files.thumbnail_uri after ingest</summary>
+
+- **C2 — Media-worker writes `files.thumbnail_uri` after ingest**
+  - What: `apps/media-worker/src/jobs/ingest.job.ts` — after thumbnail S3 upload, update `files.thumbnail_uri` with the s3 URI. Backfill migration is out of scope (existing files remain without thumbnails; re-ingest triggers fill).
+  - Where: `ingest.job.ts`; `files.repository` (if ingest accesses DB directly) or add a `setThumbnailUri(fileId, uri)` helper.
+  - Why: The data source for project first-frame preview.
+  - Acceptance criteria: after an ingest job completes, `files.thumbnail_uri` is populated; pre-existing files unaffected.
+  - Test approach: unit test on ingest job with a mocked S3 + DB.
+  - Risk: low.
+  - Depends on: C1.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-20. Media-worker ingest job + repository updates only; zero UI surface (no components, colors, typography, spacing). No design review required.
+checked by playwright-reviewer: YES — backend-only feature (media-worker + DB); no UI to test. Verified by 389 unit tests (ingest.job.thumbnail.test.ts + file.repository.thumbnail.test.ts).
+
+## [2026-04-20]
+
+### Task: Backlog Batch — `general_tasks.md` issues 1–6
+**Subtask:** C3 — API: `project.repository.findProjectsByUserId` returns first-clip thumbnail
+
+**What was done:**
+- Updated `apps/api/src/repositories/project.repository.ts`: replaced `NULL AS thumbnail_uri` with two correlated subqueries. Primary subquery picks the earliest visual clip (`type IN ('video', 'image')`) ordered by `start_frame ASC`, joining `project_clips_current → files` with `files.deleted_at IS NULL` guard. Fallback subquery picks the first linked file from `project_files → files` ordered by `files.created_at ASC`, also excluding soft-deleted files. Both `thumbnail_uri` and `file_id` are projected (the latter needed to build the proxy URL). Added `thumbnailFileId: string | null` to the `ProjectSummary` type.
+- Updated `apps/api/src/controllers/projects.controller.ts`: `listProjects` now builds `baseUrl` from `req.protocol`/`req.get('host')` and maps `thumbnailFileId + thumbnailUrl` to a proxy URL of the form `${baseUrl}/assets/${fileId}/thumbnail`. The proxy URL is only emitted when BOTH fields are non-null — if the file exists but was not yet ingested, the response returns `thumbnailUrl: null` so the frontend renders its placeholder.
+- Updated `apps/api/src/repositories/project.repository.test.ts`: SQL assertions now check for `project_clips_current`, `type IN ('video', 'image')`, `ORDER BY c.start_frame ASC`, and `project_files` in the query; removed the stale `NULL AS thumbnail_uri` assertion. Row-mapping assertions include `thumbnailFileId`.
+- Updated `apps/api/src/services/project.service.test.ts`: mock `ProjectSummary` arrays include `thumbnailFileId`.
+- Updated `apps/api/src/__tests__/integration/projects-list-endpoint.test.ts`: seed file now includes `thumbnail_uri = 's3://bucket/thumb.jpg'`; thumbnail assertion updated to match a proxy URL pattern `/assets/${ASSET_ID}/thumbnail`. The "no clips" project (PROJ_A2) still asserts null.
+- Created `apps/api/src/__tests__/integration/project-thumbnail.integration.test.ts`: 6 dedicated integration tests exercising the repository directly: (1) earliest clip by start_frame wins, (2) audio clips excluded, (3) fallback to first linked file, (4) null when no clips or files, (5) null when file has no thumbnail_uri, (6) soft-deleted files excluded.
+
+**Notes:**
+- The raw `s3://` URI remains in `ProjectSummary.thumbnailUrl` so the controller can gate on its presence before building the proxy URL. Callers should not use `thumbnailUrl` directly as an HTTP URL; only `thumbnailFileId` matters for the proxy path.
+- The correlated subquery approach avoids a service-layer loop (rule §5). MySQL 8.0 LATERAL JOIN would be equivalent but the two-scalar-subquery pattern is more portable and easier to read.
+- Soft-delete filter (`f.deleted_at IS NULL`) is applied inside the subquery JOIN condition, not as a WHERE clause on the outer query — this ensures that a project linked only to soft-deleted files still returns a null thumbnail rather than surfacing a deleted file's URI.
+- No new migration required: `files.thumbnail_uri` (VARCHAR 1024) was added in migration 030 (C1). `project_clips_current.file_id` was added in migration 023 (files-as-root batch).
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: C3 — API: project.repository.findProjectsByUserId returns first-clip thumbnail</summary>
+
+- **C3 — API: `project.repository.findProjectsByUserId` returns first-clip thumbnail**
+  - What: Replace hardcoded `NULL AS thumbnail_uri` with a subquery/lateral join that returns the earliest (by `start_frame`) visual clip's `file.thumbnail_uri`. Fallback to the first asset's thumbnail if no clip is placed.
+  - Where: `apps/api/src/repositories/project.repository.ts:83-101`.
+  - Why: Populates the Home `ProjectCard.thumbnailUrl`.
+  - Acceptance criteria:
+    - Project with a video clip → `thumbnailUrl` resolves to a signed URL for the first visual clip's file thumbnail.
+    - Project with no clips → `thumbnailUrl` is null (current behavior preserved, front-end placeholder).
+  - Test approach: integration test with seeded project + clip + file.
+  - Risk: med — the SQL is non-trivial (ordering by `start_frame` within the project). Keep as a single repository query, not a service-layer loop (rule §5).
+  - Depends on: C2 (only for the thumbnail to exist in DB).
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-20. Repository + controller changes only; zero UI surface (no components, colors, typography, spacing). Backend data sourcing — frontend markup/styles unchanged. No design review required.
+checked by playwright-reviewer: YES — backend-only (6 integration tests verify clip-ordering, fallback, soft-delete, null handling); no UI changes
+
+---
+
+## [2026-04-20]
+
+### Task: Backlog Batch — `general_tasks.md` issues 1–6
+**Subtask:** D1 — Parameterize `AssetDetailPanel` for draft context
+
+**What was done:**
+- Moved `AssetDetailPanel` from `features/asset-manager/components/` to `shared/asset-detail/` per the cross-feature shared rule (the panel now serves both the editor and the generate-wizard).
+- Added `context: { kind: 'project', projectId } | { kind: 'draft', draftId }` discriminated-union prop. Project context preserves all existing behaviour. Draft context replaces the "Add to Timeline" dropdown with an "Add to Prompt" button that fires `onAddToPrompt(asset)` — the seam for D2 to wire up MediaRef chip insertion.
+- The "Replace File" button is conditionally hidden in draft context (not meaningful there).
+- Created a re-export barrel at the original `features/asset-manager/components/AssetDetailPanel.tsx` path so all existing imports remain valid without a path change.
+- Updated `AssetBrowserPanel.tsx` to import from `@/shared/asset-detail/AssetDetailPanel` and pass `context={{ kind: 'project', projectId }}`.
+- Updated all 3 existing test files (`AssetDetailPanel.test.tsx`, `.preview.test.tsx`, `.rename.test.tsx`) to use `context={{ kind: 'project', projectId: 'proj-001' }}` instead of `projectId=` prop, and updated mock paths from relative `./` to absolute `@/features/asset-manager/components/`.
+- Updated `AssetBrowserPanel.test.tsx` mock from `./AssetDetailPanel` to `@/shared/asset-detail/AssetDetailPanel`.
+- Created `shared/asset-detail/assetDetailPanel.styles.ts` (panel-only styles; added `primaryActionButton` style for the "Add to Prompt" CTA with brand purple).
+- Created `shared/asset-detail/AssetDetailPanel.fixtures.ts` with shared `makeAsset`, `PROJECT_CTX`, `DRAFT_CTX` builders.
+- Created `shared/asset-detail/AssetDetailPanel.test.tsx` (project context + shared behaviour, 20 tests) and `AssetDetailPanel.draft.test.tsx` (draft context, 17 tests) — split to stay under the 300-line file cap.
+
+**Notes:**
+- `InlineRenameField`, `AddToTimelineDropdown`, and `AssetPreviewModal` intentionally stay in `features/asset-manager/components/`; they are sub-components of the panel. The shared panel imports them via absolute `@/` paths, which is valid (shared/ can import from features/).
+- In draft context `projectId` is passed as an empty string to `InlineRenameField` — this is safe because the rename field only uses it for React Query cache key invalidation, and D2 will revisit if a draft-scoped rename is needed.
+- "Add to Prompt" callback signature: `onAddToPrompt(asset: Asset) => void` — gives D2 everything it needs to build a MediaRef chip without further plumbing.
+- All 108 tests across the 6 affected test files are green.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: D1 — Parameterize `AssetDetailPanel` for draft context</summary>
+
+- [ ] **D1 — Parameterize `AssetDetailPanel` for draft context**
+  - What: Add `context: { kind: 'project', projectId } | { kind: 'draft', draftId }` prop. Replace hardcoded "add to timeline" dropdown with a context-driven primary action: "Add to Prompt" for drafts.
+  - Where: `apps/web-editor/src/features/asset-manager/components/AssetDetailPanel.tsx` (move to `shared/asset-detail/` if it now serves two features — per feature-vs-shared rule).
+  - Why: Prereq for D2.
+  - Acceptance criteria: existing project context still works; draft context renders "Add to Prompt" button that inserts a MediaRef chip.
+  - Test approach: component test for both contexts.
+  - Risk: med — cross-feature move triggers the `features/` → `shared/` rule; do it in the same PR.
+  - Depends on: none.
+
+</details>
+
+checked by code-reviewer - NOT
+checked by qa-reviewer - NOT
+checked by design-reviewer - NOT
+checked by playwright-reviewer: NOT

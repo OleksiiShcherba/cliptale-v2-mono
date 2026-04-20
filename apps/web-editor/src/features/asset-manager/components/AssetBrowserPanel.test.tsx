@@ -44,7 +44,7 @@ vi.mock('./AssetCard', () => ({
     }, asset.filename),
 }));
 
-vi.mock('./AssetDetailPanel', () => ({
+vi.mock('@/shared/asset-detail/AssetDetailPanel', () => ({
   AssetDetailPanel: ({ asset, onClose, onDelete }: {
     asset: { id: string; filename: string };
     onClose: () => void;

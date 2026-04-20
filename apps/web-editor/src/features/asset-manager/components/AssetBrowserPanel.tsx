@@ -7,8 +7,9 @@ import { useAssetPolling } from '@/features/asset-manager/hooks/useAssetPolling'
 import { matchesTab } from '@/features/asset-manager/utils';
 import type { Asset, AssetFilterTab } from '@/features/asset-manager/types';
 
+import { AssetDetailPanel } from '@/shared/asset-detail/AssetDetailPanel';
+
 import { AssetCard } from './AssetCard';
-import { AssetDetailPanel } from './AssetDetailPanel';
 import { DeleteAssetDialog } from './DeleteAssetDialog';
 import { ReplaceAssetDialog } from './ReplaceAssetDialog';
 import { UploadDropzone } from './UploadDropzone';
@@ -228,7 +229,7 @@ export function AssetBrowserPanel({ projectId, areFilterTabsHidden = false }: As
       {selectedAsset && (
         <AssetDetailPanel
           asset={selectedAsset}
-          projectId={projectId}
+          context={{ kind: 'project', projectId }}
           onDelete={() => setIsDeleteOpen(true)}
           onClose={() => setSelectedAssetId(null)}
           onReplace={() => setIsReplaceOpen(true)}
