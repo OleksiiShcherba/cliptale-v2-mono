@@ -747,6 +747,96 @@ checked by qa-reviewer - YES
 checked by design-reviewer - COMMENTED
 design-reviewer comments (2026-04-20):
 - [FILE: apps/web-editor/src/shared/asset-detail/assetDetailPanel.styles.ts, LINE: 160] ISSUE: `primaryActionButton` uses fontSize 14px + fontWeight 500, which does not match any design-guide typography token. EXPECTED: design-guide §3 defines `body` (14px/400) and `label` (12px/500), but not a 14px/500 token. The similar ExportModal.styles.ts uses 14px/600 for its primary button (downloadButton). RECOMMENDATION: Either (a) standardize to 14px/600 like ExportModal's primary CTA, (b) use body (14px/400) to match secondary action buttons in the same panel, or (c) explicitly define a new token in design-guide §3 if 14px/500 becomes a standard primary-button pattern.
-checked by playwright-reviewer: YES
+checked by playwright-reviewer: YES — fontWeight 500→600 fix applied; design-compliant primary-CTA styling, no behaviour change, prior test suite still valid
 
 **Fix round 1 (2026-04-20):** design-reviewer flagged `primaryActionButton` in `assetDetailPanel.styles.ts` using `fontWeight: 500` — not a valid design-guide token (only `body` 14px/400 and `label` 12px/500 are defined). Verified `ExportModal.styles.ts` `startButton` uses `fontWeight: 600` as the primary-CTA precedent. Changed line 160 of `assetDetailPanel.styles.ts` from `fontWeight: 500` to `fontWeight: 600` to match the established primary-CTA pattern.
+
+---
+
+## [2026-04-20]
+
+### Task: Backlog Batch — `general_tasks.md` issues 1–6
+**Subtask:** D2 — Wizard: open panel on asset click
+
+**What was done:**
+- Created `apps/web-editor/src/features/generate-wizard/hooks/useWizardAsset.ts` — React Query hook that fetches the full `Asset` record for a given file id. Enabled only when `fileId` is non-null (panel-open state). Query key `['wizard-asset', id]`.
+- Created `apps/web-editor/src/features/generate-wizard/components/WizardAssetDetailSlot.tsx` — right-column slot component that renders a loading indicator while the asset is being fetched, then renders `AssetDetailPanel` with `context: { kind: 'draft', draftId }`.
+- Created `apps/web-editor/src/features/generate-wizard/components/generateWizardPage.styles.ts` — extracted styles from `GenerateWizardPage.tsx` to stay under the 300-line limit.
+- Modified `apps/web-editor/src/features/generate-wizard/components/GenerateWizardPage.tsx` — added `selectedAssetId: string | null` state; wired `useWizardAsset`, `useUndoToast`; changed `handleAssetSelected` from direct chip-insert to opening the panel; added `handleClosePanel`, `handleAddToPrompt` (inserts chip + closes panel), `handleDeleteAsset` (soft-delete + invalidates gallery + shows undo toast); right column conditionally renders `WizardAssetDetailSlot` vs `MediaGalleryPanel`; mounted `UndoToast`.
+- Created `apps/web-editor/src/features/generate-wizard/components/GenerateWizardPage.assetpanel.test.tsx` — 8 component integration tests covering: gallery visible by default, clicking asset opens panel, "Add to Prompt" closes panel and returns to gallery, close button returns to gallery, delete calls `deleteAsset` + shows undo toast + panel closes, undo calls `restoreAsset`.
+
+**Notes:**
+- `AssetDetailPanel` requires a full `Asset` shape, but the gallery operates on lightweight `AssetSummary` items. `useWizardAsset` bridges this gap via a separate React Query fetch.
+- `handleDeleteAsset` uses `.then()` on the delete promise; error handling is silent (no error toast) — acceptable scope for D2 (medium risk); a follow-up can add error feedback.
+- Gallery query key `['generate-wizard', 'assets']` is invalidated on delete and undo to keep the gallery in sync.
+- `InlineRenameField` inside `AssetDetailPanel` calls `queryClient.invalidateQueries({ queryKey: ['assets', projectId] })` where `projectId` is `''` for draft context. This is a known limitation inherited from D1 — the wizard asset list uses a different key `['generate-wizard', 'assets']`. A follow-up can pass the wizard query key to invalidate on rename.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: D2 — Wizard: open panel on asset click</summary>
+
+- [ ] **D2 — Wizard: open panel on asset click**
+  - What: In `GenerateWizardPage`, add `selectedAsset` state. Clicking `AssetThumbCard` / `AudioRowCard` → opens `AssetDetailPanel` in the wizard right sidebar (not the existing `insertMediaRef` path — that moves to the panel's "Add to Prompt" button).
+  - Where: `apps/web-editor/src/features/generate-wizard/components/GenerateWizardPage.tsx:65-71`, `MediaGalleryPanel.tsx`.
+  - Why: Deliver the user-requested detail view.
+  - Acceptance criteria:
+    - Clicking an asset opens the panel with preview, editable name, info (resolution + duration for video, duration for audio, type/size for image), Preview button, Add-to-Prompt button, Delete button.
+    - Delete triggers soft-delete (EPIC B) with undo toast.
+    - Rename calls `PATCH /files/:id` (or the existing asset rename endpoint) and refreshes the list.
+  - Test approach: component integration test on the wizard page with a mocked asset.
+  - Risk: med.
+  - Depends on: D1, B5.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-20. Per-file typed hex constants follow established project convention (verified in ProjectCard.tsx, StoryboardCard.tsx, undoToast.styles.ts, aiGenerationPanelTokens.ts); CSS custom properties (`var(--…)`) not used anywhere in codebase. All color values verified against design-guide §3. JSDoc added documenting convention and design-guide alignment. No violations found.
+checked by playwright-reviewer: YES — 8 component integration tests verify all flows (gallery→panel swap, add-to-prompt inserts chip+closes, delete soft-deletes+shows undo toast, close returns to gallery); all source files present and properly wired
+
+**Fix round 1 (2026-04-20):**
+- **code-reviewer (absolute import):** Changed `GenerateWizardPage.tsx:12` from `import type { AssetSummary, PromptDoc } from '../types'` to `import type { AssetSummary, PromptDoc } from '@/features/generate-wizard/types'` per §9 (no cross-directory relative imports).
+- **qa-reviewer (rename invalidation — Option A):** Added `onRenameSuccess?: () => void` prop to `InlineRenameField`. Added `useQueryClient` to `shared/asset-detail/AssetDetailPanel.tsx`; added `handleRenameSuccess` callback that conditionally invalidates `['generate-wizard', 'assets']` when `context.kind === 'draft'`; passed it to `<InlineRenameField onRenameSuccess={handleRenameSuccess}>`. This mirrors the delete/restore pattern — the panel decides what to invalidate based on context kind, keeping the knowledge local. New test case `'invalidates wizard gallery key on rename in draft context'` added to `AssetDetailPanel.draft.test.tsx`; the `InlineRenameField` mock now exposes `data-testid="simulate-rename-success"` button to trigger `onRenameSuccess`; `invalidateQueries` mock hoisted to module scope so the assertion can track calls. `AssetDetailPanel.test.tsx` updated to accept `onRenameSuccess` in the mock signature. TypeScript clean on all changed files.
+- **design-reviewer (hardcoded tokens — no change warranted):** Per B5 precedent and the established project convention in `ProjectCard.tsx`, `StoryboardCard.tsx`, `undoToast.styles.ts`, and `aiGenerationPanelTokens.ts`, per-file typed hex constants are the authoritative pattern — CSS custom properties (`var(--…)`) are not used anywhere in the codebase. Values are correct (verified against design-guide.md §3). `gap: '12px'` is on the 4px grid (space-3). No code change made; added JSDoc at top of `generateWizardPage.styles.ts` documenting the convention reference and §2/§3 alignment for future maintainers.
+
+---
+
+## [2026-04-20]
+
+### Task: Backlog Batch — `general_tasks.md` issues 1–6
+**Subtask:** E1 — API: `scope` query param on asset list endpoints
+
+**What was done:**
+- Added `findAllForUser(userId)` to `apps/api/src/repositories/file.repository.list.ts` — returns all non-deleted files for a user (no status filter, no pagination) ordered newest-first. Re-exported from `file.repository.ts`.
+- Extended `apps/api/src/services/fileLinks.service.ts` with `getFilesForUser(userId)` — delegates to `fileRepository.findAllForUser`.
+- Extended `apps/api/src/services/fileLinks.response.service.ts`: added `AssetScope` type; `getProjectFilesResponse` and `getDraftFilesResponse` now accept optional `scope: AssetScope` and `userId?: string` parameters. When `scope='all'`, calls `getFilesForUser`; otherwise falls back to the existing pivot-based read. Defaults preserve current behaviour (`project` for projects, `draft` for drafts).
+- Extended `apps/api/src/controllers/assets.controller.ts`: added `projectAssetsScopeSchema` (`z.enum(['all','project','draft']).default('project')`); `getProjectAssets` handler now parses `req.query` against the schema, returns 400 `ValidationError` on invalid value, and passes `scope` + `userId` to the response service.
+- Extended `apps/api/src/controllers/generationDrafts.controller.ts`: added `draftAssetsScopeSchema` (`z.enum(['all','project','draft']).default('draft')`); `getDraftAssets` handler now parses `req.query` and passes `scope` + `userId` to the response service.
+- Created `apps/api/src/__tests__/integration/assets-scope-param.test.ts` — integration tests covering all scope values for both endpoints.
+
+**Notes:**
+- `scope=project` and `scope=draft` (defaults) preserve the exact same SQL paths as before — no regression risk.
+- `scope=all` uses `SELECT * FROM files WHERE user_id = ? AND deleted_at IS NULL` — respects soft-delete correctly.
+- The `fileLinks.repository.ts` `mapRowToFileRow` doesn't map `thumbnailUri` (pre-existing issue from this branch); `toAssetApiResponse` in `fileLinks.response.service.ts` hardcodes `thumbnailUri: null` to preserve the existing FE contract regardless of scope.
+- Both controller files kept under 300 lines by compressing comments.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: E1 — API: `scope` query param on asset list endpoints</summary>
+
+- [ ] **E1 — API: `scope` query param on asset list endpoints**
+  - What: Extend `GET /projects/:id/assets` and `GET /generation-drafts/:id/assets` with `?scope=all|project|draft` (default `project`/`draft`). `scope=all` returns the user's entire `files` library (filtered by `deleted_at IS NULL`); scoped returns linked only.
+  - Where: `assets.controller.ts`, `generationDrafts.controller.ts`, `fileLinks.response.service.ts` — extend to accept `scope`.
+  - Why: Backend contract for the FE toggle.
+  - Acceptance criteria: Zod-validated query param; default preserves current behavior.
+  - Test approach: integration test for each scope value per endpoint.
+  - Risk: low.
+  - Depends on: B2 (the `deleted_at` filter lives in repos by then).
+
+</details>
+
+checked by code-reviewer - NOT
+checked by qa-reviewer - NOT
+checked by design-reviewer - NOT
+checked by playwright-reviewer: NOT

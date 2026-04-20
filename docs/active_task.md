@@ -59,28 +59,7 @@
 
 ### EPIC D — Issue 4: Storyboard asset detail panel (wizard)
 
-- [ ] **D2 — Wizard: open panel on asset click**
-  - What: In `GenerateWizardPage`, add `selectedAsset` state. Clicking `AssetThumbCard` / `AudioRowCard` → opens `AssetDetailPanel` in the wizard right sidebar (not the existing `insertMediaRef` path — that moves to the panel's "Add to Prompt" button).
-  - Where: `apps/web-editor/src/features/generate-wizard/components/GenerateWizardPage.tsx:65-71`, `MediaGalleryPanel.tsx`.
-  - Why: Deliver the user-requested detail view.
-  - Acceptance criteria:
-    - Clicking an asset opens the panel with preview, editable name, info (resolution + duration for video, duration for audio, type/size for image), Preview button, Add-to-Prompt button, Delete button.
-    - Delete triggers soft-delete (EPIC B) with undo toast.
-    - Rename calls `PATCH /files/:id` (or the existing asset rename endpoint) and refreshes the list.
-  - Test approach: component integration test on the wizard page with a mocked asset.
-  - Risk: med.
-  - Depends on: D1, B5.
-
 ### EPIC E — Issue 5: General vs project/draft file scope toggle
-
-- [ ] **E1 — API: `scope` query param on asset list endpoints**
-  - What: Extend `GET /projects/:id/assets` and `GET /generation-drafts/:id/assets` with `?scope=all|project|draft` (default `project`/`draft`). `scope=all` returns the user's entire `files` library (filtered by `deleted_at IS NULL`); scoped returns linked only.
-  - Where: `assets.controller.ts`, `generationDrafts.controller.ts`, `fileLinks.response.service.ts` — extend to accept `scope`.
-  - Why: Backend contract for the FE toggle.
-  - Acceptance criteria: Zod-validated query param; default preserves current behavior.
-  - Test approach: integration test for each scope value per endpoint.
-  - Risk: low.
-  - Depends on: B2 (the `deleted_at` filter lives in repos by then).
 
 - [ ] **E2 — FE: scope toggle in `AssetBrowserPanel` (editor) and `MediaGalleryPanel` (wizard)**
   - What: Add a "show all" / "show only this project" toggle button below the last item in the gallery. Default: project/draft scope. If the scoped list is empty on first load, auto-switch to `all` with the toggle flipped.

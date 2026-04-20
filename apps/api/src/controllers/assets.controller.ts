@@ -32,6 +32,11 @@ export const listAssetsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(24),
 });
 
+/** `scope` query param for `GET /projects/:id/assets`. Default: `project` (linked only). `all` returns the user's entire library. */
+export const projectAssetsScopeSchema = z.object({
+  scope: z.enum(['all', 'project', 'draft']).default('project'),
+});
+
 type CreateUploadUrlBody = z.infer<typeof createUploadUrlSchema>;
 
 /**
@@ -96,12 +101,7 @@ export async function listAssets(
 
 /**
  * GET /projects/:id/assets
- * Returns all files linked to a project via the `project_files` pivot table,
- * serialized as an `AssetApiResponse[]` array.
- *
- * The underlying SQL changed from reading `project_assets_current` to
- * JOIN-ing `project_files → files`, but the HTTP response shape is identical
- * to preserve the FE contract.
+ * Returns project files. `?scope=project` (default) — linked only; `?scope=all` — full library.
  */
 export async function getProjectAssets(
   req: Request,
@@ -109,11 +109,19 @@ export async function getProjectAssets(
   next: NextFunction,
 ): Promise<void> {
   try {
+    const parsed = projectAssetsScopeSchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw new ValidationError(
+        `Invalid query parameters: ${parsed.error.issues.map((i) => i.message).join(', ')}`,
+      );
+    }
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     const assets = await fileLinksResponseService.getProjectFilesResponse(
       req.params['id']!,
       s3Client,
       baseUrl,
+      parsed.data.scope,
+      req.user!.userId,
     );
     res.json(assets);
   } catch (err) {
@@ -149,6 +157,30 @@ export async function deleteAsset(
   try {
     await assetService.deleteAsset(req.params['id']!, req.user!.userId);
     res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /assets/:id/restore
+ * Restores a soft-deleted asset owned by the authenticated user.
+ * Returns 200 with the restored asset on success.
+ * Returns 404 when the asset belongs to another user, 410 when gone/TTL expired.
+ */
+export async function restoreAsset(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const fileId = req.params['id']!;
+    // restoreAsset returns the fresh Asset row (re-fetched after restore).
+    await assetService.restoreAsset(fileId, req.user!.userId);
+    // Serialize via the response service to include presigned URL + thumbnail proxy.
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const response = await assetResponseService.getAssetResponse(fileId, s3Client, baseUrl);
+    res.json(response);
   } catch (err) {
     next(err);
   }

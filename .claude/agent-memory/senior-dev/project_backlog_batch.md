@@ -1,6 +1,6 @@
 ---
 name: Backlog Batch general_tasks.md issues 1–6
-description: 6-EPIC batch covering timeline state, soft-delete, project preview, wizard detail panel, scope toggle, AI panel width; A1-A3 DONE; B1-B5 DONE; C1-C2 DONE; next: C3 (API: project.repository returns first-clip thumbnail)
+description: 6-EPIC batch covering timeline state, soft-delete, project preview, wizard detail panel, scope toggle, AI panel width; A-D ALL DONE; E1 DONE; next: E2 (FE scope toggle) or F1 (AI panel width)
 type: project
 ---
 
@@ -25,13 +25,27 @@ Backlog Batch — general_tasks.md issues 1–6. Each subtask on its own branch 
 - [x] C2 — media-worker writes `files.thumbnail_uri` after ingest (DONE 2026-04-20, branch: feat/c2-thumbnail-after-ingest; 14 new unit tests)
 - [x] C3 — API: `project.repository.findProjectsByUserId` returns first-clip thumbnail (DONE 2026-04-20, branch: feat/c3-project-first-frame-thumbnail)
 
-**EPIC D — Storyboard asset detail panel** (D1–D2; depends on B5)
+**EPIC D — Storyboard asset detail panel** (D1–D2; depends on B5) — ALL DONE
 - [x] D1 — Parameterize AssetDetailPanel for draft context (DONE 2026-04-20, branch: feat/d1-asset-detail-panel-context)
+- [x] D2 — Wizard: open panel on asset click (DONE 2026-04-20, branch: feat/d2-wizard-asset-detail)
 
 **EPIC E — General vs project/draft file scope toggle** (E1–E3; depends on B2)
-**EPIC F — AI panel full width in wizard** (F1; no deps; trivial)
+- [x] E1 — API: `scope` query param on asset list endpoints (DONE 2026-04-20, branch: feat/e1-assets-scope-param)
+- [ ] E2 — FE: scope toggle in AssetBrowserPanel + MediaGalleryPanel
+- [ ] E3 — Auto-link general file when first used
 
-**How to apply:** EPIC A fully done. EPIC B fully done. EPIC C fully done. EPIC D: D1 DONE; next: D2 (Wizard: open panel on asset click).
+**EPIC F — AI panel full width in wizard** (F1; no deps; trivial)
+- [ ] F1 — Make AI panel width fluid
+
+**How to apply:** EPIC A fully done. EPIC B fully done. EPIC C fully done. EPIC D fully done. E1 DONE. Next: E2 or F1.
+
+**D2 implementation notes (updated after fix round 1):**
+- `useWizardAsset(fileId: string | null)` — React Query hook (`['wizard-asset', id]`), `enabled: fileId !== null`. Fetches full `Asset` via `getAsset()` from `asset-manager/api`.
+- `WizardAssetDetailSlot` extracted to its own file to keep `GenerateWizardPage.tsx` under 300 lines. Also extracted `generateWizardPage.styles.ts` for the same reason.
+- `handleDeleteAsset` uses `.then()` on the delete promise — no error toast on failure (acceptable for D2 scope).
+- Gallery query key `['generate-wizard', 'assets']` invalidated on delete + undo. `['wizard-asset', id]` invalidated on delete so a re-select of the same asset re-fetches.
+- Rename in draft context: `InlineRenameField` now accepts optional `onRenameSuccess?: () => void` callback. `AssetDetailPanel` passes `handleRenameSuccess` which conditionally invalidates `['generate-wizard', 'assets']` when `context.kind === 'draft'`. This keeps the logic local to the panel — no new props on `AssetDetailPanel` itself.
+- Fix round 1: relative import `'../types'` → absolute `'@/features/generate-wizard/types'` in `GenerateWizardPage.tsx`; design-reviewer hardcoded-hex comments pushed back (per-file constants are the established project convention; CSS vars not used anywhere).
 
 **D1 implementation notes:**
 - `AssetDetailPanel` moved to `shared/asset-detail/`. Re-export barrel left at original `features/asset-manager/components/AssetDetailPanel.tsx` — all existing importers continue to work.

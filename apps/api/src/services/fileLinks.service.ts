@@ -97,6 +97,15 @@ export async function getFilesForDraft(draftId: string): Promise<FileRow[]> {
   return fileLinksRepository.findFilesByDraftId(draftId);
 }
 
+/**
+ * Returns ALL non-deleted files owned by `userId`, regardless of project/draft linkage.
+ * Used for the `scope=all` path on both `GET /projects/:id/assets` and
+ * `GET /generation-drafts/:id/assets`.
+ */
+export async function getFilesForUser(userId: string): Promise<FileRow[]> {
+  return fileRepository.findAllForUser(userId);
+}
+
 // ── Ownership helpers (private) ───────────────────────────────────────────────
 
 /**

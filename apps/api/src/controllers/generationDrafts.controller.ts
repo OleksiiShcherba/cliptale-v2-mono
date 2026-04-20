@@ -1,10 +1,17 @@
 import type { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 
+import { ValidationError } from '@/lib/errors.js';
 import { s3Client } from '@/lib/s3.js';
 import * as generationDraftService from '@/services/generationDraft.service.js';
+import * as generationDraftRestoreService from '@/services/generationDraft.restore.service.js';
 import * as fileLinksService from '@/services/fileLinks.service.js';
 import * as fileLinksResponseService from '@/services/fileLinks.response.service.js';
+
+/** `scope` query param for `GET /generation-drafts/:id/assets`. Default: `draft` (linked only). `all` returns the user's entire library. */
+export const draftAssetsScopeSchema = z.object({
+  scope: z.enum(['all', 'project', 'draft']).default('draft'),
+});
 
 /**
  * Zod schema for POST /generation-drafts/:draftId/ai/generate.
@@ -130,6 +137,28 @@ export async function deleteDraft(
 }
 
 /**
+ * POST /generation-drafts/:id/restore
+ * Restores a soft-deleted generation draft owned by the authenticated user.
+ * Returns 200 with the restored draft on success.
+ * Returns 404 when the draft belongs to another user, 410 when gone/TTL expired.
+ */
+export async function restoreDraft(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const restored = await generationDraftRestoreService.restoreDraft(
+      req.user!.userId,
+      req.params['id']!,
+    );
+    res.json(restored);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * POST /generation-drafts/:id/enhance
  * Enqueues an AI Enhance job for the specified draft.
  * Returns 202 Accepted with { jobId } on success.
@@ -217,8 +246,7 @@ export async function linkFileToDraft(
 
 /**
  * GET /generation-drafts/:id/assets
- * Returns all files linked to a generation draft via the `draft_files` pivot
- * table, serialized as an `AssetApiResponse[]` array.
+ * Returns draft files. `?scope=draft` (default) — linked only; `?scope=all` — full library.
  */
 export async function getDraftAssets(
   req: Request,
@@ -226,11 +254,19 @@ export async function getDraftAssets(
   next: NextFunction,
 ): Promise<void> {
   try {
+    const parsed = draftAssetsScopeSchema.safeParse(req.query);
+    if (!parsed.success) {
+      throw new ValidationError(
+        `Invalid query parameters: ${parsed.error.issues.map((i) => i.message).join(', ')}`,
+      );
+    }
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     const assets = await fileLinksResponseService.getDraftFilesResponse(
       req.params['id']!,
       s3Client,
       baseUrl,
+      parsed.data.scope,
+      req.user!.userId,
     );
     res.json(assets);
   } catch (err) {
@@ -238,12 +274,7 @@ export async function getDraftAssets(
   }
 }
 
-/**
- * POST /generation-drafts/:draftId/ai/generate
- * Submits an AI generation request scoped to a generation draft.
- * Returns 202 Accepted with { jobId, status: 'queued' } on success.
- * Body is pre-validated by validateBody(submitDraftAiGenerationSchema) in the route.
- */
+/** POST /generation-drafts/:draftId/ai/generate — submit AI generation; returns 202 { jobId, status }. */
 export async function submitDraftAiGeneration(
   req: Request,
   res: Response,
