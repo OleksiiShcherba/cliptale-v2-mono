@@ -80,12 +80,20 @@ export const styles = {
   // Matches Figma node 13:111 (Main Editor / Tablet)
   // ---------------------------------------------------------------------------
 
-  /** Root shell — same column flex but fills viewport height. */
+  /**
+   * Root shell — column flex with vertical scroll.
+   *
+   * Sum of fixed-height children (TopBar ~56px + preview 56.25vw+40px + tabs 48px +
+   * timeline 300px + bottom bar 64px) exceeds 100vh on most phones, which collapsed
+   * the `flex: 1` inspector-content to height 0 and hid the asset list. Using
+   * `minHeight: 100vh` with `overflow-y: auto` lets every section keep its natural
+   * size and the user scrolls to reach the asset list / timeline when needed.
+   */
   mobileShell: {
     display: 'flex',
     flexDirection: 'column' as const,
-    height: '100vh',
-    overflow: 'hidden',
+    minHeight: '100vh',
+    overflowY: 'auto' as const,
     background: SURFACE,
     color: TEXT_PRIMARY,
     fontFamily: 'Inter, sans-serif',
@@ -120,12 +128,11 @@ export const styles = {
    * permanently visible above the tab bar on all screen sizes.
    */
   mobileInspectorContent: {
-    flex: 1,
+    flex: '0 0 auto',
     display: 'flex',
     flexDirection: 'column' as const,
-    overflow: 'auto',
+    minHeight: '320px',
     background: SURFACE_ALT,
-    minHeight: 0,
   } as React.CSSProperties,
 
   /** Mobile timeline — fixed height below the inspector content (mirroring Figma 300px). */
