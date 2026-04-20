@@ -16,6 +16,18 @@ export async function getAssets(projectId: string): Promise<Asset[]> {
   return res.json() as Promise<Asset[]>;
 }
 
+/**
+ * Hard-deletes an asset from the authenticated user's library.
+ * Returns on 204 success. Backend rejects with 409 if any clip in any project
+ * still references the file — caller must clear those references first.
+ */
+export async function deleteAsset(fileId: string): Promise<void> {
+  const res = await apiClient.delete(`/assets/${fileId}`);
+  if (res.status === 204) return;
+  const body = await res.text();
+  throw new Error(`Failed to delete asset (${res.status}): ${body}`);
+}
+
 /** Update the display name of an asset. Returns the updated asset. */
 export async function updateAsset(fileId: string, displayName: string): Promise<Asset> {
   const res = await apiClient.patch(`/assets/${fileId}`, { name: displayName });
