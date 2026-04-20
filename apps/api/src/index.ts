@@ -15,7 +15,9 @@ import { versionsRouter } from '@/routes/versions.routes.js';
 import { rendersRouter } from '@/routes/renders.routes.js';
 import { aiGenerationRouter } from '@/routes/aiGeneration.routes.js';
 import { generationDraftsRouter } from '@/routes/generationDrafts.routes.js';
-import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, ConflictError, UnprocessableEntityError } from '@/lib/errors.js';
+import { userProjectUiStateRouter } from '@/routes/userProjectUiState.routes.js';
+import { trashRouter } from '@/routes/trash.routes.js';
+import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, ConflictError, UnprocessableEntityError, GoneError } from '@/lib/errors.js';
 
 const app = express();
 
@@ -38,6 +40,8 @@ app.use(versionsRouter);
 app.use(rendersRouter);
 app.use(aiGenerationRouter);
 app.use(generationDraftsRouter);
+app.use(userProjectUiStateRouter);
+app.use(trashRouter);
 
 // Centralized error handler — maps typed errors to HTTP status codes.
 // Must be the last middleware registered.
@@ -48,7 +52,8 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     err instanceof UnauthorizedError ||
     err instanceof ForbiddenError ||
     err instanceof ConflictError ||
-    err instanceof UnprocessableEntityError
+    err instanceof UnprocessableEntityError ||
+    err instanceof GoneError
   ) {
     res.status(err.statusCode).json({ error: err.message });
     return;

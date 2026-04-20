@@ -49,6 +49,41 @@ export async function createProject(title?: string): Promise<string> {
   return data.projectId;
 }
 
+/**
+ * Soft-deletes a project.
+ * Maps to DELETE /projects/:id. Resolves on 204; throws on error.
+ */
+export async function deleteProject(projectId: string): Promise<void> {
+  const res = await apiClient.delete(`/projects/${projectId}`);
+  if (res.status === 204) return;
+  const body = await res.text();
+  throw new Error(`DELETE /projects/${projectId} failed (${res.status}): ${body}`);
+}
+
+/**
+ * Restores a soft-deleted project.
+ * Maps to POST /projects/:id/restore. Resolves on 200; throws on error.
+ */
+export async function restoreProject(projectId: string): Promise<void> {
+  const res = await apiClient.post(`/projects/${projectId}/restore`, {});
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`POST /projects/${projectId}/restore failed (${res.status}): ${body}`);
+  }
+}
+
+/**
+ * Restores a soft-deleted generation draft.
+ * Maps to POST /generation-drafts/:id/restore. Resolves on 200; throws on error.
+ */
+export async function restoreStoryboardDraft(draftId: string): Promise<void> {
+  const res = await apiClient.post(`/generation-drafts/${draftId}/restore`, {});
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`POST /generation-drafts/${draftId}/restore failed (${res.status}): ${body}`);
+  }
+}
+
 import type { StoryboardCardSummary } from './types';
 
 /** Shape returned by GET /generation-drafts/cards */

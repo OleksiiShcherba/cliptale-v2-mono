@@ -138,3 +138,27 @@ describe('AiGenerationPanel / states', () => {
     await waitFor(() => expect(screen.getByText('Network error')).toBeTruthy());
   });
 });
+
+describe('AiGenerationPanel / compact prop (panel width)', () => {
+  it('renders a 320px-wide panel when compact=true (editor sidebar)', () => {
+    renderWithClient(<AiGenerationPanel context={PROJECT_CTX} compact />);
+    const panel = screen.getByTestId('ai-generation-panel');
+    // Width is applied via the `style` attribute — check inline style.
+    expect(panel.style.width).toBe('320px');
+    expect(panel.style.maxWidth).toBe('');
+  });
+
+  it('renders a fluid panel (width 100%, maxWidth 720px) when compact=false (wizard)', () => {
+    renderWithClient(<AiGenerationPanel context={PROJECT_CTX} compact={false} />);
+    const panel = screen.getByTestId('ai-generation-panel');
+    expect(panel.style.width).toBe('100%');
+    expect(panel.style.maxWidth).toBe('720px');
+  });
+
+  it('defaults to fluid mode when compact prop is omitted', () => {
+    renderWithClient(<AiGenerationPanel context={PROJECT_CTX} />);
+    const panel = screen.getByTestId('ai-generation-panel');
+    expect(panel.style.width).toBe('100%');
+    expect(panel.style.maxWidth).toBe('720px');
+  });
+});

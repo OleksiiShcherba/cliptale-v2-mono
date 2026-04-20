@@ -53,7 +53,14 @@ vi.mock('@/features/asset-manager/components/AssetPreviewModal', () => ({
 }));
 
 vi.mock('@/features/asset-manager/components/InlineRenameField', () => ({
-  InlineRenameField: ({ displayedName }: { fileId: string; projectId: string; displayedName: string }) =>
+  InlineRenameField: ({
+    displayedName,
+  }: {
+    fileId: string;
+    projectId: string;
+    displayedName: string;
+    onRenameSuccess?: () => void;
+  }) =>
     React.createElement('div', { 'data-testid': 'inline-rename-field' }, displayedName),
 }));
 

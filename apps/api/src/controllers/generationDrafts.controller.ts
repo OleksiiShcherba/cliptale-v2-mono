@@ -8,9 +8,9 @@ import * as generationDraftRestoreService from '@/services/generationDraft.resto
 import * as fileLinksService from '@/services/fileLinks.service.js';
 import * as fileLinksResponseService from '@/services/fileLinks.response.service.js';
 
-/** `scope` query param for `GET /generation-drafts/:id/assets`. Default: `draft` (linked only). `all` returns the user's entire library. */
+/** `scope` query param for `GET /generation-drafts/:id/assets`. Default: `draft` (linked only). `all` returns the user's entire library. `project` is not valid here — use the projects endpoint. */
 export const draftAssetsScopeSchema = z.object({
-  scope: z.enum(['all', 'project', 'draft']).default('draft'),
+  scope: z.enum(['all', 'draft']).default('draft'),
 });
 
 /**

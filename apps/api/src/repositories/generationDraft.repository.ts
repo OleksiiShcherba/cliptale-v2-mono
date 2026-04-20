@@ -14,6 +14,7 @@ export type GenerationDraft = {
   status: GenerationDraftStatus;
   createdAt: Date;
   updatedAt: Date;
+  deletedAt: Date | null;
 };
 
 /**
@@ -47,6 +48,7 @@ type GenerationDraftRow = RowDataPacket & {
   status: GenerationDraftStatus;
   created_at: Date;
   updated_at: Date;
+  deleted_at: Date | null;
 };
 
 function mapRowToDraft(row: GenerationDraftRow): GenerationDraft {
@@ -60,6 +62,7 @@ function mapRowToDraft(row: GenerationDraftRow): GenerationDraft {
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    deletedAt: row.deleted_at ?? null,
   };
 }
 
@@ -90,7 +93,7 @@ export async function insertDraft(
   );
 
   const [rows] = await pool.query<GenerationDraftRow[]>(
-    `SELECT id, user_id, prompt_doc, status, created_at, updated_at
+    `SELECT id, user_id, prompt_doc, status, created_at, updated_at, deleted_at
      FROM generation_drafts WHERE id = ?`,
     [id],
   );
@@ -98,7 +101,7 @@ export async function insertDraft(
 }
 
 /**
- * Fetch a single draft by id (no owner filter).
+ * Fetch a single non-deleted draft by id (no owner filter).
  *
  * Ownership strategy: this function returns the full row regardless of owner.
  * The service uses a two-step check — first call findDraftById to detect 404,
@@ -107,7 +110,21 @@ export async function insertDraft(
  */
 export async function findDraftById(id: string): Promise<GenerationDraft | null> {
   const [rows] = await pool.query<GenerationDraftRow[]>(
-    `SELECT id, user_id, prompt_doc, status, created_at, updated_at
+    `SELECT id, user_id, prompt_doc, status, created_at, updated_at, deleted_at
+     FROM generation_drafts WHERE id = ? AND deleted_at IS NULL`,
+    [id],
+  );
+  if (!rows.length) return null;
+  return mapRowToDraft(rows[0]!);
+}
+
+/**
+ * Returns a draft row regardless of soft-delete state.
+ * Intended only for internal restore/admin paths — not re-exported from barrels.
+ */
+export async function findDraftByIdIncludingDeleted(id: string): Promise<GenerationDraft | null> {
+  const [rows] = await pool.query<GenerationDraftRow[]>(
+    `SELECT id, user_id, prompt_doc, status, created_at, updated_at, deleted_at
      FROM generation_drafts WHERE id = ?`,
     [id],
   );
@@ -115,11 +132,11 @@ export async function findDraftById(id: string): Promise<GenerationDraft | null>
   return mapRowToDraft(rows[0]!);
 }
 
-/** List all drafts belonging to a user, newest first. */
+/** List all non-deleted drafts belonging to a user, newest first. */
 export async function findDraftsByUserId(userId: string): Promise<GenerationDraft[]> {
   const [rows] = await pool.query<GenerationDraftRow[]>(
-    `SELECT id, user_id, prompt_doc, status, created_at, updated_at
-     FROM generation_drafts WHERE user_id = ?
+    `SELECT id, user_id, prompt_doc, status, created_at, updated_at, deleted_at
+     FROM generation_drafts WHERE user_id = ? AND deleted_at IS NULL
      ORDER BY updated_at DESC, id DESC`,
     [userId],
   );
@@ -145,7 +162,7 @@ export async function updateDraftPromptDoc(
   if (result.affectedRows === 0) return null;
 
   const [rows] = await pool.query<GenerationDraftRow[]>(
-    `SELECT id, user_id, prompt_doc, status, created_at, updated_at
+    `SELECT id, user_id, prompt_doc, status, created_at, updated_at, deleted_at
      FROM generation_drafts WHERE id = ?`,
     [id],
   );
@@ -161,6 +178,32 @@ export async function deleteDraft(id: string, userId: string): Promise<boolean> 
   const [result] = await pool.query<ResultSetHeader>(
     `DELETE FROM generation_drafts WHERE id = ? AND user_id = ?`,
     [id, userId],
+  );
+  return result.affectedRows > 0;
+}
+
+/**
+ * Soft-deletes a draft by setting `deleted_at` to the current timestamp.
+ * Returns true when a row was updated, false when `id` was not found or was
+ * already soft-deleted.
+ */
+export async function softDeleteDraft(id: string): Promise<boolean> {
+  const [result] = await pool.query<ResultSetHeader>(
+    'UPDATE generation_drafts SET deleted_at = NOW(3) WHERE id = ? AND deleted_at IS NULL',
+    [id],
+  );
+  return result.affectedRows > 0;
+}
+
+/**
+ * Restores a soft-deleted draft by clearing `deleted_at`.
+ * Returns true when a row was updated, false when `id` was not found or was
+ * not soft-deleted.
+ */
+export async function restoreDraft(id: string): Promise<boolean> {
+  const [result] = await pool.query<ResultSetHeader>(
+    'UPDATE generation_drafts SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL',
+    [id],
   );
   return result.affectedRows > 0;
 }
@@ -186,7 +229,7 @@ export async function findStoryboardDraftsForUser(userId: string): Promise<
   const [rows] = await pool.query<StoryboardCardRow[]>(
     `SELECT id, status, prompt_doc, updated_at
      FROM generation_drafts
-     WHERE user_id = ?
+     WHERE user_id = ? AND deleted_at IS NULL
      ORDER BY updated_at DESC, id DESC`,
     [userId],
   );
@@ -221,7 +264,7 @@ export async function findAssetPreviewsByIds(
   const [rows] = await pool.query<AssetPreviewRow[]>(
     `SELECT file_id, mime_type
      FROM files
-     WHERE file_id IN (${placeholders})`,
+     WHERE file_id IN (${placeholders}) AND deleted_at IS NULL`,
     fileIds,
   );
 

@@ -181,6 +181,15 @@ describe('GET /projects/:id/assets — invalid scope', () => {
 
     expect(res.status).toBe(400);
   });
+
+  it('returns 400 when scope=draft is passed (draft scope belongs to the drafts endpoint)', async () => {
+    const res = await request(app)
+      .get(`/projects/${seed.projectA}/assets`)
+      .query({ scope: 'draft' })
+      .set('Authorization', `Bearer ${seed.tokenA}`);
+
+    expect(res.status).toBe(400);
+  });
 });
 
 // ── GET /generation-drafts/:id/assets?scope=draft — default behaviour ─────────
@@ -267,6 +276,15 @@ describe('GET /generation-drafts/:id/assets — invalid scope', () => {
     const res = await request(app)
       .get(`/generation-drafts/${seed.draftA}/assets`)
       .query({ scope: 'bogus' })
+      .set('Authorization', `Bearer ${seed.tokenA}`);
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when scope=project is passed (project scope belongs to the projects endpoint)', async () => {
+    const res = await request(app)
+      .get(`/generation-drafts/${seed.draftA}/assets`)
+      .query({ scope: 'project' })
       .set('Authorization', `Bearer ${seed.tokenA}`);
 
     expect(res.status).toBe(400);

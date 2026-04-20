@@ -20,6 +20,7 @@ export function makeDraft(overrides?: Partial<GenerationDraft>): GenerationDraft
     status: 'draft' as GenerationDraftStatus,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
+    deletedAt: null,
     ...overrides,
   };
 }

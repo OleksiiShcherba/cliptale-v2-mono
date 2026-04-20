@@ -1,13 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import * as projectRepository from '@/repositories/project.repository.js';
-import { createProject, listForUser } from './project.service.js';
+import { NotFoundError } from '@/lib/errors.js';
+import { createProject, listForUser, softDeleteProject } from './project.service.js';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 vi.mock('@/repositories/project.repository.js', () => ({
   createProject: vi.fn(),
   findProjectsByUserId: vi.fn(),
+  findProjectById: vi.fn(),
+  softDeleteProject: vi.fn().mockResolvedValue(true),
+  findProjectByIdIncludingDeleted: vi.fn(),
+  restoreProject: vi.fn(),
 }));
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -91,12 +96,14 @@ describe('project.service', () => {
         title: 'Alpha',
         updatedAt: new Date('2024-05-10T00:00:00Z'),
         thumbnailUrl: 's3://bucket/thumb1.jpg',
+        thumbnailFileId: 'file-id-1',
       },
       {
         projectId: 'proj-2',
         title: 'Beta',
         updatedAt: new Date('2024-04-10T00:00:00Z'),
         thumbnailUrl: null,
+        thumbnailFileId: null,
       },
     ];
 
@@ -142,6 +149,50 @@ describe('project.service', () => {
       );
 
       await expect(listForUser(userId)).rejects.toThrow('DB connection lost');
+    });
+  });
+
+  // ── softDeleteProject ──────────────────────────────────────────────────────
+
+  describe('softDeleteProject', () => {
+    const projectRecord = {
+      projectId: 'proj-sd-001',
+      ownerUserId: 'user-sd-001',
+      title: 'To Delete',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    };
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      vi.mocked(projectRepository.findProjectById).mockResolvedValue(projectRecord);
+      vi.mocked(projectRepository.softDeleteProject).mockResolvedValue(true);
+    });
+
+    it('calls softDeleteProject and resolves void on the happy path', async () => {
+      await expect(softDeleteProject('user-sd-001', 'proj-sd-001')).resolves.toBeUndefined();
+      expect(projectRepository.softDeleteProject).toHaveBeenCalledWith('proj-sd-001');
+    });
+
+    it('throws NotFoundError when the project does not exist', async () => {
+      vi.mocked(projectRepository.findProjectById).mockResolvedValueOnce(null);
+      await expect(softDeleteProject('user-sd-001', 'proj-sd-001')).rejects.toBeInstanceOf(NotFoundError);
+      expect(projectRepository.softDeleteProject).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundError when the project belongs to another user', async () => {
+      vi.mocked(projectRepository.findProjectById).mockResolvedValueOnce({
+        ...projectRecord,
+        ownerUserId: 'different-user',
+      });
+      await expect(softDeleteProject('user-sd-001', 'proj-sd-001')).rejects.toBeInstanceOf(NotFoundError);
+      expect(projectRepository.softDeleteProject).not.toHaveBeenCalled();
+    });
+
+    it('propagates repository errors from softDeleteProject', async () => {
+      vi.mocked(projectRepository.softDeleteProject).mockRejectedValue(new Error('DB fail'));
+      await expect(softDeleteProject('user-sd-001', 'proj-sd-001')).rejects.toThrow('DB fail');
     });
   });
 });

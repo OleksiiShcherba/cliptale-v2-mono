@@ -31,6 +31,12 @@ export interface PromptEditorHandlerDeps {
   pendingCaretRef: React.MutableRefObject<number | null>;
   onChangeRef: React.MutableRefObject<(doc: PromptDoc) => void>;
   emitFromDOM: EmitFromDOMFn;
+  /**
+   * Called with the dropped file's id after a successful chip insert via drag.
+   * Callers use this to auto-link general files to their draft (fire-and-forget).
+   * Optional — callers that do not need linking may omit this.
+   */
+  onFileLinked?: (fileId: string) => void;
 }
 
 /**
@@ -43,6 +49,7 @@ export function usePromptEditorHandlers({
   pendingCaretRef,
   onChangeRef,
   emitFromDOM,
+  onFileLinked,
 }: PromptEditorHandlerDeps) {
   /** Backspace: walk backward past empty text nodes to delete preceding chips. */
   const handleKeyDown = useCallback(
@@ -150,8 +157,11 @@ export function usePromptEditorHandlers({
       const nextDoc = insertMediaRefAtOffset(currentDoc, caretOffset, chip);
       pendingCaretRef.current = caretOffset + 1;
       onChangeRef.current(nextDoc);
+      // Notify the caller so it can auto-link the file to its container
+      // (project or draft). Fire-and-forget — chip insertion is already committed.
+      onFileLinked?.(payload.fileId);
     },
-    [editorRef, pendingCaretRef, onChangeRef],
+    [editorRef, pendingCaretRef, onChangeRef, onFileLinked],
   );
 
   return { handleKeyDown, handleClick, handleDragOver, handleDrop };

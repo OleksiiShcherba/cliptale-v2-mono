@@ -12,6 +12,7 @@ import { MobileInspectorTabs } from '@/features/preview/components/MobileInspect
 import { MobileBottomBar } from '@/features/preview/components/MobileBottomBar';
 import { setProject, getSnapshot as getProjectSnapshot, useCurrentVersionId } from '@/store/project-store';
 import { useProjectInit } from '@/features/project/hooks/useProjectInit';
+import { useProjectUiState } from '@/features/project/hooks/useProjectUiState';
 import { useUndoRedo } from '@/features/version-history/hooks/useUndoRedo';
 import { useKeyboardShortcuts } from '@/features/version-history/hooks/useKeyboardShortcuts';
 import { useWindowWidth } from '@/shared/hooks/useWindowWidth';
@@ -51,6 +52,10 @@ export function App(): React.ReactElement {
   const { logout } = useAuth();
   const projectInit = useProjectInit();
   const windowWidth = useWindowWidth();
+  useProjectUiState(
+    projectInit.status === 'ready' ? projectInit.projectId : '',
+    projectInit.status === 'ready',
+  );
   const isMobile = windowWidth < TABLET_BREAKPOINT;
 
   const { timelineHeight, onResizePointerDown, onResizePointerMove, onResizePointerUp } = useTimelineResize();
@@ -235,7 +240,7 @@ export function App(): React.ReactElement {
             <LeftSidebarTabs activeTab={leftSidebarTab} onTabChange={setLeftSidebarTab} />
             {leftSidebarTab === 'assets' && <AssetBrowserPanel projectId={projectId} />}
             {leftSidebarTab === 'ai-generate' && (
-              <AiGenerationPanel context={{ kind: 'project', id: projectId }} onSwitchToAssets={() => setLeftSidebarTab('assets')} />
+              <AiGenerationPanel context={{ kind: 'project', id: projectId }} onSwitchToAssets={() => setLeftSidebarTab('assets')} compact />
             )}
           </aside>
           <div style={styles.verticalDivider} aria-hidden="true" />

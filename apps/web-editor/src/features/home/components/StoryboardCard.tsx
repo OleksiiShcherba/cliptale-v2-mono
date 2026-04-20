@@ -1,7 +1,11 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+
+import { deleteDraft } from '@/features/generate-wizard/api';
 
 import type { StoryboardCardSummary, MediaPreview } from '../types';
+import { restoreStoryboardDraft } from '../api';
 
 // ── Design-guide tokens (§3 Dark Theme) ────────────────────────────────────
 const SURFACE_ELEVATED = '#1E1E2E';
@@ -12,6 +16,8 @@ const SUCCESS = '#10B981';
 const WARNING = '#F59E0B';
 const PRIMARY = '#7C3AED';
 const PRIMARY_DARK = '#5B21B6';
+// TODO: ERROR is duplicated in several card files — consolidate into a shared token file when other tokens are centralised
+const ERROR = '#EF4444';
 
 // ── Status badge helpers ─────────────────────────────────────────────────────
 
@@ -88,6 +94,11 @@ function MediaThumb({ preview }: MediaThumbProps): React.ReactElement {
 
 interface StoryboardCardProps {
   card: StoryboardCardSummary;
+  /**
+   * Optional callback invoked after a successful soft-delete of the draft,
+   * allowing a parent to show the undo toast.
+   */
+  onShowUndoToast?: (label: string, onUndo: () => Promise<void>) => void;
 }
 
 /**
@@ -98,8 +109,11 @@ interface StoryboardCardProps {
  * Clicking anywhere on the card (or Resume) navigates to
  * /generate?draftId=<draftId>.
  */
-export function StoryboardCard({ card }: StoryboardCardProps): React.ReactElement {
+export function StoryboardCard({ card, onShowUndoToast }: StoryboardCardProps): React.ReactElement | null {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [isDeleting, setIsDeleting] = React.useState(false);
+  const [isVisible, setIsVisible] = React.useState(true);
 
   function handleResume(): void {
     navigate(`/generate?draftId=${card.draftId}`);
@@ -112,6 +126,29 @@ export function StoryboardCard({ card }: StoryboardCardProps): React.ReactElemen
     }
   }
 
+  async function handleDelete(e: React.MouseEvent): Promise<void> {
+    e.stopPropagation();
+    if (isDeleting) return;
+    setIsDeleting(true);
+    try {
+      const draftId = card.draftId;
+      await deleteDraft(draftId);
+      // Optimistically hide the card; invalidate after undo window
+      setIsVisible(false);
+      void queryClient.invalidateQueries({ queryKey: ['home', 'storyboards'] });
+      onShowUndoToast?.(
+        `Storyboard deleted`,
+        async () => {
+          await restoreStoryboardDraft(draftId);
+          setIsVisible(true);
+          void queryClient.invalidateQueries({ queryKey: ['home', 'storyboards'] });
+        },
+      );
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   const badgeVariant = getBadgeVariant(card.status);
   const badgeColor = getBadgeColor(badgeVariant);
   const statusLabel = getStatusLabel(card.status);
@@ -121,6 +158,8 @@ export function StoryboardCard({ card }: StoryboardCardProps): React.ReactElemen
     card.textPreview != null && card.textPreview.length > 140
       ? card.textPreview.slice(0, 140)
       : (card.textPreview ?? '');
+
+  if (!isVisible) return null;
 
   return (
     <div
@@ -220,11 +259,32 @@ export function StoryboardCard({ card }: StoryboardCardProps): React.ReactElemen
         </div>
       )}
 
-      {/* Footer: Resume button */}
+      {/* Footer: Delete + Resume buttons */}
       <div
-        style={{ padding: '12px 16px', display: 'flex', justifyContent: 'flex-end' }}
+        style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}
         onClick={(e) => e.stopPropagation()}
       >
+        <button
+          type="button"
+          aria-label="Delete storyboard draft"
+          onClick={(e) => { void handleDelete(e); }}
+          disabled={isDeleting}
+          style={{
+            padding: '4px 12px',
+            background: 'transparent',
+            color: ERROR,
+            border: `1px solid ${ERROR}`,
+            borderRadius: 4,
+            fontSize: 12,
+            fontWeight: 500,
+            fontFamily: 'Inter, sans-serif',
+            lineHeight: '16px',
+            cursor: isDeleting ? 'not-allowed' : 'pointer',
+            opacity: isDeleting ? 0.6 : 1,
+          }}
+        >
+          {isDeleting ? 'Deleting…' : 'Delete'}
+        </button>
         <button
           type="button"
           aria-label={`Resume storyboard draft`}

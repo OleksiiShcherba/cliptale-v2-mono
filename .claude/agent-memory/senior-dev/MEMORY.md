@@ -12,4 +12,4 @@
 - [Project: assetId→fileId migration cleanup](project_assetid_migration.md) — branch fix/docker-dev-deploy; Subtask 1 DONE; 5 remaining (editor-core build + tests green)
 - [Project: Batch 5 Guardian Remediation](project_batch5_guardian_remediation.md) — cors.test.ts Pattern B fix + mimeToKind extraction; ALL COMPLETE (2026-04-19)
 - [Project: Timeline-drop regression fix](project_timeline_drop_regression.md) — POST /clips 400 + Remotion black screen; ALL 3 SUBTASKS COMPLETE (2026-04-19); video drop → 201 confirmed via E2E
-- [Project: Backlog Batch general_tasks.md issues 1–6](project_backlog_batch.md) — 6-EPIC batch; A1-A3+B1-B5+C1-C3+D1 DONE; next: D2 Wizard open panel on asset click
+- [Project: Backlog Batch general_tasks.md issues 1–6](project_backlog_batch.md) — 6-EPIC batch; ALL 15 SUBTASKS COMPLETE (A1-A3+B1-B5+C1-C3+D1-D2+E1-E3+F1) as of 2026-04-20

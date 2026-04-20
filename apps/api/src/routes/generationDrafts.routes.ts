@@ -65,6 +65,16 @@ router.delete(
   generationDraftsController.deleteDraft,
 );
 
+// POST /generation-drafts/:id/restore
+// Restores a soft-deleted generation draft. Returns 200 with the draft.
+// Registered BEFORE /:id/enhance to avoid param collision (different sub-paths).
+router.post(
+  '/generation-drafts/:id/restore',
+  authMiddleware,
+  aclMiddleware('editor'),
+  generationDraftsController.restoreDraft,
+);
+
 // POST /generation-drafts/:id/enhance
 // Enqueues an AI Enhance job for the draft. Per-user rate limit: 10/hour.
 // Returns 202 { jobId } on success. Requires authMiddleware before enhancePromptLimiter

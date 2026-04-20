@@ -32,9 +32,9 @@ export const listAssetsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(24),
 });
 
-/** `scope` query param for `GET /projects/:id/assets`. Default: `project` (linked only). `all` returns the user's entire library. */
+/** `scope` query param for `GET /projects/:id/assets`. Default: `project` (linked only). `all` returns the user's entire library. `draft` is not valid here — use the generation-drafts endpoint. */
 export const projectAssetsScopeSchema = z.object({
-  scope: z.enum(['all', 'project', 'draft']).default('project'),
+  scope: z.enum(['all', 'project']).default('project'),
 });
 
 type CreateUploadUrlBody = z.infer<typeof createUploadUrlSchema>;

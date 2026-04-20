@@ -12,6 +12,7 @@ import * as aiGenerationJobRepository from '@/repositories/aiGenerationJob.repos
 import type { MediaRefBlock } from '@ai-video-editor/project-schema';
 import {
   ForbiddenError,
+  GoneError,
   NotFoundError,
   UnprocessableEntityError,
 } from '@/lib/errors.js';
@@ -96,11 +97,16 @@ export async function update(
   return updated;
 }
 
-/** Delete a generation draft, enforcing ownership. */
+/**
+ * Soft-deletes a generation draft, enforcing ownership.
+ *
+ * EPIC B: switches from hard-delete to soft-delete so the draft can be restored
+ * within the 30-day TTL via `restoreDraft`.
+ */
 export async function remove(userId: string, id: string): Promise<void> {
   // Verify ownership first (throws NotFoundError / ForbiddenError as appropriate).
   await resolveDraft(userId, id);
-  await generationDraftRepository.deleteDraft(id, userId);
+  await generationDraftRepository.softDeleteDraft(id);
 }
 
 /**

@@ -87,18 +87,22 @@ describe('project.repository', () => {
   });
 
   describe('findProjectsByUserId', () => {
-    it('queries with the correct SQL structure (owner filter + ORDER BY)', async () => {
+    it('queries with the correct SQL structure (owner filter + ORDER BY + thumbnail subquery)', async () => {
       mockExecute.mockResolvedValueOnce([[], []]);
 
       await findProjectsByUserId('user-abc');
 
       const [sql, params] = mockExecute.mock.calls[0] as [string, string[]];
       expect(sql).toContain('WHERE p.owner_user_id = ?');
-      expect(sql).toContain('NULL AS thumbnail_uri');
       expect(sql).toContain('ORDER BY p.updated_at DESC');
-      // No longer references project_assets_current or c.asset_id — both dropped in migration 024.
+      // Uses correlated subqueries against project_clips_current and project_files,
+      // not the legacy NULL placeholder or project_assets_current.
+      expect(sql).toContain('project_clips_current');
+      expect(sql).toContain("type IN ('video', 'image')");
+      expect(sql).toContain('ORDER BY c.start_frame ASC');
+      expect(sql).toContain('project_files');
+      expect(sql).not.toContain('NULL AS thumbnail_uri');
       expect(sql).not.toContain('project_assets_current');
-      expect(sql).not.toContain('c.asset_id');
       expect(params).toEqual(['user-abc']);
     });
 
@@ -109,12 +113,14 @@ describe('project.repository', () => {
           title: 'First',
           updated_at: new Date('2024-05-01T00:00:00Z'),
           thumbnail_uri: 's3://bucket/thumb1.jpg',
+          thumbnail_file_id: 'file-id-1',
         },
         {
           project_id: 'proj-2',
           title: 'Second',
           updated_at: new Date('2024-04-01T00:00:00Z'),
           thumbnail_uri: null,
+          thumbnail_file_id: null,
         },
       ];
       mockExecute.mockResolvedValueOnce([rows, []]);
@@ -127,12 +133,14 @@ describe('project.repository', () => {
         title: 'First',
         updatedAt: new Date('2024-05-01T00:00:00Z'),
         thumbnailUrl: 's3://bucket/thumb1.jpg',
+        thumbnailFileId: 'file-id-1',
       });
       expect(result[1]).toEqual({
         projectId: 'proj-2',
         title: 'Second',
         updatedAt: new Date('2024-04-01T00:00:00Z'),
         thumbnailUrl: null,
+        thumbnailFileId: null,
       });
     });
 
@@ -144,13 +152,14 @@ describe('project.repository', () => {
       expect(result).toEqual([]);
     });
 
-    it('maps undefined thumbnail_uri to null', async () => {
+    it('maps undefined thumbnail_uri and thumbnail_file_id to null', async () => {
       const rows = [
         {
           project_id: 'proj-1',
           title: 'No clip',
           updated_at: new Date('2024-01-01T00:00:00Z'),
           thumbnail_uri: undefined,
+          thumbnail_file_id: undefined,
         },
       ];
       mockExecute.mockResolvedValueOnce([rows, []]);
@@ -158,6 +167,7 @@ describe('project.repository', () => {
       const result = await findProjectsByUserId('user-abc');
 
       expect(result[0]!.thumbnailUrl).toBeNull();
+      expect(result[0]!.thumbnailFileId).toBeNull();
     });
   });
 });

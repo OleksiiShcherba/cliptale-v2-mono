@@ -10,3 +10,4 @@
 - [Batch-5 verification anchors](project_batch5_verification_anchors.md) — render-worker+ai-generate CLEAN, cors.test.ts fix CLAIMED done but still FAILING (describe.skipIf callback body still executes), mimeToKind copies already drifted
 - [Batch-6 verification anchors](project_batch6_verification_anchors.md) — cors.test.ts Pattern B verified in container + full-repo; mimeToKind canonical in project-schema (grep=1); Class A/C unchanged
 - [Timeline-drop regression fix anchors](project_timeline_drop_fix_anchors.md) — clip.assetId=0 + useProjectInit must spread-override id on both branches + DEV_PROJECT seed still present
+- [2026-04-20 batch (Issues 1-6) verification anchors](project_batch_20260420_verification_anchors.md) — 18 subtasks mostly uncommitted; A3 broke 70 App tests + 4 split tests; thumbnail adapter still hard-nulls; /trash cursor half-wired

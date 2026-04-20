@@ -191,8 +191,30 @@ describe('asset.repository — getAssetById field mapping', () => {
     expect(asset!.durationFrames).toBeNull();
   });
 
-  it('sets thumbnailUri to null (no thumbnail_uri column on files)', async () => {
+  it('maps thumbnail_uri string to thumbnailUri when present (migration 030)', async () => {
+    const uri = 's3://bucket/thumbnails/file-uuid-001.jpg';
+    const row = makeAssetRow({ thumbnail_uri: uri });
+    mockExecute.mockResolvedValueOnce([[row], []]);
+
+    const asset = await getAssetById('file-uuid-001');
+
+    expect(asset!.thumbnailUri).toBe(uri);
+  });
+
+  it('maps null thumbnail_uri to null thumbnailUri', async () => {
+    const row = makeAssetRow({ thumbnail_uri: null });
+    mockExecute.mockResolvedValueOnce([[row], []]);
+
+    const asset = await getAssetById('file-uuid-001');
+
+    expect(asset!.thumbnailUri).toBeNull();
+  });
+
+  it('maps absent thumbnail_uri (pre-migration row) to null thumbnailUri', async () => {
+    // Rows written before migration 030 will not have thumbnail_uri in the result set.
     const row = makeAssetRow();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (row as any).thumbnail_uri;
     mockExecute.mockResolvedValueOnce([[row], []]);
 
     const asset = await getAssetById('file-uuid-001');

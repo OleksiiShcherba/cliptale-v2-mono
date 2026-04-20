@@ -13,6 +13,7 @@ import { ResetPasswordPage } from '@/features/auth/components/ResetPasswordPage'
 import { GenerateWizardPage } from '@/features/generate-wizard/components/GenerateWizardPage';
 import { GenerateRoadMapPlaceholder } from '@/features/generate-wizard/components/GenerateRoadMapPlaceholder';
 import { HomePage } from '@/features/home/components/HomePage';
+import { TrashPanel } from '@/features/trash/TrashPanel';
 
 // ---------------------------------------------------------------------------
 // Global CSS reset — applied programmatically so no separate CSS file is needed.
@@ -63,6 +64,14 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <GenerateRoadMapPlaceholder />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/trash',
+    element: (
+      <ProtectedRoute>
+        <TrashPanel />
       </ProtectedRoute>
     ),
   },

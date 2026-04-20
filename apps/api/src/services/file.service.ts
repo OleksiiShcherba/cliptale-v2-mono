@@ -8,7 +8,7 @@ import { mimeToKind, type FileKind } from '@ai-video-editor/project-schema';
 
 import type { FileRow } from '@/repositories/file.repository.js';
 import * as fileRepository from '@/repositories/file.repository.js';
-import { NotFoundError, ValidationError } from '@/lib/errors.js';
+import { GoneError, NotFoundError, ValidationError } from '@/lib/errors.js';
 import { enqueueIngestJob } from '@/queues/jobs/enqueue-ingest.js';
 
 /** Presigned URL expiry — 15 minutes per §11 security rules. */
@@ -223,4 +223,54 @@ export async function streamUrl(fileId: string, userId: string, s3: S3Client): P
   if (!file) throw new NotFoundError(`File "${fileId}" not found`);
   const { bucket, key } = parseStorageUri(file.storageUri);
   return getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: PRESIGNED_URL_EXPIRY_SECONDS });
+}
+
+/**
+ * Soft-deletes a file by setting `deleted_at`, verifying ownership first.
+ *
+ * Accepts files referenced by project clips — the acceptance criteria for EPIC B
+ * explicitly allows soft-deleting a file that is still in use on a timeline.
+ * The clip's `file_id` continues to resolve during the undo window (30 days).
+ *
+ * @throws NotFoundError when the file does not exist or belongs to another user.
+ */
+export async function softDeleteFile(fileId: string, userId: string): Promise<void> {
+  const file = await fileRepository.findByIdForUser(fileId, userId);
+  if (!file) throw new NotFoundError(`File "${fileId}" not found`);
+  // softDelete is idempotent (no-op when already deleted), so a second call
+  // after the row has been soft-deleted by another means returns false here,
+  // but the row is already gone from the user's perspective.
+  await fileRepository.softDelete(fileId);
+}
+
+/**
+ * Restores a soft-deleted file, verifying ownership.
+ *
+ * Throws GoneError (410) when:
+ * - The row does not exist at all (hard-purged).
+ * - The row was soft-deleted more than 30 days ago (TTL exceeded — treated as purged).
+ *
+ * @throws NotFoundError when the file exists but belongs to another user.
+ * @throws GoneError when the file has been hard-purged or the TTL has expired.
+ */
+export async function restoreFile(fileId: string, userId: string): Promise<FileRow> {
+  const file = await fileRepository.findByIdIncludingDeleted(fileId);
+  if (!file) {
+    throw new GoneError(`File "${fileId}" has been permanently removed and cannot be restored`);
+  }
+  if (file.userId !== userId) {
+    throw new NotFoundError(`File "${fileId}" not found`);
+  }
+  if (file.deletedAt === null) {
+    // Already active — return as-is (idempotent restore).
+    return file;
+  }
+  // Enforce 30-day restore TTL. Files deleted longer ago are treated as purged.
+  const RESTORE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  const age = Date.now() - file.deletedAt.getTime();
+  if (age > RESTORE_TTL_MS) {
+    throw new GoneError(`File "${fileId}" was deleted more than 30 days ago and cannot be restored`);
+  }
+  await fileRepository.restore(fileId);
+  return { ...file, deletedAt: null };
 }

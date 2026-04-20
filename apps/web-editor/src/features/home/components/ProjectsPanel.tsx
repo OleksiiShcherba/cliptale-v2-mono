@@ -2,6 +2,9 @@ import React from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 
+import { UndoToast } from '@/shared/undo/UndoToast';
+import { useUndoToast } from '@/shared/undo/useUndoToast';
+
 import { createProject } from '../api';
 import { useProjects } from '../hooks/useProjects';
 import { ProjectCard } from './ProjectCard';
@@ -79,6 +82,7 @@ export function ProjectsPanel(): React.ReactElement {
   const { data, isLoading, isError } = useProjects();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { toastState, showToast, dismissToast, handleUndo } = useUndoToast();
 
   const [createError, setCreateError] = React.useState<string | null>(null);
 
@@ -187,9 +191,14 @@ export function ProjectsPanel(): React.ReactElement {
         }}
       >
         {projects.map((project) => (
-          <ProjectCard key={project.projectId} project={project} />
+          <ProjectCard
+            key={project.projectId}
+            project={project}
+            onShowUndoToast={(label, onUndo) => showToast({ label, onUndo })}
+          />
         ))}
       </div>
+      <UndoToast toastState={toastState} onDismiss={dismissToast} onUndo={handleUndo} />
     </div>
   );
 }

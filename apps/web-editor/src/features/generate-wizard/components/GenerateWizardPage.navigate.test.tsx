@@ -38,6 +38,10 @@ vi.mock('@/features/generate-wizard/api', () => ({
   updateDraft: vi.fn().mockResolvedValue({ id: 'draft-1', promptDoc: {}, createdAt: '', updatedAt: '' }),
   deleteDraft: vi.fn().mockResolvedValue(undefined),
   fetchDraft: vi.fn().mockResolvedValue({ id: 'draft-1', promptDoc: {}, createdAt: '', updatedAt: '' }),
+  linkFileToDraft: vi.fn().mockResolvedValue(undefined),
+  listDraftAssets: vi.fn().mockResolvedValue({ items: [], nextCursor: null, totals: { count: 0, bytesUsed: 0 } }),
+  startEnhance: vi.fn(),
+  getEnhanceStatus: vi.fn(),
 }));
 
 vi.mock('@/lib/api-client', () => ({

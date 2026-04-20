@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
+
+import { useQueryClient } from '@tanstack/react-query';
 
 import { TranscribeButton } from '@/features/captions/components/TranscribeButton';
 import type { Asset } from '@/features/asset-manager/types';
@@ -69,6 +71,7 @@ export function AssetDetailPanel({
   onAddToPrompt,
 }: AssetDetailPanelProps): React.ReactElement {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const queryClient = useQueryClient();
 
   const displayedName = asset.displayName ?? asset.filename;
   const badgeBg = STATUS_BG[asset.status] ?? '#8A8AA0';
@@ -78,6 +81,16 @@ export function AssetDetailPanel({
 
   // The projectId is needed by sub-components in project context.
   const projectId = context.kind === 'project' ? context.projectId : '';
+
+  /**
+   * In draft context, after a rename succeeds, also invalidate the wizard
+   * gallery so the renamed asset reflects immediately without a page reload.
+   */
+  const handleRenameSuccess = useCallback((): void => {
+    if (context.kind === 'draft') {
+      void queryClient.invalidateQueries({ queryKey: ['generate-wizard', 'assets'] });
+    }
+  }, [context.kind, queryClient]);
 
   return (
     <div style={s.root}>
@@ -107,7 +120,12 @@ export function AssetDetailPanel({
       </div>
 
       {/* Inline-editable display name */}
-      <InlineRenameField fileId={asset.id} projectId={projectId} displayedName={displayedName} />
+      <InlineRenameField
+        fileId={asset.id}
+        projectId={projectId}
+        displayedName={displayedName}
+        onRenameSuccess={handleRenameSuccess}
+      />
 
       {/* Metadata row */}
       <div style={s.metadataRow}>

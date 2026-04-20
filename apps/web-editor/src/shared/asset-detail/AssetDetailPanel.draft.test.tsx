@@ -17,8 +17,11 @@ vi.mock('@/lib/config', () => ({
   config: { apiBaseUrl: 'http://localhost:3001' },
 }));
 
+// Hoist invalidateQueries so we can assert on it in the rename test.
+const mockInvalidateQueries = vi.fn();
+
 vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
 }));
 
 vi.mock('@/features/asset-manager/api', () => ({
@@ -42,9 +45,28 @@ vi.mock('@/features/asset-manager/components/AssetPreviewModal', () => ({
     }, React.createElement('button', { onClick: onClose, 'data-testid': 'modal-close' }, 'Close')),
 }));
 
+// The InlineRenameField mock exposes onRenameSuccess so the rename-invalidation
+// test can call it directly (simulating a successful rename commit).
 vi.mock('@/features/asset-manager/components/InlineRenameField', () => ({
-  InlineRenameField: ({ displayedName }: { fileId: string; projectId: string; displayedName: string }) =>
-    React.createElement('div', { 'data-testid': 'inline-rename-field' }, displayedName),
+  InlineRenameField: ({
+    displayedName,
+    onRenameSuccess,
+  }: {
+    fileId: string;
+    projectId: string;
+    displayedName: string;
+    onRenameSuccess?: () => void;
+  }) =>
+    React.createElement(
+      'div',
+      { 'data-testid': 'inline-rename-field' },
+      displayedName,
+      React.createElement(
+        'button',
+        { 'data-testid': 'simulate-rename-success', onClick: onRenameSuccess },
+        'rename',
+      ),
+    ),
 }));
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -185,5 +207,14 @@ describe('AssetDetailPanel — draft context', () => {
   it('renders the status badge with draft context', () => {
     render(<AssetDetailPanel asset={makeAsset({ status: 'processing' })} context={DRAFT_CTX} />);
     expect(screen.getByLabelText(/status: processing/i)).toBeDefined();
+  });
+
+  it('invalidates wizard gallery key on rename in draft context', () => {
+    render(<AssetDetailPanel asset={makeAsset()} context={DRAFT_CTX} />);
+    // Simulate a successful rename commit from InlineRenameField.
+    fireEvent.click(screen.getByTestId('simulate-rename-success'));
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['generate-wizard', 'assets'],
+    });
   });
 });

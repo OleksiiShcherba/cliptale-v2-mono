@@ -9,9 +9,11 @@ export interface InlineRenameFieldProps {
   fileId: string;
   projectId: string;
   displayedName: string;
+  /** Called after a rename is committed successfully. */
+  onRenameSuccess?: () => void;
 }
 
-export function InlineRenameField({ fileId, projectId, displayedName }: InlineRenameFieldProps): React.ReactElement {
+export function InlineRenameField({ fileId, projectId, displayedName, onRenameSuccess }: InlineRenameFieldProps): React.ReactElement {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -50,13 +52,14 @@ export function InlineRenameField({ fileId, projectId, displayedName }: InlineRe
     try {
       await updateAsset(fileId, trimmed);
       await queryClient.invalidateQueries({ queryKey: ['assets', projectId] });
+      onRenameSuccess?.();
       setIsEditing(false);
     } catch {
       setRenameError('Failed to rename asset');
     } finally {
       setIsRenaming(false);
     }
-  }, [fileId, editValue, displayedName, projectId, queryClient]);
+  }, [fileId, editValue, displayedName, projectId, queryClient, onRenameSuccess]);
 
   if (isEditing) {
     return (

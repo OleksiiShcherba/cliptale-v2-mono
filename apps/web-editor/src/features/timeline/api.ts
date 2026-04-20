@@ -1,6 +1,20 @@
 import { apiClient } from '@/lib/api-client';
 import type { Clip } from '@ai-video-editor/project-schema';
 
+/**
+ * Links a file to a project pivot table (project_files).
+ * The endpoint is idempotent — re-linking the same file is a no-op on the server.
+ *
+ * @param projectId - The project to link the file to.
+ * @param fileId    - The file to link.
+ */
+export async function linkFileToProject(projectId: string, fileId: string): Promise<void> {
+  const res = await apiClient.post(`/projects/${projectId}/files`, { fileId });
+  if (!res.ok) {
+    throw new Error(`Failed to link file ${fileId} to project ${projectId}: ${res.status}`);
+  }
+}
+
 /** Fields that can be partially updated on a clip via PATCH. */
 export type ClipPatchPayload = {
   trackId?: string;

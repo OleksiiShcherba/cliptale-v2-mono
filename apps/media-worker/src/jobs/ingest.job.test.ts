@@ -67,14 +67,17 @@ const mockS3 = { send: mockS3Send } as unknown as S3Client;
 const mockDbExecute = vi.fn().mockResolvedValue([]);
 const mockPool = { execute: mockDbExecute } as unknown as Pool;
 
-const deps: IngestJobDeps = { s3: mockS3, pool: mockPool };
+const deps: IngestJobDeps = { s3: mockS3, pool: mockPool, bucket: 'test-bucket' };
 
 function makeJob(payload: Partial<MediaIngestJobPayload> = {}): Job<MediaIngestJobPayload> {
   return {
     data: {
       fileId: 'file-123',
       storageUri: 's3://bucket/files/file-123/video.mp4',
-      contentType: 'video/mp4',
+      // Default to a non-video MIME type so these tests exercise the metadata path
+      // without triggering thumbnail generation (which requires a full ffmpeg builder mock).
+      // Thumbnail-specific behaviour is tested in ingest.job.thumbnail.test.ts.
+      contentType: 'image/png',
       ...payload,
     },
   } as Job<MediaIngestJobPayload>;
@@ -193,7 +196,7 @@ describe('ingest.job', () => {
         (_input, cb: (err: null, data: typeof zeroDurationProbe) => void) => cb(null, zeroDurationProbe),
       );
 
-      await processIngestJob(makeJob({ fileId: 'file-zero', contentType: 'video/mp4' }), deps);
+      await processIngestJob(makeJob({ fileId: 'file-zero', contentType: 'image/png' }), deps);
 
       // durationSec=0 → durationMs must be null (condition: durationSec > 0).
       const params = mockDbExecute.mock.calls[0]![1] as (string | null | number)[];

@@ -31,13 +31,13 @@ Backlog Batch — general_tasks.md issues 1–6. Each subtask on its own branch 
 
 **EPIC E — General vs project/draft file scope toggle** (E1–E3; depends on B2)
 - [x] E1 — API: `scope` query param on asset list endpoints (DONE 2026-04-20, branch: feat/e1-assets-scope-param)
-- [ ] E2 — FE: scope toggle in AssetBrowserPanel + MediaGalleryPanel
-- [ ] E3 — Auto-link general file when first used
+- [x] E2 — FE: scope toggle in AssetBrowserPanel + MediaGalleryPanel (DONE 2026-04-20, branch: feat/e2-scope-toggle-ui)
+- [x] E3 — Auto-link general file when first used (DONE 2026-04-20, branch: feat/e3-auto-link-on-use)
 
 **EPIC F — AI panel full width in wizard** (F1; no deps; trivial)
-- [ ] F1 — Make AI panel width fluid
+- [x] F1 — Make AI panel width fluid (DONE 2026-04-20, branch: feat/f1-ai-panel-fluid-width)
 
-**How to apply:** EPIC A fully done. EPIC B fully done. EPIC C fully done. EPIC D fully done. E1 DONE. Next: E2 or F1.
+**How to apply:** ALL EPICs (A-F) COMPLETE. All 15 subtasks done. active_task.md subtask list is empty.
 
 **D2 implementation notes (updated after fix round 1):**
 - `useWizardAsset(fileId: string | null)` — React Query hook (`['wizard-asset', id]`), `enabled: fileId !== null`. Fetches full `Asset` via `getAsset()` from `asset-manager/api`.

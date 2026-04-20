@@ -52,11 +52,17 @@ export interface PromptEditorProps {
    * Defaults to `DEFAULT_PROMPT_MAX_CHARS` (2000).
    */
   maxChars?: number;
+  /**
+   * Called with the file ID whenever a media-ref chip is inserted via drag-and-drop.
+   * Use this to auto-link general files to the containing project or draft.
+   * Optional — omit when the caller does not need auto-linking.
+   */
+  onFileLinked?: (fileId: string) => void;
 }
 
 export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(
   function PromptEditor(
-    { value, onChange, maxChars = DEFAULT_PROMPT_MAX_CHARS },
+    { value, onChange, maxChars = DEFAULT_PROMPT_MAX_CHARS, onFileLinked },
     ref,
   ) {
     const editorRef = useRef<HTMLDivElement>(null);
@@ -141,6 +147,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(
         pendingCaretRef,
         onChangeRef,
         emitFromDOM,
+        onFileLinked,
       });
 
     useImperativeHandle(

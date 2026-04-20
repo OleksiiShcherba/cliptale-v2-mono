@@ -31,6 +31,27 @@ export {
 } from './aiGenerationPanelTokens';
 
 /**
+ * Returns the panel container style parameterized by display mode.
+ *
+ * - `compact = true`  — fixed 320 px width used inside the editor left sidebar
+ *   so the sidebar never shifts when the user switches tabs.
+ * - `compact = false` — fluid 100 % width capped at 720 px used when the panel
+ *   is embedded in the wizard gallery, giving it room to breathe.
+ */
+export function getPanelStyle(compact: boolean): React.CSSProperties {
+  return {
+    width: compact ? '320px' : '100%',
+    maxWidth: compact ? undefined : '720px',
+    height: '100%',
+    background: SURFACE_ALT,
+    display: 'flex',
+    flexDirection: 'column',
+    fontFamily: 'Inter, sans-serif',
+    overflow: 'hidden',
+  };
+}
+
+/**
  * Base style objects for the AI Generation panel shell, generate button,
  * progress spinner, and result states. Ticket 9 additions (capability tabs,
  * model cards, schema-driven field inputs, asset pickers, inline errors,
@@ -43,15 +64,9 @@ export {
 const baseStyles = {
   // ── Panel shell ───────────────────────────────────────────────────────────
 
-  panel: {
-    width: '320px',
-    height: '100%',
-    background: SURFACE_ALT,
-    display: 'flex',
-    flexDirection: 'column',
-    fontFamily: 'Inter, sans-serif',
-    overflow: 'hidden',
-  } as React.CSSProperties,
+  /** Default panel style (compact=false, wizard embedding). Use `getPanelStyle`
+   *  when you need to parameterize the width at render time. */
+  panel: getPanelStyle(false),
 
   header: {
     height: '44px',

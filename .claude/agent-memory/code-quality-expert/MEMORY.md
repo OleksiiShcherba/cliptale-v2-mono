@@ -14,3 +14,5 @@
 - [Recurring violation: UPPER_SNAKE_CASE constants inside function bodies](ruling_uppercase_constant_placement.md) — dev places module-level-style constants inside component bodies; always flag as ❌ per §9
 - [Integration tests still use JWT tokens after session-auth migration](ruling_integration_tests_session_auth.md) — integration tests send jwt.sign() tokens; new auth.middleware.ts does session lookup — all auth'd integration tests return 401 unless bypass or real sessions are used
 - [Integration test self-healing schema repairs are acceptable](ruling_integration_test_self_healing.md) — beforeAll/afterAll DDL repairs in migrate.integration.test.ts, schema-final-state.integration.test.ts are guardrails, not mocks; idempotent INFORMATION_SCHEMA-guarded repairs; singleFork: true prevents race conditions
+- [development_logs verdict tokens](feedback_development_logs_token.md) — use `YES` or `COMMENTED` exactly, never `OK` — orchestrator enforces it
+- [Relative imports crossing directory boundaries](ruling_relative_imports_cross_boundary.md) — `from '../types'` violates §9; always flag, fix with absolute alias `@/features/name/types`

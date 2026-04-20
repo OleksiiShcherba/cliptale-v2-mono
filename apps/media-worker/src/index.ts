@@ -98,7 +98,7 @@ mediaIngestQueue.on('error', (err) => {
 
 const ingestWorker = new Worker<MediaIngestJobPayload>(
   QUEUE_MEDIA_INGEST,
-  (job) => processIngestJob(job, { s3: s3Client, pool }),
+  (job) => processIngestJob(job, { s3: s3Client, pool, bucket: config.s3.bucket }),
   { connection, concurrency: 2 },
 );
 
