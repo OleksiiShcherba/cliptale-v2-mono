@@ -742,7 +742,11 @@ checked by playwright-reviewer: YES — backend-only (6 integration tests verify
 
 </details>
 
-checked by code-reviewer - NOT
-checked by qa-reviewer - NOT
-checked by design-reviewer - NOT
-checked by playwright-reviewer: NOT
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - COMMENTED
+design-reviewer comments (2026-04-20):
+- [FILE: apps/web-editor/src/shared/asset-detail/assetDetailPanel.styles.ts, LINE: 160] ISSUE: `primaryActionButton` uses fontSize 14px + fontWeight 500, which does not match any design-guide typography token. EXPECTED: design-guide §3 defines `body` (14px/400) and `label` (12px/500), but not a 14px/500 token. The similar ExportModal.styles.ts uses 14px/600 for its primary button (downloadButton). RECOMMENDATION: Either (a) standardize to 14px/600 like ExportModal's primary CTA, (b) use body (14px/400) to match secondary action buttons in the same panel, or (c) explicitly define a new token in design-guide §3 if 14px/500 becomes a standard primary-button pattern.
+checked by playwright-reviewer: YES
+
+**Fix round 1 (2026-04-20):** design-reviewer flagged `primaryActionButton` in `assetDetailPanel.styles.ts` using `fontWeight: 500` — not a valid design-guide token (only `body` 14px/400 and `label` 12px/500 are defined). Verified `ExportModal.styles.ts` `startButton` uses `fontWeight: 600` as the primary-CTA precedent. Changed line 160 of `assetDetailPanel.styles.ts` from `fontWeight: 500` to `fontWeight: 600` to match the established primary-CTA pattern.

@@ -157,7 +157,7 @@ export const assetDetailPanelStyles = {
     backgroundColor: enabled ? PRIMARY : 'transparent',
     color: enabled ? TEXT_PRIMARY : TEXT_SECONDARY,
     fontSize: 14,
-    fontWeight: 500,
+    fontWeight: 600,
     lineHeight: '20px',
     cursor: enabled ? 'pointer' : 'not-allowed',
     fontFamily: 'Inter, sans-serif',
