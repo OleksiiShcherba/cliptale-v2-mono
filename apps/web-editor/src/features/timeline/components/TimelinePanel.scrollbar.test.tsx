@@ -70,6 +70,12 @@ vi.mock('./TrackList', () => ({
   TRACK_HEADER_WIDTH: 160,
 }));
 
+// Stub react-query so the drop hooks (which call `useQueryClient`) do not need
+// a QueryClientProvider in the test tree.
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+}));
+
 // ── Stub ResizeObserver ───────────────────────────────────────────────────────
 //
 // We store the callback and fire it explicitly with act() AFTER the initial

@@ -105,22 +105,32 @@ export function GenerateWizardPage(): React.ReactElement {
     });
     setSelectedAssetId(null);
 
-    // Auto-link the file to the draft so it appears in the scoped file list.
+    // Auto-link the file to the draft and invalidate the gallery cache so the
+    // newly linked file appears in the scoped (scope=draft) list on next read.
     // Fire-and-forget — chip insertion is already committed.
     if (draftId) {
-      void linkFileToDraft(draftId, asset.id).catch(() => undefined);
+      void linkFileToDraft(draftId, asset.id)
+        .then(() =>
+          queryClient.invalidateQueries({ queryKey: ['generate-wizard', 'assets', draftId] }),
+        )
+        .catch(() => undefined);
     }
-  }, [draftId]);
+  }, [draftId, queryClient]);
 
   /**
    * Called when a file chip is inserted into the PromptEditor via drag-and-drop.
-   * Auto-links the dropped file to the current draft (fire-and-forget).
+   * Auto-links the dropped file to the current draft and refreshes the gallery
+   * (fire-and-forget).
    */
   const handleFileLinked = useCallback((fileId: string): void => {
     if (draftId) {
-      void linkFileToDraft(draftId, fileId).catch(() => undefined);
+      void linkFileToDraft(draftId, fileId)
+        .then(() =>
+          queryClient.invalidateQueries({ queryKey: ['generate-wizard', 'assets', draftId] }),
+        )
+        .catch(() => undefined);
     }
-  }, [draftId]);
+  }, [draftId, queryClient]);
 
   /**
    * Called by the panel's "Delete Asset" button.

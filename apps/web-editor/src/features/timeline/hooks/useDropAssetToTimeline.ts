@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 
 import type { Track } from '@ai-video-editor/project-schema';
 import type { Asset } from '@/features/asset-manager/types';
@@ -30,6 +31,7 @@ function stripExtension(filename: string): string {
 export function useDropAssetToTimeline(
   projectId: string,
 ): (asset: Asset, trackId: string, startFrame: number) => void {
+  const queryClient = useQueryClient();
   return useCallback(
     (asset: Asset, trackId: string, startFrame: number) => {
       const project = getProjectSnapshot();
@@ -40,10 +42,13 @@ export function useDropAssetToTimeline(
       setProject({ ...project, clips: [...project.clips, clip] });
       void createClip(projectId, clip);
       // Fire-and-forget: auto-link the file to the project so it appears in the
-      // scoped file list. Errors are silent — the timeline state is already committed.
-      void linkFileToProject(projectId, asset.id).catch(() => undefined);
+      // scoped file list, then invalidate so the panel refetches. Errors are
+      // silent — the timeline state is already committed.
+      void linkFileToProject(projectId, asset.id)
+        .then(() => queryClient.invalidateQueries({ queryKey: ['assets', projectId] }))
+        .catch(() => undefined);
     },
-    [projectId],
+    [projectId, queryClient],
   );
 }
 
@@ -60,6 +65,7 @@ export function useDropAssetToTimeline(
 export function useDropAssetWithAutoTrack(
   projectId: string,
 ): (asset: Asset, startFrame: number) => void {
+  const queryClient = useQueryClient();
   return useCallback(
     (asset: Asset, startFrame: number) => {
       const trackType = resolveTrackType(asset.contentType);
@@ -90,9 +96,12 @@ export function useDropAssetWithAutoTrack(
       setProject({ ...project, tracks: newTracks, clips: [...project.clips, clip] });
       void createClip(projectId, clip);
       // Fire-and-forget: auto-link the file to the project so it appears in the
-      // scoped file list. Errors are silent — the timeline state is already committed.
-      void linkFileToProject(projectId, asset.id).catch(() => undefined);
+      // scoped file list, then invalidate so the panel refetches. Errors are
+      // silent — the timeline state is already committed.
+      void linkFileToProject(projectId, asset.id)
+        .then(() => queryClient.invalidateQueries({ queryKey: ['assets', projectId] }))
+        .catch(() => undefined);
     },
-    [projectId],
+    [projectId, queryClient],
   );
 }
