@@ -39,6 +39,17 @@ vi.mock('@/features/timeline/components/ImageClipEditorPanel', () => ({
 vi.mock('@/store/ephemeral-store', () => ({
   useEphemeralStore: vi.fn(),
   setSelectedClips: vi.fn(),
+  subscribe: vi.fn(() => () => {}),
+  getSnapshot: vi.fn(() => ({
+    playheadFrame: 0,
+    zoom: 1,
+    pxPerFrame: 4,
+    scrollOffsetX: 0,
+    selectedClipIds: [],
+    volume: 1,
+    isMuted: false,
+  })),
+  setAll: vi.fn(),
 }));
 
 vi.mock('@/store/project-store', () => ({

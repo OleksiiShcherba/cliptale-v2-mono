@@ -8,6 +8,7 @@
  * Run:
  *   APP_DB_PASSWORD=cliptale vitest run src/__tests__/integration/assets-stream-endpoint.test.ts
  */
+import { createHash, randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import type { Express } from 'express';
@@ -30,6 +31,10 @@ vi.mock('@/lib/s3.js', () => ({
 
 const JWT_SECRET = 'stream-test-jwt-secret-exactly-32chars!';
 
+function sha256(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
 Object.assign(process.env, {
   APP_DB_HOST:              process.env['APP_DB_HOST']              ?? 'localhost',
   APP_DB_PORT:              process.env['APP_DB_PORT']              ?? '3306',
@@ -42,7 +47,7 @@ Object.assign(process.env, {
   APP_S3_ACCESS_KEY_ID:     process.env['APP_S3_ACCESS_KEY_ID']     ?? 'test-access-key-id',
   APP_S3_SECRET_ACCESS_KEY: process.env['APP_S3_SECRET_ACCESS_KEY'] ?? 'test-secret-key-value',
   APP_JWT_SECRET:           JWT_SECRET,
-  APP_DEV_AUTH_BYPASS:      'true',
+  APP_DEV_AUTH_BYPASS:      'false',
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,9 +55,12 @@ Object.assign(process.env, {
 let app: Express;
 let conn: Connection;
 let seededAssetId: string;
+let seededUserId: string;
+let seededSessionId: string;
+const seededToken = 'stream-test-token-' + randomUUID();
 
 function validToken(): string {
-  return jwt.sign({ sub: 'user-stream-001', email: 'qa@example.com' }, JWT_SECRET);
+  return seededToken;
 }
 
 beforeAll(async () => {
@@ -67,28 +75,69 @@ beforeAll(async () => {
     password: process.env['APP_DB_PASSWORD'] ?? 'cliptale',
   });
 
-  seededAssetId = '00000000-str-seed-0001-000000000001';
+  // Create test user with valid session (migration 027 dropped project_assets_current).
+  seededUserId = 'user-stream-' + randomUUID().slice(0, 8);
+  seededSessionId = randomUUID();
   await conn.execute(
-    `INSERT INTO project_assets_current
-       (asset_id, project_id, user_id, filename, content_type, file_size_bytes, storage_uri)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE asset_id = asset_id`,
+    `INSERT INTO users (user_id, email, display_name, email_verified)
+     VALUES (?, ?, ?, 1) ON DUPLICATE KEY UPDATE user_id = user_id`,
+    [seededUserId, `${seededUserId}@test.com`, 'Stream Test User'],
+  );
+  await conn.execute(
+    `INSERT INTO sessions (session_id, user_id, token_hash, expires_at)
+     VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE session_id = session_id`,
+    [seededSessionId, seededUserId, sha256(seededToken), new Date(Date.now() + 3_600_000)],
+  );
+
+  // Create project and seed asset via files + project_files.
+  const projectId = 'proj-stream-seed-' + randomUUID().slice(0, 8);
+  await conn.execute(
+    `INSERT INTO projects (project_id, owner_user_id, title)
+     VALUES (?, ?, 'Stream Test Project') ON DUPLICATE KEY UPDATE project_id = project_id`,
+    [projectId, seededUserId],
+  );
+
+  seededAssetId = randomUUID();
+  await conn.execute(
+    `INSERT INTO files (file_id, user_id, kind, storage_uri, mime_type, bytes, display_name, status)
+     VALUES (?, ?, 'video', ?, ?, ?, ?, 'ready')
+     ON DUPLICATE KEY UPDATE file_id = file_id`,
     [
       seededAssetId,
-      'proj-stream-seed',
-      'user-stream-001',
-      'stream-test.mp4',
+      seededUserId,
+      's3://test-bucket/projects/' + projectId + '/stream-test.mp4',
       'video/mp4',
       2048,
-      's3://test-bucket/projects/proj-stream-seed/stream-test.mp4',
+      'stream-test.mp4',
     ],
+  );
+  await conn.execute(
+    `INSERT IGNORE INTO project_files (project_id, file_id) VALUES (?, ?)`,
+    [projectId, seededAssetId],
   );
 });
 
 afterAll(async () => {
+  // Clean up in FK-safe order.
   await conn.execute(
-    'DELETE FROM project_assets_current WHERE asset_id = ?',
+    'DELETE FROM project_files WHERE file_id = ?',
     [seededAssetId],
+  );
+  await conn.execute(
+    'DELETE FROM files WHERE file_id = ?',
+    [seededAssetId],
+  );
+  await conn.execute(
+    'DELETE FROM projects WHERE owner_user_id = ?',
+    [seededUserId],
+  );
+  await conn.execute(
+    'DELETE FROM sessions WHERE session_id = ?',
+    [seededSessionId],
+  );
+  await conn.execute(
+    'DELETE FROM users WHERE user_id = ?',
+    [seededUserId],
   );
   await conn.end();
 });

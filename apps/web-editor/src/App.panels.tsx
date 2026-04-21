@@ -192,7 +192,7 @@ export function MobileTabContent({ activeTab, projectId, onSwitchToAssets }: Mob
   }
 
   if (activeTab === 'ai-generate') {
-    return <AiGenerationPanel context={{ kind: 'project', id: projectId }} onSwitchToAssets={onSwitchToAssets} />;
+    return <AiGenerationPanel context={{ kind: 'project', id: projectId }} onSwitchToAssets={onSwitchToAssets} compact />;
   }
 
   if (activeTab === 'captions') {

@@ -5,7 +5,7 @@ import type { Asset } from '@/features/asset-manager/types';
 import { buildClipForAsset, computeClipDurationFrames } from '@/features/asset-manager/utils';
 import { getSnapshot as getProjectSnapshot, setProject } from '@/store/project-store';
 
-import { createClip } from '../api';
+import { createClip, linkFileToProject } from '../api';
 
 /** Maps a MIME-type prefix to a track type, or null for unsupported types. */
 function resolveTrackType(contentType: string): Track['type'] | null {
@@ -39,6 +39,9 @@ export function useDropAssetToTimeline(
 
       setProject({ ...project, clips: [...project.clips, clip] });
       void createClip(projectId, clip);
+      // Fire-and-forget: auto-link the file to the project so it appears in the
+      // scoped file list. Errors are silent — the timeline state is already committed.
+      void linkFileToProject(projectId, asset.id).catch(() => undefined);
     },
     [projectId],
   );
@@ -86,6 +89,9 @@ export function useDropAssetWithAutoTrack(
 
       setProject({ ...project, tracks: newTracks, clips: [...project.clips, clip] });
       void createClip(projectId, clip);
+      // Fire-and-forget: auto-link the file to the project so it appears in the
+      // scoped file list. Errors are silent — the timeline state is already committed.
+      void linkFileToProject(projectId, asset.id).catch(() => undefined);
     },
     [projectId],
   );

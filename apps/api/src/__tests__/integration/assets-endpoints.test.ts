@@ -8,6 +8,7 @@
  * Run:
  *   APP_DB_PASSWORD=cliptale vitest run src/__tests__/integration/assets-endpoints.test.ts
  */
+import { randomUUID } from 'node:crypto';
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
@@ -48,12 +49,18 @@ Object.assign(process.env, {
 let app: Express;
 let conn: Connection;
 const insertedAssetIds: string[] = [];
+const insertedProjectFileIds: Array<{projectId: string; fileId: string}> = [];
+const insertedFileIds: string[] = [];
+const insertedUserIds: string[] = [];
+const insertedProjectIds: string[] = [];
 
 /** Asset ID seeded directly in beforeAll for GET /assets/:id tests — no POST dependency. */
 let seededAssetId: string;
+let seededUserId: string;
+let seededProjectId: string;
 
 function validToken(): string {
-  return jwt.sign({ sub: 'user-test-001', email: 'qa@example.com' }, JWT_SECRET);
+  return jwt.sign({ sub: seededUserId, email: 'qa@example.com' }, JWT_SECRET);
 }
 
 const validBody = {
@@ -75,25 +82,73 @@ beforeAll(async () => {
     password: process.env['APP_DB_PASSWORD'] ?? 'cliptale',
   });
 
+  // Create seed user and projects (migration 027 dropped project_assets_current).
+  seededUserId = 'user-test-' + randomUUID().slice(0, 8);
+  seededProjectId = 'proj-test-' + randomUUID().slice(0, 8);
+  const happyPathProjectId = 'proj-happy';
+  insertedUserIds.push(seededUserId);
+  insertedProjectIds.push(seededProjectId);
+  insertedProjectIds.push(happyPathProjectId);
+
+  await conn.execute(
+    `INSERT INTO users (user_id, email, display_name, email_verified)
+     VALUES (?, ?, ?, 1) ON DUPLICATE KEY UPDATE user_id = user_id`,
+    [seededUserId, `${seededUserId}@test.com`, 'Assets Test User'],
+  );
+  await conn.execute(
+    `INSERT INTO projects (project_id, owner_user_id, title)
+     VALUES (?, ?, 'Assets Test Project') ON DUPLICATE KEY UPDATE project_id = project_id`,
+    [seededProjectId, seededUserId],
+  );
+  await conn.execute(
+    `INSERT INTO projects (project_id, owner_user_id, title)
+     VALUES (?, ?, 'Happy Path Project') ON DUPLICATE KEY UPDATE project_id = project_id`,
+    [happyPathProjectId, seededUserId],
+  );
+
   // Seed a known asset row so GET /assets/:id tests have a stable fixture independent
   // of whether the POST upload-url happy-path test ran first.
-  seededAssetId = '00000000-test-seed-0000-000000000001';
+  seededAssetId = randomUUID();
+  insertedFileIds.push(seededAssetId);
+  insertedProjectFileIds.push({ projectId: seededProjectId, fileId: seededAssetId });
+
   await conn.execute(
-    `INSERT INTO project_assets_current
-       (asset_id, project_id, user_id, filename, content_type, file_size_bytes, storage_uri)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE asset_id = asset_id`,
-    [seededAssetId, 'proj-seed', 'user-seed', 'seed.mp4', 'video/mp4', 1000, 's3://test/seed.mp4'],
+    `INSERT INTO files (file_id, user_id, kind, storage_uri, mime_type, bytes, display_name, status)
+     VALUES (?, ?, 'video', ?, ?, ?, ?, 'ready')
+     ON DUPLICATE KEY UPDATE file_id = file_id`,
+    [seededAssetId, seededUserId, 's3://test/seed.mp4', 'video/mp4', 1000, 'seed.mp4'],
+  );
+  await conn.execute(
+    `INSERT IGNORE INTO project_files (project_id, file_id) VALUES (?, ?)`,
+    [seededProjectId, seededAssetId],
   );
 });
 
 afterAll(async () => {
-  // Clean up rows inserted during the test run.
-  const toDelete = [...insertedAssetIds, seededAssetId].filter(Boolean);
-  if (toDelete.length) {
-    await conn.query(
-      `DELETE FROM project_assets_current WHERE asset_id IN (${toDelete.map(() => '?').join(',')})`,
-      toDelete,
+  // Clean up in FK-safe order: project_files → files → projects → users.
+  const allFileIds = [...insertedFileIds, seededAssetId].filter(Boolean);
+  if (allFileIds.length) {
+    for (const {projectId, fileId} of insertedProjectFileIds) {
+      await conn.execute(
+        'DELETE FROM project_files WHERE project_id = ? AND file_id = ?',
+        [projectId, fileId],
+      );
+    }
+    await conn.execute(
+      `DELETE FROM files WHERE file_id IN (${allFileIds.map(() => '?').join(',')})`,
+      allFileIds,
+    );
+  }
+  if (insertedProjectIds.length) {
+    await conn.execute(
+      `DELETE FROM projects WHERE project_id IN (${insertedProjectIds.map(() => '?').join(',')})`,
+      insertedProjectIds,
+    );
+  }
+  if (insertedUserIds.length) {
+    await conn.execute(
+      `DELETE FROM users WHERE user_id IN (${insertedUserIds.map(() => '?').join(',')})`,
+      insertedUserIds,
     );
   }
   await conn.end();
@@ -130,8 +185,9 @@ describe('POST /projects/:id/assets/upload-url', () => {
   });
 
   it('returns 201 with uploadUrl, fileId, storageUri, expiresAt on happy path', async () => {
+    const projectIdForUpload = 'proj-happy';
     const res = await request(app)
-      .post('/projects/proj-happy/assets/upload-url')
+      .post(`/projects/${projectIdForUpload}/assets/upload-url`)
       .set('Authorization', `Bearer ${validToken()}`)
       .send(validBody);
 
@@ -141,17 +197,19 @@ describe('POST /projects/:id/assets/upload-url', () => {
       fileId: expect.stringMatching(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
       ),
-      storageUri: expect.stringContaining('s3://test-bucket/projects/proj-happy'),
+      storageUri: expect.stringContaining(`projects/${projectIdForUpload}`),
       expiresAt: expect.any(String),
     });
 
     // Track the inserted row for cleanup.
-    insertedAssetIds.push(res.body.fileId as string);
+    const newFileId = res.body.fileId as string;
+    insertedFileIds.push(newFileId);
+    insertedProjectFileIds.push({ projectId: projectIdForUpload, fileId: newFileId });
 
-    // Verify the pending row was actually written to the DB.
+    // Verify the pending row was actually written to the DB (now in files table).
     const [rows] = await conn.query<mysql.RowDataPacket[]>(
-      'SELECT status FROM project_assets_current WHERE asset_id = ?',
-      [res.body.fileId],
+      'SELECT status FROM files WHERE file_id = ?',
+      [newFileId],
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]!['status']).toBe('pending');
@@ -176,8 +234,8 @@ describe('GET /assets/:id', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
-      fileId: seededAssetId,
-      status: 'pending',
+      id: seededAssetId,
+      status: 'ready',
       contentType: 'video/mp4',
     });
   });

@@ -17,6 +17,16 @@ type ListAssetsOptions = {
   limit?: number;
 };
 
+type ListDraftAssetsOptions = {
+  /** The generation draft ID. Maps to GET /generation-drafts/:id/assets. */
+  draftId: string;
+  /**
+   * `'draft'` (default) — files linked to this draft only.
+   * `'all'` — the user's entire non-deleted library.
+   */
+  scope: 'draft' | 'all';
+};
+
 /**
  * Creates a new generation draft on the server.
  *
@@ -124,6 +134,36 @@ export async function fetchDraft(id: string): Promise<GenerationDraft> {
     throw new Error(`GET /generation-drafts/${id} failed: ${res.status}`);
   }
   return res.json() as Promise<GenerationDraft>;
+}
+
+/**
+ * Fetches assets for a specific generation draft, with optional scope.
+ *
+ * Maps to GET /generation-drafts/:id/assets?scope=draft|all
+ * Returns the `{ items, nextCursor, totals }` envelope.
+ */
+export async function listDraftAssets(opts: ListDraftAssetsOptions): Promise<AssetListResponse> {
+  const params = new URLSearchParams({ scope: opts.scope });
+  const path = `/generation-drafts/${opts.draftId}/assets?${params.toString()}`;
+  const res = await apiClient.get(path);
+  if (!res.ok) {
+    throw new Error(`GET ${path} failed: ${res.status}`);
+  }
+  return res.json() as Promise<AssetListResponse>;
+}
+
+/**
+ * Links a file to a generation-draft pivot table (draft_files).
+ * The endpoint is idempotent — re-linking the same file is a no-op on the server.
+ *
+ * @param draftId - The generation draft to link the file to.
+ * @param fileId  - The file to link.
+ */
+export async function linkFileToDraft(draftId: string, fileId: string): Promise<void> {
+  const res = await apiClient.post(`/generation-drafts/${draftId}/files`, { fileId });
+  if (!res.ok) {
+    throw new Error(`Failed to link file ${fileId} to draft ${draftId}: ${res.status}`);
+  }
 }
 
 /**

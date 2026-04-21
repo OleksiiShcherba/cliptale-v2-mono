@@ -131,7 +131,7 @@ export async function isFileLinkedToProject(
   const [rows] = await pool.execute<(RowDataPacket & { cnt: number })[]>(
     `SELECT COUNT(*) AS cnt
        FROM project_files
-      WHERE project_id = ? AND file_id = ?`,
+      WHERE project_id = ? AND file_id = ? AND deleted_at IS NULL`,
     [projectId, fileId],
   );
   return (rows[0]?.cnt ?? 0) > 0;

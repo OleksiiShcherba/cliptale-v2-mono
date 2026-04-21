@@ -36,7 +36,7 @@ export type Asset = {
   width: number | null;
   height: number | null;
   fps: number | null;
-  /** Always null — `files` has no thumbnail_uri column yet; backfill is a later milestone. */
+  /** S3/R2 URI of the generated thumbnail frame, or null when not yet generated. Populated after migration 030. */
   thumbnailUri: string | null;
   /** Always null — `files` has no waveform_json column; kept for API shape compatibility. */
   waveformJson: unknown | null;
@@ -72,6 +72,8 @@ type AssetRow = RowDataPacket & {
   duration_ms: number | null;
   width: number | null;
   height: number | null;
+  /** Thumbnail S3/R2 URI — populated by migration 030. Null for pre-migration rows. */
+  thumbnail_uri: string | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -80,12 +82,12 @@ type AssetRow = RowDataPacket & {
  * Maps a `files` LEFT JOIN `project_files` row to the legacy `Asset` shape.
  *
  * Fields not present on `files`:
- *  - `thumbnailUri`  → always null (no thumbnail_uri column; backfill pending)
  *  - `waveformJson`  → always null (no waveform_json column)
  *  - `fps`           → always null (no fps column; duration_ms is the replacement)
  *  - `filename`      → display_name ?? file_id (no dedicated filename column on files)
  *  - `fileSizeBytes` → bytes column (null coerced to 0 to preserve numeric contract)
  *  - `projectId`     → project_id from LEFT JOIN; empty string when file has no project link
+ *  - `thumbnailUri`  → thumbnail_uri column added by migration 030; null for pre-migration rows
  */
 function mapRowToAsset(row: AssetRow): Asset {
   return {
@@ -108,7 +110,7 @@ function mapRowToAsset(row: AssetRow): Asset {
     width: row.width,
     height: row.height,
     fps: null, // no fps column on files; callers that need frame rate must look elsewhere
-    thumbnailUri: null, // thumbnail_uri does not exist on files; backfill is a later milestone
+    thumbnailUri: row.thumbnail_uri ?? null, // added by migration 030; null for pre-migration rows
     waveformJson: null, // waveform_json does not exist on files
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -149,26 +151,26 @@ export async function insertPendingAsset(params: InsertPendingAssetParams): Prom
   );
 }
 
-/** Returns an asset by its primary key, or null if not found. */
+/** Returns a non-deleted asset by its primary key, or null if not found or soft-deleted. */
 export async function getAssetById(fileId: string): Promise<Asset | null> {
   const [rows] = await pool.execute<AssetRow[]>(
     `SELECT f.*, pf.project_id
        FROM files f
-       LEFT JOIN project_files pf ON pf.file_id = f.file_id
-      WHERE f.file_id = ?
+       LEFT JOIN project_files pf ON pf.file_id = f.file_id AND pf.deleted_at IS NULL
+      WHERE f.file_id = ? AND f.deleted_at IS NULL
       LIMIT 1`,
     [fileId],
   );
   return rows.length ? mapRowToAsset(rows[0]!) : null;
 }
 
-/** Returns all assets belonging to a project, ordered by pivot creation date ascending. */
+/** Returns all non-deleted assets belonging to a project, ordered by pivot creation date ascending. */
 export async function getAssetsByProjectId(projectId: string): Promise<Asset[]> {
   const [rows] = await pool.execute<AssetRow[]>(
     `SELECT f.*, pf.project_id
        FROM project_files pf
        JOIN files f ON f.file_id = pf.file_id
-      WHERE pf.project_id = ?
+      WHERE pf.project_id = ? AND pf.deleted_at IS NULL AND f.deleted_at IS NULL
       ORDER BY pf.created_at ASC`,
     [projectId],
   );
@@ -231,105 +233,14 @@ export async function updateAssetDisplayName(
 }
 
 // ---------------------------------------------------------------------------
-// Global list (cursor-paginated) — powers the wizard gallery endpoint
+// Global list (cursor-paginated) — re-exported from asset.repository.list.ts
+// Kept in a separate file to stay under the §9.7 300-line cap.
 // ---------------------------------------------------------------------------
-
-/** Filter applied to the global list query. A raw MIME prefix — the service maps enum buckets to this. */
-export type AssetMimePrefix = 'video/' | 'image/' | 'audio/';
-
-type FindReadyParams = {
-  userId: string;
-  /** Optional MIME prefix filter. Omit to return all three buckets. */
-  mimePrefix?: AssetMimePrefix;
-  /** Seek cursor: only return rows strictly older than `(updatedAt, fileId)`. */
-  cursor?: { updatedAt: Date; fileId: string };
-  /** Maximum rows to return. Clamped by the caller (1–100). */
-  limit: number;
-};
-
-/**
- * Returns the authenticated user's `ready` files, ordered newest first and
- * filtered by MIME prefix + seek cursor. Stable under concurrent inserts
- * because the cursor tiebreaks by `file_id`.
- *
- * User-scoped (reads from `files` directly — no project join needed).
- * The `content_type` filter from the old query maps to `mime_type LIKE ?` here.
- *
- * LIMIT is interpolated after a Number() coercion — safe because callers must
- * pass a pre-validated integer, and mysql2 prepared statements do not bind
- * LIMIT reliably across driver versions.
- */
-export async function findReadyForUser(params: FindReadyParams): Promise<Asset[]> {
-  const clauses: string[] = ['status = ?', 'user_id = ?'];
-  const values: unknown[] = ['ready', params.userId];
-
-  if (params.mimePrefix) {
-    clauses.push('mime_type LIKE ?');
-    values.push(`${params.mimePrefix}%`);
-  }
-
-  if (params.cursor) {
-    clauses.push('(updated_at, file_id) < (?, ?)');
-    values.push(params.cursor.updatedAt, params.cursor.fileId);
-  }
-
-  const safeLimit = Math.max(1, Math.min(100, Math.floor(Number(params.limit))));
-  // No project join needed — findReadyForUser is user-scoped, not project-scoped.
-  // projectId will be empty string for rows without a project_files link.
-  const sql =
-    `SELECT *, NULL AS project_id FROM files
-     WHERE ${clauses.join(' AND ')}
-     ORDER BY updated_at DESC, file_id DESC
-     LIMIT ${safeLimit}`;
-
-  const [rows] = await pool.query<AssetRow[]>(sql, values);
-  return rows.map(mapRowToAsset);
-}
-
-/** Single-bucket totals row returned by `getReadyTotalsForUser`. */
-export type AssetTotalsRow = {
-  mimePrefix: AssetMimePrefix;
-  count: number;
-  bytes: number;
-};
-
-type TotalsRow = RowDataPacket & {
-  mime_prefix: AssetMimePrefix;
-  count: number;
-  bytes: string | number | null;
-};
-
-/**
- * Aggregates the user's `ready` files by MIME bucket. Returns one row per
- * bucket that has at least one file. Callers fill in zero for missing buckets.
- *
- * User-scoped (reads from `files` directly — no project join needed).
- *
- * Note: `SUM(BIGINT)` returns a decimal string in mysql2 — we Number()-coerce
- * in the mapper to keep the repository type contract numeric.
- */
-export async function getReadyTotalsForUser(userId: string): Promise<AssetTotalsRow[]> {
-  const [rows] = await pool.query<TotalsRow[]>(
-    `SELECT
-       CASE
-         WHEN mime_type LIKE 'video/%' THEN 'video/'
-         WHEN mime_type LIKE 'image/%' THEN 'image/'
-         WHEN mime_type LIKE 'audio/%' THEN 'audio/'
-         ELSE NULL
-       END AS mime_prefix,
-       COUNT(*) AS count,
-       SUM(bytes) AS bytes
-     FROM files
-     WHERE user_id = ? AND status = 'ready'
-     GROUP BY mime_prefix`,
-    [userId],
-  );
-
-  return rows
-    .filter((r): r is TotalsRow & { mime_prefix: AssetMimePrefix } => r.mime_prefix !== null)
-    .map((r) => ({
-      mimePrefix: r.mime_prefix,
-      count: Number(r.count),
-      bytes: r.bytes == null ? 0 : Number(r.bytes),
-    }));
-}
+export type {
+  AssetMimePrefix,
+  AssetTotalsRow,
+} from './asset.repository.list.js';
+export {
+  findReadyForUser,
+  getReadyTotalsForUser,
+} from './asset.repository.list.js';

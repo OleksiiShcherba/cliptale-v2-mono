@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react';
 // ---------------------------------------------------------------------------
 
 /** UI-only ephemeral state that does not belong in the persisted project doc. */
-type EphemeralState = {
+export type EphemeralState = {
   playheadFrame: number;
   selectedClipIds: string[];
   zoom: number;
@@ -135,6 +135,29 @@ export function setVolume(volume: number): void {
 export function setMuted(muted: boolean): void {
   if (snapshot.isMuted === muted) return;
   snapshot = { ...snapshot, isMuted: muted };
+  notifyListeners();
+}
+
+/**
+ * Applies a partial ephemeral state object, overwriting only the supplied
+ * fields. Used by `useProjectUiState` to restore persisted UI state on project
+ * open. Unrecognised or undefined fields in the partial are silently ignored so
+ * that the store never holds `undefined` values.
+ *
+ * Only the fields that are meaningfully restorable are applied:
+ *   - `playheadFrame`, `zoom`, `pxPerFrame`, `scrollOffsetX`
+ *
+ * Selection and volume are intentionally excluded — selection should not
+ * survive a page reload (clips may be gone), and volume is a device preference
+ * the user sets each session.
+ */
+export function setAll(partial: Partial<EphemeralState>): void {
+  const next: EphemeralState = { ...snapshot };
+  if (typeof partial.playheadFrame === 'number') next.playheadFrame = partial.playheadFrame;
+  if (typeof partial.zoom === 'number') next.zoom = partial.zoom;
+  if (typeof partial.pxPerFrame === 'number') next.pxPerFrame = Math.max(1, Math.min(100, partial.pxPerFrame));
+  if (typeof partial.scrollOffsetX === 'number') next.scrollOffsetX = Math.max(0, partial.scrollOffsetX);
+  snapshot = next;
   notifyListeners();
 }
 

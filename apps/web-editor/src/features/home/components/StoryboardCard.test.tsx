@@ -9,6 +9,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -23,6 +24,14 @@ vi.mock('react-router-dom', async (importOriginal) => {
     useNavigate: () => mockNavigate,
   };
 });
+
+vi.mock('@/features/generate-wizard/api', () => ({
+  deleteDraft: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../api', () => ({
+  restoreStoryboardDraft: vi.fn().mockResolvedValue(undefined),
+}));
 
 import { StoryboardCard } from './StoryboardCard';
 import type { StoryboardCardSummary } from '../types';
@@ -43,10 +52,13 @@ function makeCard(overrides: Partial<StoryboardCardSummary> = {}): StoryboardCar
 }
 
 function renderCard(card: StoryboardCardSummary) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter>
-      <StoryboardCard card={card} />
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <StoryboardCard card={card} />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

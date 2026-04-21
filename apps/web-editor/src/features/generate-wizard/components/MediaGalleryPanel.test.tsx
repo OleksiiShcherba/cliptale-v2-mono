@@ -39,6 +39,7 @@ import {
 
 vi.mock('@/features/generate-wizard/api', () => ({
   listAssets: vi.fn(),
+  listDraftAssets: vi.fn(),
 }));
 
 vi.mock('@/lib/api-client', () => ({
@@ -112,10 +113,11 @@ vi.mock('@/shared/file-upload/UploadDropzone', () => ({
     ),
 }));
 
-import { listAssets } from '@/features/generate-wizard/api';
+import { listAssets, listDraftAssets } from '@/features/generate-wizard/api';
 import { useFileUpload } from '@/shared/file-upload/useFileUpload';
 
 const mockListAssets = vi.mocked(listAssets);
+const mockListDraftAssets = vi.mocked(listDraftAssets);
 const mockUseFileUpload = vi.mocked(useFileUpload);
 
 // ---------------------------------------------------------------------------
@@ -162,17 +164,19 @@ function renderPanelNoDraft(onAssetSelected = vi.fn()) {
 // ---------------------------------------------------------------------------
 
 function mockPending() {
-  mockListAssets.mockImplementation(
-    () => new Promise<AssetListResponse>(() => { /* never resolves */ }),
-  );
+  const pending = () => new Promise<AssetListResponse>(() => { /* never resolves */ });
+  mockListAssets.mockImplementation(pending);
+  mockListDraftAssets.mockImplementation(pending);
 }
 
 function mockSuccess(response: AssetListResponse) {
   mockListAssets.mockResolvedValue(response);
+  mockListDraftAssets.mockResolvedValue(response);
 }
 
 function mockFailure() {
   mockListAssets.mockRejectedValue(new Error('Network error'));
+  mockListDraftAssets.mockRejectedValue(new Error('Network error'));
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 
 import type { Asset } from '@/features/asset-manager/types';
+import { restoreAsset } from '@/features/asset-manager/api';
 import { useDeleteAsset } from '@/features/asset-manager/hooks/useDeleteAsset';
 
 import { deleteAssetDialogStyles as styles } from './deleteAssetDialog.styles';
@@ -17,6 +18,14 @@ export interface DeleteAssetDialogProps {
   onClose: () => void;
   /** Called after the deletion is committed so the browser can refresh. */
   onDeleted: () => void;
+  /**
+   * Optional callback invoked after successful soft-delete, providing:
+   * - `label`: the human-readable message for the undo toast
+   * - `onUndo`: the async function that restores the asset
+   *
+   * When provided the caller is responsible for rendering `UndoToast`.
+   */
+  onShowUndoToast?: (label: string, onUndo: () => Promise<void>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -36,6 +45,7 @@ export function DeleteAssetDialog({
   projectId,
   onClose,
   onDeleted,
+  onShowUndoToast,
 }: DeleteAssetDialogProps): React.ReactElement {
   const deleteAsset = useDeleteAsset({ projectId });
   const [isDeleteHovered, setIsDeleteHovered] = useState(false);
@@ -47,8 +57,13 @@ export function DeleteAssetDialog({
     setIsDeleting(true);
     setErrorMessage(null);
     try {
-      await deleteAsset(asset.id);
+      const fileId = asset.id;
+      await deleteAsset(fileId);
       onDeleted();
+      onShowUndoToast?.(
+        `"${asset.displayName ?? asset.filename}" deleted`,
+        () => restoreAsset(fileId),
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to delete asset';
       setErrorMessage(message);
@@ -95,8 +110,8 @@ export function DeleteAssetDialog({
               timeline. Tracks that become empty after removal will also be deleted.
             </p>
             <p style={styles.warningTextSecondary}>
-              The file will be removed from your library permanently. Timeline removal can be
-              undone with Ctrl+Z, but the file itself cannot be recovered.
+              The file will be moved to Trash. You can restore it from the Trash panel. Timeline
+              clip removal can be undone with Ctrl+Z.
             </p>
           </div>
         </div>

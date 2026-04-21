@@ -23,8 +23,11 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 import type { AssetApiResponse } from '@/services/asset.response.service.js';
 import type { FileRow } from '@/repositories/file.repository.js';
-import { getFilesForProject, getFilesForDraft } from '@/services/fileLinks.service.js';
+import { getFilesForProject, getFilesForDraft, getFilesForUser } from '@/services/fileLinks.service.js';
 import { parseStorageUri } from '@/services/asset.service.js';
+
+/** Valid values for the `scope` query parameter on the asset-list endpoints. */
+export type AssetScope = 'project' | 'draft' | 'all';
 
 /** Presigned GET URL validity — matches the value used by asset.response.service.ts. */
 const DOWNLOAD_URL_EXPIRY_SECONDS = 60 * 60;
@@ -71,33 +74,55 @@ async function toAssetApiResponse(
 }
 
 /**
- * Returns all files linked to a project serialized as `AssetApiResponse[]`.
+ * Returns files for a project endpoint, respecting the `scope` query param.
+ *
+ * - `scope=project` (default): files linked via the `project_files` pivot.
+ * - `scope=all`: all non-deleted files owned by `userId`.
+ *
  * This replaces the `project_assets_current` read for `GET /projects/:id/assets`.
  */
 export async function getProjectFilesResponse(
   projectId: string,
   s3: S3Client,
   baseUrl: string,
+  scope: AssetScope = 'project',
+  userId?: string,
 ): Promise<AssetApiResponse[]> {
   // baseUrl is accepted for API consistency with asset.response.service; not used here
   // because there is no per-file proxy endpoint yet.
   void baseUrl;
 
-  const files = await getFilesForProject(projectId);
+  let files: FileRow[];
+  if (scope === 'all' && userId) {
+    files = await getFilesForUser(userId);
+  } else {
+    files = await getFilesForProject(projectId);
+  }
   return Promise.all(files.map((f) => toAssetApiResponse(f, projectId, s3)));
 }
 
 /**
- * Returns all files linked to a generation draft serialized as `AssetApiResponse[]`.
+ * Returns files for a generation-draft endpoint, respecting the `scope` query param.
+ *
+ * - `scope=draft` (default): files linked via the `draft_files` pivot.
+ * - `scope=all`: all non-deleted files owned by `userId`.
+ *
  * Uses an empty string for `projectId` since drafts are not project-scoped.
  */
 export async function getDraftFilesResponse(
   draftId: string,
   s3: S3Client,
   baseUrl: string,
+  scope: AssetScope = 'draft',
+  userId?: string,
 ): Promise<AssetApiResponse[]> {
   void baseUrl;
 
-  const files = await getFilesForDraft(draftId);
+  let files: FileRow[];
+  if (scope === 'all' && userId) {
+    files = await getFilesForUser(userId);
+  } else {
+    files = await getFilesForDraft(draftId);
+  }
   return Promise.all(files.map((f) => toAssetApiResponse(f, '', s3)));
 }

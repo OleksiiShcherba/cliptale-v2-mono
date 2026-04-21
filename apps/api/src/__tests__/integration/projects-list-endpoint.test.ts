@@ -143,22 +143,21 @@ beforeAll(async () => {
   );
 
   // Seed a file + project_files + visual clip for PROJ_A1 to test thumbnail derivation.
-  // Note: thumbnailUrl is always null in the current findProjectsByUserId implementation
-  // (thumbnail_uri is not stored on the files table yet — the ingest worker will backfill
-  // it in a later milestone). Tests assert null accordingly.
+  // The file has a thumbnail_uri set to simulate a post-ingest state. The query should
+  // return a proxy URL of the form `${baseUrl}/assets/:fileId/thumbnail`.
   ASSET_ID = `asset-${randomUUID().slice(0, 8)}`;
   CLIP_ID  = `clip-${randomUUID().slice(0, 8)}`;
   const trackId = `track-${randomUUID().slice(0, 8)}`;
   testAssetIds.push(ASSET_ID);
   testClipIds.push(CLIP_ID);
 
-  // Insert into `files` (the new root table for user-owned blobs).
+  // Insert into `files` with a thumbnail_uri to simulate post-ingest state.
   await conn.execute(
     `INSERT INTO files
-       (file_id, user_id, kind, storage_uri, mime_type, bytes)
-     VALUES (?, ?, ?, ?, ?, ?)
+       (file_id, user_id, kind, storage_uri, mime_type, bytes, thumbnail_uri)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE file_id = file_id`,
-    [ASSET_ID, USER_A_ID, 'video', 's3://bucket/clip.mp4', 'video/mp4', 1000],
+    [ASSET_ID, USER_A_ID, 'video', 's3://bucket/clip.mp4', 'video/mp4', 1000, 's3://bucket/thumb.jpg'],
   );
 
   // Link the file to the project via project_files pivot.
@@ -272,10 +271,9 @@ describe('GET /projects — project listing', () => {
     expect(relevantItems[0]!.title).toBe('Project Alpha');
   });
 
-  it('returns thumbnailUrl as null for Project Alpha (thumbnail derivation not yet wired to files table)', async () => {
-    // The files table does not yet store a thumbnail_uri column. findProjectsByUserId
-    // returns NULL for all thumbnailUrl values until the ingest worker backfills it.
-    // This test documents the current state; once thumbnailing is wired, update the assertion.
+  it('returns thumbnailUrl as a proxy URL when Project Alpha has a visual clip with thumbnail', async () => {
+    // PROJ_A1 has a video clip seeded with a thumbnail_uri on the files row.
+    // The controller converts thumbnailFileId → /assets/:fileId/thumbnail.
     const res = await request(app)
       .get('/projects')
       .set('Authorization', `Bearer ${TOKEN_A}`);
@@ -286,10 +284,12 @@ describe('GET /projects — project listing', () => {
     };
     const alpha = items.find((p) => p.projectId === PROJ_A1);
     expect(alpha).toBeDefined();
-    expect(alpha!.thumbnailUrl).toBeNull();
+    // The proxy URL has the form `http://127.0.0.1:<port>/assets/:fileId/thumbnail`
+    expect(alpha!.thumbnailUrl).toMatch(new RegExp(`/assets/${ASSET_ID}/thumbnail$`));
   });
 
-  it('returns thumbnailUrl as null when a project has no visual clips', async () => {
+  it('returns thumbnailUrl as null when a project has no visual clips or linked files', async () => {
+    // PROJ_A2 has no clips and no linked files — thumbnail should be null.
     const res = await request(app)
       .get('/projects')
       .set('Authorization', `Bearer ${TOKEN_A}`);

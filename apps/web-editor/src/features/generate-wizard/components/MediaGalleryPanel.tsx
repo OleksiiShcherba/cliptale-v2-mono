@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -9,21 +9,12 @@ import { useAssets } from '@/features/generate-wizard/hooks/useAssets';
 
 import type { AssetSummary } from '../types';
 
-import { AssetThumbCard } from './AssetThumbCard';
-import { AudioRowCard } from './AudioRowCard';
 import { MediaGalleryHeader } from './MediaGalleryHeader';
-import {
-  groupStyles,
-  panelStyles,
-} from './mediaGalleryStyles';
+import { panelStyles } from './mediaGalleryStyles';
 import { MediaGalleryTabs } from './MediaGalleryTabs';
 import type { GalleryTab } from './MediaGalleryTabs';
-import {
-  FoldersPlaceholder,
-  GalleryEmpty,
-  GalleryError,
-  GallerySkeleton,
-} from './MediaGalleryPanelViews';
+import { FoldersPlaceholder } from './MediaGalleryPanelViews';
+import { MediaGalleryRecentBody } from './MediaGalleryRecentBody';
 
 // ---------------------------------------------------------------------------
 // Formatters
@@ -36,81 +27,6 @@ function formatGigabytes(bytes: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Asset group section
-// ---------------------------------------------------------------------------
-
-interface AssetGroupProps {
-  label: string;
-  assets: AssetSummary[];
-  onAssetSelected: (asset: AssetSummary) => void;
-}
-
-function AssetGroup({ label, assets, onAssetSelected }: AssetGroupProps): React.ReactElement {
-  const isAudio = assets[0]?.type === 'audio';
-
-  return (
-    <div style={groupStyles.section} data-testid={`asset-group-${label.toLowerCase()}`}>
-      <div style={groupStyles.sectionLabel}>{label}</div>
-      {isAudio ? (
-        <div style={groupStyles.audioList}>
-          {assets.map((asset) => (
-            <AudioRowCard
-              key={asset.id}
-              asset={asset}
-              onAssetSelected={onAssetSelected}
-            />
-          ))}
-        </div>
-      ) : (
-        <div style={groupStyles.thumbGrid}>
-          {assets.map((asset) => (
-            <AssetThumbCard
-              key={asset.id}
-              asset={asset}
-              onAssetSelected={onAssetSelected}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Recent tab body
-// ---------------------------------------------------------------------------
-
-interface RecentBodyProps {
-  onAssetSelected: (asset: AssetSummary) => void;
-}
-
-function RecentBody({ onAssetSelected }: RecentBodyProps): React.ReactElement {
-  const { data, isLoading, isError } = useAssets({ type: 'all' });
-
-  if (isLoading) return <GallerySkeleton />;
-  if (isError) return <GalleryError />;
-  if (!data || data.items.length === 0) return <GalleryEmpty />;
-
-  const videos = data.items.filter((a) => a.type === 'video');
-  const images = data.items.filter((a) => a.type === 'image');
-  const audios = data.items.filter((a) => a.type === 'audio');
-
-  return (
-    <>
-      {videos.length > 0 && (
-        <AssetGroup label="Videos" assets={videos} onAssetSelected={onAssetSelected} />
-      )}
-      {images.length > 0 && (
-        <AssetGroup label="Images" assets={images} onAssetSelected={onAssetSelected} />
-      )}
-      {audios.length > 0 && (
-        <AssetGroup label="Audio" assets={audios} onAssetSelected={onAssetSelected} />
-      )}
-    </>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
@@ -119,7 +35,7 @@ export interface MediaGalleryPanelProps {
   onAssetSelected: (asset: AssetSummary) => void;
   /**
    * The current generation draft ID.
-   * Used to link uploaded files to the draft via `POST /generation-drafts/:id/files`.
+   * Used to scope the asset list and link uploaded files to the draft.
    * When undefined the Upload button is hidden (e.g. during initial draft creation).
    */
   draftId: string | undefined;
@@ -133,7 +49,10 @@ export interface MediaGalleryPanelProps {
  * Right-column gallery panel for the Generate Wizard Step 1.
  * Tabs: Recent | Folders | AI. AI tab renders AiGenerationPanel scoped to the
  * current draft; on completion the gallery query is invalidated automatically.
- * Panel height is 580px per spec; body overflows with scroll.
+ *
+ * Scope toggle (Recent tab): defaults to `scope=draft` when `draftId` is
+ * provided. Auto-switches to `scope=all` on first load when the draft-scoped
+ * list is empty. Toggle resets to `draft` when the component re-mounts.
  */
 export function MediaGalleryPanel({
   onAssetSelected,
@@ -141,21 +60,41 @@ export function MediaGalleryPanel({
 }: MediaGalleryPanelProps): React.ReactElement {
   const [activeTab, setActiveTab] = useState<GalleryTab>('recent');
   const [isUploadOpen, setIsUploadOpen] = useState(false);
-  const { data } = useAssets({ type: 'all' });
+  const [scope, setScope] = useState<'draft' | 'all'>('draft');
+  const autoSwitchedRef = useRef(false);
+
+  // Fetch draft-scoped assets for auto-switch detection
+  const { data: scopedData } = useAssets({ type: 'all', draftId, scope: 'draft' });
+  // Fetch totals (full library) for the footer counter
+  const { data: totalsData } = useAssets({ type: 'all' });
+
   const queryClient = useQueryClient();
+
+  // Auto-switch to 'all' on first load when the draft-scoped list is empty
+  useEffect(() => {
+    if (
+      draftId &&
+      scopedData !== undefined &&
+      scopedData.items.length === 0 &&
+      scope === 'draft' &&
+      !autoSwitchedRef.current
+    ) {
+      autoSwitchedRef.current = true;
+      setScope('all');
+    }
+  }, [draftId, scopedData, scope]);
 
   const { entries, isUploading, uploadFiles, clearEntries } = useFileUpload({
     target: draftId
       ? { kind: 'draft', draftId }
       : { kind: 'draft', draftId: '' },
     onUploadComplete: () => {
-      // Invalidate so the gallery refreshes after each file is linked to the draft
       void queryClient.invalidateQueries({ queryKey: ['generate-wizard', 'assets'] });
     },
   });
 
-  const totalCount = data?.totals.count ?? 0;
-  const gbUsed = data ? formatGigabytes(data.totals.bytesUsed) : '0.00 GB';
+  const totalCount = totalsData?.totals.count ?? 0;
+  const gbUsed = totalsData ? formatGigabytes(totalsData.totals.bytesUsed) : '0.00 GB';
 
   const handleOpenUpload = useCallback(() => setIsUploadOpen(true), []);
   const handleCloseUpload = useCallback(() => setIsUploadOpen(false), []);
@@ -164,13 +103,14 @@ export function MediaGalleryPanel({
     setIsUploadOpen(false);
   }, [clearEntries]);
 
-  // Switch back to Recent tab when AI generation completes and the user clicks
-  // "View in Assets". Invalidate the wizard gallery query at this point so the
-  // newly generated asset is visible in the Recent tab immediately.
   const handleSwitchToRecent = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['generate-wizard', 'assets'] });
     setActiveTab('recent');
   }, [queryClient]);
+
+  const handleScopeToggle = useCallback(() => {
+    setScope((prev) => (prev === 'draft' ? 'all' : 'draft'));
+  }, []);
 
   return (
     <section
@@ -202,7 +142,12 @@ export function MediaGalleryPanel({
           style={panelStyles.body}
           data-testid="tabpanel-recent"
         >
-          <RecentBody onAssetSelected={onAssetSelected} />
+          <MediaGalleryRecentBody
+            onAssetSelected={onAssetSelected}
+            draftId={draftId}
+            scope={scope}
+            onScopeToggle={handleScopeToggle}
+          />
         </div>
       )}
 

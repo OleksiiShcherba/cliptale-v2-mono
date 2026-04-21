@@ -2,6 +2,8 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { createDraft } from '@/features/generate-wizard/api';
+import { UndoToast } from '@/shared/undo/UndoToast';
+import { useUndoToast } from '@/shared/undo/useUndoToast';
 
 import { useStoryboardCards } from '../hooks/useStoryboardCards';
 import { StoryboardCard } from './StoryboardCard';
@@ -119,6 +121,7 @@ function PanelHeader({ onCreate, isCreating }: PanelHeaderProps): React.ReactEle
 export function StoryboardPanel(): React.ReactElement {
   const { data, isLoading, isError } = useStoryboardCards();
   const navigate = useNavigate();
+  const { toastState, showToast, dismissToast, handleUndo } = useUndoToast();
 
   // Use window resize to recompute grid columns reactively
   const [gridColumns, setGridColumns] = React.useState<string>(getGridColumns);
@@ -203,20 +206,27 @@ export function StoryboardPanel(): React.ReactElement {
   }
 
   return (
-    <div style={{ padding: 32, fontFamily: 'Inter, sans-serif' }}>
-      <PanelHeader onCreate={handleCreate} isCreating={isCreating} />
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: gridColumns,
-          gap: 24,
-          marginTop: 24,
-        }}
-      >
-        {cards.map((card) => (
-          <StoryboardCard key={card.draftId} card={card} />
-        ))}
+    <>
+      <div style={{ padding: 32, fontFamily: 'Inter, sans-serif' }}>
+        <PanelHeader onCreate={handleCreate} isCreating={isCreating} />
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: gridColumns,
+            gap: 24,
+            marginTop: 24,
+          }}
+        >
+          {cards.map((card) => (
+            <StoryboardCard
+              key={card.draftId}
+              card={card}
+              onShowUndoToast={(label, onUndo) => showToast({ label, onUndo })}
+            />
+          ))}
+        </div>
       </div>
-    </div>
+      <UndoToast toastState={toastState} onDismiss={dismissToast} onUndo={handleUndo} />
+    </>
   );
 }

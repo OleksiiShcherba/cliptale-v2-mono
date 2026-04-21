@@ -19,6 +19,7 @@ vi.mock('@/repositories/generationDraft.repository.js', () => ({
   findDraftsByUserId: vi.fn(),
   updateDraftPromptDoc: vi.fn(),
   deleteDraft: vi.fn(),
+  softDeleteDraft: vi.fn().mockResolvedValue(true),
 }));
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -156,24 +157,25 @@ describe('generationDraft.service', () => {
     });
   });
 
-  // ── remove ────────────────────────────────────────────────────────────────
+  // ── remove (soft-delete — EPIC B) ────────────────────────────────────────
 
   describe('remove', () => {
-    it('should delete the draft when it exists and belongs to the user', async () => {
+    it('should soft-delete the draft (calls softDeleteDraft, not deleteDraft)', async () => {
       const draft = makeDraft();
       vi.mocked(generationDraftRepository.findDraftById).mockResolvedValue(draft);
-      vi.mocked(generationDraftRepository.deleteDraft).mockResolvedValue(true);
 
       await expect(remove(USER_ID, DRAFT_ID)).resolves.toBeUndefined();
 
-      expect(generationDraftRepository.deleteDraft).toHaveBeenCalledWith(DRAFT_ID, USER_ID);
+      expect(generationDraftRepository.softDeleteDraft).toHaveBeenCalledWith(DRAFT_ID);
+      // Hard-delete must NOT be called.
+      expect(generationDraftRepository.deleteDraft).not.toHaveBeenCalled();
     });
 
     it('should throw NotFoundError (404) when the draft does not exist', async () => {
       vi.mocked(generationDraftRepository.findDraftById).mockResolvedValue(null);
 
       await expect(remove(USER_ID, DRAFT_ID)).rejects.toThrow(NotFoundError);
-      expect(generationDraftRepository.deleteDraft).not.toHaveBeenCalled();
+      expect(generationDraftRepository.softDeleteDraft).not.toHaveBeenCalled();
     });
 
     it('should throw ForbiddenError (403) when the draft belongs to another user', async () => {
@@ -181,7 +183,7 @@ describe('generationDraft.service', () => {
       vi.mocked(generationDraftRepository.findDraftById).mockResolvedValue(draft);
 
       await expect(remove(USER_ID, DRAFT_ID)).rejects.toThrow(ForbiddenError);
-      expect(generationDraftRepository.deleteDraft).not.toHaveBeenCalled();
+      expect(generationDraftRepository.softDeleteDraft).not.toHaveBeenCalled();
     });
   });
 });

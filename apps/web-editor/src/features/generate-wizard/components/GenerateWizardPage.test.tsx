@@ -27,6 +27,10 @@ vi.mock('@/features/generate-wizard/api', () => ({
     createdAt: '2026-04-17T10:00:00.000Z',
     updatedAt: '2026-04-17T10:00:00.000Z',
   }),
+  linkFileToDraft: vi.fn().mockResolvedValue(undefined),
+  listDraftAssets: vi.fn().mockResolvedValue({ items: [], nextCursor: null, totals: { count: 0, bytesUsed: 0 } }),
+  startEnhance: vi.fn(),
+  getEnhanceStatus: vi.fn(),
 }));
 
 vi.mock('@/lib/api-client', () => ({

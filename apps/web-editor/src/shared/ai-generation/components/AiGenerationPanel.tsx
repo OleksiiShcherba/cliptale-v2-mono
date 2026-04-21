@@ -10,7 +10,7 @@ import type {
 } from '@/shared/ai-generation/types';
 import { useAiGeneration } from '@/shared/ai-generation/hooks/useAiGeneration';
 
-import { aiGenerationPanelStyles as s } from './aiGenerationPanelStyles';
+import { aiGenerationPanelStyles as s, getPanelStyle } from './aiGenerationPanelStyles';
 import {
   getFirstCapabilityForGroup,
   hasAllRequired,
@@ -33,6 +33,13 @@ export interface AiGenerationPanelProps {
   context: AiGenerationContext;
   onClose?: () => void;
   onSwitchToAssets?: () => void;
+  /**
+   * When `true` the panel renders at a fixed 320 px width matching the editor
+   * left sidebar so there is no layout shift when the user switches tabs.
+   * When `false` (default) the panel fills available horizontal space up to
+   * 720 px — used when the panel is embedded in the wizard gallery.
+   */
+  compact?: boolean;
 }
 
 /**
@@ -54,6 +61,7 @@ export function AiGenerationPanel({
   context,
   onClose,
   onSwitchToAssets,
+  compact = false,
 }: AiGenerationPanelProps): React.ReactElement {
   const queryClient = useQueryClient();
   const { submit, currentJob, isGenerating, error, reset } = useAiGeneration();
@@ -143,7 +151,7 @@ export function AiGenerationPanel({
   const isIdle = !isGenerating && !isComplete && !isFailed;
 
   return (
-    <div style={s.panel} data-testid="ai-generation-panel">
+    <div style={getPanelStyle(compact)} data-testid="ai-generation-panel">
       <div style={s.header}>
         <h3 style={s.heading}>AI Generate</h3>
         {onClose && (

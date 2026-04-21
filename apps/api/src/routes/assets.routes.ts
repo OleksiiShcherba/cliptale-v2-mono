@@ -45,6 +45,12 @@ router.patch(
   assetsController.patchAsset,
 );
 
+// POST /assets/:id/restore
+// Restores a soft-deleted asset owned by the authenticated user.
+// Returns 200 with the restored AssetApiResponse. 404 if wrong owner; 410 if gone.
+// Registered BEFORE /:id/finalize to avoid param shadowing on literal-sub-path routes.
+router.post('/assets/:id/restore', authMiddleware, assetsController.restoreAsset);
+
 // POST /assets/:id/finalize
 // Called by the client after the XHR PUT to S3 completes.
 // Verifies storage, transitions pending → processing, enqueues media-ingest job.

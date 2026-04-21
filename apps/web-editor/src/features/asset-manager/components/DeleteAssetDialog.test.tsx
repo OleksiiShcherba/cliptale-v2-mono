@@ -106,9 +106,14 @@ describe('DeleteAssetDialog', () => {
       expect(screen.getByText(/tracks that become empty/i)).toBeDefined();
     });
 
-    it('warns the file itself will be removed permanently', () => {
+    it('mentions the file will be moved to Trash', () => {
       render(<DeleteAssetDialog {...dialogProps()} />);
-      expect(screen.getByText(/file will be removed from your library/i)).toBeDefined();
+      expect(screen.getByText(/file will be moved to trash/i)).toBeDefined();
+    });
+
+    it('notes the file can be restored from the Trash panel', () => {
+      render(<DeleteAssetDialog {...dialogProps()} />);
+      expect(screen.getByText(/restore it from the trash panel/i)).toBeDefined();
     });
 
     it('notes timeline changes are undoable with Ctrl+Z', () => {

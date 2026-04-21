@@ -58,3 +58,18 @@ export class UnprocessableEntityError extends Error {
     this.name = 'UnprocessableEntityError';
   }
 }
+
+/**
+ * Thrown when the requested resource has been permanently removed and will not
+ * come back. Maps to HTTP 410 Gone.
+ *
+ * Used by restore services when the row no longer exists (hard-purged) or when
+ * the soft-delete TTL (30 days) has expired.
+ */
+export class GoneError extends Error {
+  readonly statusCode = 410;
+  constructor(message: string) {
+    super(message);
+    this.name = 'GoneError';
+  }
+}

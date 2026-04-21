@@ -52,6 +52,7 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
 vi.mock('@/config.js', () => ({
   config: {
     s3: { endpoint: undefined, region: 'us-east-1', bucket: 'test-bucket' },
+    db: { host: 'localhost', port: 3306, name: 'cliptale_test', user: 'test', password: 'test' },
   },
 }));
 

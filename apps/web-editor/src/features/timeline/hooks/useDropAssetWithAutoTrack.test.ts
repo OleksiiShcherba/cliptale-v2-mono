@@ -16,6 +16,7 @@ vi.mock('@/store/project-store', () => ({
 vi.mock('@/features/timeline/api', () => ({
   createClip: vi.fn().mockResolvedValue(undefined),
   patchClip: vi.fn().mockResolvedValue(undefined),
+  linkFileToProject: vi.fn().mockResolvedValue(undefined),
 }));
 
 const uuidState = vi.hoisted(() => ({ count: 0 }));
@@ -29,6 +30,7 @@ import * as timelineApi from '@/features/timeline/api';
 const mockGetSnapshot = vi.mocked(projectStore.getSnapshot);
 const mockSetProject = vi.mocked(projectStore.setProject);
 const mockCreateClip = vi.mocked(timelineApi.createClip);
+const mockLinkFileToProject = vi.mocked(timelineApi.linkFileToProject);
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -131,5 +133,25 @@ describe('useDropAssetWithAutoTrack', () => {
 
     const updated = mockSetProject.mock.calls[0]![0] as ProjectDoc;
     expect(updated.clips[0]?.startFrame).toBe(60);
+  });
+
+  it('calls linkFileToProject with projectId and asset id after a successful drop', () => {
+    mockGetSnapshot.mockReturnValue(makeProject({ tracks: [], clips: [] }));
+    const { result } = renderHook(() => useDropAssetWithAutoTrack('proj-001'));
+
+    result.current(makeAsset({ id: 'asset-auto-link' }), 0);
+
+    expect(mockLinkFileToProject).toHaveBeenCalledOnce();
+    expect(mockLinkFileToProject.mock.calls[0]![0]).toBe('proj-001');
+    expect(mockLinkFileToProject.mock.calls[0]![1]).toBe('asset-auto-link');
+  });
+
+  it('does NOT call linkFileToProject for unsupported content types', () => {
+    mockGetSnapshot.mockReturnValue(makeProject());
+    const { result } = renderHook(() => useDropAssetWithAutoTrack('proj-001'));
+
+    result.current(makeAsset({ contentType: 'application/pdf' }), 0);
+
+    expect(mockLinkFileToProject).not.toHaveBeenCalled();
   });
 });

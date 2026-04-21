@@ -238,3 +238,73 @@ describe('PromptEditor / drop', () => {
     expect(chipIds).toContain('vid-2');
   });
 });
+
+// ── onFileLinked callback tests ───────────────────────────────────────────────
+
+describe('PromptEditor / onFileLinked', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('calls onFileLinked with the dropped fileId when a chip is inserted via drop', () => {
+    const onFileLinked = vi.fn();
+    const [doc, setDoc] = [
+      { schemaVersion: 1, blocks: [{ type: 'text', value: '' }] } as PromptDoc,
+      vi.fn(),
+    ];
+    render(
+      <PromptEditor
+        value={doc}
+        onChange={setDoc}
+        onFileLinked={onFileLinked}
+      />,
+    );
+    const editor = getEditor();
+
+    act(() => {
+      fireEvent.drop(editor, {
+        dataTransfer: {
+          types: [ASSET_DRAG_MIME],
+          getData: (_: string) => validPayload('file-123', 'video', 'clip.mp4'),
+        },
+      });
+    });
+
+    expect(onFileLinked).toHaveBeenCalledOnce();
+    expect(onFileLinked).toHaveBeenCalledWith('file-123');
+  });
+
+  it('does NOT call onFileLinked when the MIME type does not match', () => {
+    const onFileLinked = vi.fn();
+    const doc: PromptDoc = { schemaVersion: 1, blocks: [{ type: 'text', value: '' }] };
+    render(<PromptEditor value={doc} onChange={vi.fn()} onFileLinked={onFileLinked} />);
+    const editor = getEditor();
+
+    act(() => {
+      fireEvent.drop(editor, {
+        dataTransfer: {
+          types: ['text/plain'],
+          getData: (_: string) => 'plain text',
+        },
+      });
+    });
+
+    expect(onFileLinked).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call onFileLinked when the payload is invalid JSON', () => {
+    const onFileLinked = vi.fn();
+    const doc: PromptDoc = { schemaVersion: 1, blocks: [{ type: 'text', value: '' }] };
+    render(<PromptEditor value={doc} onChange={vi.fn()} onFileLinked={onFileLinked} />);
+    const editor = getEditor();
+
+    act(() => {
+      fireEvent.drop(editor, {
+        dataTransfer: {
+          types: [ASSET_DRAG_MIME],
+          getData: (_: string) => '{ broken json',
+        },
+      });
+    });
+
+    expect(onFileLinked).not.toHaveBeenCalled();
+  });
+});

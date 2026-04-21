@@ -30,6 +30,7 @@ type FileDbRow = RowDataPacket & {
   error_message: string | null;
   created_at: Date;
   updated_at: Date;
+  deleted_at: Date | null;
 };
 
 function mapRowToFileRow(row: FileDbRow): FileRow {
@@ -48,6 +49,7 @@ function mapRowToFileRow(row: FileDbRow): FileRow {
     errorMessage: row.error_message,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    deletedAt: row.deleted_at ?? null,
   };
 }
 
@@ -76,7 +78,7 @@ export async function findFilesByProjectId(projectId: string): Promise<FileRow[]
     `SELECT f.*
        FROM project_files pf
        JOIN files f ON f.file_id = pf.file_id
-      WHERE pf.project_id = ?
+      WHERE pf.project_id = ? AND pf.deleted_at IS NULL AND f.deleted_at IS NULL
       ORDER BY pf.created_at ASC`,
     [projectId],
   );
@@ -107,7 +109,7 @@ export async function findFilesByDraftId(draftId: string): Promise<FileRow[]> {
     `SELECT f.*
        FROM draft_files df
        JOIN files f ON f.file_id = df.file_id
-      WHERE df.draft_id = ?
+      WHERE df.draft_id = ? AND df.deleted_at IS NULL AND f.deleted_at IS NULL
       ORDER BY df.created_at ASC`,
     [draftId],
   );

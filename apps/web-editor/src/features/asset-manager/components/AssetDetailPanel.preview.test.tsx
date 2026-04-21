@@ -20,7 +20,7 @@ vi.mock('@/features/asset-manager/api', () => ({
   updateAsset: vi.fn(),
 }));
 
-vi.mock('./AddToTimelineDropdown', () => ({
+vi.mock('@/features/asset-manager/components/AddToTimelineDropdown', () => ({
   AddToTimelineDropdown: ({ asset, projectId, disabled }: { asset: Asset; projectId: string; disabled?: boolean }) =>
     React.createElement('button', {
       'data-testid': 'add-to-timeline-dropdown',
@@ -33,7 +33,7 @@ vi.mock('@/features/captions/components/TranscribeButton', () => ({
     React.createElement('button', { 'data-testid': 'transcribe-button', 'data-asset-id': fileId }, 'Transcribe'),
 }));
 
-vi.mock('./AssetPreviewModal', () => ({
+vi.mock('@/features/asset-manager/components/AssetPreviewModal', () => ({
   AssetPreviewModal: ({ asset, onClose }: { asset: Asset; onClose: () => void }) =>
     React.createElement('div', {
       'data-testid': 'asset-preview-modal',
@@ -75,19 +75,19 @@ describe('AssetDetailPanel', () => {
 
   describe('preview thumbnail', () => {
     it('renders an img element when thumbnailUri is provided', () => {
-      render(<AssetDetailPanel asset={makeAsset({ thumbnailUri: 'https://example.com/thumb.jpg' })} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset({ thumbnailUri: 'https://example.com/thumb.jpg' })} context={{ kind: 'project', projectId: 'proj-001' }} />);
       const img = screen.getByRole('img') as HTMLImageElement;
       expect(img).toBeDefined();
       expect(img.src).toBe('https://example.com/thumb.jpg');
     });
 
     it('renders "No preview" text for video asset when thumbnailUri is null', () => {
-      render(<AssetDetailPanel asset={makeAsset({ contentType: 'video/mp4', thumbnailUri: null })} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset({ contentType: 'video/mp4', thumbnailUri: null })} context={{ kind: 'project', projectId: 'proj-001' }} />);
       expect(screen.getByText('No preview')).toBeDefined();
     });
 
     it('renders "No preview" text for audio asset when thumbnailUri is null', () => {
-      render(<AssetDetailPanel asset={makeAsset({ contentType: 'audio/mpeg', thumbnailUri: null })} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset({ contentType: 'audio/mpeg', thumbnailUri: null })} context={{ kind: 'project', projectId: 'proj-001' }} />);
       expect(screen.getByText('No preview')).toBeDefined();
     });
 
@@ -95,7 +95,7 @@ describe('AssetDetailPanel', () => {
       const { container } = render(
         <AssetDetailPanel
           asset={makeAsset({ id: 'img-001', contentType: 'image/png', thumbnailUri: null, status: 'ready' })}
-          projectId="proj-001"
+          context={{ kind: 'project', projectId: 'proj-001' }}
         />,
       );
       const img = container.querySelector('img');
@@ -107,7 +107,7 @@ describe('AssetDetailPanel', () => {
       render(
         <AssetDetailPanel
           asset={makeAsset({ contentType: 'image/png', thumbnailUri: null, status: 'processing' })}
-          projectId="proj-001"
+          context={{ kind: 'project', projectId: 'proj-001' }}
         />,
       );
       expect(screen.getByText('No preview')).toBeDefined();
@@ -116,53 +116,53 @@ describe('AssetDetailPanel', () => {
 
   describe('Preview button', () => {
     it('renders the Preview button', () => {
-      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset()} context={{ kind: 'project', projectId: 'proj-001' }} />);
       expect(screen.getByRole('button', { name: /preview asset/i })).toBeDefined();
     });
 
     it('is enabled when asset status is ready', () => {
-      render(<AssetDetailPanel asset={makeAsset({ status: 'ready' })} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset({ status: 'ready' })} context={{ kind: 'project', projectId: 'proj-001' }} />);
       const btn = screen.getByRole('button', { name: /preview asset/i }) as HTMLButtonElement;
       expect(btn.disabled).toBe(false);
     });
 
     it('is disabled when asset status is processing', () => {
-      render(<AssetDetailPanel asset={makeAsset({ status: 'processing' })} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset({ status: 'processing' })} context={{ kind: 'project', projectId: 'proj-001' }} />);
       const btn = screen.getByRole('button', { name: /preview asset/i }) as HTMLButtonElement;
       expect(btn.disabled).toBe(true);
     });
 
     it('is disabled when asset status is pending', () => {
-      render(<AssetDetailPanel asset={makeAsset({ status: 'pending' })} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset({ status: 'pending' })} context={{ kind: 'project', projectId: 'proj-001' }} />);
       const btn = screen.getByRole('button', { name: /preview asset/i }) as HTMLButtonElement;
       expect(btn.disabled).toBe(true);
     });
 
     it('is disabled when asset status is error', () => {
-      render(<AssetDetailPanel asset={makeAsset({ status: 'error' })} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset({ status: 'error' })} context={{ kind: 'project', projectId: 'proj-001' }} />);
       const btn = screen.getByRole('button', { name: /preview asset/i }) as HTMLButtonElement;
       expect(btn.disabled).toBe(true);
     });
 
     it('does not render the modal when Preview has not been clicked', () => {
-      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset()} context={{ kind: 'project', projectId: 'proj-001' }} />);
       expect(screen.queryByTestId('asset-preview-modal')).toBeNull();
     });
 
     it('opens AssetPreviewModal when the Preview button is clicked', () => {
-      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset()} context={{ kind: 'project', projectId: 'proj-001' }} />);
       fireEvent.click(screen.getByRole('button', { name: /preview asset/i }));
       expect(screen.getByTestId('asset-preview-modal')).toBeDefined();
     });
 
     it('passes the correct asset to AssetPreviewModal', () => {
-      render(<AssetDetailPanel asset={makeAsset({ id: 'asset-xyz' })} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset({ id: 'asset-xyz' })} context={{ kind: 'project', projectId: 'proj-001' }} />);
       fireEvent.click(screen.getByRole('button', { name: /preview asset/i }));
       expect(screen.getByTestId('asset-preview-modal').getAttribute('data-asset-id')).toBe('asset-xyz');
     });
 
     it('closes AssetPreviewModal when onClose is called', () => {
-      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset()} context={{ kind: 'project', projectId: 'proj-001' }} />);
       fireEvent.click(screen.getByRole('button', { name: /preview asset/i }));
       expect(screen.getByTestId('asset-preview-modal')).toBeDefined();
       fireEvent.click(screen.getByTestId('modal-close'));
@@ -173,7 +173,7 @@ describe('AssetDetailPanel', () => {
   describe('status badge overlay (task 5)', () => {
     it('status badge is inside the preview container (overlaid)', () => {
       render(
-        <AssetDetailPanel asset={makeAsset({ status: 'ready', thumbnailUri: null })} projectId="proj-001" />,
+        <AssetDetailPanel asset={makeAsset({ status: 'ready', thumbnailUri: null })} context={{ kind: 'project', projectId: 'proj-001' }} />,
       );
       const badge = screen.getByLabelText(/status: ready/i);
       expect(badge.style.position).toBe('absolute');
@@ -181,7 +181,7 @@ describe('AssetDetailPanel', () => {
 
     it('status badge is positioned at bottom-right of preview', () => {
       render(
-        <AssetDetailPanel asset={makeAsset({ status: 'processing' })} projectId="proj-001" />,
+        <AssetDetailPanel asset={makeAsset({ status: 'processing' })} context={{ kind: 'project', projectId: 'proj-001' }} />,
       );
       const badge = screen.getByLabelText(/status: processing/i);
       expect(badge.style.bottom).toBe('8px');

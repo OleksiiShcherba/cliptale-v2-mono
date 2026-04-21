@@ -22,7 +22,7 @@ vi.mock('@/features/asset-manager/api', () => ({
   updateAsset: (...args: unknown[]) => mockUpdateAsset(...args),
 }));
 
-vi.mock('./AddToTimelineDropdown', () => ({
+vi.mock('@/features/asset-manager/components/AddToTimelineDropdown', () => ({
   AddToTimelineDropdown: ({ asset, projectId, disabled }: { asset: Asset; projectId: string; disabled?: boolean }) =>
     React.createElement('button', {
       'data-testid': 'add-to-timeline-dropdown',
@@ -37,7 +37,7 @@ vi.mock('@/features/captions/components/TranscribeButton', () => ({
     React.createElement('button', { 'data-testid': 'transcribe-button', 'data-asset-id': fileId }, 'Transcribe'),
 }));
 
-vi.mock('./AssetPreviewModal', () => ({
+vi.mock('@/features/asset-manager/components/AssetPreviewModal', () => ({
   AssetPreviewModal: ({ onClose }: { asset: Asset; onClose: () => void }) =>
     React.createElement('div', { 'data-testid': 'asset-preview-modal' },
       React.createElement('button', { onClick: onClose, 'data-testid': 'modal-close' }, 'Close')),
@@ -75,7 +75,7 @@ describe('AssetDetailPanel', () => {
 
   describe('inline rename — display name fallback', () => {
     it('shows filename when displayName is null', () => {
-      render(<AssetDetailPanel asset={makeAsset({ filename: 'clip.mp4', displayName: null })} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset({ filename: 'clip.mp4', displayName: null })} context={{ kind: 'project', projectId: 'proj-001' }} />);
       expect(screen.getByText('clip.mp4')).toBeDefined();
     });
 
@@ -83,7 +83,7 @@ describe('AssetDetailPanel', () => {
       render(
         <AssetDetailPanel
           asset={makeAsset({ filename: 'clip.mp4', displayName: 'My Great Clip' })}
-          projectId="proj-001"
+          context={{ kind: 'project', projectId: 'proj-001' }}
         />,
       );
       expect(screen.getByText('My Great Clip')).toBeDefined();
@@ -91,7 +91,7 @@ describe('AssetDetailPanel', () => {
     });
 
     it('renders the pencil/rename button', () => {
-      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset()} context={{ kind: 'project', projectId: 'proj-001' }} />);
       expect(screen.getByRole('button', { name: /rename asset/i })).toBeDefined();
     });
   });
@@ -101,7 +101,7 @@ describe('AssetDetailPanel', () => {
       render(
         <AssetDetailPanel
           asset={makeAsset({ filename: 'clip.mp4', displayName: 'My Clip' })}
-          projectId="proj-001"
+          context={{ kind: 'project', projectId: 'proj-001' }}
         />,
       );
       fireEvent.click(screen.getByRole('button', { name: /rename asset/i }));
@@ -114,7 +114,7 @@ describe('AssetDetailPanel', () => {
       render(
         <AssetDetailPanel
           asset={makeAsset({ filename: 'clip.mp4', displayName: null })}
-          projectId="proj-001"
+          context={{ kind: 'project', projectId: 'proj-001' }}
         />,
       );
       fireEvent.click(screen.getByRole('button', { name: /rename asset/i }));
@@ -123,7 +123,7 @@ describe('AssetDetailPanel', () => {
     });
 
     it('pressing Escape cancels the rename and reverts to view mode', () => {
-      render(<AssetDetailPanel asset={makeAsset({ filename: 'clip.mp4' })} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset({ filename: 'clip.mp4' })} context={{ kind: 'project', projectId: 'proj-001' }} />);
       fireEvent.click(screen.getByRole('button', { name: /rename asset/i }));
       expect(screen.getByRole('textbox', { name: /asset display name/i })).toBeDefined();
       fireEvent.keyDown(screen.getByRole('textbox', { name: /asset display name/i }), { key: 'Escape' });
@@ -132,7 +132,7 @@ describe('AssetDetailPanel', () => {
     });
 
     it('does not call updateAsset when Escape is pressed', () => {
-      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset()} context={{ kind: 'project', projectId: 'proj-001' }} />);
       fireEvent.click(screen.getByRole('button', { name: /rename asset/i }));
       fireEvent.keyDown(screen.getByRole('textbox', { name: /asset display name/i }), { key: 'Escape' });
       expect(mockUpdateAsset).not.toHaveBeenCalled();
@@ -140,7 +140,7 @@ describe('AssetDetailPanel', () => {
 
     it('calls updateAsset with trimmed value when Enter is pressed', async () => {
       mockUpdateAsset.mockResolvedValueOnce({ ...makeAsset(), displayName: 'New Name' });
-      render(<AssetDetailPanel asset={makeAsset({ id: 'asset-001' })} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset({ id: 'asset-001' })} context={{ kind: 'project', projectId: 'proj-001' }} />);
       fireEvent.click(screen.getByRole('button', { name: /rename asset/i }));
       const input = screen.getByRole('textbox', { name: /asset display name/i });
       fireEvent.change(input, { target: { value: '  New Name  ' } });
@@ -152,7 +152,7 @@ describe('AssetDetailPanel', () => {
 
     it('invalidates the assets query after a successful rename', async () => {
       mockUpdateAsset.mockResolvedValueOnce({ ...makeAsset(), displayName: 'New Name' });
-      render(<AssetDetailPanel asset={makeAsset({ id: 'asset-001' })} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset({ id: 'asset-001' })} context={{ kind: 'project', projectId: 'proj-001' }} />);
       fireEvent.click(screen.getByRole('button', { name: /rename asset/i }));
       const input = screen.getByRole('textbox', { name: /asset display name/i });
       fireEvent.change(input, { target: { value: 'New Name' } });
@@ -163,7 +163,7 @@ describe('AssetDetailPanel', () => {
     });
 
     it('shows an error message when the name is empty and Enter is pressed', () => {
-      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset()} context={{ kind: 'project', projectId: 'proj-001' }} />);
       fireEvent.click(screen.getByRole('button', { name: /rename asset/i }));
       const input = screen.getByRole('textbox', { name: /asset display name/i });
       fireEvent.change(input, { target: { value: '   ' } });
@@ -173,7 +173,7 @@ describe('AssetDetailPanel', () => {
     });
 
     it('shows an error message when the name exceeds 255 characters', () => {
-      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset()} context={{ kind: 'project', projectId: 'proj-001' }} />);
       fireEvent.click(screen.getByRole('button', { name: /rename asset/i }));
       const input = screen.getByRole('textbox', { name: /asset display name/i });
       fireEvent.change(input, { target: { value: 'a'.repeat(256) } });
@@ -183,7 +183,7 @@ describe('AssetDetailPanel', () => {
 
     it('shows an error message when updateAsset fails', async () => {
       mockUpdateAsset.mockRejectedValueOnce(new Error('network error'));
-      render(<AssetDetailPanel asset={makeAsset()} projectId="proj-001" />);
+      render(<AssetDetailPanel asset={makeAsset()} context={{ kind: 'project', projectId: 'proj-001' }} />);
       fireEvent.click(screen.getByRole('button', { name: /rename asset/i }));
       const input = screen.getByRole('textbox', { name: /asset display name/i });
       fireEvent.change(input, { target: { value: 'New Name' } });
@@ -197,7 +197,7 @@ describe('AssetDetailPanel', () => {
       render(
         <AssetDetailPanel
           asset={makeAsset({ filename: 'clip.mp4', displayName: null })}
-          projectId="proj-001"
+          context={{ kind: 'project', projectId: 'proj-001' }}
         />,
       );
       fireEvent.click(screen.getByRole('button', { name: /rename asset/i }));

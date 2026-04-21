@@ -8,6 +8,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -29,6 +30,11 @@ const { mockFormatRelativeDate } = vi.hoisted(() => ({
 
 vi.mock('@/shared/utils/formatRelativeDate', () => ({
   formatRelativeDate: mockFormatRelativeDate,
+}));
+
+vi.mock('../api', () => ({
+  deleteProject: vi.fn().mockResolvedValue(undefined),
+  restoreProject: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { ProjectCard } from './ProjectCard';
@@ -53,10 +59,13 @@ const PROJECT_NO_THUMB: ProjectSummary = {
 };
 
 function renderCard(project: ProjectSummary) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter>
-      <ProjectCard project={project} />
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <ProjectCard project={project} />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

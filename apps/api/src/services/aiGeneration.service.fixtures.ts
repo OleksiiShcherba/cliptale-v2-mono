@@ -81,6 +81,7 @@ export function makeFileRow(overrides: Partial<FileRow> = {}): FileRow {
     errorMessage: null,
     createdAt: new Date('2026-04-18T00:00:00Z'),
     updatedAt: new Date('2026-04-18T00:00:00Z'),
+    deletedAt: null,
     ...overrides,
   };
 }

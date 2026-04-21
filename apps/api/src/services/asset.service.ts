@@ -6,7 +6,8 @@ import sanitize from 'sanitize-html';
 
 import type { Asset } from '@/repositories/asset.repository.js';
 import * as assetRepository from '@/repositories/asset.repository.js';
-import { ConflictError, NotFoundError, ValidationError } from '@/lib/errors.js';
+import * as fileRepository from '@/repositories/file.repository.js';
+import { GoneError, NotFoundError, ValidationError } from '@/lib/errors.js';
 import { enqueueIngestJob } from '@/queues/jobs/enqueue-ingest.js';
 
 /** Presigned URL expiry — 15 minutes per §11 security rules. */
@@ -143,26 +144,52 @@ export async function getAsset(fileId: string): Promise<Asset> {
 }
 
 /**
- * Deletes an asset after verifying ownership and that no clip references it.
+ * Soft-deletes an asset by setting `deleted_at`, after verifying ownership.
+ *
+ * EPIC B decision: clips referencing a soft-deleted file are NOT blocked.
+ * The file remains resolvable during the 30-day undo window (renders show a
+ * "missing file" placeholder). List views exclude soft-deleted rows via the
+ * `deleted_at IS NULL` filter added in B2.
  *
  * Throws NotFoundError (404) if the asset does not exist or belongs to another user.
- * Throws ConflictError (409) if the asset is referenced by at least one clip — the
- * referential integrity rule prevents deleting assets that are in use on a timeline.
  */
 export async function deleteAsset(fileId: string, userId: string): Promise<void> {
   const asset = await assetRepository.getAssetById(fileId);
   if (!asset || asset.userId !== userId) {
     throw new NotFoundError(`Asset "${fileId}" not found`);
   }
+  await fileRepository.softDelete(fileId);
+}
 
-  const inUse = await assetRepository.isAssetReferencedByClip(fileId);
-  if (inUse) {
-    throw new ConflictError(
-      `Asset "${fileId}" is referenced by one or more clips and cannot be deleted`,
-    );
+/**
+ * Restores a soft-deleted asset, verifying ownership.
+ *
+ * Throws GoneError (410) when the row no longer exists (hard-purged) or when
+ * `deleted_at` is more than 30 days ago (TTL exceeded — treated as purged).
+ * Throws NotFoundError (404) when the file exists but belongs to another user.
+ */
+export async function restoreAsset(fileId: string, userId: string): Promise<Asset> {
+  const file = await fileRepository.findByIdIncludingDeleted(fileId);
+  if (!file) {
+    throw new GoneError(`Asset "${fileId}" has been permanently removed and cannot be restored`);
   }
-
-  await assetRepository.deleteAssetById(fileId);
+  if (file.userId !== userId) {
+    throw new NotFoundError(`Asset "${fileId}" not found`);
+  }
+  if (file.deletedAt !== null) {
+    const RESTORE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+    const age = Date.now() - file.deletedAt.getTime();
+    if (age > RESTORE_TTL_MS) {
+      throw new GoneError(`Asset "${fileId}" was deleted more than 30 days ago and cannot be restored`);
+    }
+    await fileRepository.restore(fileId);
+  }
+  // Re-fetch via asset adapter so the caller gets back the full Asset shape.
+  const restored = await assetRepository.getAssetById(fileId);
+  if (!restored) {
+    throw new GoneError(`Asset "${fileId}" could not be restored`);
+  }
+  return restored;
 }
 
 /**

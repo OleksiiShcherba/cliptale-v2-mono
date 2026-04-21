@@ -1,15 +1,19 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { formatRelativeDate } from '@/shared/utils/formatRelativeDate';
 
 import type { ProjectSummary } from '../types';
+import { deleteProject, restoreProject } from '../api';
 
 // ── Design-guide tokens (§3 Dark Theme) ────────────────────────────────────
 const SURFACE_ELEVATED = '#1E1E2E';
 const TEXT_PRIMARY = '#F0F0FA';
 const TEXT_SECONDARY = '#8A8AA0';
 const BORDER = '#252535';
+// TODO: ERROR is duplicated in several card files — consolidate into a shared token file when other tokens are centralised
+const ERROR = '#EF4444';
 
 /** Placeholder SVG rendered when thumbnailUrl is null. */
 function ThumbnailPlaceholder(): React.ReactElement {
@@ -32,6 +36,11 @@ function ThumbnailPlaceholder(): React.ReactElement {
 
 interface ProjectCardProps {
   project: ProjectSummary;
+  /**
+   * Optional callback invoked after a successful soft-delete of the project,
+   * allowing a parent to show the undo toast.
+   */
+  onShowUndoToast?: (label: string, onUndo: () => Promise<void>) => void;
 }
 
 /**
@@ -40,8 +49,11 @@ interface ProjectCardProps {
  * Renders thumbnail (or placeholder SVG), title, and relative last-updated date.
  * Clicking anywhere on the card navigates to /editor?projectId=<id>.
  */
-export function ProjectCard({ project }: ProjectCardProps): React.ReactElement {
+export function ProjectCard({ project, onShowUndoToast }: ProjectCardProps): React.ReactElement | null {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [isDeleting, setIsDeleting] = React.useState(false);
+  const [isVisible, setIsVisible] = React.useState(true);
 
   function handleClick(): void {
     navigate(`/editor?projectId=${project.projectId}`);
@@ -54,7 +66,32 @@ export function ProjectCard({ project }: ProjectCardProps): React.ReactElement {
     }
   }
 
+  async function handleDelete(e: React.MouseEvent): Promise<void> {
+    e.stopPropagation();
+    if (isDeleting) return;
+    setIsDeleting(true);
+    try {
+      const projectId = project.projectId;
+      await deleteProject(projectId);
+      // Optimistically hide the card; invalidate query so list refetches
+      setIsVisible(false);
+      void queryClient.invalidateQueries({ queryKey: ['home', 'projects'] });
+      onShowUndoToast?.(
+        `"${project.title}" deleted`,
+        async () => {
+          await restoreProject(projectId);
+          setIsVisible(true);
+          void queryClient.invalidateQueries({ queryKey: ['home', 'projects'] });
+        },
+      );
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   const relativeDate = formatRelativeDate(new Date(project.updatedAt));
+
+  if (!isVisible) return null;
 
   return (
     <div
@@ -123,6 +160,34 @@ export function ProjectCard({ project }: ProjectCardProps): React.ReactElement {
         >
           {relativeDate}
         </p>
+      </div>
+
+      {/* Footer: Delete button */}
+      <div
+        style={{ padding: '8px 16px', display: 'flex', justifyContent: 'flex-end' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          aria-label={`Delete project ${project.title}`}
+          onClick={(e) => { void handleDelete(e); }}
+          disabled={isDeleting}
+          style={{
+            padding: '4px 12px',
+            background: 'transparent',
+            color: ERROR,
+            border: `1px solid ${ERROR}`,
+            borderRadius: 4,
+            fontSize: 12,
+            fontWeight: 500,
+            fontFamily: 'Inter, sans-serif',
+            lineHeight: '16px',
+            cursor: isDeleting ? 'not-allowed' : 'pointer',
+            opacity: isDeleting ? 0.6 : 1,
+          }}
+        >
+          {isDeleting ? 'Deleting…' : 'Delete'}
+        </button>
       </div>
     </div>
   );
