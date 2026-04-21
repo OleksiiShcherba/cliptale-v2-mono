@@ -8,43 +8,19 @@ import * as generationDraftRestoreService from '@/services/generationDraft.resto
 import * as fileLinksService from '@/services/fileLinks.service.js';
 import * as fileLinksResponseService from '@/services/fileLinks.response.service.js';
 
-/** `scope` query param for `GET /generation-drafts/:id/assets`. Default: `draft` (linked only). `all` returns the user's entire library. `project` is not valid here — use the projects endpoint. */
-export const draftAssetsScopeSchema = z.object({
-  scope: z.enum(['all', 'draft']).default('draft'),
-});
+export {
+  draftAssetsScopeSchema,
+  submitDraftAiGenerationSchema,
+  linkFileToDraftSchema,
+  upsertDraftBodySchema,
+} from '@/controllers/generationDrafts.controller.schemas.js';
 
-/**
- * Zod schema for POST /generation-drafts/:draftId/ai/generate.
- *
- * Mirrors aiGeneration.controller.submitGenerationSchema but lives here to keep
- * the controller files decoupled. No `projectId` compat shim needed — this is a
- * new endpoint, not a migration of the project-scoped one.
- */
-export const submitDraftAiGenerationSchema = z.object({
-  modelId: z.string().min(1),
-  prompt: z.string().min(1).max(4000).optional(),
-  options: z.record(z.unknown()).default({}),
-});
-
-/** Zod schema for POST /generation-drafts/:draftId/files body. Exported for route middleware. */
-export const linkFileToDraftSchema = z.object({
-  fileId: z.string().uuid(),
-});
-
-/**
- * Zod schema for POST /generation-drafts and PUT /generation-drafts/:id request bodies.
- *
- * The payload wraps the PromptDoc rather than flattening it, consistent with
- * the project convention (confirmed by reading assets.controller.ts where the
- * upload body wraps distinct fields; wrapping here keeps the shape unambiguous
- * and allows future addition of metadata alongside promptDoc without a breaking change).
- *
- * The promptDoc value is passed as-is to the service, which runs the full
- * promptDocSchema validation and throws UnprocessableEntityError on failure.
- */
-export const upsertDraftBodySchema = z.object({
-  promptDoc: z.record(z.unknown()),
-});
+import {
+  draftAssetsScopeSchema,
+  submitDraftAiGenerationSchema,
+  linkFileToDraftSchema,
+  upsertDraftBodySchema,
+} from '@/controllers/generationDrafts.controller.schemas.js';
 
 type UpsertDraftBody = z.infer<typeof upsertDraftBodySchema>;
 
@@ -246,7 +222,9 @@ export async function linkFileToDraft(
 
 /**
  * GET /generation-drafts/:id/assets
- * Returns draft files. `?scope=draft` (default) — linked only; `?scope=all` — full library.
+ * Returns draft files in the paginated envelope. `?scope=draft` (default) — linked only;
+ * `?scope=all` — full library. Ownership is verified via `generationDraftService.getById`
+ * which throws `ForbiddenError` when the draft belongs to a different user.
  */
 export async function getDraftAssets(
   req: Request,
@@ -260,15 +238,20 @@ export async function getDraftAssets(
         `Invalid query parameters: ${parsed.error.issues.map((i) => i.message).join(', ')}`,
       );
     }
+    const userId = req.user!.userId;
+    const draftId = req.params['id']!;
+    // Ownership check — throws ForbiddenError if the draft does not belong to this user.
+    await generationDraftService.getById(userId, draftId);
+
     const baseUrl = `${req.protocol}://${req.get('host')}`;
-    const assets = await fileLinksResponseService.getDraftFilesResponse(
-      req.params['id']!,
+    const page = await fileLinksResponseService.getDraftFilesResponse(
+      draftId,
       s3Client,
       baseUrl,
       parsed.data.scope,
-      req.user!.userId,
+      userId,
     );
-    res.json(assets);
+    res.json(page);
   } catch (err) {
     next(err);
   }

@@ -12,7 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { listAssets, listDraftAssets } from '@/features/generate-wizard/api';
 
-import type { AssetListResponse } from '../types';
+import type { AssetListResponse } from '@/features/generate-wizard/types';
 
 type UseAssetsOptions = {
   /** Pass 'all' for every kind, or a specific kind to filter. */
