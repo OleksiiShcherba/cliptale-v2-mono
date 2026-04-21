@@ -7,7 +7,10 @@ import { render, screen, fireEvent } from '@testing-library/react';
 // ---------------------------------------------------------------------------
 
 const mockUseQuery = vi.fn();
-const mockUseQueryClient = vi.fn(() => ({ invalidateQueries: vi.fn() }));
+const mockUseQueryClient = vi.fn(() => ({
+  invalidateQueries: vi.fn(),
+  setQueryData: vi.fn(),
+}));
 
 vi.mock('@tanstack/react-query', () => ({
   useQuery: (...args: unknown[]) => mockUseQuery(...args),
@@ -27,8 +30,9 @@ vi.mock('@/features/asset-manager/hooks/useAssetUpload', () => ({
   }),
 }));
 
+const useAssetPollingSpy = vi.fn();
 vi.mock('@/features/asset-manager/hooks/useAssetPolling', () => ({
-  useAssetPolling: vi.fn(),
+  useAssetPolling: (...args: unknown[]) => useAssetPollingSpy(...args),
 }));
 
 vi.mock('./AssetCard', () => ({
@@ -291,6 +295,24 @@ describe('AssetBrowserPanel', () => {
   it('shows filter tabs by default', () => {
     render(<AssetBrowserPanel projectId="proj-001" />);
     expect(screen.getByRole('button', { name: /^all$/i })).toBeDefined();
+  });
+
+  // ── Polling scoping (regression: Show All spamming /assets/:id) ────────────
+
+  it('does not spawn pollers for processing assets that were not uploaded in this session', () => {
+    // Regression: Show All surfaced stuck legacy rows whose pollers then hammered
+    // GET /assets/:id every 2 s across the whole library, triggering 429s.
+    mockAssetsQuery([
+      { ...(makeAsset('proc-1') as { status: string }), status: 'processing' },
+      { ...(makeAsset('pend-1') as { status: string }), status: 'pending' },
+      makeAsset('ready-1'),
+    ]);
+    render(<AssetBrowserPanel projectId={PROJECT_ID} />);
+
+    // Pollers are gated by sessionUploadIds, which is empty on fresh mount.
+    // The only call useAssetPolling receives is when a child AssetPoller mounts.
+    // With no session uploads, no AssetPoller should mount.
+    expect(useAssetPollingSpy).not.toHaveBeenCalled();
   });
 
   it('shows all assets when areFilterTabsHidden is true (activeTab defaults to all)', () => {

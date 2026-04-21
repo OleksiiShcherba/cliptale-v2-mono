@@ -1,12 +1,12 @@
-import React, { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useCallback, useState } from 'react';
+import { useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 
 import { getAssets } from '@/features/asset-manager/api';
 import { useAssetUpload } from '@/features/asset-manager/hooks/useAssetUpload';
 import { useAssetPolling } from '@/features/asset-manager/hooks/useAssetPolling';
 import { useScopeToggle } from '@/features/asset-manager/hooks/useScopeToggle';
 import { matchesTab } from '@/features/asset-manager/utils';
-import type { Asset, AssetFilterTab } from '@/features/asset-manager/types';
+import type { Asset, AssetFilterTab, AssetListResponse } from '@/features/asset-manager/types';
 
 import { AssetDetailPanel } from '@/shared/asset-detail/AssetDetailPanel';
 
@@ -15,8 +15,14 @@ import { DeleteAssetDialog } from './DeleteAssetDialog';
 import { ReplaceAssetDialog } from './ReplaceAssetDialog';
 import { UploadDropzone } from './UploadDropzone';
 
-/** Renders nothing; runs useAssetPolling for one asset and calls onSettled when done. */
-function AssetPoller({ fileId, onSettled }: { fileId: string; onSettled: () => void }): null {
+/** Renders nothing; runs useAssetPolling for one asset and calls onSettled with the fresh row. */
+function AssetPoller({
+  fileId,
+  onSettled,
+}: {
+  fileId: string;
+  onSettled: (asset: Asset) => void;
+}): null {
   useAssetPolling({ fileId, onReady: onSettled, onError: onSettled });
   return null;
 }
@@ -54,7 +60,47 @@ export function AssetBrowserPanel({
   const [isReplaceOpen, setIsReplaceOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
+  // IDs of files uploaded during this mount. Only these are actively polled
+  // for ingest progress — pre-existing files in the list (especially when
+  // Show All surfaces stuck legacy rows) must never spin up pollers.
+  const [sessionUploadIds, setSessionUploadIds] = useState<Set<string>>(() => new Set());
+
   const queryClient = useQueryClient();
+
+  // Patch a single asset row in both scope caches instead of invalidating the
+  // whole list, so one asset settling does not trigger a full re-fetch storm.
+  const patchAssetInCaches = useCallback(
+    (asset: Asset) => {
+      const keys: QueryKey[] = [
+        ['assets', projectId, 'project'],
+        ['assets', projectId, 'all'],
+      ];
+      for (const key of keys) {
+        queryClient.setQueryData<AssetListResponse | undefined>(key, (prev) => {
+          if (!prev) return prev;
+          const idx = prev.items.findIndex((a) => a.id === asset.id);
+          if (idx < 0) return prev;
+          const nextItems = prev.items.slice();
+          nextItems[idx] = asset;
+          return { ...prev, items: nextItems };
+        });
+      }
+    },
+    [queryClient, projectId],
+  );
+
+  const handlePollerSettled = useCallback(
+    (asset: Asset) => {
+      patchAssetInCaches(asset);
+      setSessionUploadIds((prev) => {
+        if (!prev.has(asset.id)) return prev;
+        const next = new Set(prev);
+        next.delete(asset.id);
+        return next;
+      });
+    },
+    [patchAssetInCaches],
+  );
 
   // Fetch project-scoped assets first so useScopeToggle can detect empty first load.
   // The queryKey ['assets', projectId, 'project'] is shared with useProjectAssets hook
@@ -82,7 +128,13 @@ export function AssetBrowserPanel({
 
   const { entries, isUploading, uploadFiles, clearEntries } = useAssetUpload({
     projectId,
-    onUploadComplete: () => {
+    onUploadComplete: (fileId: string) => {
+      setSessionUploadIds((prev) => {
+        if (prev.has(fileId)) return prev;
+        const next = new Set(prev);
+        next.add(fileId);
+        return next;
+      });
       void queryClient.invalidateQueries({ queryKey: ['assets', projectId] });
     },
   });
@@ -197,9 +249,13 @@ export function AssetBrowserPanel({
       )}
 
       {assets
-        .filter((a: Asset) => a.status === 'processing' || a.status === 'pending')
+        .filter(
+          (a: Asset) =>
+            sessionUploadIds.has(a.id) &&
+            (a.status === 'processing' || a.status === 'pending'),
+        )
         .map((a: Asset) => (
-          <AssetPoller key={a.id} fileId={a.id} onSettled={() => void queryClient.invalidateQueries({ queryKey: ['assets', projectId] })} />
+          <AssetPoller key={a.id} fileId={a.id} onSettled={handlePollerSettled} />
         ))}
     </div>
   );
