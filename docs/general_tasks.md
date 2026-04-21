@@ -1,7 +1,8 @@
 Issues:
-1. When moving from one project to another timeline state are same between different project, that is issue. We should keep timeline state depend on how it was on last user change to it, so we can return back to it to fix it. That need to be fixed. Main: we do not save and restore timeline state, once user exist or return back to already existed project.
-2. As other changes Delete Asset button on project action should be recoverable uzin Undo button. That mean that anything that user do delete in our system should always be only soft deleted, and user should be capable to undo his actions.
-3. Projects list, do not show project preview, we should show first frame of project as preview
-4. Storyboad - click on asset should display asset preview, where should be next info like: Asset Preview - Asset Name with possibility to rename, Asset info (resolution, lenth if video, etc), Preview button, Add to Promt button, Delete Asset button.
-5. We have general files (files that you can see everywere in system, files from different directories) and assets that specific for that project, storyboard (drafts) because were added on that page. By default we only display project specific assets, but client should have possibility to press show all files icon under last added element, so we will show him all files that he has in system. Once user use that file on project, it become also as project assets or storyboard (draft) item. If project do not have any file on it we do by default display all files, with possibility to hid and dispaly only project specific assets.
-6. Storybord - draft AI generated block is skwezed, and not scalable to all availabl width
+1. Коли відкриваєш ClitTale Editor і ми відображаємо всі files в системі, ми чомусь постійно з інтервалом робимо їх get для прикладу: https://api.15-236-162-140.nip.io/assets/e9278b1c-73c8-4054-a5d5-44b7d43936b3 . Що спричиняє потім too many requests. Що потрібно поправити:
+1.1 Ми не повинні робити ці повторні постійні виклики без потреби
+1.2 Для отримання інфи по всім asset ми повинні виконувати лише один запит який їх нам поверне, також варто додати пагінацію
+
+2. Коли клієнт додає file з загального списку, до конкретного проетку, це має створювати project asset, так щоб файл уже був в доступі в рамках списку assets самого проекту
+
+3. Помилка при відкриті сторінки /generate - сторінки одного storyboard
