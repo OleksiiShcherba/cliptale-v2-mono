@@ -128,6 +128,73 @@ export async function findAllForUser(userId: string): Promise<FileRow[]> {
   return rows.map(mapRow);
 }
 
+/** Cursor for keyset pagination on `(created_at DESC, file_id DESC)`. */
+export type AllForUserCursor = {
+  createdAt: Date;
+  fileId: string;
+};
+
+type FindAllForUserPaginatedParams = {
+  userId: string;
+  limit: number;
+  cursor?: AllForUserCursor;
+};
+
+/**
+ * Returns a cursor-paginated page of ALL non-deleted files owned by `userId`,
+ * ordered by `(created_at DESC, file_id DESC)`. No status filter.
+ * Used by the `scope=all` path on the paginated project-assets endpoint.
+ *
+ * LIMIT is interpolated (not bound) because mysql2 does not reliably bind it.
+ */
+export async function findAllForUserPaginated(
+  params: FindAllForUserPaginatedParams,
+): Promise<FileRow[]> {
+  const safeLimit = Math.max(1, Math.min(100, Math.floor(Number(params.limit))));
+  const clauses: string[] = ['user_id = ?', 'deleted_at IS NULL'];
+  const values: unknown[] = [params.userId];
+
+  if (params.cursor) {
+    // Keyset: rows where (created_at, file_id) < cursor pair (descending order)
+    clauses.push('(created_at, file_id) < (?, ?)');
+    values.push(params.cursor.createdAt, params.cursor.fileId);
+  }
+
+  const sql =
+    `SELECT * FROM files
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY created_at DESC, file_id DESC
+     LIMIT ${safeLimit}`;
+
+  const [rows] = await pool.query<DbRow[]>(sql, values);
+  return rows.map(mapRow);
+}
+
+/** Totals row for all (non-deleted) files owned by a user. */
+export type AllFilesTotalsRow = {
+  count: number;
+  bytesUsed: number;
+};
+
+/**
+ * Returns the count and total bytes of all non-deleted files owned by `userId`.
+ * Used to populate the `totals` envelope field for `scope=all` responses.
+ */
+export async function getAllFilesTotalsForUser(userId: string): Promise<AllFilesTotalsRow> {
+  type TotalsDbRow = RowDataPacket & { count: number; bytes_used: string | number | null };
+  const [rows] = await pool.query<TotalsDbRow[]>(
+    `SELECT COUNT(*) AS count, SUM(bytes) AS bytes_used
+       FROM files
+      WHERE user_id = ? AND deleted_at IS NULL`,
+    [userId],
+  );
+  const row = rows[0];
+  return {
+    count: row ? Number(row.count) : 0,
+    bytesUsed: row?.bytes_used == null ? 0 : Number(row.bytes_used),
+  };
+}
+
 /**
  * Aggregates the user's `ready` files by MIME bucket.
  * Returns one row per bucket that has at least one file.

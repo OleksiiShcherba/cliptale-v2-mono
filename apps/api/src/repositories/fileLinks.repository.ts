@@ -85,6 +85,92 @@ export async function findFilesByProjectId(projectId: string): Promise<FileRow[]
   return rows.map(mapRowToFileRow);
 }
 
+/** Cursor parameters for keyset pagination on `(pf.created_at, pf.file_id)`. */
+export type ProjectFilesCursor = {
+  createdAt: Date;
+  fileId: string;
+};
+
+/** Parameters for the paginated project-files query. */
+export type FindFilesByProjectIdPaginatedParams = {
+  projectId: string;
+  limit: number;
+  cursor?: ProjectFilesCursor;
+};
+
+/**
+ * Returns a page of files linked to a project with the pivot `created_at`
+ * included for cursor encoding. Keyset-paginated on `(pf.created_at, pf.file_id)`.
+ * Both `project_files.deleted_at` and `files.deleted_at` are filtered to `IS NULL`.
+ *
+ * LIMIT is interpolated (not bound) because mysql2 does not reliably bind it.
+ */
+export type FileRowWithPfCreatedAt = FileRow & { pfCreatedAt: Date };
+
+/** Extended row type for paginated project-file reads that includes the pivot timestamp. */
+type FileDbRowWithPfCreatedAt = FileDbRow & { pf_created_at: Date };
+
+function mapRowToFileRowWithPfCreatedAt(row: FileDbRowWithPfCreatedAt): FileRowWithPfCreatedAt {
+  return {
+    ...mapRowToFileRow(row),
+    pfCreatedAt: row.pf_created_at,
+  };
+}
+
+export async function findFilesByProjectIdPaginatedWithCursor(
+  params: FindFilesByProjectIdPaginatedParams,
+): Promise<FileRowWithPfCreatedAt[]> {
+  const safeLimit = Math.max(1, Math.min(100, Math.floor(Number(params.limit))));
+  const clauses: string[] = [
+    'pf.project_id = ?',
+    'pf.deleted_at IS NULL',
+    'f.deleted_at IS NULL',
+  ];
+  const values: unknown[] = [params.projectId];
+
+  if (params.cursor) {
+    clauses.push('(pf.created_at, pf.file_id) > (?, ?)');
+    values.push(params.cursor.createdAt, params.cursor.fileId);
+  }
+
+  const sql =
+    `SELECT f.*, pf.created_at AS pf_created_at
+       FROM project_files pf
+       JOIN files f ON f.file_id = pf.file_id
+      WHERE ${clauses.join(' AND ')}
+      ORDER BY pf.created_at ASC, pf.file_id ASC
+      LIMIT ${safeLimit}`;
+
+  const [rows] = await pool.query<FileDbRowWithPfCreatedAt[]>(sql, values);
+  return rows.map(mapRowToFileRowWithPfCreatedAt);
+}
+
+/** Row type for totals aggregation over a project's linked files. */
+export type ProjectFilesTotalsRow = {
+  count: number;
+  bytesUsed: number;
+};
+
+/**
+ * Aggregates the count and total bytes of all non-deleted files linked to a project.
+ * Used to populate the `totals` envelope field.
+ */
+export async function getProjectFilesTotals(projectId: string): Promise<ProjectFilesTotalsRow> {
+  type TotalsDbRow = RowDataPacket & { count: number; bytes_used: string | number | null };
+  const [rows] = await pool.execute<TotalsDbRow[]>(
+    `SELECT COUNT(*) AS count, SUM(f.bytes) AS bytes_used
+       FROM project_files pf
+       JOIN files f ON f.file_id = pf.file_id
+      WHERE pf.project_id = ? AND pf.deleted_at IS NULL AND f.deleted_at IS NULL`,
+    [projectId],
+  );
+  const row = rows[0];
+  return {
+    count: row ? Number(row.count) : 0,
+    bytesUsed: row?.bytes_used == null ? 0 : Number(row.bytes_used),
+  };
+}
+
 // ── draft_files ────────────────────────────────────────────────────────────────
 
 /**

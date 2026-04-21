@@ -12,8 +12,16 @@ import { useRemotionPlayer } from './useRemotionPlayer.js';
 // Mocks
 // ---------------------------------------------------------------------------
 
+// useQueries is still used for the fallback path (orphan clips not in cache).
+// useQueryClient provides getQueryData for the cache-read path.
+const { mockGetQueryData, mockUseQueryClient } = vi.hoisted(() => ({
+  mockGetQueryData: vi.fn(),
+  mockUseQueryClient: vi.fn(() => ({ getQueryData: mockGetQueryData })),
+}));
+
 vi.mock('@tanstack/react-query', () => ({
   useQueries: vi.fn(),
+  useQueryClient: () => mockUseQueryClient(),
 }));
 
 vi.mock('@/store/project-store.js', () => ({
@@ -28,6 +36,7 @@ vi.mock('@/store/ephemeral-store.js', () => ({
 
 vi.mock('@/features/asset-manager/api.js', () => ({
   getAsset: vi.fn(),
+  getAssets: vi.fn(),
 }));
 
 vi.mock('@/lib/config.js', () => ({
@@ -65,6 +74,30 @@ function makeEphemeralState(overrides = {}) {
   return { playheadFrame: 0, selectedClipIds: [], zoom: 1, ...overrides };
 }
 
+function makeAssetItem(id: string, status = 'ready') {
+  return {
+    id,
+    projectId: 'proj-001',
+    filename: `${id}.mp4`,
+    displayName: null,
+    contentType: 'video/mp4',
+    downloadUrl: `https://example.com/${id}.mp4`,
+    status,
+    durationSeconds: 10,
+    width: 1920,
+    height: 1080,
+    fileSizeBytes: 1024,
+    thumbnailUri: null,
+    waveformPeaks: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  };
+}
+
+function makeEnvelope(items: ReturnType<typeof makeAssetItem>[]) {
+  return { items, nextCursor: null, totals: { count: items.length, bytesUsed: 0 } };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -73,6 +106,8 @@ describe('useRemotionPlayer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    // By default: no cached list data → falls through to useQueries
+    mockGetQueryData.mockReturnValue(undefined);
     mockUseQueries.mockReturnValue([]);
     mockGetProjectSnapshot.mockReturnValue(makeProjectDoc());
     mockGetEphemeralSnapshot.mockReturnValue(makeEphemeralState());
@@ -126,7 +161,7 @@ describe('useRemotionPlayer', () => {
     });
   });
 
-  describe('assetUrls resolution', () => {
+  describe('cache-first resolution (issue 1.1)', () => {
     it('returns an empty map when the project has no clips', () => {
       mockGetProjectSnapshot.mockReturnValue(makeProjectDoc({ clips: [] }));
 
@@ -135,33 +170,62 @@ describe('useRemotionPlayer', () => {
       expect(result.current.assetUrls).toEqual({});
     });
 
-    it('passes one query per unique fileId in video and audio clips', () => {
+    it('issues ZERO getAsset calls when all fileIds are present in the project cache', () => {
+      // Populate the project list cache with all clips already present.
       const doc = makeProjectDoc({
         clips: [
-          {
-            id: 'c1',
-            type: 'video',
-            fileId: 'asset-a',
-            trackId: 't1',
-            startFrame: 0,
-            durationFrames: 30,
-          },
-          {
-            id: 'c2',
-            type: 'audio',
-            fileId: 'asset-b',
-            trackId: 't2',
-            startFrame: 0,
-            durationFrames: 30,
-          },
+          { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+          { id: 'c2', type: 'audio', fileId: 'asset-b', trackId: 't2', startFrame: 0, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
+
+      // Cache has both assets
+      mockGetQueryData.mockReturnValue(makeEnvelope([
+        makeAssetItem('asset-a'),
+        makeAssetItem('asset-b'),
+      ]));
+
+      renderHook(() => useRemotionPlayer());
+
+      // useQueries should be called with an empty array — no fallback requests
+      expect(mockUseQueries).toHaveBeenCalledWith(
+        expect.objectContaining({ queries: [] }),
+      );
+    });
+
+    it('builds assetUrls directly from cached data (no getAsset calls)', () => {
+      const doc = makeProjectDoc({
+        clips: [
+          { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+        ] as ProjectDoc['clips'],
+      });
+      mockGetProjectSnapshot.mockReturnValue(doc);
+      mockGetQueryData.mockReturnValue(makeEnvelope([makeAssetItem('asset-a', 'ready')]));
+
+      const { result } = renderHook(() => useRemotionPlayer());
+
+      expect(result.current.assetUrls).toEqual({
+        'asset-a': 'http://localhost:3001/assets/asset-a/stream',
+      });
+    });
+  });
+
+  describe('fallback path for orphan clips', () => {
+    it('passes one query per fileId missing from the project cache', () => {
+      const doc = makeProjectDoc({
+        clips: [
+          { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+          { id: 'c2', type: 'audio', fileId: 'asset-b', trackId: 't2', startFrame: 0, durationFrames: 30 },
+        ] as ProjectDoc['clips'],
+      });
+      mockGetProjectSnapshot.mockReturnValue(doc);
+      // Cache is empty — both clips are "missing"
+      mockGetQueryData.mockReturnValue(undefined);
       mockUseQueries.mockReturnValue([]);
 
       renderHook(() => useRemotionPlayer());
 
-      // useQueries should be called with 2 queries (one per fileId)
       expect(mockUseQueries).toHaveBeenCalledWith(
         expect.objectContaining({
           queries: expect.arrayContaining([
@@ -172,7 +236,7 @@ describe('useRemotionPlayer', () => {
       );
     });
 
-    it('deduplicates clips sharing the same fileId', () => {
+    it('deduplicates clips sharing the same fileId in fallback queries', () => {
       const doc = makeProjectDoc({
         clips: [
           { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 10 },
@@ -180,6 +244,7 @@ describe('useRemotionPlayer', () => {
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
+      mockGetQueryData.mockReturnValue(undefined);
       mockUseQueries.mockReturnValue([]);
 
       renderHook(() => useRemotionPlayer());
@@ -188,20 +253,14 @@ describe('useRemotionPlayer', () => {
       expect(callArgs?.queries).toHaveLength(1);
     });
 
-    it('includes image clips in asset queries', () => {
+    it('includes image clips in fallback queries when not in cache', () => {
       const doc = makeProjectDoc({
         clips: [
-          {
-            id: 'c1',
-            type: 'image',
-            fileId: 'asset-img',
-            trackId: 't1',
-            startFrame: 0,
-            durationFrames: 30,
-          },
+          { id: 'c1', type: 'image', fileId: 'asset-img', trackId: 't1', startFrame: 0, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
+      mockGetQueryData.mockReturnValue(undefined);
       mockUseQueries.mockReturnValue([]);
 
       renderHook(() => useRemotionPlayer());
@@ -211,20 +270,14 @@ describe('useRemotionPlayer', () => {
       expect(callArgs?.queries[0]).toMatchObject({ queryKey: ['asset', 'asset-img'] });
     });
 
-    it('excludes text-overlay clips from asset queries', () => {
+    it('excludes text-overlay clips from fallback queries', () => {
       const doc = makeProjectDoc({
         clips: [
-          {
-            id: 'c1',
-            type: 'text-overlay',
-            trackId: 't1',
-            startFrame: 0,
-            durationFrames: 30,
-            text: 'Hello',
-          },
+          { id: 'c1', type: 'text-overlay', trackId: 't1', startFrame: 0, durationFrames: 30, text: 'Hello' },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
+      mockGetQueryData.mockReturnValue(undefined);
       mockUseQueries.mockReturnValue([]);
 
       renderHook(() => useRemotionPlayer());
@@ -233,6 +286,32 @@ describe('useRemotionPlayer', () => {
       expect(callArgs?.queries).toHaveLength(0);
     });
 
+    it('resolves assetUrl from fallback query result for orphan clips', () => {
+      const doc = makeProjectDoc({
+        clips: [
+          { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
+        ] as ProjectDoc['clips'],
+      });
+      mockGetProjectSnapshot.mockReturnValue(doc);
+      // Cache is empty — must fall back
+      mockGetQueryData.mockReturnValue(undefined);
+      mockUseQueries.mockReturnValue([
+        {
+          data: makeAssetItem('asset-a', 'ready'),
+          isLoading: false,
+          isError: false,
+        },
+      ] as ReturnType<typeof useQueries>);
+
+      const { result } = renderHook(() => useRemotionPlayer());
+
+      expect(result.current.assetUrls).toEqual({
+        'asset-a': 'http://localhost:3001/assets/asset-a/stream',
+      });
+    });
+  });
+
+  describe('assetUrls resolution', () => {
     it('builds assetUrls map using the API stream URL (never a raw s3:// URI)', () => {
       const doc = makeProjectDoc({
         clips: [
@@ -240,13 +319,7 @@ describe('useRemotionPlayer', () => {
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
-      mockUseQueries.mockReturnValue([
-        {
-          data: { id: 'asset-a', downloadUrl: 'https://example.com/presigned/video.mp4', status: 'ready' },
-          isLoading: false,
-          isError: false,
-        },
-      ] as ReturnType<typeof useQueries>);
+      mockGetQueryData.mockReturnValue(makeEnvelope([makeAssetItem('asset-a', 'ready')]));
 
       const { result } = renderHook(() => useRemotionPlayer());
 
@@ -263,13 +336,7 @@ describe('useRemotionPlayer', () => {
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
-      mockUseQueries.mockReturnValue([
-        {
-          data: { id: 'asset-a', downloadUrl: 'https://example.com/presigned/video.mp4', status: 'ready' },
-          isLoading: false,
-          isError: false,
-        },
-      ] as ReturnType<typeof useQueries>);
+      mockGetQueryData.mockReturnValue(makeEnvelope([makeAssetItem('asset-a', 'ready')]));
 
       const { result } = renderHook(() => useRemotionPlayer());
 
@@ -277,7 +344,6 @@ describe('useRemotionPlayer', () => {
     });
 
     it('does not append token when no token exists in localStorage', () => {
-      // Explicitly ensure localStorage is empty
       expect(localStorage.getItem('auth_token')).toBeNull();
 
       const doc = makeProjectDoc({
@@ -286,13 +352,7 @@ describe('useRemotionPlayer', () => {
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
-      mockUseQueries.mockReturnValue([
-        {
-          data: { id: 'asset-a', downloadUrl: 'https://example.com/presigned/video.mp4', status: 'ready' },
-          isLoading: false,
-          isError: false,
-        },
-      ] as ReturnType<typeof useQueries>);
+      mockGetQueryData.mockReturnValue(makeEnvelope([makeAssetItem('asset-a', 'ready')]));
 
       const { result } = renderHook(() => useRemotionPlayer());
 
@@ -306,13 +366,7 @@ describe('useRemotionPlayer', () => {
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
-      mockUseQueries.mockReturnValue([
-        {
-          data: { id: 'asset-xyz', downloadUrl: 'https://example.com/presigned/any-key.mp4', status: 'ready' },
-          isLoading: false,
-          isError: false,
-        },
-      ] as ReturnType<typeof useQueries>);
+      mockGetQueryData.mockReturnValue(makeEnvelope([makeAssetItem('asset-xyz', 'ready')]));
 
       const { result } = renderHook(() => useRemotionPlayer());
 
@@ -326,13 +380,7 @@ describe('useRemotionPlayer', () => {
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
-      mockUseQueries.mockReturnValue([
-        {
-          data: { id: 'asset-b', downloadUrl: 'https://example.com/presigned/video.mp4', status: 'ready' },
-          isLoading: false,
-          isError: false,
-        },
-      ] as ReturnType<typeof useQueries>);
+      mockGetQueryData.mockReturnValue(makeEnvelope([makeAssetItem('asset-b', 'ready')]));
 
       const { result } = renderHook(() => useRemotionPlayer());
 
@@ -341,45 +389,42 @@ describe('useRemotionPlayer', () => {
       expect(url.startsWith('http')).toBe(true);
     });
 
-    it('omits assets with status pending (not yet ready)', () => {
+    it('omits assets with status pending (not yet ready) from the cache', () => {
       const doc = makeProjectDoc({
         clips: [
           { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
-      mockUseQueries.mockReturnValue([
-        { data: { id: 'asset-a', status: 'pending' }, isLoading: false, isError: false },
-      ] as ReturnType<typeof useQueries>);
+      mockGetQueryData.mockReturnValue(makeEnvelope([makeAssetItem('asset-a', 'pending')]));
 
       const { result } = renderHook(() => useRemotionPlayer());
 
       expect(result.current.assetUrls).toEqual({});
     });
 
-    it('omits assets with status processing', () => {
+    it('omits assets with status processing from the cache', () => {
       const doc = makeProjectDoc({
         clips: [
           { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
-      mockUseQueries.mockReturnValue([
-        { data: { id: 'asset-a', status: 'processing' }, isLoading: false, isError: false },
-      ] as ReturnType<typeof useQueries>);
+      mockGetQueryData.mockReturnValue(makeEnvelope([makeAssetItem('asset-a', 'processing')]));
 
       const { result } = renderHook(() => useRemotionPlayer());
 
       expect(result.current.assetUrls).toEqual({});
     });
 
-    it('omits assets whose query is still loading', () => {
+    it('omits assets whose fallback query is still loading', () => {
       const doc = makeProjectDoc({
         clips: [
           { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
+      mockGetQueryData.mockReturnValue(undefined);
       mockUseQueries.mockReturnValue([
         { data: undefined, isLoading: true, isError: false },
       ] as ReturnType<typeof useQueries>);
@@ -391,20 +436,14 @@ describe('useRemotionPlayer', () => {
   });
 
   describe('assetUrls reference stability', () => {
-    it('returns the same assetUrls reference when ready assets have not changed', () => {
-      // This tests the readyAssetIds memoization: unnecessary re-renders (e.g.
-      // when ephemeral store ticks while no assets change) must NOT give
-      // usePrefetchAssets a new object reference, which would trigger a
-      // redundant prefetch cycle.
+    it('returns the same assetUrls reference when ready assets have not changed (cache path)', () => {
       const doc = makeProjectDoc({
         clips: [
           { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
         ] as ProjectDoc['clips'],
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
-      mockUseQueries.mockReturnValue([
-        { data: { id: 'asset-a', status: 'ready' }, isLoading: false, isError: false },
-      ] as ReturnType<typeof useQueries>);
+      mockGetQueryData.mockReturnValue(makeEnvelope([makeAssetItem('asset-a', 'ready')]));
 
       const { result, rerender } = renderHook(() => useRemotionPlayer());
 
@@ -417,7 +456,7 @@ describe('useRemotionPlayer', () => {
       expect(result.current.assetUrls).toBe(firstRef);
     });
 
-    it('returns a new assetUrls reference when a new asset becomes ready', () => {
+    it('returns a new assetUrls reference when a new asset becomes ready (cache path)', () => {
       const doc = makeProjectDoc({
         clips: [
           { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
@@ -426,21 +465,21 @@ describe('useRemotionPlayer', () => {
       });
       mockGetProjectSnapshot.mockReturnValue(doc);
 
-      // Initially only asset-a is ready.
-      mockUseQueries.mockReturnValue([
-        { data: { id: 'asset-a', status: 'ready' }, isLoading: false, isError: false },
-        { data: { id: 'asset-b', status: 'processing' }, isLoading: false, isError: false },
-      ] as ReturnType<typeof useQueries>);
+      // Initially only asset-a is ready in cache.
+      mockGetQueryData.mockReturnValue(makeEnvelope([
+        makeAssetItem('asset-a', 'ready'),
+        makeAssetItem('asset-b', 'processing'),
+      ]));
 
       const { result, rerender } = renderHook(() => useRemotionPlayer());
 
       const firstRef = result.current.assetUrls;
 
       // Now asset-b finishes processing and becomes ready.
-      mockUseQueries.mockReturnValue([
-        { data: { id: 'asset-a', status: 'ready' }, isLoading: false, isError: false },
-        { data: { id: 'asset-b', status: 'ready' }, isLoading: false, isError: false },
-      ] as ReturnType<typeof useQueries>);
+      mockGetQueryData.mockReturnValue(makeEnvelope([
+        makeAssetItem('asset-a', 'ready'),
+        makeAssetItem('asset-b', 'ready'),
+      ]));
       rerender();
 
       expect(result.current.assetUrls).not.toBe(firstRef);

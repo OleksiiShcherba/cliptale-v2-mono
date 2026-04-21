@@ -3,9 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import type { Clip, ProjectDoc, Track } from '@ai-video-editor/project-schema';
 
-import type { Asset } from '@/features/asset-manager/types';
-
 import { useAddAssetToTimeline } from './useAddAssetToTimeline';
+import { TEST_PROJECT_ID, makeProject, makeAsset } from './useAddAssetToTimeline.fixtures';
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -16,6 +15,15 @@ vi.mock('@/store/project-store', () => ({
 
 vi.mock('@/features/timeline/api', () => ({
   createClip: vi.fn().mockResolvedValue(undefined),
+  linkFileToProject: vi.fn().mockResolvedValue(undefined),
+}));
+
+// Mock useQueryClient so the hook can be rendered outside a QueryClientProvider.
+const { mockInvalidateQueries } = vi.hoisted(() => ({
+  mockInvalidateQueries: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: vi.fn(() => ({ invalidateQueries: mockInvalidateQueries })),
 }));
 
 const uuidState = vi.hoisted(() => ({ count: 0 }));
@@ -27,48 +35,6 @@ import * as projectStore from '@/store/project-store';
 
 const mockGetSnapshot = vi.mocked(projectStore.getSnapshot);
 const mockSetProject = vi.mocked(projectStore.setProject);
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-const TEST_PROJECT_ID = 'proj-001';
-
-function makeProject(overrides: Partial<ProjectDoc> = {}): ProjectDoc {
-  return {
-    schemaVersion: 1,
-    id: TEST_PROJECT_ID,
-    title: 'Test',
-    fps: 30,
-    durationFrames: 300,
-    width: 1920,
-    height: 1080,
-    tracks: [] as Track[],
-    clips: [] as Clip[],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...overrides,
-  } as unknown as ProjectDoc;
-}
-
-function makeAsset(overrides: Partial<Asset> = {}): Asset {
-  return {
-    id: 'asset-001',
-    projectId: TEST_PROJECT_ID,
-    filename: 'test.mp4',
-    displayName: null,
-    contentType: 'video/mp4',
-    downloadUrl: 'https://example.com/presigned/test.mp4',
-    status: 'ready',
-    durationSeconds: 10,
-    width: 1920,
-    height: 1080,
-    fileSizeBytes: 1_000_000,
-    thumbnailUri: null,
-    waveformPeaks: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...overrides,
-  };
-}
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 

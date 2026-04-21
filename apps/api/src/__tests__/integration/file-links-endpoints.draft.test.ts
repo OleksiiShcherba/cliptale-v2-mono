@@ -190,7 +190,7 @@ describe('POST /generation-drafts/:draftId/files — link success', () => {
 // ── GET /generation-drafts/:id/assets — pivot-backed read ────────────────────
 
 describe('GET /generation-drafts/:id/assets — pivot read', () => {
-  it('returns 200 with the linked file in the array after linking', async () => {
+  it('returns 200 with the envelope { items, nextCursor, totals } containing the linked file', async () => {
     // Ensure the file is linked
     await request(app)
       .post(`/generation-drafts/${seed.draftA}/files`)
@@ -202,12 +202,18 @@ describe('GET /generation-drafts/:id/assets — pivot read', () => {
       .set('Authorization', `Bearer ${seed.tokenA}`);
 
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    const files = res.body as Array<{ id: string }>;
+    // Body must be an envelope object, NOT a bare array
+    expect(Array.isArray(res.body)).toBe(false);
+    expect(typeof res.body).toBe('object');
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(res.body.nextCursor).toBeNull();
+    expect(typeof res.body.totals).toBe('object');
+
+    const files = res.body.items as Array<{ id: string }>;
     expect(files.some((f) => f.id === seed.fileA)).toBe(true);
   });
 
-  it('returns 200 [] for a draft with no linked files', async () => {
+  it('returns 200 with empty items array and zero totals for a draft with no linked files', async () => {
     const emptyDraftId = randomUUID();
     extraDraftIds.push(emptyDraftId);
 
@@ -221,7 +227,11 @@ describe('GET /generation-drafts/:id/assets — pivot read', () => {
       .set('Authorization', `Bearer ${seed.tokenA}`);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(res.body.items).toHaveLength(0);
+    expect(res.body.nextCursor).toBeNull();
+    expect(res.body.totals.count).toBe(0);
+    expect(res.body.totals.bytesUsed).toBe(0);
   });
 
   it('returns 401 when Authorization header is absent', async () => {
@@ -229,17 +239,17 @@ describe('GET /generation-drafts/:id/assets — pivot read', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns AssetApiResponse-compatible shape for each linked file', async () => {
+  it('returns AssetApiResponse-compatible shape for each linked file item', async () => {
     const res = await request(app)
       .get(`/generation-drafts/${seed.draftA}/assets`)
       .set('Authorization', `Bearer ${seed.tokenA}`);
 
     expect(res.status).toBe(200);
-    const files = res.body as Array<Record<string, unknown>>;
+    const files = res.body.items as Array<Record<string, unknown>>;
     const file = files.find((f) => f['id'] === seed.fileA);
     expect(file).toBeDefined();
 
-    // FE contract fields
+    // FE contract fields — AssetApiResponse shape
     expect(typeof file!['id']).toBe('string');
     expect(typeof file!['contentType']).toBe('string');
     expect(typeof file!['downloadUrl']).toBe('string');

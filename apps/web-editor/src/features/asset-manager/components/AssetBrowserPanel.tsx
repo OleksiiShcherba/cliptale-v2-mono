@@ -56,11 +56,14 @@ export function AssetBrowserPanel({
 
   const queryClient = useQueryClient();
 
-  // Fetch project-scoped assets first so useScopeToggle can detect empty first load
-  const { data: projectAssets = [], isLoading, isError } = useQuery({
+  // Fetch project-scoped assets first so useScopeToggle can detect empty first load.
+  // The queryKey ['assets', projectId, 'project'] is shared with useProjectAssets hook
+  // so that useRemotionPlayer can read the same cache entry without a second fetch.
+  const { data: projectData, isLoading, isError } = useQuery({
     queryKey: ['assets', projectId, 'project'],
     queryFn: () => getAssets(projectId, 'project'),
   });
+  const projectAssets = projectData?.items ?? [];
 
   const { scope, toggleScope } = useScopeToggle({
     isSettled: !isLoading && !isError,
@@ -68,11 +71,12 @@ export function AssetBrowserPanel({
   });
 
   // Fetch all-scoped when user toggled or auto-switched; cached via query key
-  const { data: allAssets = [] } = useQuery({
+  const { data: allData } = useQuery({
     queryKey: ['assets', projectId, 'all'],
     queryFn: () => getAssets(projectId, 'all'),
     enabled: scope === 'all',
   });
+  const allAssets = allData?.items ?? [];
 
   const assets = scope === 'project' ? projectAssets : allAssets;
 

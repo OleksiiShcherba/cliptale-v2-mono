@@ -1,5 +1,4 @@
 import type { Request, Response, NextFunction } from 'express';
-import { z } from 'zod';
 
 import { config } from '@/config.js';
 import { ValidationError } from '@/lib/errors.js';
@@ -8,36 +7,25 @@ import * as assetService from '@/services/asset.service.js';
 import * as assetListService from '@/services/asset.list.service.js';
 import * as assetResponseService from '@/services/asset.response.service.js';
 import * as fileLinksResponseService from '@/services/fileLinks.response.service.js';
+import {
+  createUploadUrlSchema,
+  listAssetsQuerySchema,
+  projectAssetsQuerySchema,
+} from '@/controllers/assets.controller.schemas.js';
 
-/** Zod schema for the POST /assets/upload-url request body. Exported for use in route middleware. */
-export const createUploadUrlSchema = z.object({
-  filename: z.string().min(1).max(512),
-  contentType: z.string().min(1),
-  fileSizeBytes: z.number().int().positive(),
-});
+// Re-export schemas so route files can access them via the controller namespace import.
+export {
+  createUploadUrlSchema,
+  patchAssetSchema,
+  listAssetsQuerySchema,
+  projectAssetsQuerySchema,
+} from '@/controllers/assets.controller.schemas.js';
 
-/** Zod schema for the PATCH /assets/:id request body. Exported for use in route middleware. */
-export const patchAssetSchema = z.object({
-  name: z.string().trim().min(1).max(255),
-});
-
-/**
- * Zod schema for the GET /assets query string — validates the `type`, `cursor`,
- * and `limit` query params used by the wizard gallery endpoint. Parsed inline
- * in the `listAssets` handler because `validateBody` only runs on `req.body`.
- */
-export const listAssetsQuerySchema = z.object({
-  type: z.enum(['video', 'image', 'audio', 'all']).default('all'),
-  cursor: z.string().optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(24),
-});
-
-/** `scope` query param for `GET /projects/:id/assets`. Default: `project` (linked only). `all` returns the user's entire library. `draft` is not valid here — use the generation-drafts endpoint. */
-export const projectAssetsScopeSchema = z.object({
-  scope: z.enum(['all', 'project']).default('project'),
-});
-
-type CreateUploadUrlBody = z.infer<typeof createUploadUrlSchema>;
+type CreateUploadUrlBody = {
+  filename: string;
+  contentType: string;
+  fileSizeBytes: number;
+};
 
 /**
  * POST /projects/:id/assets/upload-url
@@ -101,7 +89,9 @@ export async function listAssets(
 
 /**
  * GET /projects/:id/assets
- * Returns project files. `?scope=project` (default) — linked only; `?scope=all` — full library.
+ * Returns a paginated envelope `{ items, nextCursor, totals }` for project files.
+ * `?scope=project` (default) — linked only; `?scope=all` — full library.
+ * `?limit=<1..100>` (default 24); `?cursor=<opaque>` for page-forward navigation.
  */
 export async function getProjectAssets(
   req: Request,
@@ -109,21 +99,23 @@ export async function getProjectAssets(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const parsed = projectAssetsScopeSchema.safeParse(req.query);
+    const parsed = projectAssetsQuerySchema.safeParse(req.query);
     if (!parsed.success) {
       throw new ValidationError(
         `Invalid query parameters: ${parsed.error.issues.map((i) => i.message).join(', ')}`,
       );
     }
     const baseUrl = `${req.protocol}://${req.get('host')}`;
-    const assets = await fileLinksResponseService.getProjectFilesResponse(
-      req.params['id']!,
-      s3Client,
+    const page = await fileLinksResponseService.getProjectAssetsPage({
+      projectId: req.params['id']!,
+      scope: parsed.data.scope,
+      userId: req.user!.userId,
+      limit: parsed.data.limit,
+      cursor: parsed.data.cursor,
+      s3: s3Client,
       baseUrl,
-      parsed.data.scope,
-      req.user!.userId,
-    );
-    res.json(assets);
+    });
+    res.json(page);
   } catch (err) {
     next(err);
   }

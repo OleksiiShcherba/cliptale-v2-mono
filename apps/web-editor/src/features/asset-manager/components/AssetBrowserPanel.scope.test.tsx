@@ -92,24 +92,28 @@ function makeAsset(id: string) {
   };
 }
 
+function makeEnvelope(assets: object[] = []) {
+  return { items: assets, nextCursor: null, totals: { count: assets.length, bytesUsed: 0 } };
+}
+
 /** Project-scoped empty, all-scoped empty — used for initial auto-switch test. */
 function mockBothEmpty() {
-  mockUseQuery.mockReturnValue({ data: [], isLoading: false, isError: false });
+  mockUseQuery.mockReturnValue({ data: makeEnvelope([]), isLoading: false, isError: false });
 }
 
 /** Project-scoped empty for first call, all-scoped has assets for second. */
 function mockProjectEmptyAllHasAssets(allAssets: object[]) {
   mockUseQuery.mockImplementation(({ queryKey }: { queryKey: string[] }) => {
     if (queryKey[2] === 'all') {
-      return { data: allAssets, isLoading: false, isError: false };
+      return { data: makeEnvelope(allAssets), isLoading: false, isError: false };
     }
-    return { data: [], isLoading: false, isError: false };
+    return { data: makeEnvelope([]), isLoading: false, isError: false };
   });
 }
 
 /** Both scopes have assets. */
 function mockBothHaveAssets(assets: object[]) {
-  mockUseQuery.mockReturnValue({ data: assets, isLoading: false, isError: false });
+  mockUseQuery.mockReturnValue({ data: makeEnvelope(assets), isLoading: false, isError: false });
 }
 
 // ---------------------------------------------------------------------------

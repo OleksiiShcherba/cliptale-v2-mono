@@ -1,6 +1,6 @@
 import { apiClient } from '@/lib/api-client';
 
-import type { Asset } from './types';
+import type { Asset, AssetListResponse } from './types';
 
 /** Fetch a single asset by ID. */
 export async function getAsset(fileId: string): Promise<Asset> {
@@ -10,18 +10,34 @@ export async function getAsset(fileId: string): Promise<Asset> {
 }
 
 /**
- * Fetch assets for a project.
+ * Fetch assets for a project (page 1, limit 100).
+ * Returns the paginated `AssetListResponse` envelope.
  * @param scope `'project'` (default) — files linked to this project only;
  *              `'all'` — the user's entire non-deleted library.
+ * @param cursor Opaque cursor for fetching subsequent pages. Omit for page 1.
  */
 export async function getAssets(
   projectId: string,
   scope: 'all' | 'project' = 'project',
-): Promise<Asset[]> {
-  const params = new URLSearchParams({ scope });
+  cursor?: string,
+): Promise<AssetListResponse> {
+  const params = new URLSearchParams({ scope, limit: '100' });
+  if (cursor) params.set('cursor', cursor);
   const res = await apiClient.get(`/projects/${projectId}/assets?${params.toString()}`);
   if (!res.ok) throw new Error(`Failed to get assets (${res.status})`);
-  return res.json() as Promise<Asset[]>;
+  return res.json() as Promise<AssetListResponse>;
+}
+
+/**
+ * Fetches the next page of assets using the cursor from a prior `getAssets` call.
+ * Designed for future infinite-scroll; not yet wired to any UI.
+ */
+export async function fetchNextAssetsPage(
+  projectId: string,
+  scope: 'all' | 'project',
+  cursor: string,
+): Promise<AssetListResponse> {
+  return getAssets(projectId, scope, cursor);
 }
 
 /**

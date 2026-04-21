@@ -44,6 +44,19 @@ export type UploadUrlResponse = {
 /** Active tab filter in the asset browser panel. */
 export type AssetFilterTab = 'all' | 'video' | 'audio' | 'image';
 
+/** Usage totals returned in the paginated assets envelope. */
+export type AssetListTotals = {
+  count: number;
+  bytesUsed: number;
+};
+
+/** Paginated response envelope from GET /projects/:id/assets. */
+export type AssetListResponse = {
+  items: Asset[];
+  nextCursor: string | null;
+  totals: AssetListTotals;
+};
+
 /**
  * Re-exported for backward compatibility.
  * @deprecated Import directly from `@/shared/file-upload/types`.

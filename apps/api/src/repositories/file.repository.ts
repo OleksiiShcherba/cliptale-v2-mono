@@ -237,10 +237,14 @@ export async function findByIdForUser(fileId: string, userId: string): Promise<F
 export type {
   FileMimePrefix,
   FileTotalsRow,
+  AllForUserCursor,
+  AllFilesTotalsRow,
 } from './file.repository.list.js';
 
 export {
   findReadyForUser,
   findAllForUser,
+  findAllForUserPaginated,
+  getAllFilesTotalsForUser,
   getReadyTotalsForUser,
 } from './file.repository.list.js';
