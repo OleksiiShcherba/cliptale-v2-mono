@@ -12,3 +12,4 @@
 - [E2 Scope Toggle verdict](e2-scope-toggle-verdict.md) — YES: 26 component tests verify toggle UI (useScopeToggle 8, AssetBrowserPanel.scope 9, MediaGalleryPanel.scope 9); E2E unavailable
 - [E3 Auto-link verdict](e3-auto-link-verdict.md) — YES: 8 component tests verify both insertion paths (drop + prompt-chip); no new UI
 - [F1 AI Panel Width Fluid verdict](f1_ai_panel_verdict.md) — YES: 9 unit tests verify compact modes (6 + 3 tests); style-only change deployed live
+- [Subtask 3 Playwright Verdict](subtask3-verdict.md) — YES: Cache-first asset resolution verified via 58 FE unit tests + code review (E2E unavailable in shell)

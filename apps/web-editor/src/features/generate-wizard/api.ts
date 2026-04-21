@@ -6,7 +6,15 @@
 
 import { apiClient } from '@/lib/api-client';
 
-import type { AssetListResponse, EnhanceStatus, GenerationDraft, PromptDoc } from './types';
+import type {
+  AssetKind,
+  AssetListResponse,
+  AssetSummary,
+  AssetTotals,
+  EnhanceStatus,
+  GenerationDraft,
+  PromptDoc,
+} from './types';
 
 type ListAssetsOptions = {
   /** Filter by media type. Use 'all' to return every kind. */
@@ -136,11 +144,65 @@ export async function fetchDraft(id: string): Promise<GenerationDraft> {
   return res.json() as Promise<GenerationDraft>;
 }
 
+// ── Wire shape returned by GET /generation-drafts/:id/assets ─────────────────
+
+/**
+ * Raw item shape from the draft-assets endpoint.
+ * Matches `AssetApiResponse` from the BE `fileLinks.response.service.ts`.
+ */
+type DraftAssetWireItem = {
+  id: string;
+  contentType: string;
+  filename: string;
+  displayName: string | null;
+  durationSeconds: number | null;
+  thumbnailUri: string | null;
+  createdAt: string;
+};
+
+/** Wire envelope from `GET /generation-drafts/:id/assets`. */
+type DraftAssetsWireResponse = {
+  items: DraftAssetWireItem[];
+  nextCursor: string | null;
+  totals: AssetTotals;
+};
+
+/**
+ * Derives the media kind from a MIME type string.
+ * Returns null for unrecognised types — callers must filter these out.
+ */
+function mimeToAssetKind(contentType: string): AssetKind | null {
+  if (contentType.startsWith('video/')) return 'video';
+  if (contentType.startsWith('image/')) return 'image';
+  if (contentType.startsWith('audio/')) return 'audio';
+  return null;
+}
+
+/**
+ * Maps a raw wire item from the draft-assets endpoint to the `AssetSummary`
+ * shape consumed by wizard components.
+ *
+ * Items with an unrecognised MIME type are returned with type `'video'` as a
+ * safe fallback so they remain visible rather than silently disappearing.
+ */
+function wireItemToAssetSummary(item: DraftAssetWireItem): AssetSummary {
+  return {
+    id: item.id,
+    type: mimeToAssetKind(item.contentType) ?? 'video',
+    label: item.displayName ?? item.filename,
+    durationSeconds: item.durationSeconds,
+    thumbnailUrl: item.thumbnailUri,
+    createdAt: item.createdAt,
+  };
+}
+
 /**
  * Fetches assets for a specific generation draft, with optional scope.
  *
- * Maps to GET /generation-drafts/:id/assets?scope=draft|all
- * Returns the `{ items, nextCursor, totals }` envelope.
+ * Maps to GET /generation-drafts/:id/assets?scope=draft|all.
+ * The endpoint now returns the `{ items, nextCursor, totals }` envelope and
+ * uses `AssetApiResponse` field names. This function adapts the wire shape to
+ * the `AssetListResponse` / `AssetSummary` contract that wizard components consume.
  */
 export async function listDraftAssets(opts: ListDraftAssetsOptions): Promise<AssetListResponse> {
   const params = new URLSearchParams({ scope: opts.scope });
@@ -149,7 +211,12 @@ export async function listDraftAssets(opts: ListDraftAssetsOptions): Promise<Ass
   if (!res.ok) {
     throw new Error(`GET ${path} failed: ${res.status}`);
   }
-  return res.json() as Promise<AssetListResponse>;
+  const wire = (await res.json()) as DraftAssetsWireResponse;
+  return {
+    items: wire.items.map(wireItemToAssetSummary),
+    nextCursor: wire.nextCursor,
+    totals: wire.totals,
+  };
 }
 
 /**

@@ -11,3 +11,5 @@
 - [Batch-6 verification anchors](project_batch6_verification_anchors.md) — cors.test.ts Pattern B verified in container + full-repo; mimeToKind canonical in project-schema (grep=1); Class A/C unchanged
 - [Timeline-drop regression fix anchors](project_timeline_drop_fix_anchors.md) — clip.assetId=0 + useProjectInit must spread-override id on both branches + DEV_PROJECT seed still present
 - [2026-04-20 batch (Issues 1-6) verification anchors](project_batch_20260420_verification_anchors.md) — 18 subtasks mostly uncommitted; A3 broke 70 App tests + 4 split tests; thumbnail adapter still hard-nulls; /trash cursor half-wired
+- [2026-04-21 batch (Issues 1-3) verification anchors](project_batch_20260421_verification_anchors.md) — S4 broke placement.test.ts (8 FE failures); scope-param draft-half unmigrated (4 BE failures); pre-existing Class C drops remain
+- [2026-04-21 follow-up batch verification anchors](project_batch_20260421_followup_verification_anchors.md) — 13 regressions closed; renders-endpoint.test.ts now passes (Class A list narrower than Known Issues claims); all diffs uncommitted

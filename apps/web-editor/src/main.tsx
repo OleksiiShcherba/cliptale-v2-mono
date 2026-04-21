@@ -28,7 +28,22 @@ resetStyle.textContent = `
 `;
 document.head.appendChild(resetStyle);
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // 60 s stale time prevents focus-refetch storms: the asset list and other
+      // server state won't re-fetch on every window focus or component mount
+      // during a normal editing session.
+      staleTime: 60_000,
+      // Disable focus-refetch to stop the burst of GET /assets/:id requests
+      // triggered every time the user clicks back into the browser tab.
+      refetchOnWindowFocus: false,
+      // One retry is enough — prevents silent infinite retry loops that masked
+      // error toasts in previous batches (per architecture notes).
+      retry: 1,
+    },
+  },
+});
 
 const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },

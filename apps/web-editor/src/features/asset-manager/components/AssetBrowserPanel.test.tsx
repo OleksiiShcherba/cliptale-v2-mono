@@ -113,14 +113,18 @@ function makeAsset(id: string, filename = `${id}.mp4`): object {
   };
 }
 
+function makeEnvelope(assets: object[] = []) {
+  return { items: assets, nextCursor: null, totals: { count: assets.length, bytesUsed: 0 } };
+}
+
 /** Default query result: no assets, not loading, no error. */
 function mockEmptyQuery(): void {
-  mockUseQuery.mockReturnValue({ data: [], isLoading: false, isError: false });
+  mockUseQuery.mockReturnValue({ data: makeEnvelope([]), isLoading: false, isError: false });
 }
 
 /** Query result with a list of assets. */
 function mockAssetsQuery(assets: object[]): void {
-  mockUseQuery.mockReturnValue({ data: assets, isLoading: false, isError: false });
+  mockUseQuery.mockReturnValue({ data: makeEnvelope(assets), isLoading: false, isError: false });
 }
 
 // ---------------------------------------------------------------------------

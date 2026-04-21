@@ -176,10 +176,10 @@ describe('POST /projects/:projectId/files — link success', () => {
   });
 });
 
-// ── GET /projects/:id/assets — pivot-backed read ──────────────────────────────
+// ── GET /projects/:id/assets — paginated envelope read ───────────────────────
 
-describe('GET /projects/:id/assets — pivot read', () => {
-  it('returns 200 with the linked file in the array after linking', async () => {
+describe('GET /projects/:id/assets — paginated envelope read', () => {
+  it('returns 200 with envelope { items, nextCursor, totals } after linking', async () => {
     // Ensure the file is linked
     await request(app)
       .post(`/projects/${seed.projectA}/files`)
@@ -191,29 +191,33 @@ describe('GET /projects/:id/assets — pivot read', () => {
       .set('Authorization', `Bearer ${seed.tokenA}`);
 
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect('nextCursor' in res.body).toBe(true);
+    expect('totals' in res.body).toBe(true);
 
-    const files = res.body as Array<{ id: string }>;
-    expect(files.some((f) => f.id === seed.fileA)).toBe(true);
+    const items = res.body.items as Array<{ id: string }>;
+    expect(items.some((f) => f.id === seed.fileA)).toBe(true);
   });
 
-  it('returns an empty array for a project with no linked files', async () => {
+  it('returns empty items array and totals.count=0 for a project with no linked files', async () => {
     const res = await request(app)
       .get(`/projects/${seed.projectB}/assets`)
       .set('Authorization', `Bearer ${seed.tokenB}`);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
+    expect(res.body.items).toEqual([]);
+    expect(res.body.nextCursor).toBeNull();
+    expect(res.body.totals.count).toBe(0);
   });
 
-  it('returns AssetApiResponse-compatible shape for each linked file', async () => {
+  it('returns AssetApiResponse-compatible shape for each item in the envelope', async () => {
     const res = await request(app)
       .get(`/projects/${seed.projectA}/assets`)
       .set('Authorization', `Bearer ${seed.tokenA}`);
 
     expect(res.status).toBe(200);
-    const files = res.body as Array<Record<string, unknown>>;
-    const file = files.find((f) => f['id'] === seed.fileA);
+    const items = res.body.items as Array<Record<string, unknown>>;
+    const file = items.find((f) => f['id'] === seed.fileA);
     expect(file).toBeDefined();
 
     // Required FE contract fields

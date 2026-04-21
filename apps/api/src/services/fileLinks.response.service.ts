@@ -21,8 +21,12 @@
 import { GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
+import { ValidationError } from '@/lib/errors.js';
 import type { AssetApiResponse } from '@/services/asset.response.service.js';
 import type { FileRow } from '@/repositories/file.repository.js';
+import { findAllForUserPaginated, getAllFilesTotalsForUser } from '@/repositories/file.repository.js';
+import { findFilesByProjectIdPaginatedWithCursor, getProjectFilesTotals } from '@/repositories/fileLinks.repository.js';
+import type { ProjectFilesCursor, FileRowWithPfCreatedAt } from '@/repositories/fileLinks.repository.js';
 import { getFilesForProject, getFilesForDraft, getFilesForUser } from '@/services/fileLinks.service.js';
 import { parseStorageUri } from '@/services/asset.service.js';
 
@@ -102,12 +106,16 @@ export async function getProjectFilesResponse(
 }
 
 /**
- * Returns files for a generation-draft endpoint, respecting the `scope` query param.
+ * Returns files for a generation-draft endpoint as a paginated envelope,
+ * respecting the `scope` query param.
  *
  * - `scope=draft` (default): files linked via the `draft_files` pivot.
  * - `scope=all`: all non-deleted files owned by `userId`.
  *
- * Uses an empty string for `projectId` since drafts are not project-scoped.
+ * Returns `{ items, nextCursor: null, totals }` — the same envelope shape as
+ * `getProjectAssetsPage` so the FE `AssetListResponse` contract is satisfied.
+ * `nextCursor` is always `null` because draft-files lists are unpaged (drafts
+ * have at most a handful of linked files and do not require keyset pagination).
  */
 export async function getDraftFilesResponse(
   draftId: string,
@@ -115,7 +123,7 @@ export async function getDraftFilesResponse(
   baseUrl: string,
   scope: AssetScope = 'draft',
   userId?: string,
-): Promise<AssetApiResponse[]> {
+): Promise<ProjectAssetsPage> {
   void baseUrl;
 
   let files: FileRow[];
@@ -124,5 +132,130 @@ export async function getDraftFilesResponse(
   } else {
     files = await getFilesForDraft(draftId);
   }
-  return Promise.all(files.map((f) => toAssetApiResponse(f, '', s3)));
+
+  const items = await Promise.all(files.map((f) => toAssetApiResponse(f, '', s3)));
+  const bytesUsed = files.reduce((sum, f) => sum + (f.bytes ?? 0), 0);
+  return {
+    items,
+    nextCursor: null,
+    totals: { count: items.length, bytesUsed },
+  };
+}
+
+// ── Paginated project-files response (new envelope shape) ─────────────────────
+
+/** Totals sub-object in the paginated asset list envelope. */
+export type AssetListTotals = {
+  count: number;
+  bytesUsed: number;
+};
+
+/** Paginated response envelope for `GET /projects/:id/assets`. */
+export type ProjectAssetsPage = {
+  items: AssetApiResponse[];
+  nextCursor: string | null;
+  totals: AssetListTotals;
+};
+
+/** Parameters for the paginated project-assets service call. */
+export type GetProjectAssetsPageParams = {
+  projectId: string;
+  scope: 'project' | 'all';
+  userId: string;
+  limit: number;
+  cursor?: string;
+  s3: S3Client;
+  baseUrl: string;
+};
+
+/**
+ * Encodes a `(createdAt, fileId)` pair as an opaque base64 cursor.
+ * Uses the same `ISO|fileId` format as `asset.list.service.encodeCursor`
+ * so downstream helpers can share the pattern.
+ */
+export function encodeProjectCursor(createdAt: Date, fileId: string): string {
+  return Buffer.from(`${createdAt.toISOString()}|${fileId}`, 'utf8').toString('base64');
+}
+
+/**
+ * Decodes a cursor produced by `encodeProjectCursor`.
+ * Throws `ValidationError` on malformed input.
+ */
+export function decodeProjectCursor(raw: string): ProjectFilesCursor {
+  let decoded: string;
+  try {
+    decoded = Buffer.from(raw, 'base64').toString('utf8');
+  } catch {
+    throw new ValidationError('Invalid cursor');
+  }
+  const pipeIndex = decoded.indexOf('|');
+  if (pipeIndex <= 0 || pipeIndex === decoded.length - 1) {
+    throw new ValidationError('Invalid cursor');
+  }
+  const iso = decoded.slice(0, pipeIndex);
+  const fileId = decoded.slice(pipeIndex + 1);
+  const createdAt = new Date(iso);
+  if (Number.isNaN(createdAt.getTime())) {
+    throw new ValidationError('Invalid cursor');
+  }
+  return { createdAt, fileId };
+}
+
+/**
+ * Returns a paginated envelope of project files.
+ *
+ * - `scope=project` (default): keyset-paginates `project_files → files`.
+ * - `scope=all`: keyset-paginates the user's entire file library via `files`.
+ *
+ * Returns `{ items, nextCursor, totals: { count, bytesUsed } }`.
+ * `nextCursor` is null when the page is the last (fewer than `limit` rows returned).
+ */
+export async function getProjectAssetsPage(
+  params: GetProjectAssetsPageParams,
+): Promise<ProjectAssetsPage> {
+  void params.baseUrl;
+
+  const cursor = params.cursor ? decodeProjectCursor(params.cursor) : undefined;
+
+  if (params.scope === 'all') {
+    // Paginate the user's full file library
+    const allCursor = cursor
+      ? { createdAt: cursor.createdAt, fileId: cursor.fileId }
+      : undefined;
+
+    const [rows, totalsRow] = await Promise.all([
+      findAllForUserPaginated({ userId: params.userId, limit: params.limit, cursor: allCursor }),
+      getAllFilesTotalsForUser(params.userId),
+    ]);
+
+    const items = await Promise.all(rows.map((f) => toAssetApiResponse(f, params.projectId, params.s3)));
+    const lastRow = rows[rows.length - 1];
+    const nextCursor =
+      rows.length === params.limit && lastRow
+        ? encodeProjectCursor(lastRow.createdAt, lastRow.fileId)
+        : null;
+
+    return { items, nextCursor, totals: totalsRow };
+  }
+
+  // scope=project: paginate project_files → files
+  const [rows, totalsRow] = await Promise.all([
+    findFilesByProjectIdPaginatedWithCursor({
+      projectId: params.projectId,
+      limit: params.limit,
+      cursor,
+    }),
+    getProjectFilesTotals(params.projectId),
+  ]);
+
+  const items = await Promise.all(
+    rows.map((f: FileRowWithPfCreatedAt) => toAssetApiResponse(f, params.projectId, params.s3)),
+  );
+  const lastRow = rows[rows.length - 1];
+  const nextCursor =
+    rows.length === params.limit && lastRow
+      ? encodeProjectCursor(lastRow.pfCreatedAt, lastRow.fileId)
+      : null;
+
+  return { items, nextCursor, totals: totalsRow };
 }

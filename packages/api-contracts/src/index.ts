@@ -1,8 +1,22 @@
 /**
  * API contracts package.
- * Contains the OpenAPI spec for the ClipTale API.
+ * Contains the OpenAPI spec for the ClipTale API plus Zod schemas for
+ * runtime validation of key response envelopes.
  */
 export { openApiSpec } from './openapi.js';
+
+export {
+  AssetStatusSchema,
+  AssetApiResponseItemSchema,
+  ProjectAssetsTotalsSchema,
+  AssetListResponseSchema,
+} from './asset-list.schemas.js';
+
+export type {
+  AssetApiResponseItem,
+  ProjectAssetsTotals,
+  AssetListResponse,
+} from './asset-list.schemas.js';
 
 export { FAL_MODELS, CAPABILITY_TO_GROUP } from './fal-models.js';
 export type {

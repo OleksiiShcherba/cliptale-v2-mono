@@ -1,11 +1,12 @@
 import { useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 
 import type { Track } from '@ai-video-editor/project-schema';
 
 import type { Asset } from '@/features/asset-manager/types.js';
 import { buildClipForAsset, computeClipDurationFrames } from '@/features/asset-manager/utils.js';
 import { getSnapshot, setProject } from '@/store/project-store.js';
-import { createClip } from '@/features/timeline/api.js';
+import { createClip, linkFileToProject } from '@/features/timeline/api.js';
 
 /** Maps a MIME type prefix to its corresponding track type. */
 function resolveTrackType(contentType: string): Track['type'] | null {
@@ -51,6 +52,8 @@ export function useAddAssetToTimeline(projectId: string): {
   addAssetToNewTrack: (asset: Asset) => void;
   addAssetToExistingTrack: (asset: Asset, trackId: string) => void;
 } {
+  const queryClient = useQueryClient();
+
   const addAssetToNewTrack = useCallback((asset: Asset) => {
     const trackType = resolveTrackType(asset.contentType);
     if (!trackType) return;
@@ -77,7 +80,12 @@ export function useAddAssetToTimeline(projectId: string): {
     });
 
     void createClip(projectId, clip);
-  }, [projectId]);
+    // Fire-and-forget: link the file to the project so scope=project list stays in sync.
+    // Errors are silent — the timeline state is already committed.
+    void linkFileToProject(projectId, asset.id)
+      .then(() => queryClient.invalidateQueries({ queryKey: ['assets', projectId] }))
+      .catch(() => undefined);
+  }, [projectId, queryClient]);
 
   const addAssetToExistingTrack = useCallback((asset: Asset, trackId: string) => {
     const trackType = resolveTrackType(asset.contentType);
@@ -98,7 +106,12 @@ export function useAddAssetToTimeline(projectId: string): {
     });
 
     void createClip(projectId, clip);
-  }, [projectId]);
+    // Fire-and-forget: link the file to the project so scope=project list stays in sync.
+    // Errors are silent — the timeline state is already committed.
+    void linkFileToProject(projectId, asset.id)
+      .then(() => queryClient.invalidateQueries({ queryKey: ['assets', projectId] }))
+      .catch(() => undefined);
+  }, [projectId, queryClient]);
 
   return { addAssetToNewTrack, addAssetToExistingTrack };
 }

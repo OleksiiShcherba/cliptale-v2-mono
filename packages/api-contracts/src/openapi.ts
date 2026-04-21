@@ -213,6 +213,73 @@ export const openApiSpec = {
         security: [{ bearerAuth: [] }],
       },
     },
+    '/projects/{projectId}/assets': {
+      get: {
+        summary: "List a project's assets, paginated",
+        description:
+          'Returns a cursor-paginated envelope of files linked to the project (`scope=project`, ' +
+          'default) or all files owned by the user (`scope=all`). ' +
+          'The `totals` field reflects the full un-paged count and total bytes. ' +
+          '`nextCursor` is null on the last page.',
+        operationId: 'listProjectAssets',
+        tags: ['assets'],
+        parameters: [
+          {
+            name: 'projectId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the project.',
+          },
+          {
+            name: 'scope',
+            in: 'query',
+            required: false,
+            schema: {
+              type: 'string',
+              enum: ['project', 'all'],
+              default: 'project',
+            },
+            description:
+              '`project` (default) returns files linked via project_files. ' +
+              '`all` returns every file owned by the authenticated user.',
+          },
+          {
+            name: 'cursor',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description:
+              'Opaque cursor returned as `nextCursor` from a previous call. ' +
+              'Omit on the first page.',
+          },
+          {
+            name: 'limit',
+            in: 'query',
+            required: false,
+            schema: { type: 'integer', minimum: 1, maximum: 100, default: 24 },
+            description: 'Maximum items per page. Clamped to [1, 100].',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Paginated list of project assets with totals.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/AssetListResponse' },
+              },
+            },
+          },
+          400: {
+            description:
+              'Validation error — invalid `scope`, `limit` out of range, or malformed `cursor`.',
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'User does not own the project.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
     '/assets': {
       get: {
         summary: "List the authenticated user's ready assets (wizard gallery)",
@@ -424,6 +491,56 @@ export const openApiSpec = {
           401: { description: 'Missing or invalid session token.' },
           403: { description: 'Draft belongs to another user.' },
           404: { description: 'Draft not found, or job has expired / was never created.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/generation-drafts/{id}/assets': {
+      get: {
+        summary: "List assets linked to a generation draft",
+        description:
+          'Returns a paginated envelope of files linked to the draft (`scope=draft`, default) ' +
+          'or all files owned by the user (`scope=all`). ' +
+          '`nextCursor` is always null for the draft scope (no keyset pagination — drafts have ' +
+          'at most a handful of linked files). `totals` reflects the count and bytes of the ' +
+          'returned items. Items use the `AssetApiResponse` shape.',
+        operationId: 'listDraftAssets',
+        tags: ['generation-drafts'],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft.',
+          },
+          {
+            name: 'scope',
+            in: 'query',
+            required: false,
+            schema: {
+              type: 'string',
+              enum: ['draft', 'all'],
+              default: 'draft',
+            },
+            description:
+              '`draft` (default) returns files linked via draft_files. ' +
+              '`all` returns every file owned by the authenticated user.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Paginated list of draft assets with totals.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/AssetListResponse' },
+              },
+            },
+          },
+          400: { description: 'Validation error — invalid `scope` value.' },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found.' },
         },
         security: [{ bearerAuth: [] }],
       },
@@ -698,6 +815,67 @@ export const openApiSpec = {
             type: 'array',
             items: { $ref: '#/components/schemas/StoryboardCardSummary' },
           },
+        },
+      },
+      AssetApiResponseItem: {
+        type: 'object',
+        required: [
+          'id', 'projectId', 'filename', 'contentType', 'downloadUrl',
+          'status', 'createdAt', 'updatedAt',
+        ],
+        description:
+          'One file/asset as returned by GET /projects/:id/assets. ' +
+          'Maps to the AssetApiResponse shape in the API layer.',
+        properties: {
+          id: { type: 'string', format: 'uuid', description: 'UUID of the file.' },
+          projectId: {
+            type: 'string',
+            description: 'UUID of the project this response was scoped to.',
+          },
+          filename: { type: 'string', description: 'Primary display label.' },
+          displayName: { type: ['string', 'null'], description: 'User-editable display name.' },
+          contentType: { type: 'string', description: 'MIME type of the file.' },
+          downloadUrl: { type: 'string', description: 'Presigned S3 download URL.' },
+          status: {
+            type: 'string',
+            enum: ['pending', 'processing', 'ready', 'error'],
+            description: 'Ingest lifecycle status.',
+          },
+          durationSeconds: { type: ['number', 'null'], description: 'Duration in seconds, or null.' },
+          width: { type: ['integer', 'null'], description: 'Video/image width in pixels.' },
+          height: { type: ['integer', 'null'], description: 'Video/image height in pixels.' },
+          fileSizeBytes: { type: ['integer', 'null'], description: 'Raw file size in bytes.' },
+          thumbnailUri: {
+            type: ['string', 'null'],
+            description: 'S3/R2 URI of the thumbnail (not yet populated).',
+          },
+          waveformPeaks: { type: ['array', 'null'], description: 'Audio waveform peaks (not yet populated).' },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      ProjectAssetsTotals: {
+        type: 'object',
+        required: ['count', 'bytesUsed'],
+        properties: {
+          count: { type: 'integer', minimum: 0, description: 'Total number of files (unpaged).' },
+          bytesUsed: { type: 'integer', minimum: 0, description: 'Total bytes across all files.' },
+        },
+      },
+      AssetListResponse: {
+        type: 'object',
+        required: ['items', 'nextCursor', 'totals'],
+        description: 'Paginated response envelope for GET /projects/:id/assets.',
+        properties: {
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/AssetApiResponseItem' },
+          },
+          nextCursor: {
+            type: ['string', 'null'],
+            description: 'Opaque cursor for the next page. Null when this is the last page.',
+          },
+          totals: { $ref: '#/components/schemas/ProjectAssetsTotals' },
         },
       },
       AssetSummary: {

@@ -102,27 +102,28 @@ afterAll(async () => {
 // ── GET /projects/:id/assets?scope=project — default behaviour ────────────────
 
 describe('GET /projects/:id/assets?scope=project', () => {
-  it('returns 200 with only the linked file (default scope=project)', async () => {
+  it('returns 200 with envelope and only the linked file (default scope=project)', async () => {
     const res = await request(app)
       .get(`/projects/${seed.projectA}/assets`)
       .query({ scope: 'project' })
       .set('Authorization', `Bearer ${seed.tokenA}`);
 
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    const ids = (res.body as Array<{ id: string }>).map((f) => f.id);
+    expect(Array.isArray(res.body.items)).toBe(true);
+    const ids = (res.body.items as Array<{ id: string }>).map((f) => f.id);
     expect(ids).toContain(seed.fileA);
     // fileB is owned by user B and not linked to projectA — must not appear
     expect(ids).not.toContain(seed.fileB);
   });
 
-  it('returns 200 [] when a project has no linked files (no ?scope)', async () => {
+  it('returns 200 with empty items when a project has no linked files (no ?scope)', async () => {
     const res = await request(app)
       .get(`/projects/${seed.projectB}/assets`)
       .set('Authorization', `Bearer ${seed.tokenB}`);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
+    expect(res.body.items).toEqual([]);
+    expect(res.body.nextCursor).toBeNull();
   });
 });
 
@@ -144,7 +145,8 @@ describe('GET /projects/:id/assets?scope=all', () => {
       .set('Authorization', `Bearer ${seed.tokenA}`);
 
     expect(res.status).toBe(200);
-    const ids = (res.body as Array<{ id: string }>).map((f) => f.id);
+    expect(Array.isArray(res.body.items)).toBe(true);
+    const ids = (res.body.items as Array<{ id: string }>).map((f) => f.id);
     expect(ids).toContain(seed.fileA);
     expect(ids).toContain(unlinkedFileId);
     expect(ids).not.toContain(seed.fileB);
@@ -165,7 +167,7 @@ describe('GET /projects/:id/assets?scope=all', () => {
       .set('Authorization', `Bearer ${seed.tokenA}`);
 
     expect(res.status).toBe(200);
-    const ids = (res.body as Array<{ id: string }>).map((f) => f.id);
+    const ids = (res.body.items as Array<{ id: string }>).map((f) => f.id);
     expect(ids).not.toContain(deletedFileId);
   });
 });
@@ -195,20 +197,20 @@ describe('GET /projects/:id/assets — invalid scope', () => {
 // ── GET /generation-drafts/:id/assets?scope=draft — default behaviour ─────────
 
 describe('GET /generation-drafts/:id/assets?scope=draft', () => {
-  it('returns 200 with only the linked file (default scope=draft)', async () => {
+  it('returns 200 with envelope and only the linked file (default scope=draft)', async () => {
     const res = await request(app)
       .get(`/generation-drafts/${seed.draftA}/assets`)
       .query({ scope: 'draft' })
       .set('Authorization', `Bearer ${seed.tokenA}`);
 
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    const ids = (res.body as Array<{ id: string }>).map((f) => f.id);
+    expect(Array.isArray(res.body.items)).toBe(true);
+    const ids = (res.body.items as Array<{ id: string }>).map((f) => f.id);
     expect(ids).toContain(seed.fileA);
     expect(ids).not.toContain(seed.fileB);
   });
 
-  it('returns 200 [] for a draft with no linked files (no ?scope)', async () => {
+  it('returns 200 with empty items for a draft with no linked files (no ?scope)', async () => {
     const emptyDraftId = randomUUID();
     extraDraftIds.push(emptyDraftId);
     await conn.execute(
@@ -221,7 +223,8 @@ describe('GET /generation-drafts/:id/assets?scope=draft', () => {
       .set('Authorization', `Bearer ${seed.tokenA}`);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
+    expect(res.body.items).toEqual([]);
+    expect(res.body.nextCursor).toBeNull();
   });
 });
 
@@ -243,7 +246,8 @@ describe('GET /generation-drafts/:id/assets?scope=all', () => {
       .set('Authorization', `Bearer ${seed.tokenA}`);
 
     expect(res.status).toBe(200);
-    const ids = (res.body as Array<{ id: string }>).map((f) => f.id);
+    expect(Array.isArray(res.body.items)).toBe(true);
+    const ids = (res.body.items as Array<{ id: string }>).map((f) => f.id);
     expect(ids).toContain(seed.fileA);
     expect(ids).toContain(unlinkedForDraftId);
     expect(ids).not.toContain(seed.fileB);
@@ -264,7 +268,8 @@ describe('GET /generation-drafts/:id/assets?scope=all', () => {
       .set('Authorization', `Bearer ${seed.tokenA}`);
 
     expect(res.status).toBe(200);
-    const ids = (res.body as Array<{ id: string }>).map((f) => f.id);
+    expect(Array.isArray(res.body.items)).toBe(true);
+    const ids = (res.body.items as Array<{ id: string }>).map((f) => f.id);
     expect(ids).not.toContain(deletedForDraftId);
   });
 });

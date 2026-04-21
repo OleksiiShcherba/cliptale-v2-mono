@@ -244,34 +244,11 @@ _Scope: general_tasks.md issues 1–3; 6 subtasks on branch `feat/editor-asset-f
 ## Guardian test regressions follow-up (2026-04-21)
 _Scope: 13 failing tests from Guardian report on branch `feat/editor-asset-fetch-and-generate-fix`; test-only fixes_
 
-### Task: Guardian-flagged test regressions (batch 2026-04-21 follow-up)
-**Subtask:** Restore `useAddAssetToTimeline.placement.test.ts` to green (FE, 8 failures)
-
-**What was done:**
-- Added `vi.hoisted` + `vi.mock('@tanstack/react-query', ...)` block to `useAddAssetToTimeline.placement.test.ts`, matching the exact pattern used by sibling files `.test.ts` and `.linkfile.test.ts`
-- Removed duplicated inline `makeProject`, `makeAsset`, `TEST_PROJECT_ID` helpers from `.placement.test.ts`; now imported from `.fixtures.ts` (reuse-first — no fourth copy)
-- Removed unused `Asset` type import (was only needed for the now-removed inline helper)
-- Added `linkFileToProject` to the `@/features/timeline/api` mock in `.placement.test.ts` (hook calls it; was missing causing potential test pollution)
-- No production code touched; `useAddAssetToTimeline.fixtures.ts` unchanged (43L)
-
-**Notes:**
-- `.placement.test.ts` is now 136 lines (was 170L before removing duplicate helpers) — well under 300-line cap
-- The `vi.mock('@tanstack/react-query')` approach avoids `QueryClientProvider` wrapping — simpler and matches sibling convention; no third pattern introduced
-- All 30 tests pass across 3 split files: 15 in `.test.ts`, 8 in `.placement.test.ts`, 7 in `.linkfile.test.ts`
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: Restore useAddAssetToTimeline.placement.test.ts to green (FE, 8 failures)</summary>
-
-Every `renderHook(() => useAddAssetToTimeline(TEST_PROJECT_ID))` in `.placement.test.ts` threw `No QueryClient set`. Fixed by adding `vi.hoisted` + `vi.mock('@tanstack/react-query', ...)` block matching sibling files. Removed duplicated helpers, imported from `.fixtures.ts`. All 30 tests across 3 files pass.
-
-</details>
-
-checked by code-reviewer - YES
-checked by qa-reviewer - YES
-checked by design-reviewer - YES
-design-reviewer notes: 2026-04-21. Test-only fix; no UI components, styles, or design tokens touched. All 30 tests pass across 3 split files.
-checked by playwright-reviewer: YES — test-wrapper fix; implementation unchanged; no E2E surface
+- fixed: `useAddAssetToTimeline.placement.test.ts` (8 FE failures). Added `vi.hoisted` + `vi.mock('@tanstack/react-query', ...)` block matching sibling `.test.ts`/`.linkfile.test.ts` pattern; removed duplicated `makeProject`/`makeAsset`/`TEST_PROJECT_ID` inline helpers → now imported from `.fixtures.ts`; added `linkFileToProject` to `@/features/timeline/api` mock. 136L (was 170L). All 30 tests green across 3 split files (15 + 8 + 7)
+- fixed: `assets-scope-param.test.ts` draft-half (4 BE failures). Migrated draft-half describe blocks (~lines 199–297) to envelope: `Array.isArray(res.body)` → `Array.isArray(res.body.items)`, `(res.body as Array<…>).map` → `(res.body.items as Array<…>).map`, `expect(res.body).toEqual([])` → `expect(res.body.items).toEqual([])` + `expect(res.body.nextCursor).toBeNull()`. 298L (§9.7-safe). 12/12 tests green (6 project + 6 draft)
+- fixed: `generation-draft-ai-generate.test.ts:212` (1 BE failure). One-line cast `(assetsRes.body as Array<…>).map(…)` → `(assetsRes.body.items as Array<…>).map(…)`. Fix applied during subtask-2 review as commit `667ab82`; verified in subtask 3 with full file grep (no other bare-array reads). 8/8 tests green
+- verified: final regression sweep — 98 target tests green across `useAddAssetToTimeline.*` (30), `assets-scope-param` (12), `projects-assets-pagination` (17), `file-links-endpoints.{test,draft.test}.ts` (27), `generation-drafts-assets` (5), `generation-draft-ai-generate` (8). Pre-existing Class A/C failures (`assets-finalize-endpoint`, `assets-list-endpoint`, `versions-list-restore-endpoint`, `renders-endpoint`) unchanged (Known Issues)
+- process note: qa-reviewer on subtask 2 crossed lanes and committed the subtask-3 fix as `667ab82` before subtask 3 ran — functionally harmless but a workflow irregularity. Subtask 3's senior-dev confirmed the fix and closed the log-entry gap
 
 ---
 
@@ -300,51 +277,6 @@ checked by playwright-reviewer: YES — test-wrapper fix; implementation unchang
 - Draft-assets endpoint now shares the envelope + ownership-check pattern with project-assets; `generationDraftService.getById(userId, draftId)` required before returning any draft-scoped data
 
 ---
-
-## [2026-04-21]
-
-### Task: Guardian-flagged test regressions (batch 2026-04-21 follow-up)
-**Subtask:** Finish envelope migration in `assets-scope-param.test.ts` draft-half (BE, 4 failures)
-
-**What was done:**
-- Migrated the draft-half describe blocks in `assets-scope-param.test.ts` (lines ~199–297) from bare-array assertions to envelope assertions matching the `{ items, nextCursor, totals }` shape shipped in S6.
-- Replaced `Array.isArray(res.body)` → `Array.isArray(res.body.items)` in the two `scope=draft` / `scope=all` tests that checked bare-array identity.
-- Replaced `(res.body as Array<{ id: string }>).map(...)` → `(res.body.items as Array<{ id: string }>).map(...)` in three map expressions.
-- Replaced `expect(res.body).toEqual([])` → `expect(res.body.items).toEqual([])` + added `expect(res.body.nextCursor).toBeNull()`.
-- Updated test names to say "with envelope" / "with empty items" for clarity.
-- No production code touched; file stays at 298 lines (within §9.7 300-line cap).
-
-**Notes:**
-- All 12 tests in `assets-scope-param.test.ts` pass (6 project-half + 6 draft-half).
-- Regression suite: `projects-assets-pagination.test.ts` (17 tests), `file-links-endpoints.draft.test.ts` (11 tests), `generation-drafts-assets.test.ts` (8 tests) — all 36 still green.
-- The Docker-resident API container (`cliptale-v2-mono-api-1`) has the source mounted, so tests run against the live edits without rebuild.
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: Finish envelope migration in `assets-scope-param.test.ts` draft-half (BE, 4 failures)</summary>
-
-- What: The `/projects/:id/assets` describe blocks (~lines 105–195) were already migrated to the envelope in the prior batch. The `/generation-drafts/:id/assets` describe blocks (~lines 199–280) still assert the bare-array shape. Migrate those draft-half assertions: replace `Array.isArray(res.body)` / `res.body.map(...)` / `res.body.toEqual([])` / `expect(res.body).toHaveLength(n)` patterns with envelope-equivalent assertions (`res.body.items`, `res.body.items.map(...)`, `res.body.items.toHaveLength(n)`, `res.body.nextCursor`, `res.body.totals`). Mirror the pattern already used in `file-links-endpoints.draft.test.ts` and `generation-drafts-assets.test.ts`.
-- Where: `apps/api/src/__tests__/integration/assets-scope-param.test.ts` (draft-half only; do NOT re-touch the project-half that's already migrated).
-- Why: Wire contract is now enveloped per S6; these 4 tests are the only remaining bare-array assertions against that endpoint.
-
-</details>
-
-checked by code-reviewer - YES
-checked by qa-reviewer - YES
-checked by design-reviewer - YES
-design-reviewer notes: 2026-04-21. No UI surface — backend test assertion migration only. Zero design tokens/styles/components touched.
-checked by playwright-reviewer: YES — BE test assertion migration, no UI surface
-
-<!-- QA NOTES (auto-generated):
-  - assets-scope-param.test.ts: All 12 tests PASS (6 project + 6 draft envelope assertions)
-  - projects-assets-pagination.test.ts: 17 tests PASS
-  - file-links-endpoints.test.ts: 13 tests PASS; file-links-endpoints.draft.test.ts: 14 tests PASS
-  - generation-drafts-assets.test.ts: 5 tests PASS
-  - Total: 64 target tests passing against real MySQL
-  - Regression fix: generation-draft-ai-generate.test.ts line 212 — migrated bare-array to envelope.items pattern
-  - No unintended regressions in related integration tests
--->
-
 
 ## Known Issues / TODOs
 - ACL middleware stub — real project ownership check deferred (B3 `it.todo` 403 foreign-project tests activate when done)
