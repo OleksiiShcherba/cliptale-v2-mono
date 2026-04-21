@@ -209,7 +209,7 @@ describe('POST /generation-drafts/:draftId/ai/generate — happy path', () => {
       .set('Authorization', `Bearer ${tokenA}`);
 
     expect(assetsRes.status).toBe(200);
-    const fileIds = (assetsRes.body as Array<{ id: string }>).map((a) => a.id);
+    const fileIds = (assetsRes.body.items as Array<{ id: string }>).map((a) => a.id);
     expect(fileIds).toContain(fileId);
   });
 });
