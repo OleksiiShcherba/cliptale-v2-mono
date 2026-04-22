@@ -1,11 +1,14 @@
 /**
- * Playwright global setup for the deploy config.
+ * Playwright global setup for the unified E2E config.
  *
- * Runs once before all specs: obtains a session token via the deploy API
- * and writes a Playwright `storageState` JSON that pre-populates
- * `localStorage.auth_token` on the deploy origin. Each spec project
- * references this file via `use.storageState`, so every test starts
- * already authenticated — no repeated UI login, no rate-limit pressure.
+ * Runs once before all specs: obtains a session token from the target
+ * API, creates (or reuses) an empty test project, and writes a
+ * Playwright `storageState` JSON that pre-populates
+ * `localStorage.auth_token` on the target origin. Each spec references
+ * this file via `use.storageState`, so every test starts already
+ * authenticated — no repeated UI login, no rate-limit pressure.
+ *
+ * Target URLs are env-driven — see `./helpers/env.ts`.
  */
 
 import * as fs from 'node:fs';
@@ -13,16 +16,15 @@ import * as path from 'node:path';
 
 import {
   AUTH_TOKEN_LOCAL_STORAGE_KEY,
-  DEPLOY_API_URL,
-  DEPLOY_BASE_URL,
   createE2eProject,
-  loginViaDeployApi,
+  loginViaE2eApi,
 } from './helpers/auth';
+import { E2E_API_URL, E2E_BASE_URL } from './helpers/env';
 import { E2E_CONTEXT_PATH, writeE2eContext } from './helpers/e2e-context';
 
 export const STORAGE_STATE_PATH = path.resolve(
   __dirname,
-  '../test-results/e2e-deploy-auth-state.json',
+  '../test-results/e2e-auth-state.json',
 );
 
 /**
@@ -35,14 +37,17 @@ async function reuseExistingToken(): Promise<string | null> {
   if (!fs.existsSync(STORAGE_STATE_PATH)) return null;
   try {
     const state = JSON.parse(fs.readFileSync(STORAGE_STATE_PATH, 'utf-8')) as {
-      origins?: Array<{ localStorage?: Array<{ name: string; value: string }> }>;
+      origins?: Array<{ origin?: string; localStorage?: Array<{ name: string; value: string }> }>;
     };
-    const token = state.origins?.[0]?.localStorage?.find(
+    // Only reuse a token that was written for the CURRENT target origin —
+    // switching between local and deploy must re-authenticate.
+    const entry = state.origins?.find((o) => o.origin === E2E_BASE_URL);
+    const token = entry?.localStorage?.find(
       (e) => e.name === AUTH_TOKEN_LOCAL_STORAGE_KEY,
     )?.value;
     if (!token) return null;
 
-    const probe = await fetch(`${DEPLOY_API_URL}/auth/me`, {
+    const probe = await fetch(`${E2E_API_URL}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     return probe.ok ? token : null;
@@ -56,14 +61,17 @@ async function reuseOrCreateProject(token: string): Promise<string> {
     try {
       const ctx = JSON.parse(fs.readFileSync(E2E_CONTEXT_PATH, 'utf-8')) as {
         projectId?: string;
+        baseUrl?: string;
       };
-      if (ctx.projectId) {
+      // Only reuse when it was created for the current target — a stale
+      // projectId from the other environment would cause cross-env bleed.
+      if (ctx.projectId && ctx.baseUrl === E2E_BASE_URL) {
         const probe = await fetch(
-          `${DEPLOY_API_URL}/projects/${ctx.projectId}/versions/latest`,
+          `${E2E_API_URL}/projects/${ctx.projectId}/versions/latest`,
           { headers: { Authorization: `Bearer ${token}` } },
         );
-        // 200 (has version) or 404 (new project, no versions yet) both mean the
-        // project still exists and is owned by the current user.
+        // 200 (has version) or 404 (new project, no versions yet) both mean
+        // the project still exists and is owned by the current user.
         if (probe.ok || probe.status === 404) return ctx.projectId;
       }
     } catch {
@@ -74,14 +82,14 @@ async function reuseOrCreateProject(token: string): Promise<string> {
 }
 
 export default async function globalSetup(): Promise<void> {
-  const token = (await reuseExistingToken()) ?? (await loginViaDeployApi());
+  const token = (await reuseExistingToken()) ?? (await loginViaE2eApi());
   const projectId = await reuseOrCreateProject(token);
 
   const state = {
     cookies: [] as unknown[],
     origins: [
       {
-        origin: DEPLOY_BASE_URL,
+        origin: E2E_BASE_URL,
         localStorage: [
           { name: AUTH_TOKEN_LOCAL_STORAGE_KEY, value: token },
         ],
@@ -92,5 +100,5 @@ export default async function globalSetup(): Promise<void> {
   fs.mkdirSync(path.dirname(STORAGE_STATE_PATH), { recursive: true });
   fs.writeFileSync(STORAGE_STATE_PATH, JSON.stringify(state, null, 2));
 
-  writeE2eContext({ projectId });
+  writeE2eContext({ projectId, baseUrl: E2E_BASE_URL });
 }

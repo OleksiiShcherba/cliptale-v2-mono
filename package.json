@@ -11,7 +11,8 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "e2e:deploy": "E2E_BASE_URL=https://15-236-162-140.nip.io E2E_API_URL=https://api.15-236-162-140.nip.io playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
