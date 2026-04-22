@@ -10,7 +10,7 @@ import { AssetPreviewModal } from '@/features/asset-manager/components/AssetPrev
 import { InlineRenameField } from '@/features/asset-manager/components/InlineRenameField';
 import { config } from '@/lib/config';
 
-import { assetDetailPanelStyles as s, STATUS_BG } from './assetDetailPanel.styles';
+import { getAssetDetailPanelStyles, STATUS_BG } from './assetDetailPanel.styles';
 
 // ---------------------------------------------------------------------------
 // Context discriminated union
@@ -49,6 +49,12 @@ export interface AssetDetailPanelProps {
    * The consumer is responsible for inserting the MediaRef chip.
    */
   onAddToPrompt?: (asset: Asset) => void;
+  /**
+   * When `true` (default) the panel uses a fixed 280×620 px layout suited for
+   * the editor right sidebar. When `false` the panel grows to fill its
+   * container (max 520 px) — used inside the generate-wizard right column.
+   */
+  compact?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -56,11 +62,14 @@ export interface AssetDetailPanelProps {
 // ---------------------------------------------------------------------------
 
 /**
- * 280px detail panel for a single asset.
+ * Detail panel for a single asset.
  *
  * Renders preview, metadata, inline rename, and a context-driven primary action:
  * - `project` context → "Add to Timeline" dropdown
  * - `draft`   context → "Add to Prompt" button (calls `onAddToPrompt`)
+ *
+ * Pass `compact={false}` in the generate-wizard to let the panel fill the
+ * wider right column instead of keeping the editor-sidebar fixed 280 px width.
  */
 export function AssetDetailPanel({
   asset,
@@ -69,7 +78,9 @@ export function AssetDetailPanel({
   onClose,
   onReplace,
   onAddToPrompt,
+  compact = true,
 }: AssetDetailPanelProps): React.ReactElement {
+  const s = getAssetDetailPanelStyles(compact);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const queryClient = useQueryClient();
 

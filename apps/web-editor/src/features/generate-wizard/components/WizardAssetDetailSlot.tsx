@@ -53,6 +53,7 @@ export function WizardAssetDetailSlot({
     <AssetDetailPanel
       asset={asset}
       context={{ kind: 'draft', draftId: draftId ?? '' }}
+      compact={false}
       onClose={onClose}
       onAddToPrompt={onAddToPrompt}
       onDelete={onDelete}

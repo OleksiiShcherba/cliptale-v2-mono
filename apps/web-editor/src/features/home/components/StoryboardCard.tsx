@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
+import { buildAuthenticatedUrl } from '@/lib/api-client';
 import { deleteDraft } from '@/features/generate-wizard/api';
 
 import type { StoryboardCardSummary, MediaPreview } from '../types';
@@ -76,7 +77,7 @@ function MediaThumb({ preview }: MediaThumbProps): React.ReactElement {
   }
   return (
     <img
-      src={preview.thumbnailUrl}
+      src={buildAuthenticatedUrl(preview.thumbnailUrl)}
       alt={`Preview for ${preview.fileId}`}
       style={{
         width: 56,

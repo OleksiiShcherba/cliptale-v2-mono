@@ -2,11 +2,12 @@
  * StoryboardCard — tests.
  *
  * Covers: status badge color mapping; media-preview cap at 3;
- * placeholder SVG on null thumbnail; click-to-navigate; Resume button.
+ * placeholder SVG on null thumbnail; click-to-navigate; Resume button;
+ * authenticated thumbnail src (token appended via buildAuthenticatedUrl).
  */
 
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -69,6 +70,11 @@ function renderCard(card: StoryboardCardSummary) {
 describe('StoryboardCard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
   });
 
   // ── Status badge color mapping ─────────────────────────────────────────────
@@ -199,5 +205,44 @@ describe('StoryboardCard', () => {
     const card = screen.getByRole('button', { name: /^resume storyboard:/i });
     fireEvent.keyDown(card, { key: ' ' });
     expect(mockNavigate).toHaveBeenCalledWith('/generate?draftId=draft-xyz');
+  });
+
+  // ── Auth-aware MediaThumb src ──────────────────────────────────────────────
+
+  it('should render an authenticated thumbnail src in MediaThumb when auth token is set', () => {
+    localStorage.setItem('auth_token', 'T');
+    const card = makeCard({
+      mediaPreviews: [
+        { fileId: 'a1', type: 'video', thumbnailUrl: 'https://api.example/assets/abc/thumbnail' },
+      ],
+    });
+    renderCard(card);
+    const img = screen.getByRole('img', { name: /preview for a1/i });
+    expect((img as HTMLImageElement).src).toContain('?token=T');
+  });
+
+  it('should render the raw thumbnail src in MediaThumb when no auth token is set', () => {
+    const card = makeCard({
+      mediaPreviews: [
+        { fileId: 'a1', type: 'video', thumbnailUrl: 'https://api.example/assets/abc/thumbnail' },
+      ],
+    });
+    renderCard(card);
+    const img = screen.getByRole('img', { name: /preview for a1/i });
+    expect((img as HTMLImageElement).src).toBe('https://api.example/assets/abc/thumbnail');
+  });
+
+  it('should still render placeholder SVG in MediaThumb when thumbnailUrl is null (with token set)', () => {
+    localStorage.setItem('auth_token', 'T');
+    const card = makeCard({
+      mediaPreviews: [
+        { fileId: 'a1', type: 'video', thumbnailUrl: null },
+      ],
+    });
+    renderCard(card);
+    const placeholder = screen.getByRole('img', { name: 'No preview' });
+    expect(placeholder).toBeDefined();
+    const imgs = document.querySelectorAll('img[src]');
+    expect(imgs.length).toBe(0);
   });
 });

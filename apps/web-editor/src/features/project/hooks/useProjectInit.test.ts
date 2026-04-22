@@ -31,6 +31,11 @@ vi.mock('@/store/project-store', () => ({
   getSnapshot: mockGetSnapshot,
   setProjectSilent: vi.fn(),
   setCurrentVersionId: vi.fn(),
+  resetProjectStore: vi.fn(),
+}));
+
+vi.mock('@/store/history-store', () => ({
+  resetHistoryStore: vi.fn(),
 }));
 
 import * as projectApi from '@/features/project/api';

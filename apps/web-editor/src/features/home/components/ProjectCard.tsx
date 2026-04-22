@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
+import { buildAuthenticatedUrl } from '@/lib/api-client';
 import { formatRelativeDate } from '@/shared/utils/formatRelativeDate';
 
 import type { ProjectSummary } from '../types';
@@ -123,7 +124,7 @@ export function ProjectCard({ project, onShowUndoToast }: ProjectCardProps): Rea
       >
         {project.thumbnailUrl != null ? (
           <img
-            src={project.thumbnailUrl}
+            src={buildAuthenticatedUrl(project.thumbnailUrl)}
             alt={project.title}
             style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
           />
