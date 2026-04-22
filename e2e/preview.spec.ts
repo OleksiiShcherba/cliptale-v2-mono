@@ -1,22 +1,26 @@
-// QA: cross-browser — intentionally Chromium-only for initial suite
+// QA: cross-browser — intentionally Chromium-only for initial suite.
+// Requires the deploy-config globalSetup to pre-authenticate via storageState.
 
 import { test, expect } from '@playwright/test';
 
+import { readE2eProjectId } from './helpers/e2e-context';
+
+const editorUrl = () => `/editor?projectId=${readE2eProjectId()}`;
+
 test.describe('Preview panel — Remotion player and playback controls', () => {
   // Remotion player initialization involves video codec setup which can be slow.
-  // A longer per-test timeout prevents flaky failures on first render.
   test.setTimeout(60_000);
 
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    // Wait for the playback controls toolbar to confirm the preview section is mounted
+    await page.goto(editorUrl());
+    // Project hydration + Remotion player mount can take several seconds
+    // on a cold page, so allow a generous wait before assertions begin.
     await expect(
       page.getByRole('toolbar', { name: 'Playback controls' }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 15_000 });
   });
 
   test('Remotion player container is present in the main area', async ({ page }) => {
-    // The Remotion <Player> renders inside the main region
     const main = page.getByRole('main');
     await expect(main).toBeVisible();
   });
@@ -32,9 +36,7 @@ test.describe('Preview panel — Remotion player and playback controls', () => {
 
     await playButton.click();
 
-    // After clicking play the button should switch to the pause state
     await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
-    // The original "Play" button should no longer be present
     await expect(page.getByRole('button', { name: 'Play' })).not.toBeVisible();
   });
 
@@ -45,8 +47,7 @@ test.describe('Preview panel — Remotion player and playback controls', () => {
     const text = await timecode.textContent();
     expect(text).toBeTruthy();
 
-    // The timecode element shows "HH:MM:SS:FF / HH:MM:SS:FF" (current / total).
-    // Accept a string that starts with a valid SMPTE timecode (HH:MM:SS:FF).
+    // "HH:MM:SS:FF / HH:MM:SS:FF" (current / total)
     const validTimecodePattern = /^\d{2}:\d{2}:\d{2}:\d{2}/;
     expect(text!.trim()).toMatch(validTimecodePattern);
   });
@@ -60,7 +61,6 @@ test.describe('Preview panel — Remotion player and playback controls', () => {
     const frameCounter = page.getByLabel('Current frame');
     await expect(frameCounter).toBeVisible();
     const text = await frameCounter.textContent();
-    // Frame counter format: "0 / 300"
     expect(text).toMatch(/^\d+ \/ \d+$/);
   });
 });

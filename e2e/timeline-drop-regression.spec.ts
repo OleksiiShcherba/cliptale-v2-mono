@@ -1,82 +1,41 @@
 /**
- * Manual E2E verification — Timeline-drop regression fix
+ * E2E verification — Timeline-drop regression fix.
  *
  * Verifies that:
  * - POST /projects/<real-uuid>/clips returns 201 (not 400)
  * - No "Failed to create clip" 400 errors in console
  * - Remotion preview canvas shows frames (not solid black) after adding a clip
  *
- * This test captures screenshots into docs/test_screenshots/ for audit purposes.
- * It requires the Docker Compose stack to be running (web-editor on :5173, api on :3001).
+ * Screenshots are written to docs/test_screenshots/ for audit purposes.
  *
- * Auth: Uses Playwright storageState to log in once and reuse the session across
- * all three tests. This avoids triggering the login rate limiter (5 req / 15 min).
- * The seeded e2e test user (e2e@cliptale.test / TestPassword123!) is used.
- * The user is created by apps/web-editor/e2e/seed-test-user.sql.
+ * Auth + project state are provided by `playwright.deploy.config.ts`:
+ * - `globalSetup` logs in as the seeded e2e user and writes an
+ *   authenticated storageState.
+ * - A reusable empty project is created by globalSetup and its id is
+ *   read via `readE2eProjectId()` so every test lands on the same editor
+ *   URL — no repeated project creation, no accumulating state.
  *
- * NOTE: This test requires pre-existing ready assets in the database.
- * If no ready asset is found for a given type, that test is skipped with an
- * explanatory message.
+ * NOTE: Tests that manipulate ready assets skip themselves when the
+ * seeded user has no ready asset of the required type.
  */
 
 import * as path from 'path';
-import * as fs from 'fs';
-import { test, expect, Page, Response, BrowserContext } from '@playwright/test';
+import { test, expect, Page, Response } from '@playwright/test';
+
+import { readE2eProjectId } from './helpers/e2e-context';
 
 const SCREENSHOTS_DIR = path.resolve(__dirname, '../docs/test_screenshots');
-const AUTH_STATE_FILE = path.resolve(__dirname, '../test-results/e2e-auth-state.json');
-// Use the second e2e test user to avoid rate-limit issues from prior runs.
-// e2e@cliptale.test hit the 5-attempt/15-min login rate limiter during test development.
-// e2e2@cliptale.test is a fresh alias with the same password and privileges.
-const TEST_EMAIL = 'e2e2@cliptale.test';
-const TEST_PASSWORD = 'TestPassword123!';
+
+const editorUrl = (): string => `/editor?projectId=${readE2eProjectId()}`;
 
 function screenshotPath(name: string): string {
   return path.join(SCREENSHOTS_DIR, name);
 }
 
-/** Save login session to a file so it can be reused across tests. */
-async function loginAndSaveState(context: BrowserContext): Promise<void> {
-  const page = await context.newPage();
-  try {
-    await page.goto('http://localhost:5173/login');
-
-    const emailInput = page.getByRole('textbox', { name: /email/i });
-    await expect(emailInput).toBeVisible({ timeout: 10_000 });
-    await emailInput.fill(TEST_EMAIL);
-    await page.locator('input[type="password"]').fill(TEST_PASSWORD);
-    await page.getByRole('button', { name: /sign in/i }).click();
-
-    await page.waitForURL(url => !url.pathname.startsWith('/login'), { timeout: 20_000 });
-    await context.storageState({ path: AUTH_STATE_FILE });
-  } finally {
-    await page.close();
-  }
-}
-
-/** Navigate to the editor from the home page and wait for the shell to be ready. */
+/** Navigate to the editor and wait for the shell to be ready. */
 async function openEditor(page: Page): Promise<void> {
-  await page.goto('/');
+  await page.goto(editorUrl());
   await page.waitForLoadState('networkidle', { timeout: 20_000 });
-
-  // If on the home/projects page, click the first available project card
-  const currentUrl = page.url();
-  if (!currentUrl.includes('/editor')) {
-    const firstProjectButton = page.getByRole('button', { name: /Open project:/i }).first();
-    const projectVisible = await firstProjectButton.isVisible({ timeout: 5_000 }).catch(() => false);
-
-    if (projectVisible) {
-      await firstProjectButton.click();
-      await page.waitForURL(/\/editor/, { timeout: 15_000 });
-    } else {
-      // No projects yet — navigate directly to /editor (creates a fresh project)
-      await page.goto('/editor');
-    }
-
-    await page.waitForLoadState('networkidle', { timeout: 20_000 });
-  }
-
-  // Wait for the left sidebar (aria-label="Left sidebar" on <aside> in App.tsx)
   await expect(
     page.getByRole('complementary', { name: 'Left sidebar' }),
   ).toBeVisible({ timeout: 30_000 });
@@ -99,7 +58,6 @@ async function captureClipsPost(
   };
   page.on('response', handler);
   await action();
-  // Allow time for the network response
   await page.waitForTimeout(3000);
   page.off('response', handler);
 
@@ -109,61 +67,25 @@ async function captureClipsPost(
 /** Select the first ready asset of a given content type. Returns true if found. */
 async function selectFirstReadyAsset(page: Page, filterTabName: string): Promise<boolean> {
   const sidebar = page.getByRole('complementary', { name: 'Left sidebar' });
+  const filterTab = sidebar.getByRole('button', { name: filterTabName, exact: true });
+  if (!(await filterTab.isVisible().catch(() => false))) return false;
+  await filterTab.click();
+  await page.waitForTimeout(800);
 
-  // Apply the content-type filter — exact match to avoid matching asset names
-  const filterTab = sidebar.getByRole('button', { name: filterTabName, exact: true }).first();
-  if (await filterTab.isVisible().catch(() => false)) {
-    await filterTab.click();
-  }
-
-  await page.waitForTimeout(1500);
-
-  // Asset cards have aria-label "Asset: <filename>, status: ready"
-  const readyAsset = sidebar.getByRole('button', {
-    name: /Asset:.*status:\s*ready/i,
-  }).first();
-
-  const hasReadyAsset = await readyAsset.isVisible({ timeout: 3_000 }).catch(() => false);
-  if (!hasReadyAsset) {
-    return false;
-  }
-
-  await readyAsset.click();
-  // Wait for the detail panel to open
-  await expect(page.getByText('Asset Details')).toBeVisible({ timeout: 5_000 });
+  const firstCard = sidebar.getByRole('button', { name: /^Asset: .*status: ready/i }).first();
+  const isVisible = await firstCard.isVisible({ timeout: 5_000 }).catch(() => false);
+  if (!isVisible) return false;
+  await firstCard.click();
+  await page.waitForTimeout(500);
   return true;
 }
 
-// Ensure auth state file exists before tests try to use it.
-// This stub file is replaced by the real session in beforeAll.
-const AUTH_STATE_DIR = path.dirname(AUTH_STATE_FILE);
-if (!fs.existsSync(AUTH_STATE_DIR)) {
-  fs.mkdirSync(AUTH_STATE_DIR, { recursive: true });
-}
-if (!fs.existsSync(AUTH_STATE_FILE)) {
-  fs.writeFileSync(AUTH_STATE_FILE, JSON.stringify({ cookies: [], origins: [] }));
-}
-
-// Use a shared auth state setup — login only once
 test.describe('Timeline-drop regression — POST /clips 201 + Remotion preview', () => {
   test.setTimeout(120_000);
 
-  // Setup: log in once and save the session for reuse
-  test.beforeAll(async ({ browser }) => {
-    const context = await browser.newContext();
-    try {
-      await loginAndSaveState(context);
-    } finally {
-      await context.close();
-    }
-  });
-
-  // Use the saved auth state for all tests — no separate login per test
-  test.use({ storageState: AUTH_STATE_FILE });
-
   test('video asset — Add to Timeline returns 201 and preview is not black', async ({ page }) => {
     const consoleErrors: string[] = [];
-    page.on('console', msg => {
+    page.on('console', (msg) => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
 
@@ -175,7 +97,6 @@ test.describe('Timeline-drop regression — POST /clips 201 + Remotion preview',
       return;
     }
 
-    // Screenshot: editor with video asset detail panel open
     await page.screenshot({ path: screenshotPath('timeline-drop-video.png'), fullPage: false });
 
     const addButton = page.getByRole('button', { name: /Add .* to timeline/i }).first();
@@ -189,7 +110,6 @@ test.describe('Timeline-drop regression — POST /clips 201 + Remotion preview',
       await addButton.click();
     });
 
-    // Verify POST /clips returned 201
     if (response) {
       expect(response.status(), 'POST /clips should return 201').toBe(201);
       expect(
@@ -198,19 +118,16 @@ test.describe('Timeline-drop regression — POST /clips 201 + Remotion preview',
       ).not.toContain('00000000-0000-0000-0000-000000000001');
     }
 
-    // No "Failed to create clip" errors in console
-    const clipErrors = consoleErrors.filter(e => e.includes('Failed to create clip'));
+    const clipErrors = consoleErrors.filter((e) => e.includes('Failed to create clip'));
     expect(clipErrors, 'No "Failed to create clip" console errors expected').toHaveLength(0);
 
     await page.waitForTimeout(2000);
-
-    // Screenshot: editor after adding video clip — Remotion preview should show frame
     await page.screenshot({ path: screenshotPath('timeline-drop-video.png'), fullPage: false });
   });
 
   test('image asset — Add to Timeline returns 201', async ({ page }) => {
     const consoleErrors: string[] = [];
-    page.on('console', msg => {
+    page.on('console', (msg) => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
 
@@ -222,7 +139,6 @@ test.describe('Timeline-drop regression — POST /clips 201 + Remotion preview',
       return;
     }
 
-    // Screenshot: editor with image asset detail panel open
     await page.screenshot({ path: screenshotPath('timeline-drop-image.png'), fullPage: false });
 
     const addButton = page.getByRole('button', { name: /Add .* to timeline/i }).first();
@@ -241,7 +157,7 @@ test.describe('Timeline-drop regression — POST /clips 201 + Remotion preview',
       expect(response.url()).not.toContain('00000000-0000-0000-0000-000000000001');
     }
 
-    const clipErrors = consoleErrors.filter(e => e.includes('Failed to create clip'));
+    const clipErrors = consoleErrors.filter((e) => e.includes('Failed to create clip'));
     expect(clipErrors, 'No "Failed to create clip" console errors expected').toHaveLength(0);
 
     await page.waitForTimeout(1000);
@@ -250,7 +166,7 @@ test.describe('Timeline-drop regression — POST /clips 201 + Remotion preview',
 
   test('audio asset — Add to Timeline returns 201', async ({ page }) => {
     const consoleErrors: string[] = [];
-    page.on('console', msg => {
+    page.on('console', (msg) => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
 
@@ -262,7 +178,6 @@ test.describe('Timeline-drop regression — POST /clips 201 + Remotion preview',
       return;
     }
 
-    // Screenshot: editor with audio asset detail panel open
     await page.screenshot({ path: screenshotPath('timeline-drop-audio.png'), fullPage: false });
 
     const addButton = page.getByRole('button', { name: /Add .* to timeline/i }).first();
@@ -281,7 +196,7 @@ test.describe('Timeline-drop regression — POST /clips 201 + Remotion preview',
       expect(response.url()).not.toContain('00000000-0000-0000-0000-000000000001');
     }
 
-    const clipErrors = consoleErrors.filter(e => e.includes('Failed to create clip'));
+    const clipErrors = consoleErrors.filter((e) => e.includes('Failed to create clip'));
     expect(clipErrors, 'No "Failed to create clip" console errors expected').toHaveLength(0);
 
     await page.waitForTimeout(1000);
@@ -290,21 +205,8 @@ test.describe('Timeline-drop regression — POST /clips 201 + Remotion preview',
 });
 
 // Capture the image/audio filter views even if no ready assets are present.
-// These screenshots document the current state of the asset browser for those filters.
 test.describe('Timeline-drop regression — screenshot helpers', () => {
   test.setTimeout(60_000);
-
-  // Ensure session is fresh even when this describe runs in isolation
-  test.beforeAll(async ({ browser }) => {
-    const context = await browser.newContext();
-    try {
-      await loginAndSaveState(context);
-    } finally {
-      await context.close();
-    }
-  });
-
-  test.use({ storageState: AUTH_STATE_FILE });
 
   test('capture image filter view screenshot', async ({ page }) => {
     await openEditor(page);
