@@ -31,6 +31,7 @@ type FileDbRow = RowDataPacket & {
   created_at: Date;
   updated_at: Date;
   deleted_at: Date | null;
+  thumbnail_uri: string | null;
 };
 
 function mapRowToFileRow(row: FileDbRow): FileRow {
@@ -50,6 +51,7 @@ function mapRowToFileRow(row: FileDbRow): FileRow {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at ?? null,
+    thumbnailUri: row.thumbnail_uri ?? null,
   };
 }
 
