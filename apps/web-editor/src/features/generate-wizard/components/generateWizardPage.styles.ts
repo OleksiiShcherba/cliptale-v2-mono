@@ -66,7 +66,7 @@ export const wizardPageStyles = {
     flexDirection: 'column' as const,
     overflow: 'auto',
     background: SURFACE_ALT,
-    padding: '0',
+    padding: '24px',
   } as React.CSSProperties,
 
   footer: {

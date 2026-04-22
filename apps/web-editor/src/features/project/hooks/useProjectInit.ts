@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 
 import { createProject } from '@/features/project/api';
 import { fetchLatestVersion } from '@/features/version-history/api';
-import { getSnapshot, setProjectSilent, setCurrentVersionId } from '@/store/project-store';
+import { getSnapshot, setProjectSilent, setCurrentVersionId, resetProjectStore } from '@/store/project-store';
+import { resetHistoryStore } from '@/store/history-store';
 import type { ProjectDoc } from '@ai-video-editor/project-schema';
 
 // ---------------------------------------------------------------------------
@@ -108,6 +109,13 @@ export function useProjectInit(): ProjectInitState {
 
     const projectId = hydratingProjectId;
     let cancelled = false;
+
+    // Reset stores before fetching so any accumulated patches and undo/redo
+    // history from a previously-loaded project cannot bleed into this session.
+    // Both calls notify listeners synchronously, which causes useAutosave to
+    // read hasPendingPatches() === false and skip any in-flight debounce.
+    resetProjectStore(projectId);
+    resetHistoryStore();
 
     fetchLatestVersion(projectId)
       .then((latest) => {

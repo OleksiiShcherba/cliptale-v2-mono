@@ -5,6 +5,15 @@ import { computeProjectDuration } from '@ai-video-editor/editor-core';
 
 import { pushPatches } from './history-store.js';
 
+// ---------------------------------------------------------------------------
+// Default schema and resolution values used when seeding an empty document.
+// Extracted here so resetProjectStore can seed consistently with DEV_PROJECT.
+// ---------------------------------------------------------------------------
+const DEFAULT_SCHEMA_VERSION = 1 as const;
+const DEFAULT_FPS = 30;
+const DEFAULT_WIDTH = 1920;
+const DEFAULT_HEIGHT = 1080;
+
 // Immer's Patches plugin must be enabled before produceWithPatches is called.
 enablePatches();
 
@@ -14,13 +23,13 @@ enablePatches();
 // instead of a black rectangle when the editor is opened.
 // ---------------------------------------------------------------------------
 const DEV_PROJECT: ProjectDoc = {
-  schemaVersion: 1,
+  schemaVersion: DEFAULT_SCHEMA_VERSION,
   id: '00000000-0000-0000-0000-000000000001',
   title: 'Dev Project',
-  fps: 30,
+  fps: DEFAULT_FPS,
   durationFrames: 300,
-  width: 1920,
-  height: 1080,
+  width: DEFAULT_WIDTH,
+  height: DEFAULT_HEIGHT,
   tracks: [],
   clips: [],
   createdAt: new Date().toISOString(),
@@ -108,6 +117,37 @@ export function getCurrentVersionId(): number | null {
  */
 export function setCurrentVersionId(id: number): void {
   currentVersionId = id;
+  notifyListeners();
+}
+
+/**
+ * Resets the project store to an empty document seeded with the given
+ * `projectId` and clears `currentVersionId`.
+ *
+ * Call this at the start of the hydration effect in `useProjectInit` **before**
+ * fetching the latest version. This prevents `useAutosave` from draining
+ * accumulated patches from project A into project B's first autosave write.
+ *
+ * The empty document is set silently (no patches pushed to history-store) so
+ * the reset itself does not trigger an autosave. Notifies listeners so any
+ * derived subscriptions (e.g. `useCurrentVersionId`) reflect the cleared state.
+ */
+export function resetProjectStore(projectId: string): void {
+  const now = new Date().toISOString();
+  snapshot = {
+    schemaVersion: DEFAULT_SCHEMA_VERSION,
+    id: projectId,
+    title: '',
+    fps: DEFAULT_FPS,
+    durationFrames: DEFAULT_FPS * 5,
+    width: DEFAULT_WIDTH,
+    height: DEFAULT_HEIGHT,
+    tracks: [],
+    clips: [],
+    createdAt: now,
+    updatedAt: now,
+  } as unknown as ProjectDoc;
+  currentVersionId = null;
   notifyListeners();
 }
 

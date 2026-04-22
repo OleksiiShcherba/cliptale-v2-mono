@@ -1,11 +1,12 @@
 /**
  * ProjectCard — tests.
  *
- * Covers: thumbnail fallback, relative date display, click-to-navigate.
+ * Covers: thumbnail fallback, relative date display, click-to-navigate,
+ * authenticated thumbnail src (token appended via buildAuthenticatedUrl).
  */
 
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -77,6 +78,11 @@ describe('ProjectCard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFormatRelativeDate.mockReturnValue('2h ago');
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
   });
 
   it('should render the project title', () => {
@@ -134,5 +140,29 @@ describe('ProjectCard', () => {
     const card = screen.getByRole('button', { name: /open project: my project/i });
     fireEvent.keyDown(card, { key: 'Tab' });
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  // ── Auth-aware thumbnail src ───────────────────────────────────────────────
+
+  it('should render an authenticated thumbnail src when auth token is set', () => {
+    localStorage.setItem('auth_token', 'T');
+    renderCard(PROJECT_WITH_THUMB);
+    const img = screen.getByRole('img', { name: 'My Project' });
+    expect((img as HTMLImageElement).src).toContain('?token=T');
+  });
+
+  it('should render the raw thumbnail src when no auth token is set', () => {
+    renderCard(PROJECT_WITH_THUMB);
+    const img = screen.getByRole('img', { name: 'My Project' });
+    expect((img as HTMLImageElement).src).toBe('https://example.com/thumb.jpg');
+  });
+
+  it('should still render placeholder SVG when thumbnailUrl is null (with token set)', () => {
+    localStorage.setItem('auth_token', 'T');
+    renderCard(PROJECT_NO_THUMB);
+    const placeholder = screen.getByRole('img', { name: 'No thumbnail' });
+    expect(placeholder).toBeDefined();
+    const imgs = document.querySelectorAll('img');
+    expect(imgs.length).toBe(0);
   });
 });

@@ -222,38 +222,50 @@
 - F1 fluid AI panel: `aiGenerationPanelStyles.ts.getPanelStyle(compact: boolean)` — compact=true → 320px (editor sidebar), compact=false → 100%/max 720px (wizard); `AiGenerationPanel` gains `compact?: boolean` prop; `App.tsx` passes `compact={true}`
 
 ### Guardian Post-Review Fixes (2026-04-20)
-- Fix 1 (vi.hoisted TDZ): inlined `DEFAULT_SNAPSHOT` literal inside all 4 `vi.hoisted()` blocks in `useProjectUiState.{restore,debounce,flush,project-switch}.test.ts`
-- Fix 2 (App sibling mock gap): added `subscribe/getSnapshot/setAll` to `@/store/ephemeral-store` mock in 6 App test files
-- Fix 3 (`asset.response.service.test.ts` config mock): extended `vi.mock('@/config.js')` with `db: { host, port, name, user, password }`. Initially corrupted (0 bytes) — restored from commit 589ae23 in Fix round 2
-- Fix 4 (`thumbnailUri` mapping): `asset.repository.ts` `AssetRow.thumbnail_uri`, `row.thumbnail_uri ?? null`; 3 new tests
-- Fix 5 (trash cursor pagination): `deletedAt:id` keyset cursor in `file.repository.trash.ts` + `generationDraft.repository.trash.ts` + `project.repository.ts`; threaded through `trash.service.ts` + controller (`trashQuerySchema.cursor`)
-- Fix B (design-reviewer): `ProjectCard.tsx` delete-button typography 11/400 → 12/500 per design-guide §3 label token
+- vi.hoisted TDZ: inlined `DEFAULT_SNAPSHOT` literal inside 4 `vi.hoisted()` blocks in `useProjectUiState.{restore,debounce,flush,project-switch}.test.ts`
+- App sibling mock gap: added `subscribe/getSnapshot/setAll` to `@/store/ephemeral-store` mock in 6 App test files
+- `asset.response.service.test.ts` config mock: extended `vi.mock('@/config.js')` with `db: { host, port, name, user, password }`
+- `thumbnailUri` mapping: `asset.repository.ts` `AssetRow.thumbnail_uri`, `row.thumbnail_uri ?? null`; 3 new tests
+- trash cursor pagination: `deletedAt:id` keyset cursor in `file.repository.trash.ts` + `generationDraft.repository.trash.ts` + `project.repository.ts`; threaded through `trash.service.ts` + controller (`trashQuerySchema.cursor`)
+- design-reviewer: `ProjectCard.tsx` delete-button typography 11/400 → 12/500 per design-guide §3 label token
 
 ## Editor asset-fetch loop + general→project link + /generate error (2026-04-21)
-_Scope: general_tasks.md issues 1–3; 6 subtasks on branch `feat/editor-asset-fetch-and-generate-fix`_
-
-- diagnosed: `/generate?draftId=<id>` error — surface (b) `GET /generation-drafts/:id/assets` returns HTTP 200 with bare `AssetApiResponse[]`; FE casts it as `AssetListResponse` envelope so `data?.items` is undefined → empty gallery. Also field-name mismatch (`contentType` vs `type`, `filename`/`displayName` vs `label`, `thumbnailUri` vs `thumbnailUrl`). No 500 exists (prior Known Issue was mischaracterized). `docs/generate-error-diagnosis.md` records the diagnosis + resolution
-- added: `GET /projects/:id/assets` keyset pagination `?cursor=<base64 ISO|fileId>&limit=<1..100>&scope=<project|all>` → `{ items, nextCursor, totals: { count, bytesUsed } }` envelope. `fileLinks.repository.findFilesByProjectIdPaginatedWithCursor` on `(pf.created_at, pf.file_id)` ASC; `file.repository.list.findAllForUserPaginated` on `(files.created_at, files.file_id)` DESC; `getProjectFilesTotals` + `getAllFilesTotalsForUser`; `encodeProjectCursor`/`decodeProjectCursor` in `fileLinks.response.service.ts`. Extracted `apps/api/src/controllers/assets.controller.schemas.ts` (§9.7). Updated `packages/api-contracts/src/openapi.ts` with `AssetApiResponseItem`/`ProjectAssetsTotals`/`AssetListResponse` + path entry
-- added: `packages/api-contracts/src/asset-list.schemas.ts` — Zod schemas (`AssetStatusSchema`, `AssetApiResponseItemSchema`, `ProjectAssetsTotalsSchema`, `AssetListResponseSchema`) + inferred types, re-exported from `index.ts`. `packages/api-contracts/dist/` rebuilt
-- rewired: editor FE to envelope. `getAssets()` returns `AssetListResponse` (page 1, limit 100); `fetchNextAssetsPage()` exported for future infinite-scroll; `AssetBrowserPanel` reads `data?.items ?? []`. New `asset-manager/hooks/useProjectAssets.ts` reads the `['assets', projectId, 'project']` cache. Rewrote `useRemotionPlayer.ts`: cache-first via `queryClient.getQueryData()`, `useQueries` fallback only for orphan fileIds (zero `GET /assets/:id` calls when page-1 hits all clips). Updated `types.ts` (`AssetListTotals`, `AssetListResponse`)
-- configured: `main.tsx` QueryClient defaults — `staleTime: 60_000`, `refetchOnWindowFocus: false`, `retry: 1` (stops focus-refetch storms; closes issue 1.2 429 bursts)
-- added: `useAddAssetToTimeline.ts` now fires `linkFileToProject(projectId, asset.id).then(() => queryClient.invalidateQueries({ queryKey: ['assets', projectId] })).catch(() => undefined)` after `createClip()` in both `addAssetToNewTrack` + `addAssetToExistingTrack`. Reuses existing helper from `features/timeline/api.ts` (duplicate in `shared/file-upload/api.ts` flagged — not cleaned in this task). Closes issue 2 (scope=all "Add to Timeline" now produces a project link)
-- fixed: `/generate` page error. BE — `fileLinks.response.service.getDraftFilesResponse` returns `ProjectAssetsPage` envelope `{ items, nextCursor: null, totals }`; `generationDrafts.controller.getDraftAssets` calls `generationDraftService.getById(userId, draftId)` for ownership (was entirely missing → **security fix**: any auth'd user could read any draft). FE — `listDraftAssets` (`features/generate-wizard/api.ts`) maps wire via `wireItemToAssetSummary` (`contentType` → `type` via MIME prefix, `displayName ?? filename` → `label`, `thumbnailUri` → `thumbnailUrl`); resolves `data?.items ?? []` undefined bug in `MediaGalleryRecentBody`. OpenAPI gains `GET /generation-drafts/{id}/assets` with envelope schema. Extracted `apps/api/src/controllers/generationDrafts.controller.schemas.ts` 305L→281L (§9.7); absolute imports for `@/features/generate-wizard/types`
-- tests added: integration `projects-assets-pagination.test.ts` (17: shape/cursor/scope/deletion/limit); `projects-assets-pagination.contract.test.ts` (3: scope=project, scope=all, per-item assertions using `AssetListResponseSchema.safeParse`); `generation-drafts-assets.test.ts` (5: empty draft envelope, draft+2files, per-item shape, 403 ownership, 401 missing auth); envelope migration on `file-links-endpoints.test.ts`+`.draft.test.ts`+`assets-scope-param.test.ts`. Unit: `fileLinks.response.service.test.ts` (9: cursor round-trip + error paths); `useProjectAssets.test.ts` (8); `useRemotionPlayer.test.ts` rewritten (23: cache-first + fallback); `useAddAssetToTimeline.{test,linkfile.test,fixtures}.ts` (22 total across split files, §9.7); `useAssets.test.ts` (6). All pass against real MySQL + real Vitest
+- diagnosed: `/generate?draftId=<id>` empty gallery — FE cast bare `AssetApiResponse[]` as envelope; field-name mismatch (`contentType`/`type`, `filename`/`displayName`/`label`, `thumbnailUri`/`thumbnailUrl`); no 500 (prior Known Issue mischaracterised)
+- added: `GET /projects/:id/assets` keyset pagination `?cursor=<base64 ISO|fileId>&limit=<1..100>&scope=<project|all>` → `{ items, nextCursor, totals: { count, bytesUsed } }` envelope; `fileLinks.repository.findFilesByProjectIdPaginatedWithCursor`, `file.repository.list.findAllForUserPaginated`; `getProjectFilesTotals` + `getAllFilesTotalsForUser`; `encodeProjectCursor`/`decodeProjectCursor` in `fileLinks.response.service.ts`; extracted `assets.controller.schemas.ts` (§9.7); OpenAPI `AssetApiResponseItem`/`ProjectAssetsTotals`/`AssetListResponse` + path entry
+- added: `packages/api-contracts/src/asset-list.schemas.ts` (Zod schemas + inferred types); dist rebuilt
+- rewired FE to envelope: `getAssets()` returns `AssetListResponse`; `fetchNextAssetsPage()` exported; `AssetBrowserPanel` reads `data?.items ?? []`; `useProjectAssets.ts` reads `['assets', projectId, 'project']` cache; `useRemotionPlayer.ts` rewritten cache-first (`useQueries` fallback only for orphan fileIds)
+- configured: `main.tsx` QueryClient `staleTime: 60_000`, `refetchOnWindowFocus: false`, `retry: 1` (stops focus-refetch 429 bursts)
+- added: `useAddAssetToTimeline.ts` fires `linkFileToProject` + cache invalidate after `createClip()` (closes scope=all "Add to Timeline" link gap)
+- fixed: `/generate` page — `fileLinks.response.service.getDraftFilesResponse` returns envelope; `generationDrafts.controller.getDraftAssets` calls `generationDraftService.getById(userId, draftId)` for ownership (**security fix**: any auth'd user could read any draft); FE `listDraftAssets` maps wire via `wireItemToAssetSummary`; OpenAPI adds `GET /generation-drafts/{id}/assets` envelope; extracted `generationDrafts.controller.schemas.ts` (§9.7)
+- tests: `projects-assets-pagination.test.ts` (17), `.contract.test.ts` (3), `generation-drafts-assets.test.ts` (5), envelope migration on `file-links-endpoints{,.draft}.test.ts` + `assets-scope-param.test.ts`, `fileLinks.response.service.test.ts` (9), `useProjectAssets.test.ts` (8), `useRemotionPlayer.test.ts` rewritten (23), `useAddAssetToTimeline.{test,linkfile.test,fixtures}.ts` (22 across splits, §9.7), `useAssets.test.ts` (6)
 
 ## Guardian test regressions follow-up (2026-04-21)
-_Scope: 13 failing tests from Guardian report on branch `feat/editor-asset-fetch-and-generate-fix`; test-only fixes_
+- fixed: `useAddAssetToTimeline.placement.test.ts` (8) — added `vi.hoisted` + `@tanstack/react-query` mock; removed inline helper dup (pulled from `.fixtures.ts`); added `linkFileToProject` to `@/features/timeline/api` mock. 30 tests green across 3 split files (15 + 8 + 7)
+- fixed: `assets-scope-param.test.ts` draft-half (4) — migrated to envelope (`res.body.items`); 12/12 tests green
+- fixed: `generation-draft-ai-generate.test.ts:212` (1) — envelope cast; 8/8 tests green (fix committed as `667ab82` during subtask 2 review — cross-lane workflow irregularity noted)
 
-- fixed: `useAddAssetToTimeline.placement.test.ts` (8 FE failures). Added `vi.hoisted` + `vi.mock('@tanstack/react-query', ...)` block matching sibling `.test.ts`/`.linkfile.test.ts` pattern; removed duplicated `makeProject`/`makeAsset`/`TEST_PROJECT_ID` inline helpers → now imported from `.fixtures.ts`; added `linkFileToProject` to `@/features/timeline/api` mock. 136L (was 170L). All 30 tests green across 3 split files (15 + 8 + 7)
-- fixed: `assets-scope-param.test.ts` draft-half (4 BE failures). Migrated draft-half describe blocks (~lines 199–297) to envelope: `Array.isArray(res.body)` → `Array.isArray(res.body.items)`, `(res.body as Array<…>).map` → `(res.body.items as Array<…>).map`, `expect(res.body).toEqual([])` → `expect(res.body.items).toEqual([])` + `expect(res.body.nextCursor).toBeNull()`. 298L (§9.7-safe). 12/12 tests green (6 project + 6 draft)
-- fixed: `generation-draft-ai-generate.test.ts:212` (1 BE failure). One-line cast `(assetsRes.body as Array<…>).map(…)` → `(assetsRes.body.items as Array<…>).map(…)`. Fix applied during subtask-2 review as commit `667ab82`; verified in subtask 3 with full file grep (no other bare-array reads). 8/8 tests green
-- verified: final regression sweep — 98 target tests green across `useAddAssetToTimeline.*` (30), `assets-scope-param` (12), `projects-assets-pagination` (17), `file-links-endpoints.{test,draft.test}.ts` (27), `generation-drafts-assets` (5), `generation-draft-ai-generate` (8). Pre-existing Class A/C failures (`assets-finalize-endpoint`, `assets-list-endpoint`, `versions-list-restore-endpoint`, `renders-endpoint`) unchanged (Known Issues)
-- process note: qa-reviewer on subtask 2 crossed lanes and committed the subtask-3 fix as `667ab82` before subtask 3 ran — functionally harmless but a workflow irregularity. Subtask 3's senior-dev confirmed the fix and closed the log-entry gap
+## Telegram Bugs Batch (2026-04-21, branch `fix/telegram-bugs-timeline-preview-storyboard`)
+
+### Timeline state leak across projects
+- added: `resetProjectStore(projectId)` in `apps/web-editor/src/store/project-store.ts` — seeds empty ProjectDoc with given id/tracks:[]/clips:[] using extracted `DEFAULT_SCHEMA_VERSION/FPS/WIDTH/HEIGHT` constants; clears `currentVersionId` to null; notifies listeners
+- promoted: `history-store._resetForTesting` → public `resetHistoryStore()` (adds notifyListeners); test-only wrapper kept for backward compat
+- updated: `useProjectInit.ts` hydration effect — calls `resetProjectStore(projectId)` + `resetHistoryStore()` at top before `fetchLatestVersion` (prevents autosave draining prior-project patches into new project's first version)
+- tests: `project-store.reset.test.ts` (12), `useProjectInit.project-switch.test.ts` (7), `useAutosave.reset.test.ts` (4); existing `useProjectInit.test.ts` mock updated to include new resets
+
+### Home-page thumbnail 401 fix
+- fixed: `ProjectCard.tsx` + `StoryboardCard.tsx` `MediaThumb` — wrapped `<img src={thumbnailUrl}>` with `buildAuthenticatedUrl(...)` (appends `?token=` consumed by `auth.middleware` query-param fallback); null-check + placeholder SVG preserved
+- tests: +3 in `ProjectCard.test.tsx` (28 total) + +3 in `StoryboardCard.test.tsx` (47 total) — token present → `?token=`, no token → raw URL, null → placeholder
+
+### Storyboard asset-detail fluid layout
+- refactored: `assetDetailPanel.styles.ts` static export → `getAssetDetailPanelStyles(compact: boolean)` factory (mirrors EPIC F `getPanelStyle`) — compact=true preserves 280×620 root + 248-wide children (editor sidebar); compact=false → root `width:100%` / `maxWidth:520` / `minHeight:620` + child widths `100%` / `maxWidth:480`; `STATUS_BG` unchanged
+- updated: `AssetDetailPanel.tsx` — `compact?: boolean` prop (default `true`); factory called at render
+- updated: `WizardAssetDetailSlot.tsx` passes `compact={false}`; `generateWizardPage.styles.ts` `rightColumn.padding` `'0'` → `'24px'`
+- tests: `getAssetDetailPanelStyles.test.ts` (21), `AssetDetailPanel.fluid.test.tsx` (11), `WizardAssetDetailSlot.test.tsx` (8); existing AssetDetailPanel tests (38) remain green; full web-editor regression sweep 200 files / 2245 tests green
 
 ---
 
 ## Architectural Decisions / Notes
-- §9.7 300-line cap enforced via `*.fixtures.ts` + `.<topic>.test.ts` splits (dot-infix mandatory); approved exceptions: `fal-models.ts` (1093L), `file.repository.ts` (306L pragmatic), `useProjectInit.test.ts` (318L)
+- §9.7 300-line cap enforced via `*.fixtures.ts` + `.<topic>.test.ts` splits (dot-infix mandatory); approved exceptions: `fal-models.ts` (1093L), `file.repository.ts` (306L pragmatic), `useProjectInit.test.ts` (318L), `StoryboardCard.tsx` (319L pragmatic)
 - Worker env discipline: only `index.ts` reads `config.*.key`; handlers receive secrets + repos via `deps` (never module-level singletons)
 - Migration strategy: in-process runner (`apps/api/src/db/migrate.ts`) with `schema_migrations` (sha256 checksum) = only sanctioned mutation path
 - MySQL 8.0 DDL non-transactional; INSERT into `schema_migrations` AFTER DDL succeeds; migration files must be idempotent (INFORMATION_SCHEMA + PREPARE/EXECUTE guards)
@@ -263,6 +275,8 @@ _Scope: 13 failing tests from Guardian report on branch `feat/editor-asset-fetch
 - Reviewer verdict tokens are EXACTLY `NOT`/`YES`/`COMMENTED` per task-orchestrator contract
 - Wire DTO naming: `fileId` across wire (contracts + BE + FE + worker payloads); `assetId` compat shim removed
 - `project-store.snapshot.id` kept in sync with `useProjectInit` URL-resolved projectId on both success and 404 branches
+- **Project-switch store reset**: `useProjectInit` hydration effect must call `resetProjectStore(projectId) + resetHistoryStore()` BEFORE `fetchLatestVersion` — module-singleton stores do not unmount with React; without reset, useAutosave drains prior-project patches into new project's first version
+- **Media elements need `buildAuthenticatedUrl`**: `<img>`/`<video>`/`<audio>` from `/assets/:id/{thumbnail,stream}` MUST be wrapped (browsers cannot send Authorization headers; auth.middleware accepts `?token=` query fallback)
 - `findByIdForUser` unifies existence + ownership (cross-user → null → NotFoundError — avoids leaking existence)
 - Audio via ElevenLabs (not fal.ai)
 - Wizard MediaGalleryPanel separate from editor AssetBrowserPanel (§14 no cross-feature imports)
@@ -273,7 +287,7 @@ _Scope: 13 failing tests from Guardian report on branch `feat/editor-asset-fetch
 - React component props: `interface` (not `type`), suffixed with `Props` — §9
 - FE asset list is a paginated envelope `{ items, nextCursor, totals }` across wire (projects + drafts); editor cache-first via `['assets', projectId, 'project']`; `useRemotionPlayer` only falls back to `getAsset(fileId)` for orphan clips not in the cached page
 - QueryClient defaults (editor main.tsx): `staleTime: 60_000`, `refetchOnWindowFocus: false`, `retry: 1`
-- AI panel width: `getPanelStyle(compact)` — compact=true (editor sidebar) 320px; compact=false (wizard) 100%/720 max
+- **Panel `compact` prop pattern**: shared panels embedded in both editor sidebar (compact=true, fixed narrow width) and wizard column (compact=false, fluid 100%/maxWidth) via `getXyzStyles(compact)` factory — precedent: `aiGenerationPanelStyles.getPanelStyle` (320px/720max); `getAssetDetailPanelStyles` (280×620/520max)
 - Draft-assets endpoint now shares the envelope + ownership-check pattern with project-assets; `generationDraftService.getById(userId, draftId)` required before returning any draft-scoped data
 
 ---
@@ -295,9 +309,10 @@ _Scope: 13 failing tests from Guardian report on branch `feat/editor-asset-fetch
 - EPIC B hard-purge scheduled job: out of scope; soft-deleted rows past 30 days currently 410 on restore but not physically removed
 - Track soft-delete granularity: tracks/clips remain ProjectDoc patches (Ctrl+Z); DB-level row soft-delete is file/project/draft only
 - Files `thumbnail_uri` backfill for pre-ingest files deferred (re-ingest fills)
-- **Class A (2 pre-existing DEV_AUTH_BYPASS user-mismatch):** `renders-endpoint.test.ts`, `versions-list-restore-endpoint.test.ts`. Also pre-existing: `assets-finalize-endpoint.test.ts`, `assets-list-endpoint.test.ts` (reference dropped `project_assets_current`)
+- **Class A (pre-existing DEV_AUTH_BYPASS user-mismatch / dropped-table refs):** `renders-endpoint.test.ts`, `versions-list-restore-endpoint.test.ts`, `assets-finalize-endpoint.test.ts`, `assets-list-endpoint.test.ts`
 - `asset.repository.ts` thin compat adapter over files+project_files — candidate for collapse (non-urgent)
 - `linkFileToProject` duplicated between `features/timeline/api.ts` + `shared/file-upload/api.ts` — consolidation candidate
 - E2E image/audio timeline-drop tests skip when no assets of those types are linked to test project — only video path E2E-covered
 - Infinite scroll UX in asset sidebar: BE pagination shipped (limit 100 page-1) but FE still page-1-only; `fetchNextAssetsPage()` helper exported but unwired
+- Project-switch: unsaved edits on the departing project are intentionally discarded by the reset (2s debounce + beforeunload cover the normal case). Pre-navigation flush hook is a follow-up candidate.
 - `lust-not-compacted-dev-logs.md` holds the single-copy uncompacted backup of this log; git holds prior-batch history

@@ -146,15 +146,28 @@ export function hasPendingPatches(): boolean {
 /**
  * Resets all internal state to the initial empty state.
  *
- * FOR TESTING ONLY — do not call in production code.
- * Exposed so test files can reset the module-level singleton between test runs.
+ * Call this when the active project changes so that accumulated patches from
+ * the departing project cannot be drained into the incoming project's first
+ * autosave. Also resets the undo/redo stacks because they reference the old
+ * project document's patch history.
  */
-export function _resetForTesting(): void {
+export function resetHistoryStore(): void {
   undoStack = [];
   redoStack = [];
   accumulatedPatches = [];
   accumulatedInversePatches = [];
   snapshot = { canUndo: false, canRedo: false };
+  notifyListeners();
+}
+
+/**
+ * Alias kept for backward compatibility with existing test files that call
+ * `_resetForTesting()` directly. New code should call `resetHistoryStore()`.
+ *
+ * @internal
+ */
+export function _resetForTesting(): void {
+  resetHistoryStore();
 }
 
 /**
