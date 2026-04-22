@@ -1,29 +1,33 @@
-// QA: cross-browser — intentionally Chromium-only for initial suite
+// QA: cross-browser — intentionally Chromium-only for initial suite.
+// Requires the deploy-config globalSetup to pre-authenticate via storageState.
 
 import { test, expect } from '@playwright/test';
 
+import { readE2eProjectId } from './helpers/e2e-context';
+
+const editorUrl = () => `/editor?projectId=${readE2eProjectId()}`;
+
 test.describe('Asset manager — panel and upload dropzone', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    // Wait for the sidebar to confirm the asset manager is mounted
+    await page.goto(editorUrl());
     await expect(
-      page.getByRole('complementary', { name: 'Asset browser' }),
+      page.getByRole('complementary', { name: 'Left sidebar' }),
     ).toBeVisible();
   });
 
-  test('asset browser panel is present', async ({ page }) => {
+  test('left sidebar hosting the asset browser is present', async ({ page }) => {
     await expect(
-      page.getByRole('complementary', { name: 'Asset browser' }),
+      page.getByRole('complementary', { name: 'Left sidebar' }),
     ).toBeVisible();
   });
 
   test('filter tabs are visible (All, Video, Audio, Image)', async ({ page }) => {
-    const sidebar = page.getByRole('complementary', { name: 'Asset browser' });
+    const sidebar = page.getByRole('complementary', { name: 'Left sidebar' });
 
-    await expect(sidebar.getByRole('button', { name: 'All' })).toBeVisible();
-    await expect(sidebar.getByRole('button', { name: 'Video' })).toBeVisible();
-    await expect(sidebar.getByRole('button', { name: 'Audio' })).toBeVisible();
-    await expect(sidebar.getByRole('button', { name: 'Image' })).toBeVisible();
+    await expect(sidebar.getByRole('button', { name: 'All', exact: true })).toBeVisible();
+    await expect(sidebar.getByRole('button', { name: 'Video', exact: true })).toBeVisible();
+    await expect(sidebar.getByRole('button', { name: 'Audio', exact: true })).toBeVisible();
+    await expect(sidebar.getByRole('button', { name: 'Image', exact: true })).toBeVisible();
   });
 
   test('search bar is visible', async ({ page }) => {
@@ -31,21 +35,23 @@ test.describe('Asset manager — panel and upload dropzone', () => {
     await expect(searchInput).toBeVisible();
   });
 
-  test('empty-state message is shown when no assets are loaded', async ({ page }) => {
-    // Without a live API the query will either fail or return an empty list.
-    // Either way, the empty state text or error message should appear.
-    // We allow both "no assets" text and "could not load" error text.
-    const sidebar = page.getByRole('complementary', { name: 'Asset browser' });
+  test('asset list region resolves to a deterministic state', async ({ page }) => {
+    // The seeded e2e user's project state is not guaranteed to be empty on a
+    // deploy instance (prior runs may have left assets linked). Assert only
+    // that the async asset query settles into one of the four observable
+    // states: populated cards / empty-state copy / alert / "Loading…"
+    // (we wait for loading to finish though).
+    const sidebar = page.getByRole('complementary', { name: 'Left sidebar' });
 
-    // Wait for the asset list to settle (either empty state or error state).
-    // The API call is async so we use waitFor to allow up to 5 s.
     await expect(async () => {
       const emptyText = sidebar.getByText('No assets yet — upload to get started');
       const errorText = sidebar.getByRole('alert');
+      const assetCards = sidebar.getByRole('button', { name: /^Asset: /i });
       const hasEmpty = (await emptyText.count()) > 0;
       const hasError = (await errorText.count()) > 0;
-      expect(hasEmpty || hasError).toBe(true);
-    }).toPass({ timeout: 5_000 });
+      const hasCards = (await assetCards.count()) > 0;
+      expect(hasEmpty || hasError || hasCards).toBe(true);
+    }).toPass({ timeout: 15_000 });
   });
 
   test('upload button is present', async ({ page }) => {
@@ -54,11 +60,8 @@ test.describe('Asset manager — panel and upload dropzone', () => {
   });
 
   test('clicking upload button opens the upload dropzone modal', async ({ page }) => {
-    const uploadButton = page.getByRole('button', { name: /upload assets/i });
-    await uploadButton.click();
-
-    const dialog = page.getByRole('dialog', { name: 'Upload Assets' });
-    await expect(dialog).toBeVisible();
+    await page.getByRole('button', { name: /upload assets/i }).click();
+    await expect(page.getByRole('dialog', { name: 'Upload Assets' })).toBeVisible();
   });
 
   test('upload modal contains the drop zone area', async ({ page }) => {
@@ -66,8 +69,6 @@ test.describe('Asset manager — panel and upload dropzone', () => {
 
     const dialog = page.getByRole('dialog', { name: 'Upload Assets' });
     await expect(dialog).toBeVisible();
-
-    // The drop zone contains the "Drop files here or browse" hint text
     await expect(dialog.getByText('Drop files here or browse')).toBeVisible();
   });
 
@@ -97,13 +98,4 @@ test.describe('Asset manager — panel and upload dropzone', () => {
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).not.toBeVisible();
   });
-
-  // TODO: actual file upload flow is not tested here because it requires a running API
-  // server (POST /projects/:id/assets/upload-url) and object storage (S3/R2) to issue
-  // presigned upload URLs. Mocking those services at the E2E layer would defeat the
-  // purpose of integration testing. Once Docker Compose is wired end-to-end in CI,
-  // a separate test file (e2e/asset-upload-flow.spec.ts) should cover:
-  //   1. Dragging a fixture file onto the dropzone
-  //   2. Verifying the per-file progress bar appears (UploadProgressList)
-  //   3. Verifying the asset card appears in the list after upload completes
 });

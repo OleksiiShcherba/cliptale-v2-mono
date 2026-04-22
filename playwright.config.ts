@@ -1,43 +1,55 @@
+import * as path from 'node:path';
+
 import { defineConfig, devices } from '@playwright/test';
 
+import { E2E_BASE_URL, IS_LOCAL_TARGET } from './e2e/helpers/env';
+
 /**
- * Playwright configuration for ClipTale E2E tests.
+ * Unified Playwright configuration — runs locally against the Vite dev
+ * server (default) OR against the deployed instance via env vars.
  *
- * The web-editor service is exposed on port 5173 via Docker Compose.
- * When running locally outside Docker the same port is used by the Vite
- * dev server (apps/web-editor dev script).
+ *   # local (default)
+ *   npm run e2e
  *
- * The `webServer` block will start the Vite dev server automatically when
- * the port is not already in use (e.g. Docker Compose is not running).
+ *   # deployed instance
+ *   E2E_BASE_URL=https://15-236-162-140.nip.io \
+ *   E2E_API_URL=https://api.15-236-162-140.nip.io \
+ *   npm run e2e
+ *
+ * Both modes share the same globalSetup (login + project seed) and the
+ * same storageState (preloaded session token). The only behavioural
+ * difference is `webServer`: for a local target Playwright will start
+ * (or reuse) the Vite dev server on :5173; for a remote target it
+ * assumes the stack is already reachable and does nothing.
  */
+
+const STORAGE_STATE_PATH = path.resolve(
+  __dirname,
+  'test-results/e2e-auth-state.json',
+);
+
 export default defineConfig({
   testDir: './e2e',
 
-  /* Maximum time one test can run. */
   timeout: 30_000,
-
-  /* Maximum time to wait for the full test run. */
   globalTimeout: 300_000,
+  expect: { timeout: 5_000 },
 
-  expect: {
-    /** Maximum time expect() assertions wait for the condition to be met. */
-    timeout: 5_000,
-  },
-
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  forbidOnly: !!process.env['CI'],
+  // Deploy instance introduces real network latency; always allow one retry
+  // so intermittent Remotion-player / React-hydration timing does not
+  // fail the suite on a first attempt.
+  retries: 1,
+  workers: process.env['CI'] ? 1 : undefined,
 
   reporter: [['html', { open: 'never' }], ['list']],
 
+  globalSetup: require.resolve('./e2e/global-setup'),
+
   use: {
-    /** Base URL pointing at the web-editor Docker Compose service. */
-    baseURL: 'http://localhost:5173',
-
-    /* Collect trace on retry to simplify debugging. */
+    baseURL: E2E_BASE_URL,
+    storageState: STORAGE_STATE_PATH,
     trace: 'on-first-retry',
-
-    /* Screenshots on failure. */
     screenshot: 'only-on-failure',
   },
 
@@ -48,15 +60,16 @@ export default defineConfig({
     },
   ],
 
-  /**
-   * Start the Vite dev server automatically when port 5173 is not already
-   * bound (i.e. Docker Compose is not running).  The `reuseExistingServer`
-   * flag ensures we do NOT start a second server when Docker is up.
-   */
-  webServer: {
-    command: 'npm run dev -w apps/web-editor',
-    url: 'http://localhost:5173',
-    reuseExistingServer: true,
-    timeout: 60_000,
-  },
+  // Start/reuse the Vite dev server only when targeting the local URL.
+  // When E2E_BASE_URL points at a remote host we assume it is already up.
+  ...(IS_LOCAL_TARGET
+    ? {
+        webServer: {
+          command: 'npm run dev -w apps/web-editor',
+          url: E2E_BASE_URL,
+          reuseExistingServer: true,
+          timeout: 60_000,
+        },
+      }
+    : {}),
 });
