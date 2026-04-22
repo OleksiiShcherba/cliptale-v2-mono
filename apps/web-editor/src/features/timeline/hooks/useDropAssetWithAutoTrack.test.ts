@@ -19,6 +19,12 @@ vi.mock('@/features/timeline/api', () => ({
   linkFileToProject: vi.fn().mockResolvedValue(undefined),
 }));
 
+const mockInvalidateQueries = vi.hoisted(() => vi.fn());
+vi.mock('@tanstack/react-query', () => {
+  const stableQueryClient = { invalidateQueries: mockInvalidateQueries };
+  return { useQueryClient: () => stableQueryClient };
+});
+
 const uuidState = vi.hoisted(() => ({ count: 0 }));
 vi.mock('crypto', () => ({
   randomUUID: vi.fn(() => `uuid-${++uuidState.count}`),
@@ -144,6 +150,18 @@ describe('useDropAssetWithAutoTrack', () => {
     expect(mockLinkFileToProject).toHaveBeenCalledOnce();
     expect(mockLinkFileToProject.mock.calls[0]![0]).toBe('proj-001');
     expect(mockLinkFileToProject.mock.calls[0]![1]).toBe('asset-auto-link');
+  });
+
+  it('invalidates the assets query after linkFileToProject resolves', async () => {
+    mockGetSnapshot.mockReturnValue(makeProject({ tracks: [], clips: [] }));
+    const { result } = renderHook(() => useDropAssetWithAutoTrack('proj-001'));
+
+    result.current(makeAsset({ id: 'asset-auto-inval' }), 0);
+    await vi.waitFor(() =>
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['assets', 'proj-001'],
+      }),
+    );
   });
 
   it('does NOT call linkFileToProject for unsupported content types', () => {

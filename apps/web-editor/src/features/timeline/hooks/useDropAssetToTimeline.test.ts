@@ -19,6 +19,12 @@ vi.mock('@/features/timeline/api', () => ({
   linkFileToProject: vi.fn().mockResolvedValue(undefined),
 }));
 
+const mockInvalidateQueries = vi.hoisted(() => vi.fn());
+vi.mock('@tanstack/react-query', () => {
+  const stableQueryClient = { invalidateQueries: mockInvalidateQueries };
+  return { useQueryClient: () => stableQueryClient };
+});
+
 const uuidState = vi.hoisted(() => ({ count: 0 }));
 vi.mock('crypto', () => ({
   randomUUID: vi.fn(() => `uuid-${++uuidState.count}`),
@@ -151,6 +157,21 @@ describe('useDropAssetToTimeline', () => {
     expect(mockLinkFileToProject).toHaveBeenCalledOnce();
     expect(mockLinkFileToProject.mock.calls[0]![0]).toBe('proj-001');
     expect(mockLinkFileToProject.mock.calls[0]![1]).toBe('asset-link-test');
+  });
+
+  it('invalidates the assets query after linkFileToProject resolves', async () => {
+    // Regression: picking a file from Show All and dropping it must make it
+    // appear in the project-scoped list without a manual refresh.
+    mockGetSnapshot.mockReturnValue(makeProject());
+    const { result } = renderHook(() => useDropAssetToTimeline('proj-001'));
+
+    result.current(makeAsset({ id: 'asset-link-inval' }), 'track-001', 0);
+    // linkFileToProject is fire-and-forget; await until the chained .then runs.
+    await vi.waitFor(() =>
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['assets', 'proj-001'],
+      }),
+    );
   });
 
   it('does NOT call linkFileToProject for unsupported content types', () => {

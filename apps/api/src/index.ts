@@ -21,6 +21,14 @@ import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, Conf
 
 const app = express();
 
+// Trust the first reverse proxy (Caddy in docker-compose, ALB in prod) so that
+// `req.protocol`, `req.ip`, and `req.get('host')` reflect the values forwarded
+// by the proxy (`X-Forwarded-Proto`, `X-Forwarded-For`, `X-Forwarded-Host`).
+// Without this, `req.protocol` is always 'http' behind Caddy, which produces
+// mixed-content thumbnail URLs like `http://api…/assets/:id/thumbnail` on an
+// HTTPS page and causes browsers to block the image.
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(cors({ origin: config.server.corsOrigin, credentials: true }));
 app.use(express.json());
