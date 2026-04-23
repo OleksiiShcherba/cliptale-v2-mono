@@ -75,69 +75,7 @@ Part A delivered the canvas foundation (blocks, edges, autosave, undo/redo). Par
   - Risk: med — `add-to-storyboard` touches two tables (`storyboard_blocks` + `storyboard_block_media`) and must respect the storyboard's block topology (position on canvas); use a default position offset so blocks don't stack exactly on top of each other if added multiple times
   - Depends on: none
 
-- [ ] **ST-B3: FE — SceneModal + SceneBlockNode thumbnails**
-  - What: Build the Scene Detail Modal (opens on block click) with fields for name, prompt, duration, media list (max 6), style selector, and animation stub. Update `SceneBlockNode` to render thumbnail previews (max 3) and media type badges from `mediaItems`.
-  - Where:
-    - NEW `apps/web-editor/src/features/storyboard/components/SceneModal.tsx` (and `SceneModal.styles.ts` if needed)
-    - EDIT `apps/web-editor/src/features/storyboard/components/SceneBlockNode.tsx` — add thumbnail rendering + media badges
-    - EDIT `apps/web-editor/src/features/storyboard/store/storyboard-store.ts` — add `updateBlock(blockId, patch)` and `removeBlock(blockId)` actions if not already present
-    - EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — wire `onNodeClick` → open SceneModal (scene nodes only); pass `draftId` to modal for media picker
-  - Why: The Scene Detail Modal is the primary authoring tool — users fill in prompt/duration/media to give meaning to each storyboard block.
-  - Acceptance criteria:
-    - Clicking a SceneBlockNode (not START/END) opens SceneModal
-    - Modal fields: Name (text input, auto-placeholder "SCENE 01" if empty), Prompt (textarea, required), Duration in seconds (number input, 1–180, required), Media list (shows added items with media type badge + filename; remove button per item)
-    - "+ Add Media" button opens `AssetPickerModal` (reuse existing) filtered to image/video/audio; selected file appended to media list (max 6 enforced with toast if exceeded)
-    - Style section shows STORYBOARD_STYLES cards (single-select radio); previously selected style is pre-selected
-    - Animation section shows "Coming soon" disabled placeholder
-    - "Save" updates the block in `storyboard-store` → autosave triggers within 30s
-    - "Delete scene" button removes block from store; modal closes; START/END nodes cannot be opened
-    - SceneBlockNode shows thumbnail grid: first 1–3 image/video items rendered via `buildAuthenticatedUrl()` from `/assets/:fileId/thumbnail`; if no image/video, shows a placeholder icon
-    - Media type badges (IMAGE CLIP, VIDEO CLIP, AUDIO CLIP) rendered on SceneBlockNode for each unique media type present
-  - Test approach: NEW `apps/web-editor/src/features/storyboard/__tests__/SceneModal.test.tsx` — render + field validation + max-media limit + save action + delete action; NEW `apps/web-editor/src/features/storyboard/__tests__/SceneBlockNode.thumbnails.test.tsx` — thumbnail rendering with 0/1/3/4 media items (capped at 3), badge rendering
-  - Risk: med — `AssetPickerModal` integration needs a `onSelect(file)` callback wired in; confirm the existing modal supports a single-file callback mode (it's currently used for multi-add to AI prompts — verify and adapt if needed)
-  - Depends on: ST-B2
-
-- [ ] **ST-B4: FE — LibraryPanel**
-  - What: Build the Library sidebar panel showing the user's scene templates with search, create, edit, delete, and "Add to Storyboard" actions.
-  - Where:
-    - NEW `apps/web-editor/src/features/storyboard/components/LibraryPanel.tsx`
-    - NEW `apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts`
-    - NEW `apps/web-editor/src/features/storyboard/hooks/useSceneTemplates.ts` — React Query hook for `listSceneTemplates` with search debounce 300ms
-    - EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — render `<LibraryPanel>` when `activeTab === 'library'`; pass `draftId` for "Add to Storyboard"
-  - Why: Library Panel enables saving and reusing scene templates across storyboards, reducing authoring time.
-  - Acceptance criteria:
-    - Library tab renders a list of user's scene templates (empty state: "No templates yet")
-    - Search input filters by template name, prompt, or attached file names (client-side filter on fetched list; re-fetch not required)
-    - Template card shows: thumbnail grid (max 3 image/video previews via `buildAuthenticatedUrl`), template name, media type badges
-    - "..." menu on each card: "Edit" → opens SceneModal in template-edit mode (saves via `updateSceneTemplate` API, not store), "Delete" → calls `deleteSceneTemplate` + removes from list, "Add to Storyboard" → calls `addTemplateToStoryboard({ templateId, draftId })` → adds returned block to storyboard store → switches `activeTab` to 'storyboard'
-    - "+ New Scene" button → opens SceneModal in template-create mode (saves via `createSceneTemplate` API, stays in Library)
-    - NO "Layout" button (design correction)
-    - When Library tab is active, the canvas area below still shows the React Flow canvas (library is a sidebar panel only; the horizontal scene list described in Q38 refers to a visual hint — render a compact horizontal strip of storyboard blocks above the canvas when library is open, showing scene order)
-  - Test approach: NEW `apps/web-editor/src/features/storyboard/__tests__/LibraryPanel.test.tsx` — render with mock templates, search filter, "Add to Storyboard" dispatches store action + switches tab, "+ New Scene" opens modal; NEW `apps/web-editor/src/features/storyboard/__tests__/useSceneTemplates.test.ts` — React Query hook wraps API correctly
-  - Risk: med — SceneModal is shared between "edit block on canvas" mode and "edit/create template" mode; implement a `mode: 'block' | 'template'` prop to differentiate save behavior
-  - Depends on: ST-B2, ST-B3 (SceneModal shared)
-
-- [ ] **ST-B5: FE — EffectsPanel + sidebar design fixes**
-  - What: Build the Effects sidebar panel (Visual Styles single-select + apply dialog + Animation stub) and apply all design corrections to StoryboardPage (remove V1.0, Export button, validate step labels).
-  - Where:
-    - NEW `apps/web-editor/src/features/storyboard/components/EffectsPanel.tsx`
-    - NEW `apps/web-editor/src/features/storyboard/components/EffectsPanel.styles.ts`
-    - EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — render `<EffectsPanel>` when `activeTab === 'effects'`; remove Export button from Effects view; remove V1.0 indicator; verify "STEP 2: STORYBOARD" label and "Next: Step 3 →" text
-    - EDIT `apps/web-editor/src/features/storyboard/store/storyboard-store.ts` — add `applyStyleToBlock(blockId, styleId)` and `applyStyleToAllBlocks(styleId)` actions
-  - Why: Effects Panel lets users assign visual styles to scenes, which influences AI generation prompts and post-processing; it completes the Part B feature set.
-  - Acceptance criteria:
-    - Effects tab renders "Visual Styles" section with cards from `STORYBOARD_STYLES` (3 cards: Cyberpunk, Cinematic Glow, Film Noir)
-    - Each card shows style label, description, and a color swatch (previewColor)
-    - Clicking a style card opens a small dialog: "Apply to this scene" / "Apply to all scenes" (disabled if no scene block is currently focused/selected — show tooltip "Select a scene first")
-    - "Apply to this scene" calls `applyStyleToBlock(selectedBlockId, styleId)` → autosave
-    - "Apply to all scenes" calls `applyStyleToAllBlocks(styleId)` → autosave
-    - "Animation" section renders with "Coming soon" badge (all items disabled)
-    - No "V1.0" text anywhere in the storyboard page
-    - No "Export" button anywhere in the storyboard page
-    - Bottom bar shows "STEP 2: STORYBOARD" (not STEP 3) and "Next: Step 3 →" (not "Generate")
-  - Test approach: NEW `apps/web-editor/src/features/storyboard/__tests__/EffectsPanel.test.tsx` — render 3 style cards, click → dialog appears, "apply to all" dispatches correct store action, no-selection state disables apply-to-scene; snapshot test for design fixes (no V1.0, no Export button text)
-  - Risk: low — read-only styles catalog + simple store actions; dialog is a local modal state (no API call)
-  - Depends on: ST-B2, ST-B4 (activeTab wiring already done in ST-B4 for Library; extend same pattern for Effects)
+- [x] **ST-B4: FE — LibraryPanel** — DONE (2026-04-23, branch feat/st-b4-library-panel)
 
 - [ ] **ST-B6: FE — General Tasks A1–A3 (asset panel fixes for Storyboard)**
   - What: Fix the three general tasks from `docs/general_tasks.md` that are scoped to the Storyboard page or the shared AssetBrowserPanel:
@@ -162,9 +100,7 @@ Part A delivered the canvas foundation (blocks, edges, autosave, undo/redo). Par
 
 ## Open Questions / Blockers
 
-- **⚠️ SceneModal shared between block-edit and template-edit modes** (ST-B3/ST-B4): The modal must behave differently depending on whether it's editing a canvas block (updates storyboard store) or a library template (calls `createSceneTemplate`/`updateSceneTemplate` API). Implement a `mode: 'block' | 'template'` prop with corresponding `onSave` callback to keep the component generic. The implementing agent should confirm there are no edge cases where the same modal instance needs to switch modes at runtime.
-
-- **⚠️ AssetPickerModal single-file vs multi-file mode** (ST-B3): The existing `AssetPickerModal` is used for AI generation where multiple assets can be picked. The scene media list needs single-file-at-a-time picking (click to add one, repeat). Check if `AssetPickerModal` supports an `onSelect(file)` single-callback mode or if it needs a small prop addition to close on single selection.
+- **RESOLVED (ST-B3):** SceneModal implemented with `mode: 'block' | 'template'` prop; `onSave` callback type changes based on mode. No runtime mode-switch edge case. AssetPickerModal already supports `onPick(asset)` single-file callback (closes immediately after pick via `handlePick → onPick → onClose` chain). No adaptation needed.
 
 - **⚠️ "Apply to this scene" requires a focused scene** (ST-B5): The Effects panel needs to know which block is currently "selected/focused" to enable "Apply to this scene". The storyboard store or ephemeral state needs a `selectedBlockId: string | null` field. Verify whether `storyboard-store.ts` already tracks this or if it needs to be added.
 
