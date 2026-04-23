@@ -23,8 +23,6 @@ import type {
 import { applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { WizardStepper } from '@/features/generate-wizard/components/WizardStepper';
-
 import { useStoryboardCanvas } from '../hooks/useStoryboardCanvas';
 import { useAddBlock } from '../hooks/useAddBlock';
 import { useSceneModal } from '../hooks/useSceneModal';
@@ -50,11 +48,11 @@ import { StoryboardAssetPanel } from './StoryboardAssetPanel';
 import { StoryboardCanvas } from './StoryboardCanvas';
 import {
   EffectsIcon,
-  GearIcon,
-  HelpIcon,
   LibraryIcon,
   StoryboardIcon,
 } from './storyboardIcons';
+import { StoryboardHistoryPanel } from './StoryboardHistoryPanel';
+import { StoryboardTopBar } from './StoryboardPage.topBar';
 import { storyboardPageStyles as s, BORDER, ERROR } from './storyboardPageStyles';
 
 // ── React Flow node type map ───────────────────────────────────────────────────
@@ -79,6 +77,7 @@ export function StoryboardPage(): React.ReactElement {
   const { draftId } = useParams<{ draftId: string }>();
 
   const [activeTab, setActiveTab] = useState<StoryboardSidebarTab>('storyboard');
+  const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
 
   const safeDraftId = draftId ?? '';
   const { nodes, edges, isLoading, error, setNodes, setEdges, removeNode } =
@@ -213,25 +212,11 @@ export function StoryboardPage(): React.ReactElement {
   return (
     <div style={s.page} data-testid="storyboard-page">
       {/* ── Top bar ── */}
-      <header style={s.topBar}>
-        <div style={s.topBarLeft}>
-          <span style={s.logoText}>ClipTale</span>
-        </div>
-        <div style={s.topBarCenter}>
-          <WizardStepper currentStep={2} />
-        </div>
-        <div style={s.topBarRight}>
-          <span style={s.autosaveIndicator} aria-label="Autosave status" data-testid="autosave-indicator">
-            {saveLabel}
-          </span>
-          <button type="button" style={s.iconButton} aria-label="Settings" title="Settings" data-testid="settings-icon-button">
-            <GearIcon />
-          </button>
-          <button type="button" style={s.iconButton} aria-label="Help" title="Help" data-testid="help-icon-button">
-            <HelpIcon />
-          </button>
-        </div>
-      </header>
+      <StoryboardTopBar
+        saveLabel={saveLabel}
+        isHistoryOpen={isHistoryOpen}
+        onHistoryToggle={() => setIsHistoryOpen((v) => !v)}
+      />
 
       {/* ── Body (sidebar + canvas) ── */}
       <div style={s.body}>
@@ -279,6 +264,14 @@ export function StoryboardPage(): React.ReactElement {
             />
           )}
         </div>
+
+        {/* ── History panel — slides in from right when open ── */}
+        {isHistoryOpen && (
+          <StoryboardHistoryPanel
+            draftId={safeDraftId}
+            onClose={() => setIsHistoryOpen(false)}
+          />
+        )}
       </div>
 
       {/* ── Bottom bar ── */}

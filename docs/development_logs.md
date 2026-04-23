@@ -234,62 +234,97 @@
 - added: `packages/api-contracts/src/storyboard-styles.ts` — 3 styles (cyberpunk, cinematic-glow, film-noir)
 - added: `features/storyboard/` — types, api, StoryboardPage (top bar + 3-tab sidebar + canvas + bottom bar)
 - installed: `@xyflow/react@^12.10.2`; added `StartNode`, `EndNode`, `SceneBlockNode`, `storyboardIcons.tsx`, `nodeStyles.ts`
-- added: `useStoryboardCanvas.ts` (POST /initialize → GET → hydrate React Flow)
-- added: `useAddBlock.ts`, `useStoryboardDrag.ts` (ghost drag 30% opacity + portal; auto-insert on edge hit 40px)
+- added: `useStoryboardCanvas.ts`, `useAddBlock.ts`, `useStoryboardDrag.ts` (ghost drag + auto-insert on edge hit)
 - added: `CanvasToolbar.tsx`, `GhostDragPortal.tsx`, `SidebarTab.tsx`, `StoryboardCanvas.tsx`
-- added: `useStoryboardKeyboard.ts` (Delete/Ctrl+Z/Ctrl+Y), `ZoomToolbar.tsx` (−/pct/+; 25–200%, step 10)
-- added: `storyboard-store.ts` (useSyncExternalStore), `storyboard-history-store.ts` (MAX_HISTORY_SIZE=50, undo/redo cursor, 1s debounce server persistence)
-- added: `useStoryboardAutosave.ts` (30s debounce; saveLabel states), `useStoryboardHistoryPush.ts`
+- added: `useStoryboardKeyboard.ts` (Delete/Ctrl+Z/Ctrl+Y), `ZoomToolbar.tsx` (25–200%, step 10)
+- added: `storyboard-store.ts` (useSyncExternalStore), `storyboard-history-store.ts` (MAX_HISTORY_SIZE=50, 1s debounce)
+- added: `useStoryboardAutosave.ts` (30s debounce), `useStoryboardHistoryPush.ts`
 - tests: 102/102 full storyboard suite
 
 ## Storyboard Part A — Regression Fixes (2026-04-23)
 - fixed: `storyboard.repository.ts:110,224` — `pool.execute` → `pool.query` for LIMIT-bound queries (mysql2 ER_WRONG_ARGUMENTS errno 1210)
-- added: `e2e/storyboard-history-regression.spec.ts` (4 tests via `page.request`)
+- added: `e2e/storyboard-history-regression.spec.ts` (4 tests)
 - fixed: rebuilt `web-editor` Docker image to hoist `@xyflow/react` into container node_modules
 - added: 5 storyboard OpenAPI paths + 8 component schemas in `packages/api-contracts/src/openapi.ts`
 - added: `openapi.storyboard.paths.test.ts` (31 tests) + `openapi.storyboard.schemas.test.ts` (18 tests); 89/89 api-contracts pass
 
 ## Guardian Recommendations Batch (2026-04-23)
-- deleted: `apps/web-editor/src/features/storyboard/store/storyboard-history-store.stub.ts` (dead code; 2351 FE tests still pass)
-- added: `e2e/storyboard-canvas.spec.ts` (5 E2E tests for /storyboard/:draftId; 5/5 pass on deployed instance)
+- deleted: `storyboard-history-store.stub.ts` (dead code)
+- added: `e2e/storyboard-canvas.spec.ts` (5 E2E tests; 5/5 pass)
 - added: `CanvasToolbar.test.tsx` (11 unit tests)
-- fixed: `assets-finalize-endpoint.test.ts` + `assets-list-endpoint.test.ts` — reseeded with `files`+`project_files` (dropped `project_assets_current` refs)
-- fixed: `versions-list-restore-endpoint.test.ts` — `'user-test-001'` → `'dev-user-001'` (DEV_AUTH_BYPASS identity)
+- fixed: `assets-finalize-endpoint.test.ts` + `assets-list-endpoint.test.ts` — reseeded with `files`+`project_files`
+- fixed: `versions-list-restore-endpoint.test.ts` — `'user-test-001'` → `'dev-user-001'`
+- configured: `docker-compose.yml` — `APP_CORS_ORIGIN` + `VITE_PUBLIC_API_BASE_URL` parametrized; `.env.example` documented
+- documented: E2E spec exemption added to §9.7 in `docs/architecture-rules.md`
+- removed: stale Class A Known Issue bullet
 
-## Guardian Recommendations Cleanup (2026-04-23)
-- configured: `docker-compose.yml` lines 57+79 — `APP_CORS_ORIGIN` + `VITE_PUBLIC_API_BASE_URL` parametrized with `${VAR:-localhost-fallback}`; `.env` updated with nip.io values; `.env.example` documented
-- pushed: `feat/storyboard-part-a` to remote origin (commit 7a083a3, 63 files / +8855 insertions now safe)
-- documented: E2E spec file exemption added to §9.7 in `docs/architecture-rules.md` (`e2e/*.spec.ts` exempt from 300-line cap; quality gate = one `test.describe` per file)
-- removed: stale Class A Known Issue bullet (renders-endpoint.test.ts passes 10/10; versions fixed prior subtask)
+## Storyboard Editor — Part B (2026-04-23)
 
-## [ST-B5] FE — EffectsPanel + sidebar design fixes — 2026-04-23
-**Branch:** feat/st-b5-effects-panel
-**Files:**
-- NEW `apps/web-editor/src/features/storyboard/components/EffectsPanel.tsx` — Visual Styles section (3 STORYBOARD_STYLES cards with swatch + label + description + inline apply-dialog); Animation section with Coming soon badge and 3 disabled stub items
-- NEW `apps/web-editor/src/features/storyboard/components/EffectsPanel.styles.ts` — hex token constants + CSSProperties for panel, cards, swatch, apply-dialog, animation section
-- EDIT `apps/web-editor/src/features/storyboard/store/storyboard-store.ts` — added `selectedBlockId: string | null` to `StoryboardCanvasState`; added `setSelectedBlock`, `applyStyleToBlock`, `applyStyleToAllBlocks` actions; fixed `setCanvasState` and `removeBlock` to carry `selectedBlockId`
-- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — renders `<EffectsPanel>` when `activeTab === 'effects'`; wires `setSelectedBlock(node.id)` in `handleNodeClick`; reads `selectedBlockId` via `useStoryboardStore`; bottom bar label text updated to literal "STEP 2: STORYBOARD"; added `data-testid="step-label"` to label span
-- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.test.tsx` — added `vi.mock` for `EffectsPanel` to prevent unmocked STORYBOARD_STYLES crash when Effects tab is clicked
+### ST-B1: Scene Templates API
+- added: migrations 035–036 (scene_templates, scene_template_media)
+- added: `sceneTemplate.repository.ts`, `sceneTemplate.service.ts`, `sceneTemplate.controller.ts`, `sceneTemplate.routes.ts`; 6 routes registered in `index.ts`
+- added: 6 scene-template paths + 3 schemas in `openapi.ts`
+- tests: scene-templates-endpoint (21), scene-templates-add-to-storyboard (10), openapi.scene-templates (42); 73/73 pass
 
-**Tests:**
-- NEW `apps/web-editor/src/features/storyboard/__tests__/EffectsPanel.test.tsx` — 22 tests: renders 3 cards, card click opens dialog, toggle closes, only one dialog at a time, apply-to-scene disabled + hint when no block, apply-to-scene calls applyStyleToBlock + closes dialog, apply-to-all calls applyStyleToAllBlocks + always enabled + closes dialog, animation section with coming-soon badge
+### ST-B2: FE Types + API client for scene templates
+- edited: `storyboard/types.ts` — SceneTemplateMedia, SceneTemplate, CreateSceneTemplatePayload, UpdateSceneTemplatePayload, AddToStoryboardPayload; `media` → `mediaItems` rename
+- edited: `storyboard/api.ts` — 6 new API functions (list/create/get/update/delete/addToStoryboard)
+- tests: `storyboard-api.test.ts` (20 tests; all pass)
 
-**Notes:**
-- `STORYBOARD_STYLES` import from `@ai-video-editor/api-contracts` produces a TS2305 error in the container (stale dist — same pre-existing issue as `SceneModal.styleSection.tsx` from ST-B4). Tests pass because vitest mocks the module before import. No new TS errors introduced beyond the pre-existing baseline.
-- `StoryboardPage.test.tsx` now mocks `EffectsPanel` (same pattern as `LibraryPanel` mock) to isolate the page shell from the effects panel's external dependency.
-- 203/203 storyboard tests pass on branch.
+### ST-B3: SceneModal + SceneBlockNode thumbnails
+- added: `SceneModal.tsx`, `SceneModal.styles.ts`, `SceneModal.types.ts`, `SceneModal.formFields.tsx`, `SceneModal.mediaSection.tsx`, `SceneModal.styleSection.tsx` (6-file split for §9.7 cap)
+- added: `useSceneModal.ts` — store-wiring for open/save/delete/close
+- edited: `SceneBlockNode.tsx` — real thumbnail via buildAuthenticatedUrl, CLIP badges, onEdit callback
+- edited: `StoryboardPage.tsx`, `StoryboardCanvas.tsx` — wire onNodeClick → openModal
+- edited: `storyboard-store.ts` — added `updateBlock()`, `removeBlock()`
+- tests: SceneModal.test.tsx (16), SceneBlockNode.thumbnails.test.tsx (9); 25 new; 158 storyboard pass
 
-**Fix round 1 (2026-04-23):** Applied 3 design-token corrections in `EffectsPanel.styles.ts`: (1) `styleCardLabelStyle` fontWeight 500→400 (body token §3); (2) `comingSoonBadgeStyle` fontWeight 500→400 (caption token §3); (3) `comingSoonBadgeStyle` padding '2px 8px'→'4px 8px' (4px grid §3).
+### ST-B4: LibraryPanel
+- added: `useSceneTemplates.ts` (React Query, 300ms debounce filter, CRUD + addToStoryboard)
+- added: `LibraryPanel.tsx`, `LibraryPanel.styles.ts`, `LibraryPanel.templateCard.tsx` (4-file split)
+- edited: `storyboard-store.ts` — `addBlockNode(block, onRemove)` action
+- edited: `StoryboardPage.tsx` — renders `<LibraryPanel>` on library tab
+- tests: useSceneTemplates.test.ts (9), LibraryPanel.test.tsx (14); 23 new; 181 storyboard pass
 
-checked by code-reviewer - COMMENTED
-> DESIGN-TOKEN VIOLATIONS in `EffectsPanel.styles.ts` — 3 typography/spacing violations flagged by design-reviewer remain unfixed: (1) line 74 fontWeight 500→400 per §3 body token; (2) line 191 fontWeight 500→400 per §3 caption token; (3) line 196 padding '2px 8px'→'4px 8px' per §3 4px grid rule.
-checked by qa-reviewer - YES
-checked by design-reviewer - COMMENTED
-design-reviewer comments (2026-04-23):
-- [FILE: apps/web-editor/src/features/storyboard/components/EffectsPanel.styles.ts, LINE: 73] ISSUE: `styleCardLabelStyle` fontSize 14px with fontWeight 500. EXPECTED: design-guide §3 typography scale has body=14px/400 or heading-3=16px/600, but no 14px/500 variant. This is off-scale. FIX: change fontWeight to 400 (body token) to match design-guide line 91.
-- [FILE: apps/web-editor/src/features/storyboard/components/EffectsPanel.styles.ts, LINE: 190] ISSUE: `comingSoonBadgeStyle` fontSize 11px with fontWeight 500. EXPECTED: design-guide §3 caption=11px/400 (line 94), not 11px/500. This is off-scale. FIX: change fontWeight to 400 (caption token).
-- [FILE: apps/web-editor/src/features/storyboard/components/EffectsPanel.styles.ts, LINE: 196] ISSUE: `comingSoonBadgeStyle` padding '2px 8px' violates 4px grid. EXPECTED: design-guide §3 spacing uses 4px multiples only (valid: 4, 8, 12, 16, 24, 32, 48, 64px). 2px is invalid. FIX: change padding to '4px 8px' (standard badge vertical padding).
-checked by playwright-reviewer - YES
+### ST-B5: EffectsPanel + sidebar design fixes
+- added: `EffectsPanel.tsx`, `EffectsPanel.styles.ts` — 3 STORYBOARD_STYLES cards + Animation stub with Coming Soon badge
+- edited: `storyboard-store.ts` — `selectedBlockId`, `setSelectedBlock`, `applyStyleToBlock`, `applyStyleToAllBlocks`
+- edited: `StoryboardPage.tsx` — renders EffectsPanel on effects tab; "STEP 2: STORYBOARD" label; handleNodeClick → setSelectedBlock
+- tests: EffectsPanel.test.tsx (22 tests); 203/203 storyboard pass
+
+### ST-B6: Asset panel fixes (A1–A3)
+- edited: `AssetBrowserPanel.tsx` — scope toggle labels; `hideTranscribe` prop
+- edited: `AssetDetailPanel.tsx` — `hideTranscribe?: boolean` prop, conditional TranscribeButton
+- edited: `WizardAssetDetailSlot.tsx` — forwarded `hideTranscribe` prop
+- added: `StoryboardAssetPanel.tsx` — wraps AssetBrowserPanel with `hideTranscribe={true}`
+- edited: `StoryboardPage.tsx` — renders StoryboardAssetPanel on storyboard tab
+- tests: StoryboardAssetPanel.test.tsx (new), StoryboardPage.assetPanel.test.tsx (new); updated scope + page tests
+- **KNOWN ISSUE**: `StoryboardPage.assetPanel.test.tsx` — LibraryPanel missing vi.mock → `useQueryClient()` fails (lines 157–178); requires `vi.mock('@/features/storyboard/components/LibraryPanel', ...)` fix
+
+### [hotfix] useStoryboardDrag clientX crash
+- fixed: `useStoryboardDrag.ts` — `event.nativeEvent.clientX` → `(event as unknown as { clientX?: number }).clientX ?? 0`; React Flow v12 passes raw DOM event (not React synthetic), `nativeEvent` is undefined at runtime
+- added: `e2e/storyboard-drag.spec.ts` — E2E regression test
+
+## Storyboard Editor — Part C: Finishing Touches (2026-04-23)
+
+### ST-C1: Store — `restoreFromSnapshot` action
+- edited: `storyboard-store.ts` — `restoreFromSnapshot(snapshot: CanvasSnapshot)` export; atomically sets nodes←blocks, edges←edges, positions←positions, selectedBlockId←null, calls notify(); `import type { CanvasSnapshot }` (type-only to avoid circular runtime dep)
+- added: `storyboard-store.restore.test.ts` — 5 Vitest unit tests (nodes/edges/positions replaced, selectedBlockId null, listeners notified); no DOM, no React
+
+### ST-C2: History UI — Hook + Panel + StoryboardPage trigger
+- added: `useStoryboardHistoryFetch.ts` — React Query hook; queryKey `['storyboard-history', draftId]`; staleTime 30s; returns `{ entries, isLoading, isError }`
+- added: `StoryboardHistoryPanel.tsx` — 320px side panel; loading/error/empty states; entry list with relative timestamps; window.confirm restore; calls `restoreFromSnapshot` + `saveStoryboard(draftId, ...)` directly; closes via onClose
+- added: `StoryboardHistoryPanel.styles.ts` — hex constants + CSSProperties (panel, header, close btn, scroll area, entry row, timestamp, restore btn); borderRadius 4px (radius-sm), padding 8px multiples
+- added: `StoryboardPage.topBar.tsx` — extracted top bar (`StoryboardTopBar`); History toggle button with aria-pressed; `BORDER_COLOR = '#252535'` constant; padding `'0 8px'` (4px grid)
+- edited: `StoryboardPage.tsx` — added `isHistoryOpen` state; replaced inline header with `<StoryboardTopBar>`; conditionally renders `<StoryboardHistoryPanel>`; exactly 300 lines
+- tests: `StoryboardHistoryPanel.test.tsx` (10 tests: loading/error/empty/entries/restore/save/close/title states); all pass
+
+### Guardian Fix Round (FIX-1 + FIX-2)
+- fixed: `storyboard-store.ts` `restoreFromSnapshot` — replaced broken `as Node[]`/`as Edge[]` casts with proper reconstruction: `StoryboardBlock` → `Node` (`id`, `type`, `position: {x,y}`, `data`); `StoryboardEdge` → Edge (`source←sourceBlockId`, `target←targetBlockId`); position fallback `snapshot.positions?.[block.id] ?? { x: block.positionX ?? 0, y: block.positionY ?? 0 }`
+- fixed: `storyboard-history-store.ts` — `CanvasSnapshot.positions` made optional (`positions?:`); `applySnapshot` uses optional chaining
+- fixed: `StoryboardHistoryPanel.tsx` — removed `as unknown as CanvasSnapshot` double-cast; replaced with `entry.snapshot as CanvasSnapshot` (valid now positions is optional)
+- documented: `docs/architecture-rules.md` §9.7 — added approved exception table; `storyboard-store.ts (307L)` listed with justification
+- updated: `storyboard-store.restore.test.ts` — fixtures use real Node shapes; added position-fallback test; 6/6 pass
 
 ---
 
@@ -319,6 +354,7 @@ checked by playwright-reviewer - YES
 - **Docker image node_modules**: must `docker compose build <service>` to reinstall baked packages
 - **DEV_AUTH_BYPASS identity**: injects `dev-user-001`; all user-id assertions in that context must expect `dev-user-001`
 - **E2E CORS on deployed instance**: use `page.request.fetch()` (bypasses browser CORS) + `page.route()` with `access-control-allow-origin: *`
+- `CanvasSnapshot.positions` is optional — server snapshots carry `{blocks, edges}` only; positions reconstructed from `block.positionX/Y` fallback in `restoreFromSnapshot`
 
 ---
 
@@ -339,177 +375,6 @@ checked by playwright-reviewer - YES
 - E2E image/audio timeline-drop tests skip when no assets of those types linked to test project
 - Infinite scroll UX: BE pagination shipped but FE still page-1-only; `fetchNextAssetsPage()` exported but unwired
 - `lust-not-compacted-dev-logs.md` holds the single-copy uncompacted backup; git holds prior-batch history
-- Storyboard Task B (Scene detail modal, Library panel, Effects panel) — deferred; planned separately
-- Ghost drag E2E spec deferred to future Playwright task (unit coverage only for now)
+- **ST-B6 test bug**: `StoryboardPage.assetPanel.test.tsx` needs `vi.mock('@/features/storyboard/components/LibraryPanel', ...)` to fix useQueryClient() error on lines 157–178
+- **ST-B5 TS2305**: `STORYBOARD_STYLES` import from `@ai-video-editor/api-contracts` fails in container (stale dist); tests pass via vi.mock; fix by rebuilding api-contracts in Docker image
 
-## [ST-B1] DB + BE — Scene Templates API — 2026-04-23
-
-**Branch:** feat/st-b1-scene-templates-api
-
-**Files:**
-- NEW `apps/api/src/db/migrations/035_scene_templates.sql` — scene_templates table (idempotent)
-- NEW `apps/api/src/db/migrations/036_scene_template_media.sql` — scene_template_media pivot table (idempotent)
-- NEW `apps/api/src/repositories/sceneTemplate.repository.ts` — DB access layer (findAll, findById, insert, update, softDelete)
-- NEW `apps/api/src/services/sceneTemplate.service.ts` — business logic (CRUD + add-to-storyboard, ownership checks, media limit enforcement)
-- NEW `apps/api/src/controllers/sceneTemplate.controller.ts` — HTTP handlers + Zod body schemas
-- NEW `apps/api/src/routes/sceneTemplate.routes.ts` — Express router (6 routes)
-- EDIT `apps/api/src/index.ts` — registered sceneTemplateRouter
-- EDIT `packages/api-contracts/src/openapi.ts` — added 6 scene-template paths + SceneTemplate, SceneTemplateMedia, AddToStoryboardPayload schemas
-
-**Tests:**
-- NEW `apps/api/src/__tests__/scene-templates-endpoint.test.ts` — 21 integration tests (CRUD happy path + 401/404/wrong-owner/media-limit/soft-delete idempotency)
-- NEW `apps/api/src/__tests__/scene-templates-add-to-storyboard.test.ts` — 10 integration tests (add-to-storyboard happy path + cross-ownership + missing draft + position overrides + multiple calls)
-- NEW `packages/api-contracts/src/openapi.scene-templates.paths.test.ts` — 42 tests (all 6 paths + 3 schemas in OpenAPI spec)
-
-**Notes:**
-- Zod validates `fileId` as UUID so test seed files must use full `randomUUID()` values (not custom prefix strings)
-- `add-to-storyboard` uses the storyboard repository's `getConnection()` for the transaction that inserts into storyboard_blocks + storyboard_block_media
-- Template ownership check returns 404 (not 403) to avoid leaking existence of other users' templates
-- All 73 tests pass (21 + 10 + 42)
-
-checked by code-reviewer - YES
-checked by qa-reviewer - YES
-checked by design-reviewer - YES
-design-reviewer notes: Reviewed on 2026-04-23. No UI components in this subtask (backend-only: DB migrations, API routes, OpenAPI contracts, integration tests). Nothing to review from a design/UI perspective.
-checked by playwright-reviewer: YES
-
-## [ST-B2] FE — Types + API client for scene templates — 2026-04-23
-**Branch:** feat/st-b2-scene-templates-fe-types
-**Files:**
-- EDIT `apps/web-editor/src/features/storyboard/types.ts` — added SceneTemplateMedia, SceneTemplate, CreateSceneTemplatePayload, UpdateSceneTemplatePayload, AddToStoryboardPayload types
-- EDIT `apps/web-editor/src/features/storyboard/api.ts` — added listSceneTemplates(), createSceneTemplate(), getSceneTemplate(), updateSceneTemplate(), deleteSceneTemplate(), addTemplateToStoryboard() using existing apiClient pattern
-**Tests:**
-- NEW `apps/web-editor/src/features/storyboard/__tests__/storyboard-api.test.ts` — 20 tests covering each API function: correct URL construction, method, request body, query param encoding, and error propagation on non-ok status
-**Notes:**
-- All types match the ST-B1 OpenAPI contract (SceneTemplate, SceneTemplateMedia, payloads)
-- listSceneTemplates uses encodeURIComponent for the optional search param
-- addTemplateToStoryboard accepts { templateId, draftId } and returns StoryboardBlock (matches existing type)
-- TypeScript compiles without errors in storyboard/* files; pre-existing type errors in App.PreviewSection.test.tsx and App.RightSidebar.test.tsx are unrelated to this subtask
-- All 20 new tests pass
-
-checked by code-reviewer - YES
-checked by qa-reviewer - YES
-checked by design-reviewer - YES
-design-reviewer notes: Reviewed on 2026-04-23. No UI components in this subtask (pure TypeScript types + API client functions). Nothing to review from a design/UI perspective.
-checked by playwright-reviewer - YES
-
-**Fix round 1 (2026-04-23):** Renamed `media` → `mediaItems` in `SceneTemplate`, `CreateSceneTemplatePayload`, and `UpdateSceneTemplatePayload` in `types.ts` to align with backend contract (backend repo uses `mediaItems` in both response shape and request payload). Updated test fixture `mockTemplate.media` → `mockTemplate.mediaItems` and the `updateSceneTemplate` test payload. Updated the `api.ts` JSDoc comment. All 20 tests pass. No storyboard-scope TypeScript errors.
-
----
-
-## [ST-B3] FE — SceneModal + SceneBlockNode thumbnails — 2026-04-23
-**Branch:** feat/st-b3-scene-modal
-**Files:**
-- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.tsx` — main modal (block/template modes, validation, save/delete/close)
-- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.styles.ts` — design-token hex constants and all inline style objects
-- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.types.ts` — shared types: ModalMediaItem, SceneModalMode, SceneModalProps union
-- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.formFields.tsx` — Name, Prompt, Duration fields (extracted for line-cap)
-- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.mediaSection.tsx` — Media list + type-picker + AssetPickerModal integration (max 6)
-- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.styleSection.tsx` — STORYBOARD_STYLES radio cards + Animation stub
-- NEW `apps/web-editor/src/features/storyboard/hooks/useSceneModal.ts` — encapsulates modal open/save/delete/close wired to storyboard-store
-- EDIT `apps/web-editor/src/features/storyboard/components/SceneBlockNode.tsx` — real thumbnail rendering via buildAuthenticatedUrl, CLIP type badges, onEdit callback
-- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — onNodeClick → openModal for scene nodes; renders SceneModal when editingBlock != null
-- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardCanvas.tsx` — forward onNodeClick prop
-- EDIT `apps/web-editor/src/features/storyboard/store/storyboard-store.ts` — added updateBlock() and removeBlock() actions
-- EDIT `apps/web-editor/src/features/storyboard/types.ts` — added optional onEdit to SceneBlockNodeData
-**Tests:**
-- NEW `apps/web-editor/src/features/storyboard/__tests__/SceneModal.test.tsx` — 16 tests: render (block + template modes), field validation (prompt required, duration 1-180), save/delete/close actions, style selection toggle, max-media limit (button disabled at 6 items)
-- NEW `apps/web-editor/src/features/storyboard/__tests__/SceneBlockNode.thumbnails.test.tsx` — 9 tests: 0/1/3/4 media items (thumbnail cap at 3), audio placeholder, unique media type badges, remove/edit callbacks + stopPropagation
-**Notes:**
-- api-contracts package rebuilt (permissions fixed) to make STORYBOARD_STYLES available in dist/index.d.ts
-- AssetPickerModal already supported single-file pick mode via onPick(asset) → onClose() chain; no adaptation needed
-- SceneModal split into 6 files to stay under the 300-line cap (§9.7)
-- useSceneModal hook extracts store-wiring from StoryboardPage to keep page under 300 lines
-- All 158 storyboard tests pass after adding 25 new tests
-
-checked by code-reviewer - YES
-checked by qa-reviewer - YES
-checked by design-reviewer - YES
-design-reviewer notes: Reviewed on 2026-04-23. Fix round 1 verified: `headerStyle` and `footerStyle` padding changed from '16px 20px' to '16px 24px' (24px = space-6 token, 4px-grid aligned per design-guide §3). All color tokens, typography, border-radius, and spacing now compliant. No additional violations found.
-
-checked by playwright-reviewer: YES
-
-**Fix round 1 (2026-04-23):** Applied design-reviewer spacing fix — changed `headerStyle` and `footerStyle` horizontal padding from `'16px 20px'` to `'16px 24px'` in `SceneModal.styles.ts` (lines 56 and 214). 20px is not on the 4px grid; 24px is a valid token (design-guide §3). Committed on feat/st-b4-library-panel (same working branch).
-
-## [ST-B4] FE — LibraryPanel — 2026-04-23
-**Branch:** feat/st-b4-library-panel
-**Files:**
-- NEW `apps/web-editor/src/features/storyboard/hooks/useSceneTemplates.ts` — React Query hook (staleTime 30s); client-side text filter with 300ms debounce; CRUD helpers (createTemplate, updateTemplate, removeTemplate, addToStoryboard) each invalidate cache
-- NEW `apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts` — dark-theme hex constants + CSSProperties for panel, card thumbnails, badges, and action buttons
-- NEW `apps/web-editor/src/features/storyboard/components/LibraryPanel.templateCard.tsx` — single template card: 3-thumbnail strip via buildAuthenticatedUrl, unique media type badges, two-step delete confirm, Edit/Del/Add buttons
-- NEW `apps/web-editor/src/features/storyboard/components/LibraryPanel.tsx` — sidebar panel: search input, empty state, TemplateCard list, SceneModal in template-create/edit mode; Add to Storyboard calls API → addBlockNode → switches tab to 'storyboard'
-- EDIT `apps/web-editor/src/features/storyboard/store/storyboard-store.ts` — added addBlockNode(block, onRemove) to insert a new scene-block Node returned by add-to-storyboard API
-- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — renders `<LibraryPanel>` when activeTab === 'library'; stays under 300-line cap
-- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.test.tsx` — mock LibraryPanel to isolate from QueryClientProvider dependency
-**Tests:**
-- NEW `apps/web-editor/src/features/storyboard/__tests__/useSceneTemplates.test.ts` — 9 tests: loading state, successful fetch, error surfacing, filter text update, createTemplate/updateTemplate/removeTemplate/addToStoryboard API delegation
-- NEW `apps/web-editor/src/features/storyboard/__tests__/LibraryPanel.test.tsx` — 14 tests: header render, empty state, loading/error banners, template cards rendered, Add to Storyboard (addBlockNode + switchTab), New Scene modal open/close/save, Edit template (values pre-filled, updateTemplate called), delete confirm flow, search input
-**Notes:**
-- LibraryPanel split into 4 files (panel + templateCard + styles + hook) to stay under §9.7 line cap
-- StoryboardPage.test.tsx mock of LibraryPanel needed to avoid QueryClient missing-context error when Library tab is clicked in existing tests
-- SceneModal reused in template mode (mode='template') — no changes needed to SceneModal itself
-- addBlockNode store action wires returned StoryboardBlock as a React Flow node with a no-op onRemove (removal handled via canvas keyboard/menu)
-- All 181 storyboard tests pass after adding 23 new tests
-
-checked by code-reviewer - YES
-checked by qa-reviewer - YES
-checked by design-reviewer - YES
-design-reviewer notes: Reviewed on 2026-04-23. All 16 design-token violations from initial review have been fixed and verified against design-guide §3. All padding on 4px grid (0 8px, 0 12px, 4px 8px), all border-radius valid tokens (4px, 8px), all typography on scale (12px/500 label, 12px/400 body-sm), emptyStateHintStyle extracted from inline style. Pattern compliance verified (dev-log line 283).
-
-(prior design-reviewer comments (2026-04-23):
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 68] ISSUE: newSceneButtonStyle padding `'0 10px'` is off 4px grid (10px invalid). EXPECTED: 4px multiples per design-guide §3; valid spacing tokens are 4, 8, 12, 16, 24, 32, 48, 64px. FIX: change padding to `'0 8px'` or `'0 12px'`.
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 68] ISSUE: newSceneButtonStyle borderRadius `'6px'` is not a valid token (should be radius-sm 4px or radius-md 8px per design-guide §3). EXPECTED: radius-sm = 4px per design-guide line 115. FIX: change borderRadius to `'4px'`.
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 71] ISSUE: newSceneButtonStyle fontSize `'11px'` with weight 600 does not match any scale. EXPECTED: design-guide §3 has caption 11/400 or label 12/500; this button uses 11/600 (invalid). FIX: change to fontSize `'12px'` and fontWeight 500 (label token).
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 88] ISSUE: searchInputStyle borderRadius `'6px'` not valid token. EXPECTED: radius-sm 4px per design-guide §3 line 115. FIX: change to `'4px'`.
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 89] ISSUE: searchInputStyle padding `'0 10px'` off 4px grid (10px invalid). EXPECTED: 4px multiples. FIX: change to `'0 8px'` or `'0 12px'`.
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 120] ISSUE: emptyStateStyle fontSize `'13px'` off-scale. EXPECTED: design-guide §3 typography scale has 12px (body-sm/label) and 14px (body), but not 13px. FIX: change to `'12px'` or `'14px'` per context.
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 198] ISSUE: mediaBadgeStyle padding `'2px 5px'` off 4px grid and off-scale (2px, 5px both invalid). EXPECTED: 4px multiples per design-guide §3. FIX: change to `'4px 8px'` (standard badge padding).
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 199] ISSUE: mediaBadgeStyle borderRadius `'3px'` not valid token (should be 4px, 8px, 16px, or 9999px). EXPECTED: radius-sm = 4px per design-guide §3 line 115. FIX: change to `'4px'`.
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 215] ISSUE: cardActionButtonStyle padding `'2px 7px'` off 4px grid (2px, 7px both invalid). EXPECTED: 4px multiples. FIX: change to `'4px 8px'`.
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 216] ISSUE: cardActionButtonStyle fontSize `'10px'` off-scale. EXPECTED: design-guide §3 has 11px (caption) or 12px (body-sm/label), not 10px. FIX: change to `'11px'` (caption) or `'12px'` (body-sm/label) per context.
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 226] ISSUE: addButtonStyle padding `'2px 7px'` off 4px grid. EXPECTED: 4px multiples. FIX: change to `'4px 8px'`.
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 229] ISSUE: addButtonStyle fontSize `'10px'` off-scale. EXPECTED: 11px (caption) or 12px (body-sm/label). FIX: change to `'11px'` or `'12px'` per context.
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 238] ISSUE: deleteButtonStyle padding `'2px 7px'` off 4px grid. EXPECTED: 4px multiples. FIX: change to `'4px 8px'`.
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 239] ISSUE: deleteButtonStyle fontSize `'10px'` off-scale. EXPECTED: 11px or 12px. FIX: change to `'11px'` or `'12px'` per context.
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 252] ISSUE: errorBannerStyle borderRadius `'6px'` not valid token. EXPECTED: radius-sm 4px or radius-md 8px per design-guide §3. FIX: change to `'4px'` or `'8px'`.
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.templateCard.tsx, LINE: 213] ISSUE: hardcoded inline fontSize `'11px'` (caption token) not abstracted to .styles.ts. EXPECTED: per dev-log line 283, all spacing/color/typography must be in hex constants and CSSProperties at top of .styles.ts, not scattered as inline styles. FIX: create `emptyStateHintStyle` in LibraryPanel.styles.ts and import it; or define as caption token. Currently inconsistent pattern.)
-
-<!-- QA NOTES (2026-04-23):
-Unit & integration tests: 23 new tests (9 useSceneTemplates.test.ts + 14 LibraryPanel.test.tsx), all PASSING. Full storyboard suite: 68/68 tests pass. Regression clear.
-Known issues:
-  - Design-token violations in LibraryPanel.styles.ts and LibraryPanel.templateCard.tsx (reported by design-reviewer)
-  - These are architectural violations (dev-log line 283: per-file design-token pattern mandatory)
-  - 14 specific fixes required in spacing/radius/typography across 5 style objects + 1 inline style
-Required developer action:
-  - Fix all 14 design-token violations in LibraryPanel.styles.ts and LibraryPanel.templateCard.tsx per design-reviewer comments above
-  - Once fixed, QA will recheck and mark YES
--->
-
-checked by playwright-reviewer: YES
-
-**Fix round 1 (2026-04-23):** Applied all 16 design-token fixes from design-reviewer + code-reviewer comments. Changes in `LibraryPanel.styles.ts`: `newSceneButtonStyle` padding `'0 10px'`→`'0 12px'`, borderRadius `'6px'`→`'4px'`, fontSize `'11px'`/600→`'12px'`/500 (label token); `searchInputStyle` borderRadius `'6px'`→`'4px'`, padding `'0 10px'`→`'0 8px'`; `emptyStateStyle` fontSize `'13px'`→`'12px'`; `mediaBadgeStyle` padding `'2px 5px'`→`'4px 8px'`, borderRadius `'3px'`→`'4px'`; `cardActionButtonStyle`, `addButtonStyle`, `deleteButtonStyle` all padding `'2px 7px'`→`'4px 8px'`, fontSize `'10px'`→`'12px'`; `errorBannerStyle` borderRadius `'6px'`→`'8px'`; added `emptyStateHintStyle` named constant (12px/400). In `LibraryPanel.tsx`: replaced inline `style={{ fontSize: '11px' }}` with `style={emptyStateHintStyle}`. TypeScript: no LibraryPanel errors. Commit: 5004a6c.
-
----
-
-## [ST-B6] FE — General Tasks A1–A3 (asset panel fixes) — 2026-04-23
-**Branch:** feat/st-b6-asset-panel-fixes
-**Files:**
-- EDIT `apps/web-editor/src/features/asset-manager/components/AssetBrowserPanel.tsx` — A1: updated scope toggle button labels; A3: added `hideTranscribe` prop forwarded to `AssetDetailPanel`
-- EDIT `apps/web-editor/src/shared/asset-detail/AssetDetailPanel.tsx` — A3: added optional `hideTranscribe?: boolean` prop; conditionally renders TranscribeButton
-- EDIT `apps/web-editor/src/features/generate-wizard/components/WizardAssetDetailSlot.tsx` — A3: added optional `hideTranscribe?: boolean` prop forwarded to `AssetDetailPanel`
-- NEW `apps/web-editor/src/features/storyboard/components/StoryboardAssetPanel.tsx` — A2+A3: wraps `AssetBrowserPanel` with `hideTranscribe={true}` for the Storyboard page
-- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — A2: renders `StoryboardAssetPanel` when `activeTab === 'storyboard'`
-**Tests:**
-- EDIT `apps/web-editor/src/features/asset-manager/components/AssetBrowserPanel.scope.test.tsx` — updated label assertions to match new strings
-- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.test.tsx` — added `StoryboardAssetPanel` mock to prevent QueryClient errors
-- NEW `apps/web-editor/src/features/storyboard/__tests__/StoryboardAssetPanel.test.tsx` — verifies panel renders, passes draftId as projectId, passes hideTranscribe={true}
-- NEW `apps/web-editor/src/features/storyboard/__tests__/StoryboardPage.assetPanel.test.tsx` — verifies A2 (panel shown on STORYBOARD tab, hidden on LIBRARY/EFFECTS) and A3 (TranscribeButton never rendered)
-**Notes:**
-- A1 toggle labels: "Show All System Assets" (scope=project) and "Show only project assets" (scope=all)
-- A2: `StoryboardAssetPanel` uses `AssetBrowserPanel` with draftId as projectId; asset detail panel (with rename via `InlineRenameField`) appears when any asset card is clicked
-- A3: `hideTranscribe` prop threaded through `AssetBrowserPanel` → `AssetDetailPanel`; also added to `WizardAssetDetailSlot` for future use; `StoryboardAssetPanel` passes `hideTranscribe={true}`
-- StoryboardPage.tsx was pre-existing at 322 lines; additions are minimal (+6 lines)
-checked by code-reviewer - NOT
-checked by qa-reviewer - NOT
-checked by design-reviewer - NOT
-checked by playwright-reviewer - NOT

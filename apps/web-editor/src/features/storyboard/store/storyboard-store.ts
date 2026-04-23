@@ -14,6 +14,8 @@ import { useSyncExternalStore } from 'react';
 
 import type { Node, Edge } from '@xyflow/react';
 
+import type { CanvasSnapshot } from './storyboard-history-store';
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 /** The canonical storyboard canvas state tracked by this store. */
@@ -80,6 +82,66 @@ export function getSnapshot(): StoryboardCanvasState {
  */
 export function setState(next: StoryboardCanvasState): void {
   state = next;
+  notify();
+}
+
+/**
+ * Atomically restores canvas state from a `CanvasSnapshot`.
+ * Reconstructs proper React Flow Node[] from StoryboardBlock[] and Edge[] from
+ * StoryboardEdge[], resolving positions from the snapshot map with a per-block
+ * fallback. Clears `selectedBlockId`. Called by the History UI after a confirmed
+ * restore.
+ *
+ * @param snapshot - The `CanvasSnapshot` from the server history entry.
+ */
+export function restoreFromSnapshot(snapshot: CanvasSnapshot): void {
+  // Reconstruct React Flow nodes from serialisable StoryboardBlock records.
+  // Position is resolved from the snapshot map first; falls back to the
+  // per-block coordinates stored in the DB when the map is absent (server path).
+  const nodes: Node[] = snapshot.blocks.map((block) => {
+    const position = snapshot.positions?.[block.id] ?? {
+      x: block.positionX ?? 0,
+      y: block.positionY ?? 0,
+    };
+
+    if (block.blockType === 'scene') {
+      return {
+        id: block.id,
+        type: 'scene-block',
+        position,
+        data: { block, onRemove: () => undefined },
+        draggable: true,
+        deletable: true,
+      };
+    }
+
+    // START / END sentinel nodes.
+    return {
+      id: block.id,
+      type: block.blockType,
+      position,
+      data: { label: block.blockType.toUpperCase() },
+      draggable: false,
+      deletable: false,
+    };
+  });
+
+  // Reconstruct React Flow edges from serialisable StoryboardEdge records.
+  // sourceBlockId / targetBlockId → source / target (React Flow field names).
+  const edges: Edge[] = snapshot.edges.map((edge) => ({
+    id: edge.id,
+    source: edge.sourceBlockId,
+    target: edge.targetBlockId,
+  }));
+
+  // Rebuild the positions map from the reconstructed nodes so the store
+  // remains consistent regardless of whether snapshot.positions was present.
+  const positions: Record<string, { x: number; y: number }> = {};
+  for (const node of nodes) {
+    positions[node.id] = { x: node.position.x, y: node.position.y };
+  }
+
+  state = { nodes, edges, positions, selectedBlockId: null };
   notify();
 }
 

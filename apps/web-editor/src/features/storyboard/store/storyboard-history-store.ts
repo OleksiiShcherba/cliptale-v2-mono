@@ -42,14 +42,21 @@ const SERVER_PERSIST_DEBOUNCE_MS = 1000;
 /**
  * A lightweight canvas snapshot — graph structure only.
  * Excludes React Flow metadata (handles, measured dimensions, etc.) to stay small.
+ *
+ * `positions` is optional: local undo/redo snapshots carry it, but server history
+ * snapshots do not (the server persists positions per-block via `positionX/Y`).
+ * Consumers must fall back to `block.positionX / block.positionY` when absent.
  */
 export type CanvasSnapshot = {
   /** Serializable block data extracted from React Flow nodes. */
   blocks: StoryboardState['blocks'];
   /** Serializable edge data extracted from React Flow edges. */
   edges: StoryboardState['edges'];
-  /** Node positions at the time of the snapshot. */
-  positions: Record<string, { x: number; y: number }>;
+  /**
+   * Node positions at the time of the snapshot.
+   * Absent for server-sourced snapshots — use `block.positionX/Y` as fallback.
+   */
+  positions?: Record<string, { x: number; y: number }>;
 };
 
 /** Public interface that `useStoryboardKeyboard` and other consumers depend on. */
@@ -118,7 +125,7 @@ function applySnapshot(snapshot: CanvasSnapshot): void {
   // Rebuild nodes: preserve all React Flow node metadata but override position.
   const restoredNodes: Node[] = snapshot.blocks.map((block) => {
     const existing = currentNodes.find((n) => n.id === block.id);
-    const pos = snapshot.positions[block.id] ?? { x: block.positionX, y: block.positionY };
+    const pos = snapshot.positions?.[block.id] ?? { x: block.positionX, y: block.positionY };
 
     if (existing) {
       return { ...existing, position: pos };

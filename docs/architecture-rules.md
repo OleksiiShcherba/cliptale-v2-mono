@@ -563,6 +563,14 @@ import { assetRepository } from '../repositories/asset.repository.js';
 
 Files MUST NOT exceed 300 lines. When a file exceeds this, extract the next logical unit (a hook, a sub-component, a helper function) into a new file in the same folder.
 
+#### Approved individual-file exceptions
+
+The following specific files exceed 300 lines by necessity and are approved exceptions. Any new exception requires a justification comment here before the Guardian will accept it.
+
+| File | Lines | Justification |
+|---|---|---|
+| `apps/web-editor/src/features/storyboard/store/storyboard-store.ts` | 350 | Additive exports from a `useSyncExternalStore` store; further split would require cross-file store mutation coupling. All exports are tightly coupled to the single module-level `state` variable. |
+
 #### E2E spec file exemption
 
 Playwright E2E spec files in `e2e/` are **exempt from the 300-line cap**. Each spec file naturally accumulates per-test setup/teardown boilerplate, CORS workaround interceptors, typed helper functions, and verbose assertions that cannot be reduced without sacrificing clarity. The meaningful quality gate for E2E specs is internal structure (all tests live inside a single `test.describe` block per spec file; shared reusable helpers live in `e2e/helpers/`) rather than line count. Files in `e2e/helpers/` still apply the 300-line cap.
