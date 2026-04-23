@@ -181,7 +181,7 @@ export function AssetBrowserPanel({
           <input
             type="search" placeholder="Search assets…" aria-label="Search assets"
             value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ width: '100%', height: 36, borderRadius: 4, border: '1px solid #252535', backgroundColor: 'transparent', color: '#F0F0FA', fontSize: 12, padding: '0 10px', boxSizing: 'border-box', fontFamily: 'Inter, sans-serif', outline: 'none' }}
+            style={{ width: '100%', height: 36, borderRadius: 4, border: '1px solid #252535', backgroundColor: 'transparent', color: '#F0F0FA', fontSize: 12, padding: '0 8px', boxSizing: 'border-box', fontFamily: 'Inter, sans-serif', outline: 'none' }}
           />
         </div>
 
@@ -217,7 +217,7 @@ export function AssetBrowserPanel({
         <div style={{ padding: '8px 12px', flexShrink: 0 }}>
           <button
             onClick={() => setIsUploadOpen(true)}
-            style={{ width: '100%', height: 40, borderRadius: 8, backgroundColor: '#7C3AED', border: 'none', color: '#F0F0FA', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}
+            style={{ width: '100%', height: 40, borderRadius: 8, backgroundColor: '#7C3AED', border: 'none', color: '#F0F0FA', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}
           >
             + Upload Assets
           </button>
