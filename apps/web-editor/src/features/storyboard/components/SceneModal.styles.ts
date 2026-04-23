@@ -53,7 +53,7 @@ export const headerStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  padding: '16px 20px',
+  padding: '16px 24px',
   borderBottom: `1px solid ${BORDER}`,
   flexShrink: 0,
 };
@@ -211,7 +211,7 @@ export const footerStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  padding: '16px 20px',
+  padding: '16px 24px',
   borderTop: `1px solid ${BORDER}`,
   flexShrink: 0,
 };
