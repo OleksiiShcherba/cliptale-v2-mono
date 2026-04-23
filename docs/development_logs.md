@@ -312,3 +312,28 @@
 - `lust-not-compacted-dev-logs.md` holds the single-copy uncompacted backup; git holds prior-batch history
 - Storyboard Task B (Scene detail modal, Library panel, Effects panel) — deferred; planned separately
 - Ghost drag E2E spec deferred to future Playwright task (unit coverage only for now)
+
+---
+
+## [ST-B6] FE — General Tasks A1–A3 (asset panel fixes) — 2026-04-23
+**Branch:** feat/st-b6-asset-panel-fixes
+**Files:**
+- EDIT `apps/web-editor/src/features/asset-manager/components/AssetBrowserPanel.tsx` — A1: updated scope toggle button labels; A3: added `hideTranscribe` prop forwarded to `AssetDetailPanel`
+- EDIT `apps/web-editor/src/shared/asset-detail/AssetDetailPanel.tsx` — A3: added optional `hideTranscribe?: boolean` prop; conditionally renders TranscribeButton
+- EDIT `apps/web-editor/src/features/generate-wizard/components/WizardAssetDetailSlot.tsx` — A3: added optional `hideTranscribe?: boolean` prop forwarded to `AssetDetailPanel`
+- NEW `apps/web-editor/src/features/storyboard/components/StoryboardAssetPanel.tsx` — A2+A3: wraps `AssetBrowserPanel` with `hideTranscribe={true}` for the Storyboard page
+- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — A2: renders `StoryboardAssetPanel` when `activeTab === 'storyboard'`
+**Tests:**
+- EDIT `apps/web-editor/src/features/asset-manager/components/AssetBrowserPanel.scope.test.tsx` — updated label assertions to match new strings
+- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.test.tsx` — added `StoryboardAssetPanel` mock to prevent QueryClient errors
+- NEW `apps/web-editor/src/features/storyboard/__tests__/StoryboardAssetPanel.test.tsx` — verifies panel renders, passes draftId as projectId, passes hideTranscribe={true}
+- NEW `apps/web-editor/src/features/storyboard/__tests__/StoryboardPage.assetPanel.test.tsx` — verifies A2 (panel shown on STORYBOARD tab, hidden on LIBRARY/EFFECTS) and A3 (TranscribeButton never rendered)
+**Notes:**
+- A1 toggle labels: "Show All System Assets" (scope=project) and "Show only project assets" (scope=all)
+- A2: `StoryboardAssetPanel` uses `AssetBrowserPanel` with draftId as projectId; asset detail panel (with rename via `InlineRenameField`) appears when any asset card is clicked
+- A3: `hideTranscribe` prop threaded through `AssetBrowserPanel` → `AssetDetailPanel`; also added to `WizardAssetDetailSlot` for future use; `StoryboardAssetPanel` passes `hideTranscribe={true}`
+- StoryboardPage.tsx was pre-existing at 322 lines; additions are minimal (+6 lines)
+checked by code-reviewer - NOT
+checked by qa-reviewer - NOT
+checked by design-reviewer - NOT
+checked by playwright-reviewer - NOT
