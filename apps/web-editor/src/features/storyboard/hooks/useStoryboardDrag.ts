@@ -149,17 +149,28 @@ export function useStoryboardDrag({
   const handleNodeDrag: OnNodeDrag = useCallback((event, node) => {
     if (node.type !== 'scene-block') return;
 
-    // React Flow passes a React synthetic MouseEvent — access nativeEvent for
-    // viewport-space coordinates used by the fixed-position portal clone.
-    const nativeEvent = event.nativeEvent as MouseEvent;
+    // React Flow v12 passes a native DOM event (from d3-drag's sourceEvent),
+    // NOT a React synthetic event.  The TypeScript declaration says
+    // React.MouseEvent but the runtime value is a raw MouseEvent / PointerEvent
+    // which has no `.nativeEvent` property.  Accessing `event.nativeEvent`
+    // therefore returns `undefined`, causing "Cannot read properties of
+    // undefined (reading 'clientX')".
+    //
+    // Fix: read clientX/clientY directly from the event object — both
+    // MouseEvent and PointerEvent expose these as own numeric properties.
+    // We cast via `unknown` to a plain coordinate bag to stay type-safe
+    // without depending on the DOM lib's MouseEvent interface.
+    const ev = event as unknown as { clientX?: number; clientY?: number };
+    const clientX = ev.clientX ?? 0;
+    const clientY = ev.clientY ?? 0;
 
     setDragState((prev) =>
       prev
         ? {
             ...prev,
             node,
-            clientX: nativeEvent.clientX,
-            clientY: nativeEvent.clientY,
+            clientX,
+            clientY,
           }
         : null,
     );
