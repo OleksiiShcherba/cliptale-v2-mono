@@ -46,6 +46,7 @@ import { SceneBlockNode } from './SceneBlockNode';
 import { SceneModal } from './SceneModal';
 import { SidebarTab } from './SidebarTab';
 import { StartNode } from './StartNode';
+import { StoryboardAssetPanel } from './StoryboardAssetPanel';
 import { StoryboardCanvas } from './StoryboardCanvas';
 import {
   EffectsIcon,
@@ -241,10 +242,21 @@ export function StoryboardPage(): React.ReactElement {
           <SidebarTab tab="effects" activeTab={activeTab} onSelect={setActiveTab} label="Effects" icon={<EffectsIcon />} />
         </nav>
 
-        {/* ── Library panel + Effects panel + Canvas area ── */}
+        {/* ── Asset panel — shown on STORYBOARD tab; provides asset browse + rename ── */}
+        {activeTab === 'storyboard' && (
+          <StoryboardAssetPanel draftId={safeDraftId} />
+        )}
+
+        {/* ── Library panel + Effects panel ── */}
         {activeTab === 'library' && <LibraryPanel draftId={safeDraftId} onSwitchToStoryboard={() => setActiveTab('storyboard')} />}
         {activeTab === 'effects' && <EffectsPanel selectedBlockId={selectedBlockId} />}
-        <div style={s.canvasArea} data-testid="storyboard-canvas" aria-label="Storyboard canvas">
+
+        {/* ── Canvas area ── */}
+        <div
+          style={s.canvasArea}
+          data-testid="storyboard-canvas"
+          aria-label="Storyboard canvas"
+        >
           {isLoading ? (
             <div style={s.canvasPlaceholder} data-testid="canvas-loading">Loading storyboard…</div>
           ) : error ? (

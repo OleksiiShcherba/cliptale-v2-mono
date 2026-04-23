@@ -55,6 +55,11 @@ export interface AssetDetailPanelProps {
    * container (max 520 px) — used inside the generate-wizard right column.
    */
   compact?: boolean;
+  /**
+   * When `true` the TranscribeButton is not rendered.
+   * Use on pages where transcription is not available (e.g. Storyboard page).
+   */
+  hideTranscribe?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +84,7 @@ export function AssetDetailPanel({
   onReplace,
   onAddToPrompt,
   compact = true,
+  hideTranscribe = false,
 }: AssetDetailPanelProps): React.ReactElement {
   const s = getAssetDetailPanelStyles(compact);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
@@ -150,7 +156,7 @@ export function AssetDetailPanel({
         )}
       </div>
 
-      {isAV && <TranscribeButton fileId={asset.id} />}
+      {isAV && !hideTranscribe && <TranscribeButton fileId={asset.id} />}
 
       <div style={{ flex: 1 }} />
 
