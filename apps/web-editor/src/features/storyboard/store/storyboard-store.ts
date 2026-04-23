@@ -27,6 +27,12 @@ export type StoryboardCanvasState = {
    * separately so snapshots can omit React-Flow-specific node metadata.
    */
   positions: Record<string, { x: number; y: number }>;
+  /**
+   * The id of the currently selected/focused scene-block node.
+   * Null when no block is focused. Used by EffectsPanel to gate
+   * "Apply to this scene" and by the canvas to highlight the active block.
+   */
+  selectedBlockId: string | null;
 };
 
 // ── Store internals ────────────────────────────────────────────────────────────
@@ -35,6 +41,7 @@ let state: StoryboardCanvasState = {
   nodes: [],
   edges: [],
   positions: {},
+  selectedBlockId: null,
 };
 
 const listeners = new Set<() => void>();
@@ -106,7 +113,8 @@ export function setCanvasState(nodes: Node[], edges: Edge[]): void {
   for (const node of nodes) {
     positions[node.id] = { x: node.position.x, y: node.position.y };
   }
-  state = { nodes, edges, positions };
+  // Preserve selectedBlockId — hydrating canvas does not change selection.
+  state = { nodes, edges, positions, selectedBlockId: state.selectedBlockId };
   notify();
 }
 
@@ -154,7 +162,9 @@ export function removeBlock(blockId: string): void {
   for (const node of nodes) {
     positions[node.id] = { x: node.position.x, y: node.position.y };
   }
-  state = { nodes, edges, positions };
+  // Clear selectedBlockId if the removed block was selected.
+  const selectedBlockId = state.selectedBlockId === blockId ? null : state.selectedBlockId;
+  state = { nodes, edges, positions, selectedBlockId };
   notify();
 }
 
@@ -187,11 +197,80 @@ export function addBlockNode(
 }
 
 /**
+ * Sets the currently focused/selected scene-block id.
+ * Called when the user clicks a scene-block node on the canvas.
+ * Passing null clears the selection.
+ *
+ * @param blockId - The node id that is now focused, or null to deselect.
+ */
+export function setSelectedBlock(blockId: string | null): void {
+  state = { ...state, selectedBlockId: blockId };
+  notify();
+}
+
+/**
+ * Applies a visual style to a single scene-block node.
+ * Updates the `block.style` field of the target node in-place.
+ *
+ * @param blockId - The node id to update.
+ * @param styleId - The style slug from STORYBOARD_STYLES (e.g. 'cyberpunk').
+ */
+export function applyStyleToBlock(blockId: string, styleId: string): void {
+  const nodes = state.nodes.map((n) => {
+    if (n.id !== blockId) return n;
+    return {
+      ...n,
+      data: {
+        ...n.data,
+        block: {
+          ...(n.data as { block: import('../types').StoryboardBlock }).block,
+          style: styleId,
+        },
+      },
+    };
+  });
+  const positions: Record<string, { x: number; y: number }> = {};
+  for (const node of nodes) {
+    positions[node.id] = { x: node.position.x, y: node.position.y };
+  }
+  state = { ...state, nodes, positions };
+  notify();
+}
+
+/**
+ * Applies a visual style to all SCENE-type block nodes.
+ * START and END sentinel nodes are skipped.
+ *
+ * @param styleId - The style slug from STORYBOARD_STYLES.
+ */
+export function applyStyleToAllBlocks(styleId: string): void {
+  const nodes = state.nodes.map((n) => {
+    if (n.type !== 'scene-block') return n;
+    return {
+      ...n,
+      data: {
+        ...n.data,
+        block: {
+          ...(n.data as { block: import('../types').StoryboardBlock }).block,
+          style: styleId,
+        },
+      },
+    };
+  });
+  const positions: Record<string, { x: number; y: number }> = {};
+  for (const node of nodes) {
+    positions[node.id] = { x: node.position.x, y: node.position.y };
+  }
+  state = { ...state, nodes, positions };
+  notify();
+}
+
+/**
  * Resets the store to its initial empty state.
  * Called when the storyboard page unmounts.
  */
 export function resetStore(): void {
-  state = { nodes: [], edges: [], positions: {} };
+  state = { nodes: [], edges: [], positions: {}, selectedBlockId: null };
   // Do not notify — callers who need a reset are typically unmounting.
 }
 

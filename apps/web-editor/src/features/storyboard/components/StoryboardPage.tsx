@@ -1,15 +1,7 @@
 /**
- * StoryboardPage — the /storyboard/:draftId page shell (Step 2 of the wizard).
- *
- * Renders:
- * - Top bar: ClipTale logo (left) + WizardStepper centered + autosave indicator
- *   + gear/help icon buttons (right)
- * - Left sidebar with three icon tabs: STORYBOARD (default active), LIBRARY, EFFECTS
- * - Canvas area: React Flow canvas (see StoryboardCanvas.tsx)
- * - Bottom bar: Back button + "STEP 2: STORYBOARD" label + "Next: Step 3 →" button
- * - SceneModal: opens when a scene-block node is clicked
- *
- * React Flow CSS import: the ONE exception to the no-CSS-import rule — third-party lib.
+ * StoryboardPage — /storyboard/:draftId shell (Step 2 of the wizard).
+ * Renders top bar, sidebar tabs (STORYBOARD / LIBRARY / EFFECTS), canvas, bottom bar.
+ * React Flow CSS import below is the one exception to the no-CSS-import rule.
  */
 
 import '@xyflow/react/dist/style.css';
@@ -45,7 +37,9 @@ import {
   initHistoryStore,
   destroyHistoryStore,
 } from '../store/storyboard-history-store';
+import { setSelectedBlock, useStoryboardStore } from '../store/storyboard-store';
 import type { StoryboardSidebarTab, SceneBlockNodeData } from '../types';
+import { EffectsPanel } from './EffectsPanel';
 import { EndNode } from './EndNode';
 import { LibraryPanel } from './LibraryPanel';
 import { SceneBlockNode } from './SceneBlockNode';
@@ -89,18 +83,20 @@ export function StoryboardPage(): React.ReactElement {
   const { nodes, edges, isLoading, error, setNodes, setEdges, removeNode } =
     useStoryboardCanvas(safeDraftId);
 
+  /** Track the focused block id so EffectsPanel can gate "Apply to this scene". */
+  const { selectedBlockId } = useStoryboardStore();
+
   // ── SceneModal ───────────────────────────────────────────────────────────────
 
   const { editingBlock, openModal, handleSave, handleDelete, handleClose } = useSceneModal();
 
-  /**
-   * Opens SceneModal when a scene-block node is clicked.
-   * START/END nodes have type 'start'|'end' — they are skipped.
-   */
+  /** Opens SceneModal when a scene-block node is clicked; tracks selectedBlockId. */
   const handleNodeClick: NodeMouseHandler<Node> = useCallback(
     (_event, node) => {
       if (node.type !== 'scene-block') return;
       const blockData = node.data as SceneBlockNodeData;
+      // Track selected block for EffectsPanel "Apply to this scene" action.
+      setSelectedBlock(node.id);
       openModal(blockData.block);
     },
     [openModal],
@@ -245,8 +241,9 @@ export function StoryboardPage(): React.ReactElement {
           <SidebarTab tab="effects" activeTab={activeTab} onSelect={setActiveTab} label="Effects" icon={<EffectsIcon />} />
         </nav>
 
-        {/* ── Library panel + Canvas area ── */}
+        {/* ── Library panel + Effects panel + Canvas area ── */}
         {activeTab === 'library' && <LibraryPanel draftId={safeDraftId} onSwitchToStoryboard={() => setActiveTab('storyboard')} />}
+        {activeTab === 'effects' && <EffectsPanel selectedBlockId={selectedBlockId} />}
         <div style={s.canvasArea} data-testid="storyboard-canvas" aria-label="Storyboard canvas">
           {isLoading ? (
             <div style={s.canvasPlaceholder} data-testid="canvas-loading">Loading storyboard…</div>
@@ -277,7 +274,7 @@ export function StoryboardPage(): React.ReactElement {
         <button type="button" style={s.backButton} onClick={handleBack} aria-label="Back to Step 1" data-testid="back-button">
           ← Back
         </button>
-        <span style={s.bottomBarLabel}>Step 2: Storyboard</span>
+        <span style={s.bottomBarLabel} data-testid="step-label">STEP 2: STORYBOARD</span>
         <button type="button" style={s.nextButton} onClick={handleNext} aria-label="Next: Step 3" data-testid="next-step3-button">
           Next: Step 3 →
         </button>
