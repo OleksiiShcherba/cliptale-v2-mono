@@ -50,7 +50,7 @@ const mockTemplate: SceneTemplate = {
   prompt: 'A dramatic opening shot of a cityscape at sunset',
   durationS: 5,
   style: 'cinematic-glow',
-  media: [
+  mediaItems: [
     {
       id: 'media-001',
       templateId: 'tpl-001',
@@ -136,7 +136,7 @@ describe('createSceneTemplate', () => {
       prompt: 'A dramatic opening shot',
       durationS: 5,
       style: 'cinematic-glow',
-      media: [{ fileId: 'file-abc', mediaType: 'image', sortOrder: 0 }],
+      mediaItems: [{ fileId: 'file-abc', mediaType: 'image', sortOrder: 0 }],
     };
 
     const result = await createSceneTemplate(payload);
@@ -207,11 +207,11 @@ describe('updateSceneTemplate', () => {
     expect(result.name).toBe('Updated Name');
   });
 
-  it('should support updating media list in the payload', async () => {
+  it('should support updating mediaItems list in the payload', async () => {
     mockApiClient.put.mockResolvedValue(mockOkResponse(mockTemplate));
 
     const payload: UpdateSceneTemplatePayload = {
-      media: [
+      mediaItems: [
         { fileId: 'file-new', mediaType: 'video', sortOrder: 0 },
       ],
     };

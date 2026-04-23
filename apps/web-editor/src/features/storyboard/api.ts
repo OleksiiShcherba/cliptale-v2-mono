@@ -151,7 +151,7 @@ export async function getSceneTemplate(id: string): Promise<SceneTemplate> {
  * Updates an existing scene template.
  *
  * Maps to PUT /scene-templates/:id.
- * Replaces media list atomically when `media` is provided.
+ * Replaces media list atomically when `mediaItems` is provided.
  */
 export async function updateSceneTemplate(
   id: string,

@@ -84,7 +84,7 @@ export type SceneTemplate = {
   prompt: string;
   durationS: number;
   style: string | null;
-  media: SceneTemplateMedia[];
+  mediaItems: SceneTemplateMedia[];
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
@@ -96,7 +96,7 @@ export type CreateSceneTemplatePayload = {
   prompt: string;
   durationS: number;
   style?: string;
-  media?: Array<{
+  mediaItems?: Array<{
     fileId: string;
     mediaType: 'image' | 'video' | 'audio';
     sortOrder: number;
@@ -109,7 +109,7 @@ export type UpdateSceneTemplatePayload = {
   prompt?: string;
   durationS?: number;
   style?: string;
-  media?: Array<{
+  mediaItems?: Array<{
     fileId: string;
     mediaType: 'image' | 'video' | 'audio';
     sortOrder: number;
