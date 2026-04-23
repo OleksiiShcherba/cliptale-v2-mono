@@ -71,7 +71,7 @@ export const styleCardStyle: React.CSSProperties = {
 
 export const styleCardLabelStyle: React.CSSProperties = {
   fontSize: '14px',
-  fontWeight: 500,
+  fontWeight: 400,
   color: TEXT_PRIMARY,
   marginBottom: '4px',
 };
@@ -188,12 +188,12 @@ export const animationTitleStyle: React.CSSProperties = {
 
 export const comingSoonBadgeStyle: React.CSSProperties = {
   fontSize: '11px',
-  fontWeight: 500,
+  fontWeight: 400,
   color: TEXT_MUTED,
   background: SURFACE_ELEVATED,
   border: `1px solid ${BORDER}`,
   borderRadius: '4px',
-  padding: '2px 8px',
+  padding: '4px 8px',
   letterSpacing: '0.04em',
 };
 

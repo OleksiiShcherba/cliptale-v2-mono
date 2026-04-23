@@ -279,10 +279,17 @@
 - `StoryboardPage.test.tsx` now mocks `EffectsPanel` (same pattern as `LibraryPanel` mock) to isolate the page shell from the effects panel's external dependency.
 - 203/203 storyboard tests pass on branch.
 
-checked by code-reviewer - NOT
-checked by qa-reviewer - NOT
-checked by design-reviewer - NOT
-checked by playwright-reviewer - NOT
+**Fix round 1 (2026-04-23):** Applied 3 design-token corrections in `EffectsPanel.styles.ts`: (1) `styleCardLabelStyle` fontWeight 500→400 (body token §3); (2) `comingSoonBadgeStyle` fontWeight 500→400 (caption token §3); (3) `comingSoonBadgeStyle` padding '2px 8px'→'4px 8px' (4px grid §3).
+
+checked by code-reviewer - COMMENTED
+> DESIGN-TOKEN VIOLATIONS in `EffectsPanel.styles.ts` — 3 typography/spacing violations flagged by design-reviewer remain unfixed: (1) line 74 fontWeight 500→400 per §3 body token; (2) line 191 fontWeight 500→400 per §3 caption token; (3) line 196 padding '2px 8px'→'4px 8px' per §3 4px grid rule.
+checked by qa-reviewer - YES
+checked by design-reviewer - COMMENTED
+design-reviewer comments (2026-04-23):
+- [FILE: apps/web-editor/src/features/storyboard/components/EffectsPanel.styles.ts, LINE: 73] ISSUE: `styleCardLabelStyle` fontSize 14px with fontWeight 500. EXPECTED: design-guide §3 typography scale has body=14px/400 or heading-3=16px/600, but no 14px/500 variant. This is off-scale. FIX: change fontWeight to 400 (body token) to match design-guide line 91.
+- [FILE: apps/web-editor/src/features/storyboard/components/EffectsPanel.styles.ts, LINE: 190] ISSUE: `comingSoonBadgeStyle` fontSize 11px with fontWeight 500. EXPECTED: design-guide §3 caption=11px/400 (line 94), not 11px/500. This is off-scale. FIX: change fontWeight to 400 (caption token).
+- [FILE: apps/web-editor/src/features/storyboard/components/EffectsPanel.styles.ts, LINE: 196] ISSUE: `comingSoonBadgeStyle` padding '2px 8px' violates 4px grid. EXPECTED: design-guide §3 spacing uses 4px multiples only (valid: 4, 8, 12, 16, 24, 32, 48, 64px). 2px is invalid. FIX: change padding to '4px 8px' (standard badge vertical padding).
+checked by playwright-reviewer - YES
 
 ---
 
