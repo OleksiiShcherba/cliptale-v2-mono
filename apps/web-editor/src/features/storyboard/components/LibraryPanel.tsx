@@ -23,6 +23,7 @@ import { useSceneTemplates } from '../hooks/useSceneTemplates';
 import { SceneModal } from './SceneModal';
 import { TemplateCard } from './LibraryPanel.templateCard';
 import {
+  emptyStateHintStyle,
   emptyStateStyle,
   errorBannerStyle,
   headerStyle,
@@ -210,7 +211,7 @@ export function LibraryPanel({ draftId, onSwitchToStoryboard }: LibraryPanelProp
             {templates.length === 0 ? (
               <div style={emptyStateStyle} data-testid="library-empty-state">
                 <span>No templates yet</span>
-                <span style={{ fontSize: '11px' }}>
+                <span style={emptyStateHintStyle}>
                   Click "+ New Scene" to create your first template.
                 </span>
               </div>
