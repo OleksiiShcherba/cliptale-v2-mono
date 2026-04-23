@@ -7,3 +7,4 @@
 - [C2 Thumbnail QA Review](qa-review-c2-thumbnail.md) — Thumbnail generation unit tests verified; 14 tests total (ingest.job + file.repository); all mocks at correct boundaries; regression clear
 - [D2 Wizard Asset Panel QA Review](qa-review-d2-wizard-asset.md) — 7 component integration tests; panel open/Add to Prompt/Delete/Undo covered; rename has known query-key limitation in wizard context (deferred follow-up)
 - [E2 Scope Toggle QA Review](qa-review-e2-scope-toggle.md) — 26 tests (8 hook + 9 browser + 9 gallery); all acceptance criteria verified; vi.mock hoisting fixed
+- [F2 Storyboard Service QA Review](qa-review-f2-storyboard.md) — 12 unit + 10 integration tests; ownership/idempotency/history-cap/transaction coverage complete; A2 pattern compliant

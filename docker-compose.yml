@@ -54,7 +54,7 @@ services:
       APP_S3_ACCESS_KEY_ID: ${APP_S3_ACCESS_KEY_ID}
       APP_S3_SECRET_ACCESS_KEY: ${APP_S3_SECRET_ACCESS_KEY}
       APP_PORT: '3001'
-      APP_CORS_ORIGIN: http://localhost:5173
+      APP_CORS_ORIGIN: ${APP_CORS_ORIGIN:-http://localhost:5173}
       APP_DEV_AUTH_BYPASS: ${APP_DEV_AUTH_BYPASS:-false}
       APP_AI_ENCRYPTION_KEY: ${APP_AI_ENCRYPTION_KEY:-a0b1c2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e5f6071829304a5b6c7d8e9}
       APP_FAL_KEY: ${APP_FAL_KEY}
@@ -76,7 +76,7 @@ services:
     ports:
       - '5173:5173'
     environment:
-      VITE_PUBLIC_API_BASE_URL: http://localhost:3001
+      VITE_PUBLIC_API_BASE_URL: ${VITE_PUBLIC_API_BASE_URL:-http://localhost:3001}
     volumes:
       - ./apps/web-editor/src:/app/apps/web-editor/src
       - ./packages/project-schema:/app/packages/project-schema
