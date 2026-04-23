@@ -338,8 +338,27 @@
 - Template ownership check returns 404 (not 403) to avoid leaking existence of other users' templates
 - All 73 tests pass (21 + 10 + 42)
 
-checked by code-reviewer - NOT
+checked by code-reviewer - YES
 checked by qa-reviewer - YES
 checked by design-reviewer - YES
 design-reviewer notes: Reviewed on 2026-04-23. No UI components in this subtask (backend-only: DB migrations, API routes, OpenAPI contracts, integration tests). Nothing to review from a design/UI perspective.
 checked by playwright-reviewer: YES
+
+## [ST-B2] FE — Types + API client for scene templates — 2026-04-23
+**Branch:** feat/st-b2-scene-templates-fe-types
+**Files:**
+- EDIT `apps/web-editor/src/features/storyboard/types.ts` — added SceneTemplateMedia, SceneTemplate, CreateSceneTemplatePayload, UpdateSceneTemplatePayload, AddToStoryboardPayload types
+- EDIT `apps/web-editor/src/features/storyboard/api.ts` — added listSceneTemplates(), createSceneTemplate(), getSceneTemplate(), updateSceneTemplate(), deleteSceneTemplate(), addTemplateToStoryboard() using existing apiClient pattern
+**Tests:**
+- NEW `apps/web-editor/src/features/storyboard/__tests__/storyboard-api.test.ts` — 20 tests covering each API function: correct URL construction, method, request body, query param encoding, and error propagation on non-ok status
+**Notes:**
+- All types match the ST-B1 OpenAPI contract (SceneTemplate, SceneTemplateMedia, payloads)
+- listSceneTemplates uses encodeURIComponent for the optional search param
+- addTemplateToStoryboard accepts { templateId, draftId } and returns StoryboardBlock (matches existing type)
+- TypeScript compiles without errors in storyboard/* files; pre-existing type errors in App.PreviewSection.test.tsx and App.RightSidebar.test.tsx are unrelated to this subtask
+- All 20 new tests pass
+
+checked by code-reviewer - NOT
+checked by qa-reviewer - NOT
+checked by design-reviewer - NOT
+checked by playwright-reviewer - NOT
