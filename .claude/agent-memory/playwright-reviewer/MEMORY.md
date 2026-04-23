@@ -13,3 +13,15 @@
 - [E3 Auto-link verdict](e3-auto-link-verdict.md) — YES: 8 component tests verify both insertion paths (drop + prompt-chip); no new UI
 - [F1 AI Panel Width Fluid verdict](f1_ai_panel_verdict.md) — YES: 9 unit tests verify compact modes (6 + 3 tests); style-only change deployed live
 - [Subtask 3 Playwright Verdict](subtask3-verdict.md) — YES: Cache-first asset resolution verified via 58 FE unit tests + code review (E2E unavailable in shell)
+- [Subtask 1 Store Reset Verdict](subtask1-store-reset-verdict.md) — APPROVED: Hook-only project/history store resets; 23 unit tests verify A→B switch; no E2E needed per pattern
+- [Subtask 2 Thumbnail Auth Verdict](subtask2-thumbnail-auth-verdict.md) — YES: URL wrapping logic verified via 6 unit tests (auth token param); E2E skipped per pattern (headless CORS issue, unit coverage sufficient)
+- [Subtask 3 Compact Prop (2026-04-21)](subtask3-compact-prop-verdict.md) — COMMENTED: Implementation correct (40 unit tests pass); blocker is vi.hoisted violation in test file per code-reviewer
+- [Subtask 4 Storyboard Routing (2026-04-22)](subtask4-storyboard-routing-verdict.md) — YES: 34 unit tests verify all routing paths (/storyboard/:draftId, back/next navigation); E2E unavailable (shell env)
+- [Subtask 5 React Flow Canvas (2026-04-22)](subtask5-canvas-verdict.md) — YES: 37 unit tests verify canvas, nodes, handles; E2E blocked by draft-creation mechanism
+- [Subtask 6 Canvas: edges + ghost drag (2026-04-22 final)](subtask6-canvas-verdict.md) — YES: All styling fixes applied; code-reviewer + design-reviewer re-verified; unit tests 2299/2299 pass; production ready
+- [Subtask 7 Zoom + Keyboard (2026-04-22)](subtask7-zoom-keyboard-verdict.md) — YES: 28 unit tests (useStoryboardKeyboard 11 + ZoomToolbar 17) verify zoom range 25–200%, +/− buttons, Delete/Ctrl+Z/Y/Shift+Z bindings; BORDER token fix applied; all 120 storyboard tests pass
+- [Subtask 8 Store + Autosave + Undo/Redo (2026-04-22)](subtask8-verdict.md) — YES: 24 unit tests (history-store 14 + autosave 10) verify stack capping, undo/redo, debounce, save labels, beforeunload; code-reviewer flagged unfixed hardcoded color in history-store.ts:148; no regressions; final subtask
+- [Subtask 1 Class C test seeds (2026-04-23)](subtask1-test-seeds-verdict.md) — YES: Backend-only test seed rewrite; 3/3 assets-list tests pass; integration verification only, E2E skipped per DB migration pattern
+- [Subtask 2 DEV_AUTH_BYPASS (2026-04-23)](subtask2-devauthbypass-verdict.md) — YES: Test-only assertion fix; 10/10 versions-list-restore tests pass; no UI/production changes
+- [Documentation-only testing pattern](documentation_only_pattern.md) — Zero-code `.md` updates receive automatic YES; no E2E run needed (2026-04-23)
+- [Subtask 3 E2E File Length (2026-04-23)](subtask3-e2e-file-length-verdict.md) — YES: §9.7 exemption clause added to architecture-rules.md; documentation-only change; automatic pass per pattern

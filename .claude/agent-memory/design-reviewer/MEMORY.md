@@ -1,5 +1,6 @@
 # Design Reviewer Memory — ClipTale Web Editor
 
+- [Subtask 1 (2026-04-21) Store reset — APPROVED](subtask1-store-reset-approved.md) — resetProjectStore + resetHistoryStore in useProjectInit; state-layer only, zero UI/token surface
 - [Asset Preview Modal design pattern](asset-modal-pattern.md) — AssetPreviewModal follows ExportModal/DeleteAssetDialog inline modal pattern; 3 design-guide violations found in Round 1 review (A1 subtask)
 - [Epic 9 Ticket 9 spacing grid fixes](ticket-9-spacing-fixes.md) — Round 2 violations fixed: tabButton/tabButtonActive padding 4px 8px, fieldRequiredMarker marginLeft 4px, all 4px-grid-aligned
 - [ElevenLabs Subtask 2 — Backend-only, no design review](elevenlabs-subtask-2-backend-only.md) — Config + HTTP client library, no UI components
@@ -10,8 +11,11 @@
 - [Subtask 5 Projects Panel — Typography violations](subtask5-projects-panel.md) — ProjectCard/CreateButton use 14px 600 (off-scale); design-guide §3 has body (14px 400) or heading-3 (16px 600), not 14/600 combo; 2 issues COMMENTED
 - [Home Button TopBar — APPROVED](home_button_topbar_approved.md) — Subtask 1 (Editor UX Feedback Batch) adds Home navigation button leftmost in TopBar; styling matches existing button patterns, tokens verified, no violations
 - [Subtask 3 Save Button violations](subtask3-save-overwrite.md) — Manual save button + conflict-overwrite action; Overwrite button padding 2px/8px (should be 4px/8px), typography 11px/500 (should be 12px/500), SaveStatusBadge gap 6px (should be 4px or 8px); 3 issues COMMENTED
+- [Subtask 3 Compact/Fluid Layout — APPROVED](subtask3-compact-fluid-layout.md) — getAssetDetailPanelStyles factory (280×620 compact vs 100%/maxWidth 520 fluid); rightColumn padding 24px (space-6); all color/typo/spacing/radius tokens verified, 40 tests passing
 - [Subtask 6 Chip X-icon spacing violations](subtask6-chip-spacing-violations.md) — Drag-drop asset chips have 8 design-guide violations: padding 2px 6px (not 4px grid), margins 2px (not 4px), button size 14×14px (not token), border-radius 2px (not 4px), opacity hardcoded, font-size 10px (off-scale); 8 issues COMMENTED
 - [assetId→fileId editor-core cleanup — APPROVED](assetid_fileId_editor_core_cleanup.md) — Test-fixture migration in packages/editor-core; zero UI/design surface, no tokens or styles touched
 - [Subtask B5 Undo Toast + Trash Panel](subtask-b5-undo-trash-review.md) — UndoToast APPROVED; 4 violations in TrashPanel/ProjectCard/StoryboardCard: kindBadge padding 2px 6px (should 4px), ProjectCard delete color hardcoded + padding 4px 10px (should 4px 12px), StoryboardCard delete color hardcoded + padding 4px 10px (should 4px 12px) + weight 400 (should 500)
 - [Subtask D2 Wizard: open panel on asset click](subtask-d2-wizard-panel.md) — WizardAssetDetailSlot + generateWizardPage layout; 2 token-consistency issues COMMENTED: hardcoded color hex + gap spacing; values correct but break token-first pattern
 - [Subtask E2 FE scope toggle design violations](subtask-e2-scope-toggle.md) — AssetBrowserPanel + MediaGalleryRecentBody scope toggles; 4 violations COMMENTED: gap 2px/padding 10px/fontSize 13/padding 8px 0
+- [Subtask 5 Canvas Node Styles — spacing & token violations](subtask5-canvas-node-styles.md) — React Flow nodes (StartNode/EndNode/SceneBlockNode): 7 spacing violations (2px, 3px, 6px off 4px grid) + 4 color token hardcodes; 11 issues COMMENTED
+- [Subtask 6 Canvas round 2 — After gap fix round](subtask6-canvas-round2.md) — Primary fix (gap 6px→4px) verified CORRECT; GhostDragPortal padding 8px/12px asymmetry found; 2 new violations COMMENTED

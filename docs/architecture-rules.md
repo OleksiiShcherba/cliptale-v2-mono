@@ -563,9 +563,13 @@ import { assetRepository } from '../repositories/asset.repository.js';
 
 Files MUST NOT exceed 300 lines. When a file exceeds this, extract the next logical unit (a hook, a sub-component, a helper function) into a new file in the same folder.
 
+#### E2E spec file exemption
+
+Playwright E2E spec files in `e2e/` are **exempt from the 300-line cap**. Each spec file naturally accumulates per-test setup/teardown boilerplate, CORS workaround interceptors, typed helper functions, and verbose assertions that cannot be reduced without sacrificing clarity. The meaningful quality gate for E2E specs is internal structure (all tests live inside a single `test.describe` block per spec file; shared reusable helpers live in `e2e/helpers/`) rather than line count. Files in `e2e/helpers/` still apply the 300-line cap.
+
 #### Split test file naming convention
 
-When a test file for `foo.ts` would exceed 300 lines, split it into multiple co-located files using a multi-part suffix that describes the test group:
+When a unit or integration test file for `foo.ts` would exceed 300 lines, split it into multiple co-located files using a multi-part suffix that describes the test group:
 
 - `foo.test.ts` — primary tests (initial state, core happy paths)
 - `foo.seek.test.ts` — seek / navigation tests
@@ -694,6 +698,23 @@ vi.mock('some-module', () => ({
 #### E2E tests (CI only)
 
 Playwright E2E tests live in `e2e/` at the monorepo root and run only on `main` branch merges in CI. Do not run them locally unless explicitly debugging an E2E failure.
+
+#### Running Vitest inside Docker containers
+
+When running Vitest via `docker compose exec`, always specify the working directory with `-w`:
+
+```bash
+# API tests
+docker compose exec -T -w /app/apps/api api npx vitest run
+
+# Web-editor tests
+docker compose exec -T -w /app/apps/web-editor web-editor npx vitest run
+
+# api-contracts tests
+docker compose exec -T -w /app/packages/api-contracts web-editor npx vitest run
+```
+
+Running from the container root (`/app`) without `-w` causes `@/` path alias resolution errors because the tsconfig paths are relative to each workspace package root, not the monorepo root.
 
 ### Coverage expectations
 

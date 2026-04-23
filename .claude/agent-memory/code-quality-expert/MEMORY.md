@@ -1,5 +1,6 @@
 # Agent Memory — Code Quality Expert
 
+- [Subtask 2 — Thumbnail authentication via buildAuthenticatedUrl](ruling_subtask2_thumbnails_auth.md) — Approved: media-element URL wrapping is canonical §8 pattern; do not flag future uses of buildAuthenticatedUrl in img/video/source tags
 - [Subtask 4 assetId removal — architecture review](ruling_subtask4_assetid_removal.md) — Approved: all code compliant with rules. Known issue (ai-generate writing to dropped table) is out-of-scope and tracked in backlog.
 - [Subtask 5 — Backend pagination regression coverage + OpenAPI client sync](ruling_subtask5_asset_pagination.md) — Zod schemas in api-contracts are canonical for contract validation, not duplication with service types; correct separation
 - [Ruling — Storybook type assertions and bracket notation narrowing](ruling_storybook_type_assertions.md) — `as unknown as StoryArgs` + bracket notation for discriminated union narrowing is acceptable in story tests; do not flag as violation
@@ -17,3 +18,4 @@
 - [Integration test self-healing schema repairs are acceptable](ruling_integration_test_self_healing.md) — beforeAll/afterAll DDL repairs in migrate.integration.test.ts, schema-final-state.integration.test.ts are guardrails, not mocks; idempotent INFORMATION_SCHEMA-guarded repairs; singleFork: true prevents race conditions
 - [development_logs verdict tokens](feedback_development_logs_token.md) — use `YES` or `COMMENTED` exactly, never `OK` — orchestrator enforces it
 - [Relative imports crossing directory boundaries](ruling_relative_imports_cross_boundary.md) — `from '../types'` violates §9; always flag, fix with absolute alias `@/features/name/types`
+- [Subtask 8 — Storyboard store + autosave + undo/redo history](ruling_subtask8_storyboard_store_autosave.md) — hardcoded color violation in storyboard-history-store.ts:148; rest compliant
