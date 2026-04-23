@@ -27,6 +27,7 @@ import type {
   Connection,
   Edge as FlowEdge,
   Viewport,
+  NodeMouseHandler,
 } from '@xyflow/react';
 
 import { CanvasToolbar } from './CanvasToolbar';
@@ -72,6 +73,8 @@ interface StoryboardCanvasProps {
   onNodeDragStop: OnNodeDrag;
   dragState: GhostDragState | null;
   onAddBlock: () => void;
+  /** Optional click handler forwarded to ReactFlow's onNodeClick. */
+  onNodeClick?: NodeMouseHandler<Node>;
 }
 
 // ── Inner canvas (needs ReactFlow context for useReactFlow) ────────────────────
@@ -129,6 +132,7 @@ export function StoryboardCanvas({
   onNodeDragStop,
   dragState,
   onAddBlock,
+  onNodeClick,
 }: StoryboardCanvasProps): React.ReactElement {
   // Track zoom locally so ZoomToolbar percentage display stays in sync.
   const [zoom, setZoom] = useState<number>(DEFAULT_ZOOM);
@@ -150,6 +154,7 @@ export function StoryboardCanvas({
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
+        onNodeClick={onNodeClick}
         style={REACT_FLOW_STYLE}
         proOptions={{ hideAttribution: true }}
         fitView

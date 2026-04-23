@@ -58,6 +58,8 @@ export type StoryboardState = {
 export type SceneBlockNodeData = {
   block: StoryboardBlock;
   onRemove: (nodeId: string) => void;
+  /** Optional callback fired when the user clicks the block to open SceneModal. */
+  onEdit?: (nodeId: string) => void;
 };
 
 /** React Flow node data for START/END sentinel nodes. */
