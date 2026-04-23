@@ -18,6 +18,7 @@ import { generationDraftsRouter } from '@/routes/generationDrafts.routes.js';
 import { userProjectUiStateRouter } from '@/routes/userProjectUiState.routes.js';
 import { trashRouter } from '@/routes/trash.routes.js';
 import { storyboardRouter } from '@/routes/storyboard.routes.js';
+import { sceneTemplateRouter } from '@/routes/sceneTemplate.routes.js';
 import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, ConflictError, UnprocessableEntityError, GoneError } from '@/lib/errors.js';
 
 const app = express();
@@ -52,6 +53,7 @@ app.use(generationDraftsRouter);
 app.use(userProjectUiStateRouter);
 app.use(trashRouter);
 app.use(storyboardRouter);
+app.use(sceneTemplateRouter);
 
 // Centralized error handler — maps typed errors to HTTP status codes.
 // Must be the last middleware registered.

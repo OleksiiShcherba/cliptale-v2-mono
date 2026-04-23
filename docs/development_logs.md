@@ -312,3 +312,34 @@
 - `lust-not-compacted-dev-logs.md` holds the single-copy uncompacted backup; git holds prior-batch history
 - Storyboard Task B (Scene detail modal, Library panel, Effects panel) — deferred; planned separately
 - Ghost drag E2E spec deferred to future Playwright task (unit coverage only for now)
+
+## [ST-B1] DB + BE — Scene Templates API — 2026-04-23
+
+**Branch:** feat/st-b1-scene-templates-api
+
+**Files:**
+- NEW `apps/api/src/db/migrations/035_scene_templates.sql` — scene_templates table (idempotent)
+- NEW `apps/api/src/db/migrations/036_scene_template_media.sql` — scene_template_media pivot table (idempotent)
+- NEW `apps/api/src/repositories/sceneTemplate.repository.ts` — DB access layer (findAll, findById, insert, update, softDelete)
+- NEW `apps/api/src/services/sceneTemplate.service.ts` — business logic (CRUD + add-to-storyboard, ownership checks, media limit enforcement)
+- NEW `apps/api/src/controllers/sceneTemplate.controller.ts` — HTTP handlers + Zod body schemas
+- NEW `apps/api/src/routes/sceneTemplate.routes.ts` — Express router (6 routes)
+- EDIT `apps/api/src/index.ts` — registered sceneTemplateRouter
+- EDIT `packages/api-contracts/src/openapi.ts` — added 6 scene-template paths + SceneTemplate, SceneTemplateMedia, AddToStoryboardPayload schemas
+
+**Tests:**
+- NEW `apps/api/src/__tests__/scene-templates-endpoint.test.ts` — 21 integration tests (CRUD happy path + 401/404/wrong-owner/media-limit/soft-delete idempotency)
+- NEW `apps/api/src/__tests__/scene-templates-add-to-storyboard.test.ts` — 10 integration tests (add-to-storyboard happy path + cross-ownership + missing draft + position overrides + multiple calls)
+- NEW `packages/api-contracts/src/openapi.scene-templates.paths.test.ts` — 42 tests (all 6 paths + 3 schemas in OpenAPI spec)
+
+**Notes:**
+- Zod validates `fileId` as UUID so test seed files must use full `randomUUID()` values (not custom prefix strings)
+- `add-to-storyboard` uses the storyboard repository's `getConnection()` for the transaction that inserts into storyboard_blocks + storyboard_block_media
+- Template ownership check returns 404 (not 403) to avoid leaking existence of other users' templates
+- All 73 tests pass (21 + 10 + 42)
+
+checked by code-reviewer - NOT
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-23. No UI components in this subtask (backend-only: DB migrations, API routes, OpenAPI contracts, integration tests). Nothing to review from a design/UI perspective.
+checked by playwright-reviewer: YES
