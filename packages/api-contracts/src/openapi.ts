@@ -17,6 +17,12 @@
  *  - PUT /storyboards/{draftId}                  — full-replace blocks + edges
  *  - GET /storyboards/{draftId}/history          — list last 50 history snapshots
  *  - POST /storyboards/{draftId}/history         — push a new history snapshot
+ *  - GET /scene-templates                        — list user's scene templates
+ *  - POST /scene-templates                       — create scene template
+ *  - GET /scene-templates/{id}                   — get scene template by id
+ *  - PUT /scene-templates/{id}                   — update scene template
+ *  - DELETE /scene-templates/{id}                — soft-delete scene template
+ *  - POST /scene-templates/{id}/add-to-storyboard — add template as storyboard block
  */
 
 export const openApiSpec = {
@@ -829,6 +835,202 @@ export const openApiSpec = {
         security: [{ bearerAuth: [] }],
       },
     },
+    '/scene-templates': {
+      get: {
+        summary: "List the authenticated user's scene templates",
+        description:
+          'Returns all active (non-deleted) scene templates owned by the authenticated user, ' +
+          'ordered by created_at DESC. Each template includes its media items.',
+        operationId: 'listSceneTemplates',
+        tags: ['scene-templates'],
+        responses: {
+          200: {
+            description: 'List of scene templates.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['items'],
+                  properties: {
+                    items: {
+                      type: 'array',
+                      items: { $ref: '#/components/schemas/SceneTemplate' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+      post: {
+        summary: 'Create a new scene template',
+        description:
+          'Creates a scene template with name, prompt, duration_s, style, and an optional ' +
+          'media array (up to 6 items). Returns 201 with the created template.',
+        operationId: 'createSceneTemplate',
+        tags: ['scene-templates'],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CreateSceneTemplateBody' },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Template created.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/SceneTemplate' },
+              },
+            },
+          },
+          400: { description: 'Validation error — body failed Zod schema or media limit exceeded.' },
+          401: { description: 'Missing or invalid JWT.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/scene-templates/{id}': {
+      get: {
+        summary: 'Get a scene template by id',
+        description:
+          'Returns the scene template. Returns 404 if the template does not exist or ' +
+          'is not owned by the authenticated user.',
+        operationId: 'getSceneTemplate',
+        tags: ['scene-templates'],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the scene template.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Scene template found.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/SceneTemplate' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          404: { description: 'Template not found or not owned by caller.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+      put: {
+        summary: 'Update a scene template',
+        description:
+          'Updates the template fields and atomically replaces its media list. ' +
+          'Returns 200 with the updated template.',
+        operationId: 'updateSceneTemplate',
+        tags: ['scene-templates'],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the scene template.',
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CreateSceneTemplateBody' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Template updated.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/SceneTemplate' },
+              },
+            },
+          },
+          400: { description: 'Validation error — body failed Zod schema or media limit exceeded.' },
+          401: { description: 'Missing or invalid JWT.' },
+          404: { description: 'Template not found or not owned by caller.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+      delete: {
+        summary: 'Soft-delete a scene template',
+        description: 'Sets deleted_at on the template. Returns 204 on success.',
+        operationId: 'deleteSceneTemplate',
+        tags: ['scene-templates'],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the scene template.',
+          },
+        ],
+        responses: {
+          204: { description: 'Template soft-deleted.' },
+          401: { description: 'Missing or invalid JWT.' },
+          404: { description: 'Template not found or not owned by caller.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/scene-templates/{id}/add-to-storyboard': {
+      post: {
+        summary: 'Add a scene template to a storyboard draft',
+        description:
+          'Creates a new storyboard_blocks row from the template data and inserts ' +
+          'storyboard_block_media rows for each template media item. ' +
+          'Requires the authenticated user to own both the template and the draft. ' +
+          'Returns 201 with the new StoryboardBlock.',
+        operationId: 'addSceneTemplateToStoryboard',
+        tags: ['scene-templates'],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the scene template.',
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AddToStoryboardPayload' },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Storyboard block created from template.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StoryboardBlock' },
+              },
+            },
+          },
+          400: { description: 'Validation error — body failed Zod schema.' },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Template or draft not found / not owned by caller.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
   },
   components: {
     securitySchemes: {
@@ -1279,6 +1481,87 @@ export const openApiSpec = {
             description: 'The stored storyboard snapshot JSON.',
           },
           createdAt: { type: 'string', format: 'date-time', description: 'When this snapshot was pushed.' },
+        },
+      },
+      SceneTemplateMedia: {
+        type: 'object',
+        required: ['id', 'fileId', 'mediaType', 'sortOrder'],
+        description: 'A single media attachment on a scene template.',
+        properties: {
+          id: { type: 'string', format: 'uuid', description: 'UUID of the media item.' },
+          fileId: { type: 'string', format: 'uuid', description: 'UUID of the linked file.' },
+          mediaType: {
+            type: 'string',
+            enum: ['image', 'video', 'audio'],
+            description: 'Media bucket for the linked file.',
+          },
+          sortOrder: { type: 'integer', minimum: 0, description: 'Display order within the template.' },
+        },
+      },
+      SceneTemplate: {
+        type: 'object',
+        required: ['id', 'userId', 'name', 'prompt', 'durationS', 'style', 'createdAt', 'updatedAt', 'mediaItems'],
+        description: 'A fully-hydrated scene template returned from the API.',
+        properties: {
+          id: { type: 'string', format: 'uuid', description: 'UUID of the template.' },
+          userId: { type: 'string', description: 'UUID of the owning user.' },
+          name: { type: 'string', maxLength: 255, description: 'User-visible template name.' },
+          prompt: { type: 'string', description: 'AI generation prompt for this template.' },
+          durationS: { type: 'integer', minimum: 1, description: 'Intended scene duration in seconds.' },
+          style: { type: ['string', 'null'], maxLength: 64, description: 'AI style preset key, or null.' },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+          mediaItems: {
+            type: 'array',
+            maxItems: 6,
+            items: { $ref: '#/components/schemas/SceneTemplateMedia' },
+            description: 'Media attachments ordered by sortOrder ASC.',
+          },
+        },
+      },
+      CreateSceneTemplateBody: {
+        type: 'object',
+        required: ['name', 'prompt', 'durationS'],
+        description: 'Request body for POST /scene-templates and PUT /scene-templates/:id.',
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 255, description: 'Template name.' },
+          prompt: { type: 'string', minLength: 1, description: 'AI generation prompt.' },
+          durationS: { type: 'integer', minimum: 1, maximum: 180, description: 'Scene duration in seconds.' },
+          style: { type: ['string', 'null'], maxLength: 64, description: 'AI style preset key, or null.' },
+          mediaItems: {
+            type: 'array',
+            maxItems: 6,
+            items: {
+              type: 'object',
+              required: ['fileId', 'mediaType', 'sortOrder'],
+              properties: {
+                fileId: { type: 'string', format: 'uuid', description: 'UUID of the file to attach.' },
+                mediaType: {
+                  type: 'string',
+                  enum: ['image', 'video', 'audio'],
+                  description: 'Media bucket for the file.',
+                },
+                sortOrder: { type: 'integer', minimum: 0, description: 'Display order within the template.' },
+              },
+            },
+            description: 'Optional media items. Maximum 6 items.',
+          },
+        },
+      },
+      AddToStoryboardPayload: {
+        type: 'object',
+        required: ['draftId'],
+        description: 'Request body for POST /scene-templates/:id/add-to-storyboard.',
+        properties: {
+          draftId: { type: 'string', format: 'uuid', description: 'UUID of the target storyboard draft.' },
+          positionX: {
+            type: 'number',
+            description: 'Optional canvas X position for the new block. Defaults to 400.',
+          },
+          positionY: {
+            type: 'number',
+            description: 'Optional canvas Y position for the new block. Defaults to 400.',
+          },
         },
       },
     },
