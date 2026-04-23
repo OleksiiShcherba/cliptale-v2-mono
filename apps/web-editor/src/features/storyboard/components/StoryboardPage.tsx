@@ -47,6 +47,7 @@ import {
 } from '../store/storyboard-history-store';
 import type { StoryboardSidebarTab, SceneBlockNodeData } from '../types';
 import { EndNode } from './EndNode';
+import { LibraryPanel } from './LibraryPanel';
 import { SceneBlockNode } from './SceneBlockNode';
 import { SceneModal } from './SceneModal';
 import { SidebarTab } from './SidebarTab';
@@ -136,12 +137,8 @@ export function StoryboardPage(): React.ReactElement {
     historyStore: storyboardHistoryStore,
   });
 
-  // ── Add Block hook ───────────────────────────────────────────────────────────
-
+  // ── Add Block + History push ─────────────────────────────────────────────────
   const { addBlock } = useAddBlock({ nodes, edges, setNodes, onRemoveNode: removeNode });
-
-  // ── History push helper ──────────────────────────────────────────────────────
-
   const { pushSnapshot } = useStoryboardHistoryPush(safeDraftId);
 
   // ── Edge connection callbacks ────────────────────────────────────────────────
@@ -248,7 +245,8 @@ export function StoryboardPage(): React.ReactElement {
           <SidebarTab tab="effects" activeTab={activeTab} onSelect={setActiveTab} label="Effects" icon={<EffectsIcon />} />
         </nav>
 
-        {/* ── Canvas area ── */}
+        {/* ── Library panel + Canvas area ── */}
+        {activeTab === 'library' && <LibraryPanel draftId={safeDraftId} onSwitchToStoryboard={() => setActiveTab('storyboard')} />}
         <div style={s.canvasArea} data-testid="storyboard-canvas" aria-label="Storyboard canvas">
           {isLoading ? (
             <div style={s.canvasPlaceholder} data-testid="canvas-loading">Loading storyboard…</div>
