@@ -262,6 +262,35 @@
 - documented: E2E spec file exemption added to §9.7 in `docs/architecture-rules.md` (`e2e/*.spec.ts` exempt from 300-line cap; quality gate = one `test.describe` per file)
 - removed: stale Class A Known Issue bullet (renders-endpoint.test.ts passes 10/10; versions fixed prior subtask)
 
+## [ST-B5] FE — EffectsPanel + sidebar design fixes — 2026-04-23
+**Branch:** feat/st-b5-effects-panel
+**Files:**
+- NEW `apps/web-editor/src/features/storyboard/components/EffectsPanel.tsx` — Visual Styles section (3 STORYBOARD_STYLES cards with swatch + label + description + inline apply-dialog); Animation section with Coming soon badge and 3 disabled stub items
+- NEW `apps/web-editor/src/features/storyboard/components/EffectsPanel.styles.ts` — hex token constants + CSSProperties for panel, cards, swatch, apply-dialog, animation section
+- EDIT `apps/web-editor/src/features/storyboard/store/storyboard-store.ts` — added `selectedBlockId: string | null` to `StoryboardCanvasState`; added `setSelectedBlock`, `applyStyleToBlock`, `applyStyleToAllBlocks` actions; fixed `setCanvasState` and `removeBlock` to carry `selectedBlockId`
+- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — renders `<EffectsPanel>` when `activeTab === 'effects'`; wires `setSelectedBlock(node.id)` in `handleNodeClick`; reads `selectedBlockId` via `useStoryboardStore`; bottom bar label text updated to literal "STEP 2: STORYBOARD"; added `data-testid="step-label"` to label span
+- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.test.tsx` — added `vi.mock` for `EffectsPanel` to prevent unmocked STORYBOARD_STYLES crash when Effects tab is clicked
+
+**Tests:**
+- NEW `apps/web-editor/src/features/storyboard/__tests__/EffectsPanel.test.tsx` — 22 tests: renders 3 cards, card click opens dialog, toggle closes, only one dialog at a time, apply-to-scene disabled + hint when no block, apply-to-scene calls applyStyleToBlock + closes dialog, apply-to-all calls applyStyleToAllBlocks + always enabled + closes dialog, animation section with coming-soon badge
+
+**Notes:**
+- `STORYBOARD_STYLES` import from `@ai-video-editor/api-contracts` produces a TS2305 error in the container (stale dist — same pre-existing issue as `SceneModal.styleSection.tsx` from ST-B4). Tests pass because vitest mocks the module before import. No new TS errors introduced beyond the pre-existing baseline.
+- `StoryboardPage.test.tsx` now mocks `EffectsPanel` (same pattern as `LibraryPanel` mock) to isolate the page shell from the effects panel's external dependency.
+- 203/203 storyboard tests pass on branch.
+
+**Fix round 1 (2026-04-23):** Applied 3 design-token corrections in `EffectsPanel.styles.ts`: (1) `styleCardLabelStyle` fontWeight 500→400 (body token §3); (2) `comingSoonBadgeStyle` fontWeight 500→400 (caption token §3); (3) `comingSoonBadgeStyle` padding '2px 8px'→'4px 8px' (4px grid §3).
+
+checked by code-reviewer - COMMENTED
+> DESIGN-TOKEN VIOLATIONS in `EffectsPanel.styles.ts` — 3 typography/spacing violations flagged by design-reviewer remain unfixed: (1) line 74 fontWeight 500→400 per §3 body token; (2) line 191 fontWeight 500→400 per §3 caption token; (3) line 196 padding '2px 8px'→'4px 8px' per §3 4px grid rule.
+checked by qa-reviewer - YES
+checked by design-reviewer - COMMENTED
+design-reviewer comments (2026-04-23):
+- [FILE: apps/web-editor/src/features/storyboard/components/EffectsPanel.styles.ts, LINE: 73] ISSUE: `styleCardLabelStyle` fontSize 14px with fontWeight 500. EXPECTED: design-guide §3 typography scale has body=14px/400 or heading-3=16px/600, but no 14px/500 variant. This is off-scale. FIX: change fontWeight to 400 (body token) to match design-guide line 91.
+- [FILE: apps/web-editor/src/features/storyboard/components/EffectsPanel.styles.ts, LINE: 190] ISSUE: `comingSoonBadgeStyle` fontSize 11px with fontWeight 500. EXPECTED: design-guide §3 caption=11px/400 (line 94), not 11px/500. This is off-scale. FIX: change fontWeight to 400 (caption token).
+- [FILE: apps/web-editor/src/features/storyboard/components/EffectsPanel.styles.ts, LINE: 196] ISSUE: `comingSoonBadgeStyle` padding '2px 8px' violates 4px grid. EXPECTED: design-guide §3 spacing uses 4px multiples only (valid: 4, 8, 12, 16, 24, 32, 48, 64px). 2px is invalid. FIX: change padding to '4px 8px' (standard badge vertical padding).
+checked by playwright-reviewer - YES
+
 ---
 
 ## Architectural Decisions / Notes
@@ -422,12 +451,12 @@ checked by playwright-reviewer: YES
 - addBlockNode store action wires returned StoryboardBlock as a React Flow node with a no-op onRemove (removal handled via canvas keyboard/menu)
 - All 181 storyboard tests pass after adding 23 new tests
 
-checked by code-reviewer - COMMENTED
-> ❌ Hardcoded inline style in LibraryPanel.tsx:213 `style={{ fontSize: '11px' }}` violates per-file design-token pattern (dev-log line 283); should be `emptyStateHintStyle` in .styles.ts
-> ❌ Multiple design-token violations in LibraryPanel.styles.ts (spacing, radius, typography off 4px grid/scale) — flagged by design-reviewer, require fixes before merge
-checked by qa-reviewer - COMMENTED
-checked by design-reviewer - COMMENTED
-design-reviewer comments (2026-04-23):
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-23. All 16 design-token violations from initial review have been fixed and verified against design-guide §3. All padding on 4px grid (0 8px, 0 12px, 4px 8px), all border-radius valid tokens (4px, 8px), all typography on scale (12px/500 label, 12px/400 body-sm), emptyStateHintStyle extracted from inline style. Pattern compliance verified (dev-log line 283).
+
+(prior design-reviewer comments (2026-04-23):
 - [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 68] ISSUE: newSceneButtonStyle padding `'0 10px'` is off 4px grid (10px invalid). EXPECTED: 4px multiples per design-guide §3; valid spacing tokens are 4, 8, 12, 16, 24, 32, 48, 64px. FIX: change padding to `'0 8px'` or `'0 12px'`.
 - [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 68] ISSUE: newSceneButtonStyle borderRadius `'6px'` is not a valid token (should be radius-sm 4px or radius-md 8px per design-guide §3). EXPECTED: radius-sm = 4px per design-guide line 115. FIX: change borderRadius to `'4px'`.
 - [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 71] ISSUE: newSceneButtonStyle fontSize `'11px'` with weight 600 does not match any scale. EXPECTED: design-guide §3 has caption 11/400 or label 12/500; this button uses 11/600 (invalid). FIX: change to fontSize `'12px'` and fontWeight 500 (label token).
@@ -443,7 +472,7 @@ design-reviewer comments (2026-04-23):
 - [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 238] ISSUE: deleteButtonStyle padding `'2px 7px'` off 4px grid. EXPECTED: 4px multiples. FIX: change to `'4px 8px'`.
 - [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 239] ISSUE: deleteButtonStyle fontSize `'10px'` off-scale. EXPECTED: 11px or 12px. FIX: change to `'11px'` or `'12px'` per context.
 - [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 252] ISSUE: errorBannerStyle borderRadius `'6px'` not valid token. EXPECTED: radius-sm 4px or radius-md 8px per design-guide §3. FIX: change to `'4px'` or `'8px'`.
-- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.templateCard.tsx, LINE: 213] ISSUE: hardcoded inline fontSize `'11px'` (caption token) not abstracted to .styles.ts. EXPECTED: per dev-log line 283, all spacing/color/typography must be in hex constants and CSSProperties at top of .styles.ts, not scattered as inline styles. FIX: create `emptyStateHintStyle` in LibraryPanel.styles.ts and import it; or define as caption token. Currently inconsistent pattern.
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.templateCard.tsx, LINE: 213] ISSUE: hardcoded inline fontSize `'11px'` (caption token) not abstracted to .styles.ts. EXPECTED: per dev-log line 283, all spacing/color/typography must be in hex constants and CSSProperties at top of .styles.ts, not scattered as inline styles. FIX: create `emptyStateHintStyle` in LibraryPanel.styles.ts and import it; or define as caption token. Currently inconsistent pattern.)
 
 <!-- QA NOTES (2026-04-23):
 Unit & integration tests: 23 new tests (9 useSceneTemplates.test.ts + 14 LibraryPanel.test.tsx), all PASSING. Full storyboard suite: 68/68 tests pass. Regression clear.

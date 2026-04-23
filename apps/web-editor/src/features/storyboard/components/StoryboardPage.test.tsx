@@ -95,6 +95,15 @@ vi.mock('@/features/storyboard/components/LibraryPanel', () => ({
   ),
 }));
 
+// Mock EffectsPanel — it imports STORYBOARD_STYLES from @ai-video-editor/api-contracts
+// which is not available in the jsdom test environment (stale container dist).
+// Stub it out to keep StoryboardPage tests isolated from the effects panel internals.
+vi.mock('@/features/storyboard/components/EffectsPanel', () => ({
+  EffectsPanel: ({ selectedBlockId }: { selectedBlockId: string | null }) => (
+    <div data-testid="effects-panel-mock" data-selected-block-id={selectedBlockId ?? ''} />
+  ),
+}));
+
 // ---------------------------------------------------------------------------
 // Import after mocks
 // ---------------------------------------------------------------------------
