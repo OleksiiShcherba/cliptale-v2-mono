@@ -188,10 +188,21 @@ describe('WizardFooter', () => {
     expect(mockDeleteDraft).not.toHaveBeenCalled();
   });
 
-  // 7. Clicking Next calls flush() then navigates to /generate/road-map
-  it('clicking Next calls flush then navigates to /generate/road-map', async () => {
+  // 7. Clicking Next calls flush() then navigates to /storyboard/:draftId
+  it('clicking Next calls flush then navigates to /storyboard/:draftId when draftId is set', async () => {
     const flush = vi.fn().mockResolvedValue(undefined);
-    renderFooter({ flush });
+    renderFooter({ flush, draftId: 'draft-1' });
+    fireEvent.click(screen.getByTestId('next-button'));
+    await waitFor(() => {
+      expect(flush).toHaveBeenCalled();
+      expect(mockNavigate).toHaveBeenCalledWith('/storyboard/draft-1');
+    });
+  });
+
+  // 7b. Clicking Next falls back to /generate/road-map when draftId is null
+  it('clicking Next falls back to /generate/road-map when draftId is null', async () => {
+    const flush = vi.fn().mockResolvedValue(undefined);
+    renderFooter({ flush, draftId: null });
     fireEvent.click(screen.getByTestId('next-button'));
     await waitFor(() => {
       expect(flush).toHaveBeenCalled();
@@ -242,7 +253,8 @@ describe('WizardFooter', () => {
     // re-click, which is the correct UX while navigation is in progress).
     resolveFlush();
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/generate/road-map');
+      // Default fixture has draftId='draft-1', so navigation goes to storyboard page.
+      expect(mockNavigate).toHaveBeenCalledWith('/storyboard/draft-1');
     });
   });
 });

@@ -14,6 +14,7 @@ import { GenerateWizardPage } from '@/features/generate-wizard/components/Genera
 import { GenerateRoadMapPlaceholder } from '@/features/generate-wizard/components/GenerateRoadMapPlaceholder';
 import { HomePage } from '@/features/home/components/HomePage';
 import { TrashPanel } from '@/features/trash/TrashPanel';
+import { StoryboardPage } from '@/features/storyboard/components/StoryboardPage';
 
 // ---------------------------------------------------------------------------
 // Global CSS reset — applied programmatically so no separate CSS file is needed.
@@ -79,6 +80,14 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <GenerateRoadMapPlaceholder />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/storyboard/:draftId',
+    element: (
+      <ProtectedRoute>
+        <StoryboardPage />
       </ProtectedRoute>
     ),
   },

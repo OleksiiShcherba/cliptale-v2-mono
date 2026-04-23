@@ -45,9 +45,15 @@ Object.assign(process.env, {
 let app: Express;
 let conn: Connection;
 
-/** Stable project IDs used across tests — isolated from other integration suites. */
-const TEST_PROJECT_WITH_ASSETS = 'list-test-proj-with-assets';
-const TEST_PROJECT_EMPTY = 'list-test-proj-empty';
+// dev-user-001 is the hardcoded DEV_AUTH_BYPASS user — always present in the
+// test DB. We reuse it as the file owner without inserting or deleting it.
+const SEED_USER_ID = 'dev-user-001';
+
+/**
+ * Stable project IDs — use valid CHAR(36) UUIDs so the FK to `projects` is satisfied.
+ * The empty-project ID is not inserted into `projects` so it reliably returns 0 assets.
+ */
+const TEST_PROJECT_WITH_ASSETS = '00000000-list-proj-0001-000000000001';
 
 /** Asset IDs seeded in beforeAll, cleaned up in afterAll. */
 const seededAssetIds: string[] = [
@@ -71,46 +77,69 @@ beforeAll(async () => {
     password: process.env['APP_DB_PASSWORD'] ?? 'cliptale',
   });
 
-  // Seed two assets under TEST_PROJECT_WITH_ASSETS.
+  // Seed a project row so the project_files FK is satisfied.
+  await conn.execute(
+    `INSERT INTO projects (project_id, owner_user_id, title)
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE project_id = project_id`,
+    [TEST_PROJECT_WITH_ASSETS, SEED_USER_ID, 'List Test Project'],
+  );
+
+  // Seed two files under TEST_PROJECT_WITH_ASSETS via `files` + `project_files`.
   for (const fileId of seededAssetIds) {
     await conn.execute(
-      `INSERT INTO project_assets_current
-         (asset_id, project_id, user_id, filename, content_type, file_size_bytes, storage_uri)
+      `INSERT INTO files
+         (file_id, user_id, kind, storage_uri, mime_type, bytes, display_name)
        VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE asset_id = asset_id`,
+       ON DUPLICATE KEY UPDATE file_id = file_id`,
       [
         fileId,
-        TEST_PROJECT_WITH_ASSETS,
-        'user-list-seed',
-        `seed-${fileId}.mp4`,
+        SEED_USER_ID,
+        'video',
+        `s3://test/${fileId}.mp4`,
         'video/mp4',
         5000,
-        `s3://test/${fileId}.mp4`,
+        `seed-${fileId}.mp4`,
       ],
+    );
+    await conn.execute(
+      `INSERT IGNORE INTO project_files (project_id, file_id) VALUES (?, ?)`,
+      [TEST_PROJECT_WITH_ASSETS, fileId],
     );
   }
 });
 
 afterAll(async () => {
   if (seededAssetIds.length) {
+    // Delete pivot rows first (FK: project_files → files ON DELETE RESTRICT).
+    const ph = seededAssetIds.map(() => '?').join(',');
     await conn.query(
-      `DELETE FROM project_assets_current WHERE asset_id IN (${seededAssetIds.map(() => '?').join(',')})`,
+      `DELETE FROM project_files WHERE file_id IN (${ph})`,
+      seededAssetIds,
+    );
+    await conn.query(
+      `DELETE FROM files WHERE file_id IN (${ph})`,
       seededAssetIds,
     );
   }
+  await conn.execute(
+    'DELETE FROM projects WHERE project_id = ?',
+    [TEST_PROJECT_WITH_ASSETS],
+  );
   await conn.end();
 });
 
 // ── GET /projects/:id/assets ──────────────────────────────────────────────────
+// The endpoint returns a paginated envelope: { items, nextCursor, totals }.
 
 describe('GET /projects/:id/assets', () => {
-  it('returns 200 with an empty array when the project has no assets', async () => {
+  it('returns 200 with an empty items array when the project has no assets', async () => {
     const res = await request(app)
-      .get(`/projects/${TEST_PROJECT_EMPTY}/assets`)
+      .get('/projects/00000000-list-proj-0002-000000000002/assets')
       .set('Authorization', `Bearer ${validToken()}`);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
+    expect(res.body).toMatchObject({ items: [], nextCursor: null });
   });
 
   it('returns 200 with asset records when assets exist for the project', async () => {
@@ -119,9 +148,9 @@ describe('GET /projects/:id/assets', () => {
       .set('Authorization', `Bearer ${validToken()}`);
 
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    expect(res.body).toHaveLength(2);
-    expect(res.body[0]).toMatchObject({
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(res.body.items).toHaveLength(2);
+    expect(res.body.items[0]).toMatchObject({
       projectId: TEST_PROJECT_WITH_ASSETS,
       contentType: 'video/mp4',
       status: 'pending',
@@ -130,13 +159,13 @@ describe('GET /projects/:id/assets', () => {
 
   it('does not return assets belonging to a different project', async () => {
     const res = await request(app)
-      .get(`/projects/some-other-project/assets`)
+      .get('/projects/some-other-project/assets')
       .set('Authorization', `Bearer ${validToken()}`);
 
     expect(res.status).toBe(200);
     // Seeded assets are under TEST_PROJECT_WITH_ASSETS — must not appear here.
-    const body = res.body as Array<{ fileId: string }>;
-    const leaked = body.some((a) => seededAssetIds.includes(a.fileId));
+    const items = res.body.items as Array<{ fileId: string }>;
+    const leaked = items.some((a) => seededAssetIds.includes(a.fileId));
     expect(leaked).toBe(false);
   });
 });

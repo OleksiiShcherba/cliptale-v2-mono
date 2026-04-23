@@ -148,7 +148,7 @@ describe('GET /projects/:id/versions', () => {
     expect(entry['versionId']).toBe(versionId);
     expect(typeof entry['createdAt']).toBe('string');
     expect(new Date(entry['createdAt'] as string).getTime()).toBeGreaterThan(0);
-    expect(entry['createdByUserId']).toBe('user-test-001');
+    expect(entry['createdByUserId']).toBe('dev-user-001');
     expect(entry['durationFrames']).toBe(300);
   });
 

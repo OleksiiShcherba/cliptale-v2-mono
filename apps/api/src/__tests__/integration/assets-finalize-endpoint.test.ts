@@ -47,6 +47,10 @@ let app: Express;
 let conn: Connection;
 let finalizeAssetId: string;
 
+// dev-user-001 is the hardcoded DEV_AUTH_BYPASS user — it already exists in the
+// test DB (seeded by a migration fixture) so we do NOT insert or delete it here.
+const SEED_USER_ID = 'dev-user-001';
+
 function validToken(): string {
   return jwt.sign({ sub: 'user-test-001', email: 'qa@example.com' }, JWT_SECRET);
 }
@@ -63,28 +67,29 @@ beforeAll(async () => {
     password: process.env['APP_DB_PASSWORD'] ?? 'cliptale',
   });
 
-  // Seed asset row for finalize tests.
+  // Seed file row for finalize tests into `files` (migration 021).
+  // Uses dev-user-001 which is always present in the test DB.
   finalizeAssetId = '00000000-test-finz-0000-000000000001';
   await conn.execute(
-    `INSERT INTO project_assets_current
-       (asset_id, project_id, user_id, filename, content_type, file_size_bytes, storage_uri)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO files
+       (file_id, user_id, kind, storage_uri, mime_type, bytes, display_name, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
      ON DUPLICATE KEY UPDATE status = 'pending', error_message = NULL`,
     [
       finalizeAssetId,
-      'proj-finalize',
-      'user-finalize',
-      'finalize.mp4',
+      SEED_USER_ID,
+      'video',
+      `s3://test-bucket/projects/proj-finalize/assets/${finalizeAssetId}/finalize.mp4`,
       'video/mp4',
       999_000,
-      `s3://test-bucket/projects/proj-finalize/assets/${finalizeAssetId}/finalize.mp4`,
+      'finalize.mp4',
     ],
   );
 });
 
 afterAll(async () => {
   await conn.execute(
-    'DELETE FROM project_assets_current WHERE asset_id = ?',
+    'DELETE FROM files WHERE file_id = ?',
     [finalizeAssetId],
   );
   await conn.end();
@@ -120,7 +125,7 @@ describe('POST /assets/:id/finalize', () => {
   it('returns 200 with processing status on happy path', async () => {
     // Reset to pending before this test.
     await conn.execute(
-      `UPDATE project_assets_current SET status = 'pending' WHERE asset_id = ?`,
+      `UPDATE files SET status = 'pending' WHERE file_id = ?`,
       [finalizeAssetId],
     );
 
@@ -129,14 +134,15 @@ describe('POST /assets/:id/finalize', () => {
       .set('Authorization', `Bearer ${validToken()}`);
 
     expect(res.status).toBe(200);
+    // The API response uses `id` (not `fileId`) for the asset identifier.
     expect(res.body).toMatchObject({
-      fileId: finalizeAssetId,
+      id: finalizeAssetId,
       status: 'processing',
     });
 
     // Verify the DB row was updated.
     const [rows] = await conn.query<mysql.RowDataPacket[]>(
-      'SELECT status FROM project_assets_current WHERE asset_id = ?',
+      'SELECT status FROM files WHERE file_id = ?',
       [finalizeAssetId],
     );
     expect(rows[0]!['status']).toBe('processing');
@@ -144,7 +150,7 @@ describe('POST /assets/:id/finalize', () => {
 
   it('returns 200 unchanged when already processing (idempotency)', async () => {
     await conn.execute(
-      `UPDATE project_assets_current SET status = 'processing' WHERE asset_id = ?`,
+      `UPDATE files SET status = 'processing' WHERE file_id = ?`,
       [finalizeAssetId],
     );
 

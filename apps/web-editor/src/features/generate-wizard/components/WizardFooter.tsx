@@ -103,7 +103,10 @@ export function WizardFooter({ draftId, doc, flush }: WizardFooterProps): React.
     try {
       await flush();
       if (isMountedRef.current) {
-        navigate('/generate/road-map');
+        // Navigate to the storyboard page for this draft if we have an ID,
+        // otherwise fall back to the road-map placeholder.
+        const destination = draftId != null ? `/storyboard/${draftId}` : '/generate/road-map';
+        navigate(destination);
       }
     } catch {
       if (isMountedRef.current) {
@@ -111,7 +114,7 @@ export function WizardFooter({ draftId, doc, flush }: WizardFooterProps): React.
         setFlushError('Could not save your draft. Please try again.');
       }
     }
-  }, [isContentPresent, isFlushing, flush, navigate]);
+  }, [isContentPresent, isFlushing, flush, navigate, draftId]);
 
   // ── Styles ─────────────────────────────────────────────────────────────────
 

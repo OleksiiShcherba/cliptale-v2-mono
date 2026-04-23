@@ -12,6 +12,11 @@
  *  - GET /assets                                 — global wizard-gallery listing
  *  - POST/GET/PUT/DELETE /generation-drafts      — video generation wizard drafts
  *  - GET /generation-drafts/cards                — storyboard card summaries (Home hub)
+ *  - POST /storyboards/{draftId}/initialize      — seed START/END sentinel blocks
+ *  - GET /storyboards/{draftId}                  — fetch blocks + edges for a draft
+ *  - PUT /storyboards/{draftId}                  — full-replace blocks + edges
+ *  - GET /storyboards/{draftId}/history          — list last 50 history snapshots
+ *  - POST /storyboards/{draftId}/history         — push a new history snapshot
  */
 
 export const openApiSpec = {
@@ -634,6 +639,196 @@ export const openApiSpec = {
         security: [{ bearerAuth: [] }],
       },
     },
+    '/storyboards/{draftId}/initialize': {
+      post: {
+        summary: 'Initialize storyboard sentinel blocks',
+        description:
+          'Idempotently seeds START and END sentinel blocks for a generation draft when they do ' +
+          'not yet exist. Safe to call multiple times — subsequent calls return the current state ' +
+          'unchanged. Returns the full storyboard state (blocks + edges) after initialization.',
+        operationId: 'initializeStoryboard',
+        tags: ['storyboard'],
+        parameters: [
+          {
+            name: 'draftId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Storyboard initialized (or already initialized). Returns current state.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StoryboardState' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/storyboards/{draftId}': {
+      get: {
+        summary: 'Get storyboard state',
+        description:
+          'Returns the full storyboard state (all blocks with their media items, and all directed ' +
+          'edges) for a generation draft. Blocks are ordered by sort_order ASC.',
+        operationId: 'getStoryboard',
+        tags: ['storyboard'],
+        parameters: [
+          {
+            name: 'draftId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Storyboard blocks and edges.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StoryboardState' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+      put: {
+        summary: 'Save storyboard state',
+        description:
+          'Full-replaces all blocks and edges in a single DB transaction. All existing blocks ' +
+          '(and their cascaded edges and media) are deleted before the provided arrays are ' +
+          'inserted. Returns the saved state after re-loading from the database.',
+        operationId: 'putStoryboard',
+        tags: ['storyboard'],
+        parameters: [
+          {
+            name: 'draftId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft.',
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/SaveStoryboardBody' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Storyboard saved. Returns the authoritative post-save state.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StoryboardState' },
+              },
+            },
+          },
+          400: { description: 'Validation error — request body failed Zod schema.' },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/storyboards/{draftId}/history': {
+      get: {
+        summary: 'List storyboard history snapshots',
+        description:
+          'Returns the last 50 history snapshots for a draft, ordered newest-first. ' +
+          'Each entry contains the snapshot JSON, the row id, and a createdAt timestamp.',
+        operationId: 'listStoryboardHistory',
+        tags: ['storyboard'],
+        parameters: [
+          {
+            name: 'draftId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Array of history snapshots (newest first, at most 50 entries).',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'array',
+                  items: { $ref: '#/components/schemas/StoryboardHistoryEntry' },
+                },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+      post: {
+        summary: 'Push a storyboard history snapshot',
+        description:
+          'Inserts a new history snapshot for the draft and prunes the table beyond 50 rows ' +
+          '(oldest entries are deleted). Returns 201 with the auto-assigned row id.',
+        operationId: 'pushStoryboardHistory',
+        tags: ['storyboard'],
+        parameters: [
+          {
+            name: 'draftId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft.',
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/PushHistoryBody' },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Snapshot inserted. Returns the auto-assigned row id.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['id'],
+                  properties: {
+                    id: { type: 'integer', description: 'Auto-incremented row id of the inserted snapshot.' },
+                  },
+                },
+              },
+            },
+          },
+          400: { description: 'Validation error — request body failed Zod schema.' },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
   },
   components: {
     securitySchemes: {
@@ -926,6 +1121,164 @@ export const openApiSpec = {
             description: 'Opaque cursor for the next page, or null at end of list.',
           },
           totals: { $ref: '#/components/schemas/AssetTotals' },
+        },
+      },
+      BlockMediaItem: {
+        type: 'object',
+        required: ['id', 'fileId', 'mediaType', 'sortOrder'],
+        description: 'A single media attachment on a storyboard block.',
+        properties: {
+          id: { type: 'string', format: 'uuid', description: 'UUID of the media item.' },
+          fileId: { type: 'string', format: 'uuid', description: 'UUID of the linked file.' },
+          mediaType: {
+            type: 'string',
+            enum: ['image', 'video', 'audio'],
+            description: 'Media bucket for the linked file.',
+          },
+          sortOrder: { type: 'integer', minimum: 0, description: 'Display order within the block.' },
+        },
+      },
+      StoryboardBlock: {
+        type: 'object',
+        required: [
+          'id', 'draftId', 'blockType', 'name', 'prompt', 'durationS',
+          'positionX', 'positionY', 'sortOrder', 'style', 'createdAt', 'updatedAt', 'mediaItems',
+        ],
+        description: 'A fully-hydrated storyboard block returned from the API.',
+        properties: {
+          id: { type: 'string', format: 'uuid', description: 'UUID of the block.' },
+          draftId: { type: 'string', format: 'uuid', description: 'UUID of the owning draft.' },
+          blockType: {
+            type: 'string',
+            enum: ['start', 'end', 'scene'],
+            description: 'Block category: start/end are sentinels; scene is user-created.',
+          },
+          name: { type: ['string', 'null'], maxLength: 255, description: 'User-editable scene name.' },
+          prompt: { type: ['string', 'null'], description: 'AI generation prompt for this scene.' },
+          durationS: { type: 'integer', minimum: 1, description: 'Intended scene duration in seconds.' },
+          positionX: { type: 'number', description: 'Canvas X position in logical pixels.' },
+          positionY: { type: 'number', description: 'Canvas Y position in logical pixels.' },
+          sortOrder: { type: 'integer', minimum: 0, description: 'Render/export ordering key.' },
+          style: { type: ['string', 'null'], maxLength: 64, description: 'AI style preset key.' },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+          mediaItems: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/BlockMediaItem' },
+            description: 'Media attachments ordered by sortOrder ASC.',
+          },
+        },
+      },
+      StoryboardEdge: {
+        type: 'object',
+        required: ['id', 'draftId', 'sourceBlockId', 'targetBlockId'],
+        description: 'A directed edge between two storyboard blocks.',
+        properties: {
+          id: { type: 'string', format: 'uuid', description: 'UUID of the edge.' },
+          draftId: { type: 'string', format: 'uuid', description: 'UUID of the owning draft.' },
+          sourceBlockId: { type: 'string', format: 'uuid', description: 'UUID of the source block.' },
+          targetBlockId: { type: 'string', format: 'uuid', description: 'UUID of the target block.' },
+        },
+      },
+      StoryboardState: {
+        type: 'object',
+        required: ['blocks', 'edges'],
+        description: 'Full storyboard state returned by GET, PUT, and POST /initialize.',
+        properties: {
+          blocks: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/StoryboardBlock' },
+            description: 'All blocks for the draft, ordered by sortOrder ASC.',
+          },
+          edges: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/StoryboardEdge' },
+            description: 'All directed edges for the draft.',
+          },
+        },
+      },
+      BlockInsert: {
+        type: 'object',
+        required: [
+          'id', 'draftId', 'blockType', 'name', 'prompt', 'durationS',
+          'positionX', 'positionY', 'sortOrder', 'style',
+        ],
+        description: 'A single block in the PUT /storyboards/:draftId request body.',
+        properties: {
+          id: { type: 'string', format: 'uuid', description: 'UUID of the block (client-generated).' },
+          draftId: { type: 'string', format: 'uuid', description: 'UUID of the owning draft.' },
+          blockType: {
+            type: 'string',
+            enum: ['start', 'end', 'scene'],
+            description: 'Block category.',
+          },
+          name: { type: ['string', 'null'], maxLength: 255, description: 'User-editable scene name.' },
+          prompt: { type: ['string', 'null'], description: 'AI generation prompt.' },
+          durationS: { type: 'integer', minimum: 1, default: 5, description: 'Scene duration in seconds.' },
+          positionX: { type: 'number', description: 'Canvas X position.' },
+          positionY: { type: 'number', description: 'Canvas Y position.' },
+          sortOrder: { type: 'integer', minimum: 0, description: 'Ordering key.' },
+          style: { type: ['string', 'null'], maxLength: 64, description: 'AI style preset key.' },
+          mediaItems: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/BlockMediaItem' },
+            description: 'Optional media items — present in GET responses but ignored on PUT (not persisted via this endpoint).',
+          },
+        },
+      },
+      EdgeInsert: {
+        type: 'object',
+        required: ['id', 'draftId', 'sourceBlockId', 'targetBlockId'],
+        description: 'A single edge in the PUT /storyboards/:draftId request body.',
+        properties: {
+          id: { type: 'string', format: 'uuid', description: 'UUID of the edge (client-generated).' },
+          draftId: { type: 'string', format: 'uuid', description: 'UUID of the owning draft.' },
+          sourceBlockId: { type: 'string', format: 'uuid', description: 'UUID of the source block.' },
+          targetBlockId: { type: 'string', format: 'uuid', description: 'UUID of the target block.' },
+        },
+      },
+      SaveStoryboardBody: {
+        type: 'object',
+        required: ['blocks', 'edges'],
+        description: 'Request body for PUT /storyboards/:draftId.',
+        properties: {
+          blocks: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/BlockInsert' },
+            description: 'Complete set of blocks to persist (replaces existing).',
+          },
+          edges: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/EdgeInsert' },
+            description: 'Complete set of edges to persist (replaces existing).',
+          },
+        },
+      },
+      PushHistoryBody: {
+        type: 'object',
+        required: ['snapshot'],
+        description: 'Request body for POST /storyboards/:draftId/history.',
+        properties: {
+          snapshot: {
+            type: 'object',
+            description:
+              'Opaque storyboard snapshot. Typically a StoryboardState-compatible object, ' +
+              'but the server stores it as-is without schema validation.',
+          },
+        },
+      },
+      StoryboardHistoryEntry: {
+        type: 'object',
+        required: ['id', 'draftId', 'snapshot', 'createdAt'],
+        description: 'A single history snapshot entry returned by GET /storyboards/:draftId/history.',
+        properties: {
+          id: { type: 'integer', description: 'Auto-incremented row id.' },
+          draftId: { type: 'string', format: 'uuid', description: 'UUID of the owning draft.' },
+          snapshot: {
+            type: 'object',
+            description: 'The stored storyboard snapshot JSON.',
+          },
+          createdAt: { type: 'string', format: 'date-time', description: 'When this snapshot was pushed.' },
         },
       },
     },

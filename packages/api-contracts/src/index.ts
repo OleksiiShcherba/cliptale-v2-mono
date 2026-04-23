@@ -32,6 +32,9 @@ export type {
 export { ELEVENLABS_MODELS, AUDIO_CAPABILITY_TO_GROUP } from './elevenlabs-models.js';
 export type { ElevenLabsModel, AudioCapability } from './elevenlabs-models.js';
 
+export { STORYBOARD_STYLES } from './storyboard-styles.js';
+export type { StoryboardStyle } from './storyboard-styles.js';
+
 import { FAL_MODELS } from './fal-models.js';
 import { ELEVENLABS_MODELS } from './elevenlabs-models.js';
 import type { FalModel } from './fal-models.js';
