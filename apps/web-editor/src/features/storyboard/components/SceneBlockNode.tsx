@@ -6,8 +6,9 @@
  * - Red × button (top-right) to remove the node from canvas state
  * - Prompt preview (first 80 chars, truncated with "…")
  * - Duration badge
- * - Up to 3 media thumbnail previews (placeholder SVG if none)
- * - Media type badges per thumbnail
+ * - Up to 3 media thumbnail previews via buildAuthenticatedUrl()
+ *   (placeholder SVG if no image/video items; audio shows placeholder)
+ * - Media type badges (IMAGE CLIP / VIDEO CLIP / AUDIO CLIP) per unique type
  * - Income port (left) and exit port (right) — both visible on hover
  */
 
@@ -15,13 +16,25 @@ import React, { useCallback } from 'react';
 
 import { Handle, Position } from '@xyflow/react';
 
-import type { SceneBlockNodeData } from '../types';
+import { buildAuthenticatedUrl } from '@/lib/api-client';
+import { config } from '@/lib/config';
+
+import type { BlockMediaItem, SceneBlockNodeData } from '../types';
 import { PRIMARY_LIGHT, SURFACE_ELEVATED, sceneBlockNodeStyles as s } from './nodeStyles';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const PROMPT_MAX_CHARS = 80;
 const MAX_THUMBNAILS = 3;
+
+/** Only image and video items provide a visual thumbnail; audio uses placeholder. */
+const VISUAL_MEDIA_TYPES = new Set<string>(['image', 'video']);
+
+const MEDIA_TYPE_BADGE_LABELS: Record<string, string> = {
+  image: 'IMAGE CLIP',
+  video: 'VIDEO CLIP',
+  audio: 'AUDIO CLIP',
+};
 
 // ── Handle styles ──────────────────────────────────────────────────────────────
 
@@ -43,10 +56,10 @@ const TARGET_HANDLE_STYLE: React.CSSProperties = {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-/** Placeholder SVG shown when a thumbnail slot has no media. */
+/** Placeholder SVG shown when a thumbnail slot has no image/video media. */
 function PlaceholderThumbnail(): React.ReactElement {
   return (
-    <div style={s.thumbnailPlaceholder} aria-label="No media">
+    <div style={s.thumbnailPlaceholder} aria-label="No media preview">
       <svg
         width="20"
         height="20"
@@ -67,8 +80,33 @@ function PlaceholderThumbnail(): React.ReactElement {
   );
 }
 
+/** Thumbnail image loaded via authenticated URL. Falls back to placeholder on error. */
+function MediaThumbnail({ item }: { item: BlockMediaItem }): React.ReactElement {
+  const thumbnailUrl = buildAuthenticatedUrl(
+    `${config.apiBaseUrl}/assets/${item.fileId}/thumbnail`,
+  );
+
+  if (!VISUAL_MEDIA_TYPES.has(item.mediaType)) {
+    return <PlaceholderThumbnail />;
+  }
+
+  return (
+    <img
+      src={thumbnailUrl}
+      alt={`${item.mediaType} thumbnail`}
+      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+      loading="lazy"
+      data-testid="thumbnail-img"
+      onError={(e) => {
+        // On load error, hide img — parent shows placeholder via CSS fallback.
+        (e.currentTarget as HTMLImageElement).style.display = 'none';
+      }}
+    />
+  );
+}
+
 /** Red × remove button. */
-function RemoveButton({ onClick }: { onClick: () => void }): React.ReactElement {
+function RemoveButton({ onClick }: { onClick: (e: React.MouseEvent) => void }): React.ReactElement {
   return (
     <button
       type="button"
@@ -107,11 +145,11 @@ interface SceneBlockNodeProps {
 /**
  * Custom React Flow node for a SCENE block.
  *
- * The red × button removes the node from React Flow state via `onRemove` callback.
- * No API call is made at this stage — wired to autosave in subtask 8.
+ * Clicking the card body opens SceneModal (wired via `onEdit` callback in data).
+ * The red × button removes the node from canvas state via `onRemove` callback.
  */
 export function SceneBlockNode({ id, data }: SceneBlockNodeProps): React.ReactElement {
-  const { block, onRemove } = data;
+  const { block, onRemove, onEdit } = data;
 
   // Derive display name: auto-generate "SCENE 01" style if blank.
   const displayName: string = block.name
@@ -128,17 +166,32 @@ export function SceneBlockNode({ id, data }: SceneBlockNodeProps): React.ReactEl
   // Take up to 3 media items for thumbnail display.
   const thumbnailItems = block.mediaItems.slice(0, MAX_THUMBNAILS);
 
-  // Collect unique media types for badge display.
-  const mediaTypes = Array.from(
-    new Set(block.mediaItems.slice(0, MAX_THUMBNAILS).map((m) => m.mediaType)),
+  // Collect unique media types across ALL mediaItems for badge row.
+  const uniqueMediaTypes = Array.from(new Set(block.mediaItems.map((m) => m.mediaType)));
+
+  const handleRemove = useCallback(
+    (e: React.MouseEvent): void => {
+      // Stop propagation so the canvas click-to-open-modal is not triggered.
+      e.stopPropagation();
+      onRemove(id);
+    },
+    [id, onRemove],
   );
 
-  const handleRemove = useCallback((): void => {
-    onRemove(id);
-  }, [id, onRemove]);
+  const handleEdit = useCallback((): void => {
+    if (onEdit) onEdit(id);
+  }, [id, onEdit]);
 
   return (
-    <div style={s.root} data-testid="scene-block-node">
+    <div
+      style={s.root}
+      data-testid="scene-block-node"
+      onClick={handleEdit}
+      role="button"
+      tabIndex={0}
+      aria-label={`Edit scene ${displayName}`}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleEdit(); }}
+    >
       {/* Income port — left side */}
       <Handle
         type="target"
@@ -156,7 +209,7 @@ export function SceneBlockNode({ id, data }: SceneBlockNodeProps): React.ReactEl
         <RemoveButton onClick={handleRemove} />
       </div>
 
-      {/* Body: prompt, duration badge, thumbnails */}
+      {/* Body: prompt, duration badge, thumbnails, media type badges */}
       <div style={s.body}>
         {promptPreview ? (
           <p style={s.promptText} data-testid="prompt-preview">
@@ -177,19 +230,18 @@ export function SceneBlockNode({ id, data }: SceneBlockNodeProps): React.ReactEl
           ) : (
             thumbnailItems.map((item) => (
               <div key={item.id} style={s.thumbnailItem} data-testid="thumbnail-item">
-                <PlaceholderThumbnail />
-                <span style={s.mediaTypeBadge}>{item.mediaType}</span>
+                <MediaThumbnail item={item} />
               </div>
             ))
           )}
         </div>
 
-        {/* Media type badges */}
-        {mediaTypes.length > 0 ? (
+        {/* Media type badges for all unique types in the block */}
+        {uniqueMediaTypes.length > 0 ? (
           <div style={s.mediaTypeRow} data-testid="media-type-row">
-            {mediaTypes.map((type) => (
+            {uniqueMediaTypes.map((type) => (
               <span key={type} style={s.mediaTypeBadge} data-testid="media-type-badge">
-                {type}
+                {MEDIA_TYPE_BADGE_LABELS[type] ?? type.toUpperCase()}
               </span>
             ))}
           </div>
