@@ -87,6 +87,14 @@ vi.mock('@/features/storyboard/hooks/useStoryboardCanvas', () => ({
   })),
 }));
 
+// Mock LibraryPanel — it depends on React Query (useQueryClient) which requires
+// a QueryClientProvider. Stub it out so StoryboardPage tests stay isolated.
+vi.mock('@/features/storyboard/components/LibraryPanel', () => ({
+  LibraryPanel: ({ draftId }: { draftId: string }) => (
+    <div data-testid="library-panel-mock" data-draft-id={draftId} />
+  ),
+}));
+
 // ---------------------------------------------------------------------------
 // Import after mocks
 // ---------------------------------------------------------------------------

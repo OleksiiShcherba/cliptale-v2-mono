@@ -159,6 +159,34 @@ export function removeBlock(blockId: string): void {
 }
 
 /**
+ * Inserts a new scene-block node into the canvas state.
+ * Used when "Add to Storyboard" returns a new StoryboardBlock from the API.
+ *
+ * @param block    - The StoryboardBlock returned by the API.
+ * @param onRemove - The remove callback to wire into the node's data.
+ */
+export function addBlockNode(
+  block: import('../types').StoryboardBlock,
+  onRemove: (nodeId: string) => void,
+): void {
+  const newNode: import('@xyflow/react').Node = {
+    id: block.id,
+    type: 'scene-block',
+    position: { x: block.positionX, y: block.positionY },
+    data: { block, onRemove } as import('../types').SceneBlockNodeData,
+    draggable: true,
+    deletable: true,
+  };
+  const nodes = [...state.nodes, newNode];
+  const positions: Record<string, { x: number; y: number }> = {};
+  for (const node of nodes) {
+    positions[node.id] = { x: node.position.x, y: node.position.y };
+  }
+  state = { ...state, nodes, positions };
+  notify();
+}
+
+/**
  * Resets the store to its initial empty state.
  * Called when the storyboard page unmounts.
  */

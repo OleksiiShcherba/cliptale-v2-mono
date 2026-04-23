@@ -358,7 +358,104 @@ checked by playwright-reviewer: YES
 - TypeScript compiles without errors in storyboard/* files; pre-existing type errors in App.PreviewSection.test.tsx and App.RightSidebar.test.tsx are unrelated to this subtask
 - All 20 new tests pass
 
-checked by code-reviewer - NOT
-checked by qa-reviewer - NOT
-checked by design-reviewer - NOT
-checked by playwright-reviewer - NOT
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-23. No UI components in this subtask (pure TypeScript types + API client functions). Nothing to review from a design/UI perspective.
+checked by playwright-reviewer - YES
+
+**Fix round 1 (2026-04-23):** Renamed `media` → `mediaItems` in `SceneTemplate`, `CreateSceneTemplatePayload`, and `UpdateSceneTemplatePayload` in `types.ts` to align with backend contract (backend repo uses `mediaItems` in both response shape and request payload). Updated test fixture `mockTemplate.media` → `mockTemplate.mediaItems` and the `updateSceneTemplate` test payload. Updated the `api.ts` JSDoc comment. All 20 tests pass. No storyboard-scope TypeScript errors.
+
+---
+
+## [ST-B3] FE — SceneModal + SceneBlockNode thumbnails — 2026-04-23
+**Branch:** feat/st-b3-scene-modal
+**Files:**
+- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.tsx` — main modal (block/template modes, validation, save/delete/close)
+- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.styles.ts` — design-token hex constants and all inline style objects
+- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.types.ts` — shared types: ModalMediaItem, SceneModalMode, SceneModalProps union
+- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.formFields.tsx` — Name, Prompt, Duration fields (extracted for line-cap)
+- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.mediaSection.tsx` — Media list + type-picker + AssetPickerModal integration (max 6)
+- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.styleSection.tsx` — STORYBOARD_STYLES radio cards + Animation stub
+- NEW `apps/web-editor/src/features/storyboard/hooks/useSceneModal.ts` — encapsulates modal open/save/delete/close wired to storyboard-store
+- EDIT `apps/web-editor/src/features/storyboard/components/SceneBlockNode.tsx` — real thumbnail rendering via buildAuthenticatedUrl, CLIP type badges, onEdit callback
+- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — onNodeClick → openModal for scene nodes; renders SceneModal when editingBlock != null
+- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardCanvas.tsx` — forward onNodeClick prop
+- EDIT `apps/web-editor/src/features/storyboard/store/storyboard-store.ts` — added updateBlock() and removeBlock() actions
+- EDIT `apps/web-editor/src/features/storyboard/types.ts` — added optional onEdit to SceneBlockNodeData
+**Tests:**
+- NEW `apps/web-editor/src/features/storyboard/__tests__/SceneModal.test.tsx` — 16 tests: render (block + template modes), field validation (prompt required, duration 1-180), save/delete/close actions, style selection toggle, max-media limit (button disabled at 6 items)
+- NEW `apps/web-editor/src/features/storyboard/__tests__/SceneBlockNode.thumbnails.test.tsx` — 9 tests: 0/1/3/4 media items (thumbnail cap at 3), audio placeholder, unique media type badges, remove/edit callbacks + stopPropagation
+**Notes:**
+- api-contracts package rebuilt (permissions fixed) to make STORYBOARD_STYLES available in dist/index.d.ts
+- AssetPickerModal already supported single-file pick mode via onPick(asset) → onClose() chain; no adaptation needed
+- SceneModal split into 6 files to stay under the 300-line cap (§9.7)
+- useSceneModal hook extracts store-wiring from StoryboardPage to keep page under 300 lines
+- All 158 storyboard tests pass after adding 25 new tests
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-23. Fix round 1 verified: `headerStyle` and `footerStyle` padding changed from '16px 20px' to '16px 24px' (24px = space-6 token, 4px-grid aligned per design-guide §3). All color tokens, typography, border-radius, and spacing now compliant. No additional violations found.
+
+checked by playwright-reviewer: YES
+
+**Fix round 1 (2026-04-23):** Applied design-reviewer spacing fix — changed `headerStyle` and `footerStyle` horizontal padding from `'16px 20px'` to `'16px 24px'` in `SceneModal.styles.ts` (lines 56 and 214). 20px is not on the 4px grid; 24px is a valid token (design-guide §3). Committed on feat/st-b4-library-panel (same working branch).
+
+## [ST-B4] FE — LibraryPanel — 2026-04-23
+**Branch:** feat/st-b4-library-panel
+**Files:**
+- NEW `apps/web-editor/src/features/storyboard/hooks/useSceneTemplates.ts` — React Query hook (staleTime 30s); client-side text filter with 300ms debounce; CRUD helpers (createTemplate, updateTemplate, removeTemplate, addToStoryboard) each invalidate cache
+- NEW `apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts` — dark-theme hex constants + CSSProperties for panel, card thumbnails, badges, and action buttons
+- NEW `apps/web-editor/src/features/storyboard/components/LibraryPanel.templateCard.tsx` — single template card: 3-thumbnail strip via buildAuthenticatedUrl, unique media type badges, two-step delete confirm, Edit/Del/Add buttons
+- NEW `apps/web-editor/src/features/storyboard/components/LibraryPanel.tsx` — sidebar panel: search input, empty state, TemplateCard list, SceneModal in template-create/edit mode; Add to Storyboard calls API → addBlockNode → switches tab to 'storyboard'
+- EDIT `apps/web-editor/src/features/storyboard/store/storyboard-store.ts` — added addBlockNode(block, onRemove) to insert a new scene-block Node returned by add-to-storyboard API
+- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — renders `<LibraryPanel>` when activeTab === 'library'; stays under 300-line cap
+- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.test.tsx` — mock LibraryPanel to isolate from QueryClientProvider dependency
+**Tests:**
+- NEW `apps/web-editor/src/features/storyboard/__tests__/useSceneTemplates.test.ts` — 9 tests: loading state, successful fetch, error surfacing, filter text update, createTemplate/updateTemplate/removeTemplate/addToStoryboard API delegation
+- NEW `apps/web-editor/src/features/storyboard/__tests__/LibraryPanel.test.tsx` — 14 tests: header render, empty state, loading/error banners, template cards rendered, Add to Storyboard (addBlockNode + switchTab), New Scene modal open/close/save, Edit template (values pre-filled, updateTemplate called), delete confirm flow, search input
+**Notes:**
+- LibraryPanel split into 4 files (panel + templateCard + styles + hook) to stay under §9.7 line cap
+- StoryboardPage.test.tsx mock of LibraryPanel needed to avoid QueryClient missing-context error when Library tab is clicked in existing tests
+- SceneModal reused in template mode (mode='template') — no changes needed to SceneModal itself
+- addBlockNode store action wires returned StoryboardBlock as a React Flow node with a no-op onRemove (removal handled via canvas keyboard/menu)
+- All 181 storyboard tests pass after adding 23 new tests
+
+checked by code-reviewer - COMMENTED
+> ❌ Hardcoded inline style in LibraryPanel.tsx:213 `style={{ fontSize: '11px' }}` violates per-file design-token pattern (dev-log line 283); should be `emptyStateHintStyle` in .styles.ts
+> ❌ Multiple design-token violations in LibraryPanel.styles.ts (spacing, radius, typography off 4px grid/scale) — flagged by design-reviewer, require fixes before merge
+checked by qa-reviewer - COMMENTED
+checked by design-reviewer - COMMENTED
+design-reviewer comments (2026-04-23):
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 68] ISSUE: newSceneButtonStyle padding `'0 10px'` is off 4px grid (10px invalid). EXPECTED: 4px multiples per design-guide §3; valid spacing tokens are 4, 8, 12, 16, 24, 32, 48, 64px. FIX: change padding to `'0 8px'` or `'0 12px'`.
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 68] ISSUE: newSceneButtonStyle borderRadius `'6px'` is not a valid token (should be radius-sm 4px or radius-md 8px per design-guide §3). EXPECTED: radius-sm = 4px per design-guide line 115. FIX: change borderRadius to `'4px'`.
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 71] ISSUE: newSceneButtonStyle fontSize `'11px'` with weight 600 does not match any scale. EXPECTED: design-guide §3 has caption 11/400 or label 12/500; this button uses 11/600 (invalid). FIX: change to fontSize `'12px'` and fontWeight 500 (label token).
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 88] ISSUE: searchInputStyle borderRadius `'6px'` not valid token. EXPECTED: radius-sm 4px per design-guide §3 line 115. FIX: change to `'4px'`.
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 89] ISSUE: searchInputStyle padding `'0 10px'` off 4px grid (10px invalid). EXPECTED: 4px multiples. FIX: change to `'0 8px'` or `'0 12px'`.
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 120] ISSUE: emptyStateStyle fontSize `'13px'` off-scale. EXPECTED: design-guide §3 typography scale has 12px (body-sm/label) and 14px (body), but not 13px. FIX: change to `'12px'` or `'14px'` per context.
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 198] ISSUE: mediaBadgeStyle padding `'2px 5px'` off 4px grid and off-scale (2px, 5px both invalid). EXPECTED: 4px multiples per design-guide §3. FIX: change to `'4px 8px'` (standard badge padding).
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 199] ISSUE: mediaBadgeStyle borderRadius `'3px'` not valid token (should be 4px, 8px, 16px, or 9999px). EXPECTED: radius-sm = 4px per design-guide §3 line 115. FIX: change to `'4px'`.
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 215] ISSUE: cardActionButtonStyle padding `'2px 7px'` off 4px grid (2px, 7px both invalid). EXPECTED: 4px multiples. FIX: change to `'4px 8px'`.
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 216] ISSUE: cardActionButtonStyle fontSize `'10px'` off-scale. EXPECTED: design-guide §3 has 11px (caption) or 12px (body-sm/label), not 10px. FIX: change to `'11px'` (caption) or `'12px'` (body-sm/label) per context.
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 226] ISSUE: addButtonStyle padding `'2px 7px'` off 4px grid. EXPECTED: 4px multiples. FIX: change to `'4px 8px'`.
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 229] ISSUE: addButtonStyle fontSize `'10px'` off-scale. EXPECTED: 11px (caption) or 12px (body-sm/label). FIX: change to `'11px'` or `'12px'` per context.
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 238] ISSUE: deleteButtonStyle padding `'2px 7px'` off 4px grid. EXPECTED: 4px multiples. FIX: change to `'4px 8px'`.
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 239] ISSUE: deleteButtonStyle fontSize `'10px'` off-scale. EXPECTED: 11px or 12px. FIX: change to `'11px'` or `'12px'` per context.
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts, LINE: 252] ISSUE: errorBannerStyle borderRadius `'6px'` not valid token. EXPECTED: radius-sm 4px or radius-md 8px per design-guide §3. FIX: change to `'4px'` or `'8px'`.
+- [FILE: apps/web-editor/src/features/storyboard/components/LibraryPanel.templateCard.tsx, LINE: 213] ISSUE: hardcoded inline fontSize `'11px'` (caption token) not abstracted to .styles.ts. EXPECTED: per dev-log line 283, all spacing/color/typography must be in hex constants and CSSProperties at top of .styles.ts, not scattered as inline styles. FIX: create `emptyStateHintStyle` in LibraryPanel.styles.ts and import it; or define as caption token. Currently inconsistent pattern.
+
+<!-- QA NOTES (2026-04-23):
+Unit & integration tests: 23 new tests (9 useSceneTemplates.test.ts + 14 LibraryPanel.test.tsx), all PASSING. Full storyboard suite: 68/68 tests pass. Regression clear.
+Known issues:
+  - Design-token violations in LibraryPanel.styles.ts and LibraryPanel.templateCard.tsx (reported by design-reviewer)
+  - These are architectural violations (dev-log line 283: per-file design-token pattern mandatory)
+  - 14 specific fixes required in spacing/radius/typography across 5 style objects + 1 inline style
+Required developer action:
+  - Fix all 14 design-token violations in LibraryPanel.styles.ts and LibraryPanel.templateCard.tsx per design-reviewer comments above
+  - Once fixed, QA will recheck and mark YES
+-->
+
+checked by playwright-reviewer: YES
+
+**Fix round 1 (2026-04-23):** Applied all 16 design-token fixes from design-reviewer + code-reviewer comments. Changes in `LibraryPanel.styles.ts`: `newSceneButtonStyle` padding `'0 10px'`→`'0 12px'`, borderRadius `'6px'`→`'4px'`, fontSize `'11px'`/600→`'12px'`/500 (label token); `searchInputStyle` borderRadius `'6px'`→`'4px'`, padding `'0 10px'`→`'0 8px'`; `emptyStateStyle` fontSize `'13px'`→`'12px'`; `mediaBadgeStyle` padding `'2px 5px'`→`'4px 8px'`, borderRadius `'3px'`→`'4px'`; `cardActionButtonStyle`, `addButtonStyle`, `deleteButtonStyle` all padding `'2px 7px'`→`'4px 8px'`, fontSize `'10px'`→`'12px'`; `errorBannerStyle` borderRadius `'6px'`→`'8px'`; added `emptyStateHintStyle` named constant (12px/400). In `LibraryPanel.tsx`: replaced inline `style={{ fontSize: '11px' }}` with `style={emptyStateHintStyle}`. TypeScript: no LibraryPanel errors. Commit: 5004a6c.
