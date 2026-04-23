@@ -6,9 +6,15 @@
 
 import { apiClient } from '@/lib/api-client';
 
-import type { StoryboardState } from './types';
+import type {
+  StoryboardBlock,
+  StoryboardState,
+  SceneTemplate,
+  CreateSceneTemplatePayload,
+  UpdateSceneTemplatePayload,
+} from './types';
 
-export type { StoryboardState };
+export type { StoryboardState, SceneTemplate, CreateSceneTemplatePayload, UpdateSceneTemplatePayload };
 
 /**
  * Seeds START and END sentinel blocks when they do not yet exist (idempotent).
@@ -90,4 +96,106 @@ export async function fetchHistorySnapshots(
     throw new Error(`GET /storyboards/${draftId}/history failed: ${res.status}`);
   }
   return res.json() as Promise<StoryboardHistorySnapshot[]>;
+}
+
+// ── Scene Template API functions ───────────────────────────────────────────────
+
+/**
+ * Retrieves all scene templates owned by the authenticated user.
+ *
+ * Maps to GET /scene-templates.
+ * Accepts an optional search string to filter by name/prompt.
+ */
+export async function listSceneTemplates(search?: string): Promise<{ items: SceneTemplate[] }> {
+  const path = search
+    ? `/scene-templates?search=${encodeURIComponent(search)}`
+    : '/scene-templates';
+  const res = await apiClient.get(path);
+  if (!res.ok) {
+    throw new Error(`GET /scene-templates failed: ${res.status}`);
+  }
+  return res.json() as Promise<{ items: SceneTemplate[] }>;
+}
+
+/**
+ * Creates a new scene template.
+ *
+ * Maps to POST /scene-templates.
+ * Returns 201 with the full template on success.
+ */
+export async function createSceneTemplate(
+  payload: CreateSceneTemplatePayload,
+): Promise<SceneTemplate> {
+  const res = await apiClient.post('/scene-templates', payload);
+  if (!res.ok) {
+    throw new Error(`POST /scene-templates failed: ${res.status}`);
+  }
+  return res.json() as Promise<SceneTemplate>;
+}
+
+/**
+ * Retrieves a single scene template by ID.
+ *
+ * Maps to GET /scene-templates/:id.
+ * Returns 404 if the template does not exist or is not owned by the user.
+ */
+export async function getSceneTemplate(id: string): Promise<SceneTemplate> {
+  const res = await apiClient.get(`/scene-templates/${id}`);
+  if (!res.ok) {
+    throw new Error(`GET /scene-templates/${id} failed: ${res.status}`);
+  }
+  return res.json() as Promise<SceneTemplate>;
+}
+
+/**
+ * Updates an existing scene template.
+ *
+ * Maps to PUT /scene-templates/:id.
+ * Replaces media list atomically when `mediaItems` is provided.
+ */
+export async function updateSceneTemplate(
+  id: string,
+  payload: UpdateSceneTemplatePayload,
+): Promise<SceneTemplate> {
+  const res = await apiClient.put(`/scene-templates/${id}`, payload);
+  if (!res.ok) {
+    throw new Error(`PUT /scene-templates/${id} failed: ${res.status}`);
+  }
+  return res.json() as Promise<SceneTemplate>;
+}
+
+/**
+ * Soft-deletes a scene template.
+ *
+ * Maps to DELETE /scene-templates/:id.
+ * Sets `deleted_at` on the server; the template is excluded from list queries.
+ */
+export async function deleteSceneTemplate(id: string): Promise<void> {
+  const res = await apiClient.delete(`/scene-templates/${id}`);
+  if (!res.ok) {
+    throw new Error(`DELETE /scene-templates/${id} failed: ${res.status}`);
+  }
+}
+
+/**
+ * Creates a new storyboard block from a scene template.
+ *
+ * Maps to POST /scene-templates/:id/add-to-storyboard.
+ * Requires the user to own both the template and the draft.
+ * Returns the newly created StoryboardBlock.
+ */
+export async function addTemplateToStoryboard(params: {
+  templateId: string;
+  draftId: string;
+}): Promise<StoryboardBlock> {
+  const res = await apiClient.post(
+    `/scene-templates/${params.templateId}/add-to-storyboard`,
+    { draftId: params.draftId },
+  );
+  if (!res.ok) {
+    throw new Error(
+      `POST /scene-templates/${params.templateId}/add-to-storyboard failed: ${res.status}`,
+    );
+  }
+  return res.json() as Promise<StoryboardBlock>;
 }

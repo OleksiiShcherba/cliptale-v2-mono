@@ -64,3 +64,60 @@ export type SceneBlockNodeData = {
 export type SentinelNodeData = {
   label: string;
 };
+
+// ── Scene Template types ───────────────────────────────────────────────────────
+
+/** A single media attachment on a scene template. */
+export type SceneTemplateMedia = {
+  id: string;
+  templateId: string;
+  fileId: string;
+  mediaType: 'image' | 'video' | 'audio';
+  sortOrder: number;
+};
+
+/** A fully-hydrated scene template returned from the API. */
+export type SceneTemplate = {
+  id: string;
+  userId: string;
+  name: string;
+  prompt: string;
+  durationS: number;
+  style: string | null;
+  mediaItems: SceneTemplateMedia[];
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string | null;
+};
+
+/** Payload for creating a new scene template. */
+export type CreateSceneTemplatePayload = {
+  name: string;
+  prompt: string;
+  durationS: number;
+  style?: string;
+  mediaItems?: Array<{
+    fileId: string;
+    mediaType: 'image' | 'video' | 'audio';
+    sortOrder: number;
+  }>;
+};
+
+/** Payload for updating an existing scene template (all fields optional). */
+export type UpdateSceneTemplatePayload = {
+  name?: string;
+  prompt?: string;
+  durationS?: number;
+  style?: string;
+  mediaItems?: Array<{
+    fileId: string;
+    mediaType: 'image' | 'video' | 'audio';
+    sortOrder: number;
+  }>;
+};
+
+/** Payload for adding a scene template to a storyboard draft. */
+export type AddToStoryboardPayload = {
+  templateId: string;
+  draftId: string;
+};
