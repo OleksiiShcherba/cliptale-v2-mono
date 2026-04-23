@@ -80,6 +80,7 @@ services:
     volumes:
       - ./apps/web-editor/src:/app/apps/web-editor/src
       - ./packages/project-schema:/app/packages/project-schema
+      - ./packages/api-contracts:/app/packages/api-contracts
       - ./packages/ui:/app/packages/ui
       - ./packages/editor-core:/app/packages/editor-core
       - ./packages/remotion-comps:/app/packages/remotion-comps

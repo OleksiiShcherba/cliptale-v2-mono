@@ -11,3 +11,7 @@ coverage/
 docs/test_screenshots/
 playwright-screenshots/
 playwright-review-temp.js
+test-results/
+
+# Claude agent memory (local only)
+.claude/agent-memory/
