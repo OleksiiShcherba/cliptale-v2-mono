@@ -358,6 +358,71 @@ checked by playwright-reviewer: YES
 - TypeScript compiles without errors in storyboard/* files; pre-existing type errors in App.PreviewSection.test.tsx and App.RightSidebar.test.tsx are unrelated to this subtask
 - All 20 new tests pass
 
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-23. No UI components in this subtask (pure TypeScript types + API client functions). Nothing to review from a design/UI perspective.
+checked by playwright-reviewer - YES
+
+**Fix round 1 (2026-04-23):** Renamed `media` → `mediaItems` in `SceneTemplate`, `CreateSceneTemplatePayload`, and `UpdateSceneTemplatePayload` in `types.ts` to align with backend contract (backend repo uses `mediaItems` in both response shape and request payload). Updated test fixture `mockTemplate.media` → `mockTemplate.mediaItems` and the `updateSceneTemplate` test payload. Updated the `api.ts` JSDoc comment. All 20 tests pass. No storyboard-scope TypeScript errors.
+
+---
+
+## [ST-B3] FE — SceneModal + SceneBlockNode thumbnails — 2026-04-23
+**Branch:** feat/st-b3-scene-modal
+**Files:**
+- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.tsx` — main modal (block/template modes, validation, save/delete/close)
+- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.styles.ts` — design-token hex constants and all inline style objects
+- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.types.ts` — shared types: ModalMediaItem, SceneModalMode, SceneModalProps union
+- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.formFields.tsx` — Name, Prompt, Duration fields (extracted for line-cap)
+- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.mediaSection.tsx` — Media list + type-picker + AssetPickerModal integration (max 6)
+- NEW `apps/web-editor/src/features/storyboard/components/SceneModal.styleSection.tsx` — STORYBOARD_STYLES radio cards + Animation stub
+- NEW `apps/web-editor/src/features/storyboard/hooks/useSceneModal.ts` — encapsulates modal open/save/delete/close wired to storyboard-store
+- EDIT `apps/web-editor/src/features/storyboard/components/SceneBlockNode.tsx` — real thumbnail rendering via buildAuthenticatedUrl, CLIP type badges, onEdit callback
+- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — onNodeClick → openModal for scene nodes; renders SceneModal when editingBlock != null
+- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardCanvas.tsx` — forward onNodeClick prop
+- EDIT `apps/web-editor/src/features/storyboard/store/storyboard-store.ts` — added updateBlock() and removeBlock() actions
+- EDIT `apps/web-editor/src/features/storyboard/types.ts` — added optional onEdit to SceneBlockNodeData
+**Tests:**
+- NEW `apps/web-editor/src/features/storyboard/__tests__/SceneModal.test.tsx` — 16 tests: render (block + template modes), field validation (prompt required, duration 1-180), save/delete/close actions, style selection toggle, max-media limit (button disabled at 6 items)
+- NEW `apps/web-editor/src/features/storyboard/__tests__/SceneBlockNode.thumbnails.test.tsx` — 9 tests: 0/1/3/4 media items (thumbnail cap at 3), audio placeholder, unique media type badges, remove/edit callbacks + stopPropagation
+**Notes:**
+- api-contracts package rebuilt (permissions fixed) to make STORYBOARD_STYLES available in dist/index.d.ts
+- AssetPickerModal already supported single-file pick mode via onPick(asset) → onClose() chain; no adaptation needed
+- SceneModal split into 6 files to stay under the 300-line cap (§9.7)
+- useSceneModal hook extracts store-wiring from StoryboardPage to keep page under 300 lines
+- All 158 storyboard tests pass after adding 25 new tests
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - COMMENTED
+design-reviewer comments (2026-04-23):
+- [FILE: apps/web-editor/src/features/storyboard/components/SceneModal.styles.ts, LINE: 56] ISSUE: Header padding uses 20px horizontal spacing, which is off-grid. EXPECTED: Design-guide §3 spacing base = 4px; valid values are 4, 8, 12, 16, 20, 24, 32, 48, 64px. 20px is not a valid token. FIX: Change `padding: '16px 20px'` to `padding: '16px 16px'` (4px-grid aligned) or `padding: '16px 24px'` (space-4 / space-6).
+
+checked by playwright-reviewer: YES
+
+**Fix round 1 (2026-04-23):** Applied design-reviewer spacing fix — changed `headerStyle` and `footerStyle` horizontal padding from `'16px 20px'` to `'16px 24px'` in `SceneModal.styles.ts` (lines 56 and 214). 20px is not on the 4px grid; 24px is a valid token (design-guide §3). Committed on feat/st-b4-library-panel (same working branch).
+
+## [ST-B4] FE — LibraryPanel — 2026-04-23
+**Branch:** feat/st-b4-library-panel
+**Files:**
+- NEW `apps/web-editor/src/features/storyboard/hooks/useSceneTemplates.ts` — React Query hook (staleTime 30s); client-side text filter with 300ms debounce; CRUD helpers (createTemplate, updateTemplate, removeTemplate, addToStoryboard) each invalidate cache
+- NEW `apps/web-editor/src/features/storyboard/components/LibraryPanel.styles.ts` — dark-theme hex constants + CSSProperties for panel, card thumbnails, badges, and action buttons
+- NEW `apps/web-editor/src/features/storyboard/components/LibraryPanel.templateCard.tsx` — single template card: 3-thumbnail strip via buildAuthenticatedUrl, unique media type badges, two-step delete confirm, Edit/Del/Add buttons
+- NEW `apps/web-editor/src/features/storyboard/components/LibraryPanel.tsx` — sidebar panel: search input, empty state, TemplateCard list, SceneModal in template-create/edit mode; Add to Storyboard calls API → addBlockNode → switches tab to 'storyboard'
+- EDIT `apps/web-editor/src/features/storyboard/store/storyboard-store.ts` — added addBlockNode(block, onRemove) to insert a new scene-block Node returned by add-to-storyboard API
+- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — renders `<LibraryPanel>` when activeTab === 'library'; stays under 300-line cap
+- EDIT `apps/web-editor/src/features/storyboard/components/StoryboardPage.test.tsx` — mock LibraryPanel to isolate from QueryClientProvider dependency
+**Tests:**
+- NEW `apps/web-editor/src/features/storyboard/__tests__/useSceneTemplates.test.ts` — 9 tests: loading state, successful fetch, error surfacing, filter text update, createTemplate/updateTemplate/removeTemplate/addToStoryboard API delegation
+- NEW `apps/web-editor/src/features/storyboard/__tests__/LibraryPanel.test.tsx` — 14 tests: header render, empty state, loading/error banners, template cards rendered, Add to Storyboard (addBlockNode + switchTab), New Scene modal open/close/save, Edit template (values pre-filled, updateTemplate called), delete confirm flow, search input
+**Notes:**
+- LibraryPanel split into 4 files (panel + templateCard + styles + hook) to stay under §9.7 line cap
+- StoryboardPage.test.tsx mock of LibraryPanel needed to avoid QueryClient missing-context error when Library tab is clicked in existing tests
+- SceneModal reused in template mode (mode='template') — no changes needed to SceneModal itself
+- addBlockNode store action wires returned StoryboardBlock as a React Flow node with a no-op onRemove (removal handled via canvas keyboard/menu)
+- All 181 storyboard tests pass after adding 23 new tests
+
 checked by code-reviewer - NOT
 checked by qa-reviewer - NOT
 checked by design-reviewer - NOT
