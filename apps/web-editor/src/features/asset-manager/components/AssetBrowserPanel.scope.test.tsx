@@ -3,8 +3,8 @@
  *
  * Covers:
  * 1. Scope toggle button is rendered
- * 2. Shows "Show all" label when scope is project
- * 3. Shows "Show only this project" label when scope is all
+ * 2. Shows "Show All System Assets" label when scope is project
+ * 3. Shows "Show only project assets" label when scope is all
  * 4. Clicking toggle switches scope — triggers new query with updated scope
  * 5. Auto-switch to all when project-scoped list is empty on first load
  * 6. Toggle reports aria-pressed correctly
@@ -131,10 +131,10 @@ describe('AssetBrowserPanel — scope toggle', () => {
     expect(screen.getByTestId('scope-toggle')).toBeDefined();
   });
 
-  it('shows "Show all" label when scope is project (default)', () => {
+  it('shows "Show All System Assets" label when scope is project (default)', () => {
     mockBothHaveAssets([makeAsset('a1')]);
     render(<AssetBrowserPanel projectId={PROJECT_ID} />);
-    expect(screen.getByTestId('scope-toggle').textContent).toBe('Show all');
+    expect(screen.getByTestId('scope-toggle').textContent).toBe('Show All System Assets');
   });
 
   it('toggle has aria-pressed=false when scope is project', () => {
@@ -143,13 +143,13 @@ describe('AssetBrowserPanel — scope toggle', () => {
     expect(screen.getByTestId('scope-toggle').getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('clicking toggle switches label to "Show only this project"', () => {
+  it('clicking toggle switches label to "Show only project assets"', () => {
     mockBothHaveAssets([makeAsset('a1')]);
     render(<AssetBrowserPanel projectId={PROJECT_ID} />);
 
     fireEvent.click(screen.getByTestId('scope-toggle'));
 
-    expect(screen.getByTestId('scope-toggle').textContent).toBe('Show only this project');
+    expect(screen.getByTestId('scope-toggle').textContent).toBe('Show only project assets');
   });
 
   it('toggle has aria-pressed=true after switching to all', () => {
@@ -161,14 +161,14 @@ describe('AssetBrowserPanel — scope toggle', () => {
     expect(screen.getByTestId('scope-toggle').getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('clicking toggle again restores "Show all" label', () => {
+  it('clicking toggle again restores "Show All System Assets" label', () => {
     mockBothHaveAssets([makeAsset('a1')]);
     render(<AssetBrowserPanel projectId={PROJECT_ID} />);
 
     fireEvent.click(screen.getByTestId('scope-toggle'));
     fireEvent.click(screen.getByTestId('scope-toggle'));
 
-    expect(screen.getByTestId('scope-toggle').textContent).toBe('Show all');
+    expect(screen.getByTestId('scope-toggle').textContent).toBe('Show All System Assets');
   });
 
   it('auto-switches to all when project-scoped list is empty on first load', async () => {
@@ -177,7 +177,7 @@ describe('AssetBrowserPanel — scope toggle', () => {
 
     // After auto-switch the toggle label should reflect scope=all
     await waitFor(() => {
-      expect(screen.getByTestId('scope-toggle').textContent).toBe('Show only this project');
+      expect(screen.getByTestId('scope-toggle').textContent).toBe('Show only project assets');
     });
   });
 
@@ -194,6 +194,6 @@ describe('AssetBrowserPanel — scope toggle', () => {
     mockBothHaveAssets([makeAsset('a1')]);
     render(<AssetBrowserPanel projectId={PROJECT_ID} />);
     // Auto-switch guard prevents switching even if idle
-    expect(screen.getByTestId('scope-toggle').textContent).toBe('Show all');
+    expect(screen.getByTestId('scope-toggle').textContent).toBe('Show All System Assets');
   });
 });

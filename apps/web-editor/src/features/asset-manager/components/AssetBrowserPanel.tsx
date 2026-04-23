@@ -38,6 +38,11 @@ export interface AssetBrowserPanelProps {
   projectId: string;
   /** When true, the type filter tabs (All/Video/Audio/Image) are hidden. */
   areFilterTabsHidden?: boolean;
+  /**
+   * When `true` the TranscribeButton is hidden in the asset detail panel.
+   * Use on pages where transcription is not available (e.g. Storyboard page).
+   */
+  hideTranscribe?: boolean;
 }
 
 /**
@@ -52,6 +57,7 @@ export interface AssetBrowserPanelProps {
 export function AssetBrowserPanel({
   projectId,
   areFilterTabsHidden = false,
+  hideTranscribe = false,
 }: AssetBrowserPanelProps): React.ReactElement {
   const [activeTab, setActiveTab] = useState<AssetFilterTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -203,7 +209,7 @@ export function AssetBrowserPanel({
             onClick={toggleScope}
             style={{ width: '100%', height: 32, borderRadius: 4, border: '1px solid #252535', backgroundColor: 'transparent', color: '#8A8AA0', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}
           >
-            {scope === 'project' ? 'Show all' : 'Show only this project'}
+            {scope === 'project' ? 'Show All System Assets' : 'Show only project assets'}
           </button>
         </div>
 
@@ -222,6 +228,7 @@ export function AssetBrowserPanel({
         <AssetDetailPanel
           asset={selectedAsset}
           context={{ kind: 'project', projectId }}
+          hideTranscribe={hideTranscribe}
           onDelete={() => setIsDeleteOpen(true)}
           onClose={() => setSelectedAssetId(null)}
           onReplace={() => setIsReplaceOpen(true)}

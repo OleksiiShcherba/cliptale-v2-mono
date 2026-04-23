@@ -87,6 +87,15 @@ vi.mock('@/features/storyboard/hooks/useStoryboardCanvas', () => ({
   })),
 }));
 
+// Mock StoryboardAssetPanel — it depends on React Query (useQueryClient via
+// AssetBrowserPanel) which requires a QueryClientProvider. Stub it so
+// StoryboardPage shell tests remain isolated.
+vi.mock('./StoryboardAssetPanel', () => ({
+  StoryboardAssetPanel: ({ draftId }: { draftId: string }) => (
+    <div data-testid="storyboard-asset-panel-stub" data-draft-id={draftId} />
+  ),
+}));
+
 // ---------------------------------------------------------------------------
 // Import after mocks
 // ---------------------------------------------------------------------------

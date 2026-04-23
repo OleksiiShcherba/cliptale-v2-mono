@@ -46,6 +46,7 @@ import { EndNode } from './EndNode';
 import { SceneBlockNode } from './SceneBlockNode';
 import { SidebarTab } from './SidebarTab';
 import { StartNode } from './StartNode';
+import { StoryboardAssetPanel } from './StoryboardAssetPanel';
 import { StoryboardCanvas } from './StoryboardCanvas';
 import {
   EffectsIcon,
@@ -259,6 +260,11 @@ export function StoryboardPage(): React.ReactElement {
           <SidebarTab tab="library" activeTab={activeTab} onSelect={setActiveTab} label="Library" icon={<LibraryIcon />} />
           <SidebarTab tab="effects" activeTab={activeTab} onSelect={setActiveTab} label="Effects" icon={<EffectsIcon />} />
         </nav>
+
+        {/* ── Asset panel — shown on STORYBOARD tab; provides asset browse + rename ── */}
+        {activeTab === 'storyboard' && (
+          <StoryboardAssetPanel draftId={safeDraftId} />
+        )}
 
         {/* ── Canvas area ── */}
         <div

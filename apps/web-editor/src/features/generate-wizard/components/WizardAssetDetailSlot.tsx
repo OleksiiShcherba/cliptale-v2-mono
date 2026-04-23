@@ -20,6 +20,11 @@ export interface WizardAssetDetailSlotProps {
   onAddToPrompt: (asset: Asset) => void;
   /** Called when the user clicks "Delete Asset" in the panel. */
   onDelete: () => void;
+  /**
+   * When `true` the TranscribeButton is hidden inside AssetDetailPanel.
+   * Pass `true` on pages where transcription is not available (e.g. Storyboard).
+   */
+  hideTranscribe?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -40,6 +45,7 @@ export function WizardAssetDetailSlot({
   onClose,
   onAddToPrompt,
   onDelete,
+  hideTranscribe = false,
 }: WizardAssetDetailSlotProps): React.ReactElement {
   if (isLoading || !asset) {
     return (
@@ -54,6 +60,7 @@ export function WizardAssetDetailSlot({
       asset={asset}
       context={{ kind: 'draft', draftId: draftId ?? '' }}
       compact={false}
+      hideTranscribe={hideTranscribe}
       onClose={onClose}
       onAddToPrompt={onAddToPrompt}
       onDelete={onDelete}
