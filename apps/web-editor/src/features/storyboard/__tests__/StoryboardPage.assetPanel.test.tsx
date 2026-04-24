@@ -87,6 +87,10 @@ vi.mock(
   }),
 );
 
+// Mock LibraryPanel to avoid pulling in useQueryClient (which requires
+// a QueryClientProvider that this test wrapper does not provide).
+vi.mock('@/features/storyboard/components/LibraryPanel');
+
 // Ensure TranscribeButton is not rendered anywhere by mocking it
 // so any accidental import would produce a trackable element.
 const transcribeRenderSpy = vi.fn();

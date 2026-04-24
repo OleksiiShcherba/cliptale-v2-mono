@@ -15,7 +15,7 @@
 - [Project: Backlog Batch general_tasks.md issues 1–6](project_backlog_batch.md) — 6-EPIC batch; ALL 15 SUBTASKS COMPLETE (A1-A3+B1-B5+C1-C3+D1-D2+E1-E3+F1) as of 2026-04-20
 - [Project: Asset fetch loop + generate fix task](project_asset_fetch_generate_fix.md) — general_tasks.md issues 1-3 + Guardian follow-up; branch feat/editor-asset-fetch-and-generate-fix; ALL SUBTASKS COMPLETE (2026-04-21)
 - [Project: Telegram Bugs 2026-04-21](project_telegram_bugs_2026_04_21.md) — store-leak + thumbnail-auth + AssetDetailPanel compact; branch fix/telegram-bugs-timeline-preview-storyboard; ALL 3 SUBTASKS COMPLETE (2026-04-21)
-- [Project: Storyboard Editor Part A progress](project_storyboard_editor_part_a.md) — 8-subtask canvas task COMPLETE (2026-04-22) + 3-subtask regression fix batch ALL COMPLETE (2026-04-23); ALL ST-FIX-1 through ST-FIX-6 DONE (2026-04-24)
+- [Project: Storyboard Editor Part A progress](project_storyboard_editor_part_a.md) — 8-subtask canvas task COMPLETE (2026-04-22); ST-FIX-1 through ST-FIX-6 DONE (2026-04-24); FOLLOW-1 + FOLLOW-2 + FOLLOW-3 ALL DONE (2026-04-24); task fully complete
 - [Project: Storyboard Editor Part C progress](project_storyboard_part_c.md) — Part C finishing touches; ALL COMPLETE (2026-04-23); StoryboardHistoryPanel + topBar extraction
 - [Project: Guardian Cleanup Batch 4 progress](project_guardian_cleanup_batch4.md) — Guardian Cleanup Batch 4; ALL 4 SUBTASKS COMPLETE (2026-04-23); CORS fix + branch push + e2e §9.7 exemption + stale known issue removed
 - [Project: Guardian Recommendations Batch 3](project_guardian_batch3.md) — 6-subtask P2-P4 follow-up; ALL 6 SUBTASKS COMPLETE (2026-04-22); docker-exec vitest gotcha documented in arch-rules §10

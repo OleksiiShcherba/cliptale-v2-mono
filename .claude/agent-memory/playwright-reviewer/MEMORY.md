@@ -33,3 +33,4 @@
 - [ST-FIX-4 Persist Block (2026-04-24)](stfix4-persist-block-verdict.md) — YES: UUID generation + immediate saveNow() on block add; 19 unit tests verify (16 hook + 3 component); per hook-only pattern
 - [ST-FIX-5 History Restore (2026-04-24)](stfix5-restore-verdict.md) — YES: Hook-only useHandleRestore + onRestore prop; 18 unit tests (6+12) verify re-wiring, call order, callback flow; per hook-only pattern
 - [ST-FIX-6 E2E Tests (2026-04-24)](ST-FIX-6-verdict.md) — YES: All 4/4 tests pass (10.6s). ST-FIX-1/2/3/4/5 verified against deployed instance. Fix round 2: import crypto from node:crypto (line 29) resolved undefined error. Direct API strategy (GET→PUT→reload) bypasses UI timing race.
+- [FOLLOW-2 UUID Edge IDs (2026-04-24)](follow2-uuid-edge-ids.md) — YES: Hook-only edge ID format change (crypto.randomUUID) verified via 10 unit tests; no E2E needed per pattern; full suite 647/647 pass

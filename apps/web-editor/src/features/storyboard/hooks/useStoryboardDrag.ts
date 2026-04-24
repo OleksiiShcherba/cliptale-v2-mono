@@ -229,7 +229,7 @@ export function useStoryboardDrag({
           const withoutOld = prev.filter((e) => e.id !== oldEdge.id);
           const edgeStyle = { stroke: BORDER, strokeWidth: 2 };
           const newEdge1: Edge = {
-            id: `edge-${oldEdge.source}-${node.id}`,
+            id: crypto.randomUUID(),
             source: oldEdge.source,
             sourceHandle: 'exit',
             target: node.id,
@@ -237,7 +237,7 @@ export function useStoryboardDrag({
             style: edgeStyle,
           };
           const newEdge2: Edge = {
-            id: `edge-${node.id}-${oldEdge.target}`,
+            id: crypto.randomUUID(),
             source: node.id,
             sourceHandle: 'exit',
             target: oldEdge.target,

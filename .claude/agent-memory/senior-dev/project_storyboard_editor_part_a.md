@@ -105,6 +105,11 @@ Branch: (new branch not yet cut — subtasks 1-2 are backend-only)
 
 **ALL 8 SUBTASKS COMPLETE (2026-04-22)**
 
+**FOLLOW-UP FIXES (2026-04-24):**
+- FOLLOW-1 DONE: Added `vi.mock('@/features/storyboard/components/LibraryPanel')` to `StoryboardPage.assetPanel.test.tsx`; fixed 2 pre-existing failures (No QueryClient set); 7/7 tests now pass
+- FOLLOW-2 DONE: Replaced `edge-${source}-${target}` patterns at lines 232+240 of `useStoryboardDrag.ts` with `crypto.randomUUID()`; created `useStoryboardDrag.test.ts` (10 tests, all pass)
+- FOLLOW-3 DONE (2026-04-24): Added 5th Playwright test to `e2e/storyboard-fixes.spec.ts` — registers `page.waitForRequest` for PUT to `/storyboards/` before clicking `[data-testid="add-block-button"]`; all 5 tests pass (11.8 s) against deployed instance; ALL FOLLOW-UPS COMPLETE
+
 **REGRESSION FIX BATCH (2026-04-23) — 3 subtasks, 2/3 done:**
 - Subtask 1 DONE + fix round 2: pool.execute → pool.query for LIMIT-bound queries; E2E test added at `e2e/storyboard-history-regression.spec.ts` (4 tests, all pass via page.request browser context)
 - Subtask 2 DONE: rebuilt web-editor Docker image — `@xyflow/react` now in `/app/node_modules/@xyflow/react`; Vite clean start; 207 test files / 2351 tests pass; SceneBlockNode.test.tsx (17) + StoryboardPage.test.tsx (20) both pass

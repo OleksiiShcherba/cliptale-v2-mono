@@ -452,6 +452,76 @@ test.describe('Storyboard bug fixes — ST-FIX-1 through ST-FIX-5', () => {
     }
   });
 
+  // ── ST-FIX-4 (UI): save-on-add wiring via "+" button click ──────────────────
+
+  /**
+   * Clicking the "+" Add Block button triggers a PUT to /storyboards/:draftId.
+   *
+   * Verifies that the `handleAddBlock → saveNow` wiring (ST-FIX-4) is intact
+   * at the UI level. The test registers a `waitForRequest` listener BEFORE
+   * clicking the button so the interception fires even if the request resolves
+   * very quickly.
+   *
+   * The test only asserts the PUT was *initiated* — not that it succeeded.
+   * This is intentional: the PUT body may contain an incomplete React state
+   * (async race window documented in ST-FIX-3/4), but request initiation
+   * itself is the signal we need to guard the wiring.
+   *
+   * Note on URL matching in the deployed environment:
+   *   The deployed Vite bundle is built with
+   *   VITE_PUBLIC_API_BASE_URL=http://localhost:3001, so the browser sends
+   *   requests to `http://localhost:3001/storyboards/...`. The
+   *   `installCorsWorkaround` route interceptor proxies these, but
+   *   `page.waitForRequest` fires on the *original* browser URL before
+   *   the interceptor rewrites it — so the `.includes('/storyboards/')`
+   *   predicate matches in both local and deployed environments.
+   */
+  test('ST-FIX-4 (UI) — clicking "+" triggers PUT /storyboards/:draftId within 5 s', async ({
+    page,
+  }) => {
+    const token = await readBearerToken();
+    await installCorsWorkaround(page, token);
+
+    const draftId = await createTempDraft(page.request, token);
+
+    try {
+      await initializeDraft(page.request, token, draftId);
+
+      await page.goto(`/storyboard/${draftId}`);
+      await page.waitForLoadState('networkidle', { timeout: 30_000 });
+
+      await waitForCanvas(page);
+
+      // Register the PUT listener BEFORE clicking so we don't race against a
+      // very fast save flush.
+      const putRequestPromise = page.waitForRequest(
+        (req) =>
+          req.method() === 'PUT' && req.url().includes('/storyboards/'),
+        { timeout: 5_000 },
+      );
+
+      // Click the "+" Add Block button.
+      const addBlockBtn = page.getByTestId('add-block-button');
+      await expect(addBlockBtn).toBeVisible({ timeout: 10_000 });
+      await addBlockBtn.click();
+
+      // Await the captured PUT request — fails if no PUT arrives within 5 s.
+      const putRequest = await putRequestPromise;
+
+      // Sanity-check the request properties.
+      expect(
+        putRequest.method(),
+        'Captured request must be a PUT',
+      ).toBe('PUT');
+      expect(
+        putRequest.url(),
+        'Captured request URL must include /storyboards/',
+      ).toContain('/storyboards/');
+    } finally {
+      await cleanupDraft(page.request, token, draftId);
+    }
+  });
+
   // ── ST-FIX-5: History restore ────────────────────────────────────────────────
 
   /**
