@@ -2,7 +2,8 @@
  * useStoryboardAutosave — debounced autosave for the storyboard canvas.
  *
  * Behaviour:
- * - Subscribes to the storyboard-store; after each mutation debounces 30 s.
+ * - Accepts `nodes` and `edges` from React state (via `useStoryboardCanvas`);
+ *   fires a 30 s debounce on every change detected by a `useEffect`.
  * - On timer expiry, calls `PUT /storyboards/:draftId` with the current state
  *   only if the state has changed since the last successful save.
  * - Returns a `saveLabel` string for the top-bar indicator:
@@ -17,11 +18,16 @@
  *
  * Architecture note: autosave uses a direct API call, not TanStack Query,
  * because the 30 s debounce logic is custom and does not fit the mutation model.
+ * The external `storyboard-store` subscription was removed in ST-FIX-3 because
+ * that store is only updated by undo/redo, not by regular canvas interactions.
+ * Subscribing to React state (nodes/edges props) guarantees every canvas change
+ * triggers the debounce.
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-import { subscribe, getSnapshot } from '../store/storyboard-store';
+import type { Node, Edge } from '@xyflow/react';
+
 import { saveStoryboard } from '../api';
 import type { StoryboardState } from '../types';
 
@@ -74,8 +80,14 @@ function formatElapsed(seconds: number): string {
  * Wires autosave logic for the storyboard canvas.
  *
  * @param draftId - The generation draft ID used as the storyboard identifier.
+ * @param nodes   - React Flow nodes from `useStoryboardCanvas` (React state).
+ * @param edges   - React Flow edges from `useStoryboardCanvas` (React state).
  */
-export function useStoryboardAutosave(draftId: string): UseStoryboardAutosaveResult {
+export function useStoryboardAutosave(
+  draftId: string,
+  nodes: Node[],
+  edges: Edge[],
+): UseStoryboardAutosaveResult {
   const [status, setStatus] = useState<AutosaveStatus>('idle');
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   // Force a label refresh on the LABEL_REFRESH_INTERVAL tick.
@@ -85,18 +97,43 @@ export function useStoryboardAutosave(draftId: string): UseStoryboardAutosaveRes
   const isSavingRef = useRef(false);
   // Key of the last state successfully saved — used to detect changes.
   const savedStateKeyRef = useRef<string | null>(null);
-  // Key of the state at mount — used to detect "unsaved changes" for beforeunload.
+  // Key of the state at last save — used to detect "unsaved changes" for beforeunload.
   const lastSavedCheckRef = useRef<string | null>(null);
+
+  // Mutable refs so `performSave` and `beforeunload` always read the latest values
+  // without needing to be recreated when nodes/edges change.
+  const nodesRef = useRef<Node[]>(nodes);
+  const edgesRef = useRef<Edge[]>(edges);
+  const draftIdRef = useRef<string>(draftId);
+
+  // Keep mutable refs in sync with the latest props.
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+  useEffect(() => {
+    edgesRef.current = edges;
+  }, [edges]);
+  useEffect(() => {
+    draftIdRef.current = draftId;
+  }, [draftId]);
 
   // ── Core save function ────────────────────────────────────────────────────────
 
   const performSave = useCallback(async (): Promise<void> => {
-    if (isSavingRef.current || !draftId) return;
+    const currentDraftId = draftIdRef.current;
+    if (isSavingRef.current || !currentDraftId) return;
 
-    const { nodes, edges } = getSnapshot();
+    const currentNodes = nodesRef.current;
+    const currentEdges = edgesRef.current;
+
     const currentKey = stateKey(
-      nodes.map((n) => ({ id: n.id, ...n.data })) as unknown as StoryboardState['blocks'],
-      edges.map((e) => ({ id: e.id, sourceBlockId: e.source, targetBlockId: e.target, draftId })) as StoryboardState['edges'],
+      currentNodes.map((n) => ({ id: n.id, ...n.data })) as unknown as StoryboardState['blocks'],
+      currentEdges.map((e) => ({
+        id: e.id,
+        sourceBlockId: e.source,
+        targetBlockId: e.target,
+        draftId: currentDraftId,
+      })) as StoryboardState['edges'],
     );
 
     // Skip save when state has not changed since last save.
@@ -107,7 +144,7 @@ export function useStoryboardAutosave(draftId: string): UseStoryboardAutosaveRes
 
     // Build a StoryboardState from the current React Flow state.
     const stateToSave: StoryboardState = {
-      blocks: nodes.map((node) => {
+      blocks: currentNodes.map((node) => {
         if (node.type === 'scene-block') {
           const data = node.data as { block: StoryboardState['blocks'][number] };
           return {
@@ -119,7 +156,7 @@ export function useStoryboardAutosave(draftId: string): UseStoryboardAutosaveRes
         // START / END sentinel — minimal shape matching StoryboardBlock.
         return {
           id: node.id,
-          draftId,
+          draftId: currentDraftId,
           blockType: (node.type === 'start' ? 'start' : 'end') as 'start' | 'end',
           name: null,
           prompt: null,
@@ -133,16 +170,16 @@ export function useStoryboardAutosave(draftId: string): UseStoryboardAutosaveRes
           mediaItems: [],
         };
       }),
-      edges: edges.map((e) => ({
+      edges: currentEdges.map((e) => ({
         id: e.id,
-        draftId,
+        draftId: currentDraftId,
         sourceBlockId: e.source,
         targetBlockId: e.target,
       })),
     };
 
     try {
-      await saveStoryboard(draftId, stateToSave);
+      await saveStoryboard(currentDraftId, stateToSave);
       savedStateKeyRef.current = currentKey;
       lastSavedCheckRef.current = currentKey;
       setLastSavedAt(new Date());
@@ -153,7 +190,7 @@ export function useStoryboardAutosave(draftId: string): UseStoryboardAutosaveRes
     } finally {
       isSavingRef.current = false;
     }
-  }, [draftId]);
+  }, []);
 
   // ── Manual save trigger ───────────────────────────────────────────────────────
 
@@ -165,35 +202,56 @@ export function useStoryboardAutosave(draftId: string): UseStoryboardAutosaveRes
     await performSave();
   }, [performSave]);
 
-  // ── Store subscription + debounce ─────────────────────────────────────────────
+  // ── React state subscription + debounce ───────────────────────────────────────
 
+  /**
+   * Subscribe to nodes/edges changes via useEffect. Each time nodes or edges
+   * change, restart the 30 s debounce timer. This replaces the old
+   * `subscribe()` call on the external storyboard-store, which was never
+   * notified by regular canvas interactions.
+   *
+   * Intentionally excluded from dependencies: `performSave` is stable
+   * (no deps in its useCallback), and we only want to re-arm the debounce when
+   * the actual canvas data changes.
+   */
   useEffect(() => {
-    const unsubscribe = subscribe(() => {
-      if (debounceTimerRef.current !== null) {
-        clearTimeout(debounceTimerRef.current);
-      }
-      debounceTimerRef.current = setTimeout(() => {
-        void performSave();
-      }, AUTOSAVE_DEBOUNCE_MS);
-    });
+    // Do not arm the debounce on the very first mount (no canvas change yet).
+    // The ref starts as null; the effect runs once on mount and we skip the
+    // initial arm by checking whether nodes/edges have content.
+    if (nodes.length === 0 && edges.length === 0) return;
+
+    if (debounceTimerRef.current !== null) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      void performSave();
+    }, AUTOSAVE_DEBOUNCE_MS);
 
     return () => {
-      unsubscribe();
       if (debounceTimerRef.current !== null) {
         clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = null;
       }
     };
-  }, [performSave]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, edges]);
 
   // ── beforeunload guard ────────────────────────────────────────────────────────
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent): void => {
-      const { nodes, edges } = getSnapshot();
+      const currentNodes = nodesRef.current;
+      const currentEdges = edgesRef.current;
+      const currentDraftId = draftIdRef.current;
+
       const currentKey = stateKey(
-        nodes.map((n) => ({ id: n.id, ...n.data })) as unknown as StoryboardState['blocks'],
-        edges.map((e) => ({ id: e.id, sourceBlockId: e.source, targetBlockId: e.target, draftId })) as StoryboardState['edges'],
+        currentNodes.map((n) => ({ id: n.id, ...n.data })) as unknown as StoryboardState['blocks'],
+        currentEdges.map((e) => ({
+          id: e.id,
+          sourceBlockId: e.source,
+          targetBlockId: e.target,
+          draftId: currentDraftId,
+        })) as StoryboardState['edges'],
       );
       const hasUnsaved = lastSavedCheckRef.current !== null
         ? currentKey !== lastSavedCheckRef.current
@@ -210,7 +268,7 @@ export function useStoryboardAutosave(draftId: string): UseStoryboardAutosaveRes
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [draftId]);
+  }, []);
 
   // ── Label refresh timer ───────────────────────────────────────────────────────
 

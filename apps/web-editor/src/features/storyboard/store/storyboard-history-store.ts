@@ -141,7 +141,7 @@ function applySnapshot(snapshot: CanvasSnapshot): void {
       data: block.blockType === 'scene'
         ? { block, onRemove: () => undefined }
         : { label: block.blockType.toUpperCase() },
-      draggable: block.blockType === 'scene',
+      draggable: true,
       deletable: block.blockType === 'scene',
     };
   });

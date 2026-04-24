@@ -166,4 +166,50 @@ describe('storyboard-store — restoreFromSnapshot', () => {
     expect(nodes[0].position).toEqual({ x: 300, y: 400 });
     expect(positions['block-2']).toEqual({ x: 300, y: 400 });
   });
+
+  it('sets draggable: true for START sentinel nodes after restore', () => {
+    const startBlock = makeBlock({
+      id: 'block-start',
+      blockType: 'start',
+      positionX: 60,
+      positionY: 200,
+    });
+    const snapshot: CanvasSnapshot = {
+      blocks: [startBlock],
+      edges: [],
+      positions: { 'block-start': { x: 60, y: 200 } },
+    };
+
+    restoreFromSnapshot(snapshot);
+
+    const { nodes } = getSnapshot();
+    const startNode = nodes.find((n) => n.id === 'block-start');
+    expect(startNode).toBeDefined();
+    expect(startNode?.draggable).toBe(true);
+    // deletable must stay false — sentinel nodes must not be removable.
+    expect(startNode?.deletable).toBe(false);
+  });
+
+  it('sets draggable: true for END sentinel nodes after restore', () => {
+    const endBlock = makeBlock({
+      id: 'block-end',
+      blockType: 'end',
+      positionX: 620,
+      positionY: 200,
+    });
+    const snapshot: CanvasSnapshot = {
+      blocks: [endBlock],
+      edges: [],
+      positions: { 'block-end': { x: 620, y: 200 } },
+    };
+
+    restoreFromSnapshot(snapshot);
+
+    const { nodes } = getSnapshot();
+    const endNode = nodes.find((n) => n.id === 'block-end');
+    expect(endNode).toBeDefined();
+    expect(endNode?.draggable).toBe(true);
+    // deletable must stay false — sentinel nodes must not be removable.
+    expect(endNode?.deletable).toBe(false);
+  });
 });

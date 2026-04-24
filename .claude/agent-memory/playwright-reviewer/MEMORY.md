@@ -25,3 +25,11 @@
 - [Subtask 2 DEV_AUTH_BYPASS (2026-04-23)](subtask2-devauthbypass-verdict.md) — YES: Test-only assertion fix; 10/10 versions-list-restore tests pass; no UI/production changes
 - [Documentation-only testing pattern](documentation_only_pattern.md) — Zero-code `.md` updates receive automatic YES; no E2E run needed (2026-04-23)
 - [Subtask 3 E2E File Length (2026-04-23)](subtask3-e2e-file-length-verdict.md) — YES: §9.7 exemption clause added to architecture-rules.md; documentation-only change; automatic pass per pattern
+- [ST-C1 Store Restore (2026-04-23)](stc1-store-restore-verdict.md) — YES: restoreFromSnapshot action verified via 5 unit tests; store-only change per pattern
+- [ST-C2 History UI (2026-04-23)](stc2-history-ui-verdict.md) — YES: All design-guide §3 token violations fixed (borderRadius, padding, color); 10/10 feature tests pass; style-only fix round verified
+- [ST-FIX-1 Home Button (2026-04-24)](stfix1-home-button-verdict.md) — YES: Home button renders in StoryboardTopBar; all 23 unit tests pass; navigates to / on click
+- [ST-FIX-2 Sentinel Draggable (2026-04-24)](stfix2-sentinel-draggable-verdict.md) — APPROVED: Hook-only state change; 24 unit tests verify draggable/deletable; no E2E needed per pattern
+- [ST-FIX-3 Autosave Refactoring (2026-04-24)](stfix3-autosave-verdict.md) — YES: Hook-only refactoring (React state params instead of external store); 13 unit tests pass across split files (189+158 lines, both ≤300 per §9.7)
+- [ST-FIX-4 Persist Block (2026-04-24)](stfix4-persist-block-verdict.md) — YES: UUID generation + immediate saveNow() on block add; 19 unit tests verify (16 hook + 3 component); per hook-only pattern
+- [ST-FIX-5 History Restore (2026-04-24)](stfix5-restore-verdict.md) — YES: Hook-only useHandleRestore + onRestore prop; 18 unit tests (6+12) verify re-wiring, call order, callback flow; per hook-only pattern
+- [ST-FIX-6 E2E Tests (2026-04-24)](ST-FIX-6-verdict.md) — YES: All 4/4 tests pass (10.6s). ST-FIX-1/2/3/4/5 verified against deployed instance. Fix round 2: import crypto from node:crypto (line 29) resolved undefined error. Direct API strategy (GET→PUT→reload) bypasses UI timing race.

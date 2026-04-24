@@ -19,3 +19,4 @@
 - [development_logs verdict tokens](feedback_development_logs_token.md) — use `YES` or `COMMENTED` exactly, never `OK` — orchestrator enforces it
 - [Relative imports crossing directory boundaries](ruling_relative_imports_cross_boundary.md) — `from '../types'` violates §9; always flag, fix with absolute alias `@/features/name/types`
 - [Subtask 8 — Storyboard store + autosave + undo/redo history](ruling_subtask8_storyboard_store_autosave.md) — hardcoded color violation in storyboard-history-store.ts:148; rest compliant
+- [Subtask ST-C2 — History UI review](ruling_subtask_stc2_history_ui.md) — architecture-rules §9 compliant; design-guide §3 token violations pre-flagged by design-reviewer

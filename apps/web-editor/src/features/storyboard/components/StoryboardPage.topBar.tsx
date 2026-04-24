@@ -14,7 +14,7 @@ import {
   GearIcon,
   HelpIcon,
 } from './storyboardIcons';
-import { storyboardPageStyles as s } from './storyboardPageStyles';
+import { storyboardPageStyles as s, BORDER, TEXT_SECONDARY } from './storyboardPageStyles';
 
 // ── Props ──────────────────────────────────────────────────────────────────────
 
@@ -25,17 +25,32 @@ export interface StoryboardTopBarProps {
   isHistoryOpen: boolean;
   /** Called when the user clicks the History button. */
   onHistoryToggle: () => void;
+  /** Called when the user clicks the Home button — navigates back to the home hub. */
+  onNavigateHome: () => void;
 }
-
-// ── Design tokens ──────────────────────────────────────────────────────────────
-
-const BORDER_COLOR = '#252535';
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
 
+const homeButtonStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '4px',
+  background: 'transparent',
+  border: `1px solid ${BORDER}`,
+  borderRadius: '6px',
+  color: TEXT_SECONDARY,
+  fontSize: '12px',
+  fontWeight: 500,
+  fontFamily: 'Inter, sans-serif',
+  padding: '4px 10px',
+  cursor: 'pointer',
+  lineHeight: '16px',
+  flexShrink: 0,
+};
+
 const historyButtonStyle: React.CSSProperties = {
   background: 'transparent',
-  border: `1px solid ${BORDER_COLOR}`,
+  border: `1px solid ${BORDER}`,
   borderRadius: '4px',
   color: '#F0F0FA',
   fontSize: '12px',
@@ -63,10 +78,29 @@ export function StoryboardTopBar({
   saveLabel,
   isHistoryOpen,
   onHistoryToggle,
+  onNavigateHome,
 }: StoryboardTopBarProps): React.ReactElement {
   return (
     <header style={s.topBar}>
       <div style={s.topBarLeft}>
+        <button
+          type="button"
+          style={homeButtonStyle}
+          onClick={onNavigateHome}
+          aria-label="Go to home"
+          data-testid="home-button"
+        >
+          {/* House icon */}
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path
+              d="M1 5.5L6 1L11 5.5V11H7.5V8H4.5V11H1V5.5Z"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinejoin="round"
+            />
+          </svg>
+          Home
+        </button>
         <span style={s.logoText}>ClipTale</span>
       </div>
       <div style={s.topBarCenter}>

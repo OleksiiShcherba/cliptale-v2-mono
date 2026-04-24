@@ -8,14 +8,16 @@
  * 4. Renders N entries with timestamps
  * 5. Restore button present per entry
  * 6. Clicking Restore calls restoreFromSnapshot mock
- * 7. Clicking Restore triggers saveStoryboard mock
- * 8. Close button calls onClose
- * 9. Panel title visible
- * 10. isLoading hides entry list
+ * 7. Clicking Restore calls onRestore with reconstructed nodes/edges from store
+ * 8. Clicking Restore calls onClose after onRestore
+ * 9. Clicking Restore does NOT fire when confirm returns false
+ * 10. Close button calls onClose
+ * 11. Panel title visible
+ * 12. isLoading hides entry list
  *
- * `useStoryboardHistoryFetch` and `restoreFromSnapshot` are mocked via vi.mock.
- * `saveStoryboard` and `getSnapshot` are also mocked to isolate side-effects.
- * `window.confirm` is stubbed to return true so restore flow completes.
+ * `useStoryboardHistoryFetch`, `restoreFromSnapshot`, and `getSnapshot` are
+ * mocked via vi.mock. `window.confirm` is stubbed so the restore flow completes
+ * in all positive-path tests.
  */
 
 import React from 'react';
@@ -27,12 +29,18 @@ import { render, screen, fireEvent } from '@testing-library/react';
 const {
   mockRestoreFromSnapshot,
   mockGetSnapshot,
-  mockSaveStoryboard,
   mockUseStoryboardHistoryFetch,
 } = vi.hoisted(() => ({
   mockRestoreFromSnapshot: vi.fn(),
-  mockGetSnapshot: vi.fn(() => ({ nodes: [], edges: [], positions: {}, selectedBlockId: null })),
-  mockSaveStoryboard: vi.fn(() => Promise.resolve()),
+  mockGetSnapshot: vi.fn(() => ({
+    nodes: [
+      { id: 'start-1', type: 'start', position: { x: 0, y: 0 }, data: { label: 'START' } },
+      { id: 'end-1', type: 'end', position: { x: 280, y: 0 }, data: { label: 'END' } },
+    ],
+    edges: [{ id: 'e1', source: 'start-1', target: 'end-1' }],
+    positions: {},
+    selectedBlockId: null,
+  })),
   mockUseStoryboardHistoryFetch: vi.fn(),
 }));
 
@@ -43,10 +51,6 @@ vi.mock('@/features/storyboard/hooks/useStoryboardHistoryFetch', () => ({
 vi.mock('@/features/storyboard/store/storyboard-store', () => ({
   restoreFromSnapshot: mockRestoreFromSnapshot,
   getSnapshot: mockGetSnapshot,
-}));
-
-vi.mock('@/features/storyboard/api', () => ({
-  saveStoryboard: mockSaveStoryboard,
 }));
 
 vi.mock('@/features/storyboard/store/storyboard-history-store', () => ({
@@ -72,8 +76,13 @@ function makeEntry(id: number) {
 
 // ── Setup ──────────────────────────────────────────────────────────────────────
 
+let mockOnRestore: ReturnType<typeof vi.fn>;
+let mockOnClose: ReturnType<typeof vi.fn>;
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mockOnRestore = vi.fn();
+  mockOnClose = vi.fn();
   // Default: non-loading, no-error, no entries.
   mockUseStoryboardHistoryFetch.mockReturnValue({
     entries: [],
@@ -93,7 +102,9 @@ describe('StoryboardHistoryPanel', () => {
       isLoading: true,
       isError: false,
     });
-    render(<StoryboardHistoryPanel draftId="d1" onClose={vi.fn()} />);
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={mockOnClose} onRestore={mockOnRestore} />,
+    );
 
     expect(screen.getByTestId('history-loading')).toBeTruthy();
   });
@@ -104,13 +115,17 @@ describe('StoryboardHistoryPanel', () => {
       isLoading: false,
       isError: true,
     });
-    render(<StoryboardHistoryPanel draftId="d1" onClose={vi.fn()} />);
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={mockOnClose} onRestore={mockOnRestore} />,
+    );
 
     expect(screen.getByTestId('history-error')).toBeTruthy();
   });
 
   it('(3) renders empty state when entries is empty and not loading/error', () => {
-    render(<StoryboardHistoryPanel draftId="d1" onClose={vi.fn()} />);
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={mockOnClose} onRestore={mockOnRestore} />,
+    );
 
     expect(screen.getByTestId('history-empty')).toBeTruthy();
   });
@@ -121,7 +136,9 @@ describe('StoryboardHistoryPanel', () => {
       isLoading: false,
       isError: false,
     });
-    render(<StoryboardHistoryPanel draftId="d1" onClose={vi.fn()} />);
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={mockOnClose} onRestore={mockOnRestore} />,
+    );
 
     const rows = screen.getAllByTestId('history-entry-row');
     expect(rows).toHaveLength(3);
@@ -139,69 +156,133 @@ describe('StoryboardHistoryPanel', () => {
       isLoading: false,
       isError: false,
     });
-    render(<StoryboardHistoryPanel draftId="d1" onClose={vi.fn()} />);
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={mockOnClose} onRestore={mockOnRestore} />,
+    );
 
     const restoreButtons = screen.getAllByTestId('history-restore-button');
     expect(restoreButtons).toHaveLength(2);
   });
 
-  it('(6) clicking Restore calls restoreFromSnapshot with the entry snapshot', async () => {
+  it('(6) clicking Restore calls restoreFromSnapshot with the entry snapshot', () => {
     const entry = makeEntry(1);
     mockUseStoryboardHistoryFetch.mockReturnValue({
       entries: [entry],
       isLoading: false,
       isError: false,
     });
-    render(<StoryboardHistoryPanel draftId="d1" onClose={vi.fn()} />);
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={mockOnClose} onRestore={mockOnRestore} />,
+    );
 
     fireEvent.click(screen.getByTestId('history-restore-button'));
 
-    // Wait for the async handler to resolve.
-    await vi.waitFor(() => {
-      expect(mockRestoreFromSnapshot).toHaveBeenCalledTimes(1);
-    });
+    expect(mockRestoreFromSnapshot).toHaveBeenCalledTimes(1);
+    // snapshot is cast to CanvasSnapshot — entry.snapshot is the arg
+    expect(mockRestoreFromSnapshot).toHaveBeenCalledWith(entry.snapshot);
   });
 
-  it('(7) clicking Restore triggers saveStoryboard after restore', async () => {
+  it('(7) clicking Restore calls onRestore with nodes/edges from getSnapshot()', () => {
+    const reconstructedNodes = [
+      { id: 'start-1', type: 'start', position: { x: 0, y: 0 }, data: { label: 'START' } },
+      { id: 'end-1', type: 'end', position: { x: 280, y: 0 }, data: { label: 'END' } },
+    ];
+    const reconstructedEdges = [{ id: 'e1', source: 'start-1', target: 'end-1' }];
+
+    mockGetSnapshot.mockReturnValue({
+      nodes: reconstructedNodes,
+      edges: reconstructedEdges,
+      positions: {},
+      selectedBlockId: null,
+    });
+
     const entry = makeEntry(1);
     mockUseStoryboardHistoryFetch.mockReturnValue({
       entries: [entry],
       isLoading: false,
       isError: false,
     });
-    render(<StoryboardHistoryPanel draftId="d1" onClose={vi.fn()} />);
+
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={mockOnClose} onRestore={mockOnRestore} />,
+    );
 
     fireEvent.click(screen.getByTestId('history-restore-button'));
 
-    await vi.waitFor(() => {
-      expect(mockSaveStoryboard).toHaveBeenCalledTimes(1);
-      expect(mockSaveStoryboard).toHaveBeenCalledWith('d1', expect.any(Object));
-    });
+    expect(mockOnRestore).toHaveBeenCalledTimes(1);
+    expect(mockOnRestore).toHaveBeenCalledWith(reconstructedNodes, reconstructedEdges);
   });
 
-  it('(8) close button calls onClose', () => {
-    const onClose = vi.fn();
-    render(<StoryboardHistoryPanel draftId="d1" onClose={onClose} />);
+  it('(8) clicking Restore calls onClose after onRestore', () => {
+    const callOrder: string[] = [];
+    mockOnRestore.mockImplementation(() => { callOrder.push('onRestore'); });
+    mockOnClose.mockImplementation(() => { callOrder.push('onClose'); });
+
+    const entry = makeEntry(1);
+    mockUseStoryboardHistoryFetch.mockReturnValue({
+      entries: [entry],
+      isLoading: false,
+      isError: false,
+    });
+
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={mockOnClose} onRestore={mockOnRestore} />,
+    );
+
+    fireEvent.click(screen.getByTestId('history-restore-button'));
+
+    expect(callOrder).toEqual(['onRestore', 'onClose']);
+  });
+
+  it('(9) clicking Restore does nothing when confirm returns false', () => {
+    vi.stubGlobal('confirm', vi.fn(() => false));
+
+    const entry = makeEntry(1);
+    mockUseStoryboardHistoryFetch.mockReturnValue({
+      entries: [entry],
+      isLoading: false,
+      isError: false,
+    });
+
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={mockOnClose} onRestore={mockOnRestore} />,
+    );
+
+    fireEvent.click(screen.getByTestId('history-restore-button'));
+
+    expect(mockRestoreFromSnapshot).not.toHaveBeenCalled();
+    expect(mockOnRestore).not.toHaveBeenCalled();
+    expect(mockOnClose).not.toHaveBeenCalled();
+  });
+
+  it('(10) close button calls onClose', () => {
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={mockOnClose} onRestore={mockOnRestore} />,
+    );
 
     fireEvent.click(screen.getByTestId('history-close-button'));
 
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(mockOnClose).toHaveBeenCalledTimes(1);
   });
 
-  it('(9) panel title is visible', () => {
-    render(<StoryboardHistoryPanel draftId="d1" onClose={vi.fn()} />);
+  it('(11) panel title is visible', () => {
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={mockOnClose} onRestore={mockOnRestore} />,
+    );
 
     expect(screen.getByTestId('history-panel-title')).toBeTruthy();
     expect(screen.getByTestId('history-panel-title').textContent).toBe('History');
   });
 
-  it('(10) isLoading hides entry list', () => {
+  it('(12) isLoading hides entry list', () => {
     mockUseStoryboardHistoryFetch.mockReturnValue({
       entries: [makeEntry(1), makeEntry(2)],
       isLoading: true,
       isError: false,
     });
-    render(<StoryboardHistoryPanel draftId="d1" onClose={vi.fn()} />);
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={mockOnClose} onRestore={mockOnRestore} />,
+    );
 
     // Loading indicator present.
     expect(screen.getByTestId('history-loading')).toBeTruthy();

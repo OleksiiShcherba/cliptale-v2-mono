@@ -120,9 +120,11 @@ export function useAddBlock({
       : FALLBACK_X;
     const newY = insertAfter ? (insertAfter.position?.y ?? FALLBACK_Y) : FALLBACK_Y;
 
-    // Generate a stable client-side ID (prefixed so it's distinguishable from
-    // server-assigned UUIDs; server will assign a real ID on next autosave).
-    const newId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    // Generate a UUID immediately so the block can be persisted to the server
+    // without ID reconciliation.  The server's PUT endpoint validates IDs as
+    // UUIDs (z.string().uuid()), so a local-prefixed ID would fail validation.
+    // crypto.randomUUID() is available in all modern browsers and in jsdom.
+    const newId = crypto.randomUUID();
 
     const newNode: Node = {
       id: newId,

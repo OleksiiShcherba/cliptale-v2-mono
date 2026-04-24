@@ -45,7 +45,7 @@ function blockToNode(
       type: 'start',
       position,
       data: { label: 'START' } satisfies SentinelNodeData,
-      draggable: false,
+      draggable: true,
       deletable: false,
     };
   }
@@ -56,7 +56,7 @@ function blockToNode(
       type: 'end',
       position,
       data: { label: 'END' } satisfies SentinelNodeData,
-      draggable: false,
+      draggable: true,
       deletable: false,
     };
   }

@@ -25,6 +25,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { useStoryboardCanvas } from '../hooks/useStoryboardCanvas';
 import { useAddBlock } from '../hooks/useAddBlock';
+import { useHandleAddBlock } from '../hooks/useHandleAddBlock';
+import { useHandleRestore } from '../hooks/useHandleRestore';
 import { useSceneModal } from '../hooks/useSceneModal';
 import { useStoryboardAutosave } from '../hooks/useStoryboardAutosave';
 import { useStoryboardDrag } from '../hooks/useStoryboardDrag';
@@ -83,14 +85,12 @@ export function StoryboardPage(): React.ReactElement {
   const { nodes, edges, isLoading, error, setNodes, setEdges, removeNode } =
     useStoryboardCanvas(safeDraftId);
 
-  /** Track the focused block id so EffectsPanel can gate "Apply to this scene". */
   const { selectedBlockId } = useStoryboardStore();
 
   // ── SceneModal ───────────────────────────────────────────────────────────────
 
   const { editingBlock, openModal, handleSave, handleDelete, handleClose } = useSceneModal();
 
-  /** Opens SceneModal when a scene-block node is clicked; tracks selectedBlockId. */
   const handleNodeClick: NodeMouseHandler<Node> = useCallback(
     (_event, node) => {
       if (node.type !== 'scene-block') return;
@@ -113,7 +113,7 @@ export function StoryboardPage(): React.ReactElement {
 
   // ── Autosave ─────────────────────────────────────────────────────────────────
 
-  const { saveLabel } = useStoryboardAutosave(safeDraftId);
+  const { saveLabel, saveNow } = useStoryboardAutosave(safeDraftId, nodes, edges);
 
   // ── Drag hook ────────────────────────────────────────────────────────────────
 
@@ -133,9 +133,11 @@ export function StoryboardPage(): React.ReactElement {
     historyStore: storyboardHistoryStore,
   });
 
-  // ── Add Block + History push ─────────────────────────────────────────────────
+  // ── Add Block + History push + Restore ──────────────────────────────────────
   const { addBlock } = useAddBlock({ nodes, edges, setNodes, onRemoveNode: removeNode });
   const { pushSnapshot } = useStoryboardHistoryPush(safeDraftId);
+  const { handleAddBlock } = useHandleAddBlock({ addBlock, saveNow });
+  const { handleRestore } = useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow });
 
   // ── Edge connection callbacks ────────────────────────────────────────────────
 
@@ -199,13 +201,8 @@ export function StoryboardPage(): React.ReactElement {
 
   // ── Navigation ───────────────────────────────────────────────────────────────
 
-  const handleBack = (): void => {
-    navigate(draftId ? `/generate?draftId=${draftId}` : '/generate');
-  };
-
-  const handleNext = (): void => {
-    navigate('/generate/road-map');
-  };
+  const handleBack = (): void => { navigate(draftId ? `/generate?draftId=${draftId}` : '/generate'); };
+  const handleNext = (): void => { navigate('/generate/road-map'); };
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -216,6 +213,7 @@ export function StoryboardPage(): React.ReactElement {
         saveLabel={saveLabel}
         isHistoryOpen={isHistoryOpen}
         onHistoryToggle={() => setIsHistoryOpen((v) => !v)}
+        onNavigateHome={() => { navigate('/'); }}
       />
 
       {/* ── Body (sidebar + canvas) ── */}
@@ -259,7 +257,7 @@ export function StoryboardPage(): React.ReactElement {
               onNodeDrag={handleNodeDrag}
               onNodeDragStop={handleNodeDragStop}
               dragState={dragState}
-              onAddBlock={addBlock}
+              onAddBlock={handleAddBlock}
               onNodeClick={handleNodeClick}
             />
           )}
@@ -270,6 +268,7 @@ export function StoryboardPage(): React.ReactElement {
           <StoryboardHistoryPanel
             draftId={safeDraftId}
             onClose={() => setIsHistoryOpen(false)}
+            onRestore={handleRestore}
           />
         )}
       </div>

@@ -6,24 +6,25 @@
  * Each entry displays a relative timestamp and a "Restore" button. Clicking
  * Restore triggers a `window.confirm` dialog; on confirmation the panel:
  *   1. Calls `restoreFromSnapshot(entry.snapshot)` to apply the snapshot to
- *      the canvas store.
- *   2. Calls `saveStoryboard(draftId, ...)` directly to immediately persist the
- *      restored state (bypassing the 30 s autosave debounce).
+ *      the canvas store (external store).
+ *   2. Calls `onRestore(nodes, edges)` with the reconstructed state from the
+ *      store so StoryboardPage can sync React state and trigger autosave.
  *   3. Calls `onClose()` so the panel collapses.
  *
  * Architecture notes:
  * - Server state is fetched via `useStoryboardHistoryFetch` (React Query).
  * - Canvas mutation goes through `restoreFromSnapshot` store action — never
  *   direct `setState` from a component.
- * - `saveStoryboard` is imported directly from `api.ts`; there is no `flush()`
- *   on `useStoryboardAutosave` that could be called from here.
+ * - `onRestore` is a prop supplied by `StoryboardPage`; it bridges the
+ *   external store back into React Flow state via `setNodes`/`setEdges`.
  */
 
 import React, { useCallback } from 'react';
 
+import type { Node, Edge } from '@xyflow/react';
+
 import { formatRelativeDate } from '@/shared/utils/formatRelativeDate';
 
-import { saveStoryboard } from '../api';
 import type { StoryboardHistorySnapshot } from '../api';
 import { useStoryboardHistoryFetch } from '../hooks/useStoryboardHistoryFetch';
 import { restoreFromSnapshot, getSnapshot } from '../store/storyboard-store';
@@ -49,6 +50,12 @@ export interface StoryboardHistoryPanelProps {
   draftId: string;
   /** Called when the panel should close (e.g. close button or after restore). */
   onClose: () => void;
+  /**
+   * Called after `restoreFromSnapshot` with the reconstructed React Flow nodes
+   * and edges read back from the external store. StoryboardPage uses this to
+   * sync React state (setNodes / setEdges) and trigger an immediate save.
+   */
+  onRestore: (nodes: Node[], edges: Edge[]) => void;
 }
 
 // ── HistoryEntryRow ────────────────────────────────────────────────────────────
@@ -95,11 +102,12 @@ function HistoryEntryRow({ entry, onRestore }: HistoryEntryRowProps): React.Reac
 export function StoryboardHistoryPanel({
   draftId,
   onClose,
+  onRestore,
 }: StoryboardHistoryPanelProps): React.ReactElement {
   const { entries, isLoading, isError } = useStoryboardHistoryFetch(draftId);
 
   const handleRestore = useCallback(
-    async (entry: StoryboardHistorySnapshot): Promise<void> => {
+    (entry: StoryboardHistorySnapshot): void => {
       const confirmed = window.confirm(
         'Restore this snapshot? Your current canvas will be replaced.',
       );
@@ -112,48 +120,16 @@ export function StoryboardHistoryPanel({
       const snapshot = entry.snapshot as CanvasSnapshot;
       restoreFromSnapshot(snapshot);
 
-      // Immediately persist the restored state to the server so the autosave
-      // 30 s debounce does not leave the server stale.
-      const { nodes, edges } = getSnapshot();
-      const storeState = {
-        blocks: nodes.map((n) => {
-          if (n.type === 'scene-block') {
-            const data = n.data as { block: import('../types').StoryboardBlock };
-            return { ...data.block, positionX: n.position.x, positionY: n.position.y };
-          }
-          return {
-            id: n.id,
-            draftId,
-            blockType: (n.type === 'start' ? 'start' : 'end') as 'start' | 'end',
-            name: null,
-            prompt: null,
-            durationS: 0,
-            positionX: n.position.x,
-            positionY: n.position.y,
-            sortOrder: 0,
-            style: null,
-            createdAt: '',
-            updatedAt: '',
-            mediaItems: [],
-          };
-        }),
-        edges: edges.map((e) => ({
-          id: e.id,
-          draftId,
-          sourceBlockId: e.source,
-          targetBlockId: e.target,
-        })),
-      };
-
-      try {
-        await saveStoryboard(draftId, storeState);
-      } catch (err: unknown) {
-        console.error('[StoryboardHistoryPanel] Immediate save after restore failed:', err);
-      }
+      // Read back the reconstructed React Flow state from the external store and
+      // hand it to StoryboardPage via onRestore. StoryboardPage is responsible for
+      // syncing React state (setNodes/setEdges), pushing the history snapshot, and
+      // triggering an immediate save — keeping component concerns separated.
+      const { nodes: storeNodes, edges: storeEdges } = getSnapshot();
+      onRestore(storeNodes, storeEdges);
 
       onClose();
     },
-    [draftId, onClose],
+    [onClose, onRestore],
   );
 
   return (
@@ -200,7 +176,7 @@ export function StoryboardHistoryPanel({
             <HistoryEntryRow
               key={`${entry.createdAt}-${index}`}
               entry={entry}
-              onRestore={(e) => void handleRestore(e)}
+              onRestore={handleRestore}
             />
           ))}
       </div>

@@ -121,7 +121,7 @@ export function restoreFromSnapshot(snapshot: CanvasSnapshot): void {
       type: block.blockType,
       position,
       data: { label: block.blockType.toUpperCase() },
-      draggable: false,
+      draggable: true,
       deletable: false,
     };
   });

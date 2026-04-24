@@ -40,6 +40,7 @@ import {
 import type { CanvasSnapshot } from './storyboard-history-store';
 import type { StoryboardHistorySnapshot } from '../api';
 import { persistHistorySnapshot } from '../api';
+import { setNodes } from './storyboard-store';
 
 // ── Fixture ────────────────────────────────────────────────────────────────────
 
@@ -235,5 +236,88 @@ describe('loadServerHistory', () => {
     loadServerHistory(serverSnaps);
     expect(getHistorySize()).toBe(MAX_HISTORY_SIZE);
     expect(getHistoryCursor()).toBe(MAX_HISTORY_SIZE - 1);
+  });
+});
+
+// ── sentinel draggable after undo ──────────────────────────────────────────────
+
+describe('applySnapshot (via undo) — sentinel node draggable', () => {
+  function makeSnapshotWithSentinels(): CanvasSnapshot {
+    return {
+      blocks: [
+        {
+          id: 'block-start',
+          draftId: 'draft-1',
+          blockType: 'start',
+          name: 'START',
+          prompt: null,
+          durationS: 0,
+          positionX: 60,
+          positionY: 200,
+          sortOrder: 0,
+          style: null,
+          createdAt: '2026-04-24T00:00:00Z',
+          updatedAt: '2026-04-24T00:00:00Z',
+          mediaItems: [],
+        },
+        {
+          id: 'block-end',
+          draftId: 'draft-1',
+          blockType: 'end',
+          name: 'END',
+          prompt: null,
+          durationS: 0,
+          positionX: 620,
+          positionY: 200,
+          sortOrder: 99,
+          style: null,
+          createdAt: '2026-04-24T00:00:00Z',
+          updatedAt: '2026-04-24T00:00:00Z',
+          mediaItems: [],
+        },
+      ],
+      edges: [],
+      positions: {
+        'block-start': { x: 60, y: 200 },
+        'block-end': { x: 620, y: 200 },
+      },
+    };
+  }
+
+  it('passes draggable: true for START sentinel to setNodes after undo', () => {
+    const snap1 = makeSnapshotWithSentinels();
+    // Add a second snapshot so undo has somewhere to go.
+    const snap2 = makeSnapshotWithSentinels();
+    push(snap1);
+    push(snap2);
+
+    undo();
+
+    const setNodesMock = vi.mocked(setNodes);
+    expect(setNodesMock).toHaveBeenCalled();
+    const calledWith = setNodesMock.mock.calls[setNodesMock.mock.calls.length - 1][0];
+    const startNode = calledWith.find((n) => n.id === 'block-start');
+    expect(startNode).toBeDefined();
+    expect(startNode?.draggable).toBe(true);
+    // deletable must remain false for sentinel nodes.
+    expect(startNode?.deletable).toBe(false);
+  });
+
+  it('passes draggable: true for END sentinel to setNodes after undo', () => {
+    const snap1 = makeSnapshotWithSentinels();
+    const snap2 = makeSnapshotWithSentinels();
+    push(snap1);
+    push(snap2);
+
+    undo();
+
+    const setNodesMock = vi.mocked(setNodes);
+    expect(setNodesMock).toHaveBeenCalled();
+    const calledWith = setNodesMock.mock.calls[setNodesMock.mock.calls.length - 1][0];
+    const endNode = calledWith.find((n) => n.id === 'block-end');
+    expect(endNode).toBeDefined();
+    expect(endNode?.draggable).toBe(true);
+    // deletable must remain false for sentinel nodes.
+    expect(endNode?.deletable).toBe(false);
   });
 });

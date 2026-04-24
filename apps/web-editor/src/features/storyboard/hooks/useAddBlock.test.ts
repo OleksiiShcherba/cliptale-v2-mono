@@ -1,6 +1,5 @@
 /**
- * Tests for useAddBlock — specifically the pure helper functions
- * `findInsertionPoint` and `nextSceneIndex`.
+ * Tests for useAddBlock — pure helper functions and the hook itself.
  *
  * Covers:
  * - findInsertionPoint: no blocks → null
@@ -9,13 +8,15 @@
  * - findInsertionPoint: START block without exit edge → START chosen
  * - nextSceneIndex: no scene nodes → 1
  * - nextSceneIndex: scene nodes present → max sortOrder + 1
+ * - useAddBlock: addBlock appends a node with a valid UUID id (ST-FIX-4)
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
 
 import type { Node, Edge } from '@xyflow/react';
 
-import { findInsertionPoint, nextSceneIndex } from './useAddBlock';
+import { findInsertionPoint, nextSceneIndex, useAddBlock } from './useAddBlock';
 import type { SceneBlockNodeData } from '../types';
 
 // ── Fixture helpers ────────────────────────────────────────────────────────────
@@ -184,5 +185,89 @@ describe('nextSceneIndex', () => {
     // Only START and END — no scenes — should return 1.
     const nodes = [makeStartNode(), makeEndNode()];
     expect(nextSceneIndex(nodes)).toBe(1);
+  });
+});
+
+// ── useAddBlock hook tests (ST-FIX-4) ─────────────────────────────────────────
+
+/** UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+describe('useAddBlock — hook', () => {
+  it('addBlock appends a node with a valid UUID id (not a local- prefix)', () => {
+    const setNodes = vi.fn();
+    const removeNode = vi.fn();
+    const start = makeStartNode();
+    const nodes: Node[] = [start, makeEndNode()];
+    const edges: Edge[] = [];
+
+    const { result } = renderHook(() =>
+      useAddBlock({ nodes, edges, setNodes, onRemoveNode: removeNode }),
+    );
+
+    act(() => {
+      result.current.addBlock();
+    });
+
+    // setNodes should have been called once.
+    expect(setNodes).toHaveBeenCalledTimes(1);
+
+    // Extract the new node from the setNodes call (functional updater form).
+    const updater = setNodes.mock.calls[0][0] as (prev: Node[]) => Node[];
+    const nextNodes = updater(nodes);
+    const newNode = nextNodes.find((n) => n.id !== start.id && n.id !== makeEndNode().id);
+
+    expect(newNode).toBeTruthy();
+    // The id must be a valid UUID v4, not a local- prefix.
+    expect(newNode?.id).toMatch(UUID_REGEX);
+    // The block.id inside data must match the node id.
+    const data = newNode?.data as SceneBlockNodeData;
+    expect(data?.block?.id).toBe(newNode?.id);
+  });
+
+  it('addBlock places the new node to the right of the insertion point', () => {
+    const setNodes = vi.fn();
+    const start = makeStartNode('start', 60);
+    const nodes: Node[] = [start, makeEndNode()];
+    const edges: Edge[] = [];
+
+    const { result } = renderHook(() =>
+      useAddBlock({ nodes, edges, setNodes, onRemoveNode: vi.fn() }),
+    );
+
+    act(() => {
+      result.current.addBlock();
+    });
+
+    const updater = setNodes.mock.calls[0][0] as (prev: Node[]) => Node[];
+    const nextNodes = updater(nodes);
+    const newNode = nextNodes.find((n) => n.type === 'scene-block');
+
+    // New block should be 280px to the right of the start node (x=60).
+    expect(newNode?.position.x).toBe(60 + 280);
+  });
+
+  it('addBlock assigns scene-block type and correct sortOrder', () => {
+    const setNodes = vi.fn();
+    const scene1 = makeSceneNode('s1', 340, 3);
+    const nodes: Node[] = [makeStartNode(), scene1, makeEndNode()];
+    const edges: Edge[] = [makeEdge('start', 's1')];
+
+    const { result } = renderHook(() =>
+      useAddBlock({ nodes, edges, setNodes, onRemoveNode: vi.fn() }),
+    );
+
+    act(() => {
+      result.current.addBlock();
+    });
+
+    const updater = setNodes.mock.calls[0][0] as (prev: Node[]) => Node[];
+    const nextNodes = updater(nodes);
+    const newNode = nextNodes.find((n) => n.type === 'scene-block' && n.id !== 's1');
+
+    expect(newNode?.type).toBe('scene-block');
+    const data = newNode?.data as SceneBlockNodeData;
+    // sortOrder = max(3) + 1 = 4
+    expect(data?.block?.sortOrder).toBe(4);
   });
 });

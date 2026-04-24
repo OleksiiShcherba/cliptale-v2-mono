@@ -1,51 +1,36 @@
 /**
- * Tests for useStoryboardAutosave.
+ * Tests for useStoryboardAutosave — primary group.
  *
  * Covers:
- * - Calls PUT /storyboards/:draftId after 30s debounce when state has changed.
+ * - saveLabel shows "—" on initial render.
+ * - Does NOT call the API on mount when nodes/edges are empty.
+ * - Calls PUT /storyboards/:draftId after 30s debounce when nodes/edges change.
+ * - Multiple changes within 30s collapse into a single API call.
  * - Does NOT call the API again if state has not changed since last save.
- * - saveLabel shows "—" on initial render, "Saving…" during save, "Saved just now" after save.
- * - beforeunload listener is registered and removed on unmount.
- * - Multiple store-change events within 30s collapse into a single API call.
+ * - saveLabel shows "Saving…" during save, "Saved just now" after save.
+ *
+ * See useStoryboardAutosave.save-now.test.ts for saveNow, beforeunload,
+ * and edge-case tests.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
+import type { Node, Edge } from '@xyflow/react';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────────
-
-// We need hoisted mocks for the module-level store callback.
-const { mockSubscribeCallback } = vi.hoisted(() => ({
-  mockSubscribeCallback: { current: null as (() => void) | null },
-}));
 
 vi.mock('../api', () => ({
   saveStoryboard: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../store/storyboard-store', () => ({
-  subscribe: vi.fn((cb: () => void) => {
-    mockSubscribeCallback.current = cb;
-    return () => {
-      mockSubscribeCallback.current = null;
-    };
-  }),
-  getSnapshot: vi.fn().mockReturnValue({
-    nodes: [
-      {
-        id: 'start',
-        type: 'start',
-        position: { x: 60, y: 200 },
-        data: { label: 'START' },
-      },
-    ],
-    edges: [],
-    positions: { start: { x: 60, y: 200 } },
-  }),
-}));
-
 import { useStoryboardAutosave } from './useStoryboardAutosave';
 import { saveStoryboard } from '../api';
+import {
+  DRAFT_ID,
+  DEFAULT_NODES,
+  DEFAULT_EDGES,
+  makeSceneNode,
+} from './useStoryboardAutosave.fixtures';
 
 // ── Setup / teardown ───────────────────────────────────────────────────────────
 
@@ -57,7 +42,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
-  mockSubscribeCallback.current = null;
 });
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -65,26 +49,32 @@ afterEach(() => {
 describe('useStoryboardAutosave', () => {
   describe('initial state', () => {
     it('returns saveLabel "—" before any save', () => {
-      const { result } = renderHook(() => useStoryboardAutosave('draft-1'));
+      const { result } = renderHook(() =>
+        useStoryboardAutosave(DRAFT_ID, DEFAULT_NODES, DEFAULT_EDGES),
+      );
       expect(result.current.saveLabel).toBe('—');
     });
 
-    it('does NOT call saveStoryboard on mount', () => {
-      renderHook(() => useStoryboardAutosave('draft-1'));
+    it('does NOT call saveStoryboard on mount when nodes is empty', () => {
+      renderHook(() => useStoryboardAutosave(DRAFT_ID, [], []));
       vi.advanceTimersByTime(30_001);
-      // No store change was fired — no save expected.
       expect(saveStoryboard).not.toHaveBeenCalled();
     });
   });
 
   describe('debounced save after state change', () => {
-    it('calls saveStoryboard once after 30s when the store emits a change', async () => {
-      renderHook(() => useStoryboardAutosave('draft-1'));
+    it('calls saveStoryboard once after 30s when nodes change', async () => {
+      const { rerender } = renderHook<
+        { nodes: Node[]; edges: Edge[] },
+        void
+      >(
+        ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
+        { initialProps: { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES } },
+      );
 
-      // Simulate a store mutation.
-      act(() => {
-        mockSubscribeCallback.current?.();
-      });
+      // Simulate canvas adding a new scene node.
+      const updatedNodes = [...DEFAULT_NODES, makeSceneNode()];
+      rerender({ nodes: updatedNodes, edges: DEFAULT_EDGES });
 
       // Not yet called — debounce hasn't fired.
       expect(saveStoryboard).not.toHaveBeenCalled();
@@ -92,23 +82,26 @@ describe('useStoryboardAutosave', () => {
       // Advance timers past the 30s debounce.
       await act(async () => {
         vi.advanceTimersByTime(30_001);
-        // Flush pending microtasks from the async save.
         await Promise.resolve();
       });
 
       expect(saveStoryboard).toHaveBeenCalledTimes(1);
-      expect(saveStoryboard).toHaveBeenCalledWith('draft-1', expect.any(Object));
+      expect(saveStoryboard).toHaveBeenCalledWith(DRAFT_ID, expect.any(Object));
     });
 
-    it('collapses multiple changes within 30s into a single API call', async () => {
-      renderHook(() => useStoryboardAutosave('draft-1'));
+    it('collapses multiple rapid re-renders within 30s into a single API call', async () => {
+      const { rerender } = renderHook<
+        { nodes: Node[]; edges: Edge[] },
+        void
+      >(
+        ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
+        { initialProps: { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES } },
+      );
 
-      // Fire store changes rapidly.
-      act(() => {
-        mockSubscribeCallback.current?.();
-        mockSubscribeCallback.current?.();
-        mockSubscribeCallback.current?.();
-      });
+      // Simulate three rapid changes within 30s.
+      rerender({ nodes: [...DEFAULT_NODES, makeSceneNode('s1')], edges: DEFAULT_EDGES });
+      rerender({ nodes: [...DEFAULT_NODES, makeSceneNode('s1'), makeSceneNode('s2')], edges: DEFAULT_EDGES });
+      rerender({ nodes: [...DEFAULT_NODES, makeSceneNode('s1'), makeSceneNode('s2'), makeSceneNode('s3')], edges: DEFAULT_EDGES });
 
       await act(async () => {
         vi.advanceTimersByTime(30_001);
@@ -120,23 +113,26 @@ describe('useStoryboardAutosave', () => {
     });
 
     it('does NOT call saveStoryboard again if state has not changed since last save', async () => {
-      renderHook(() => useStoryboardAutosave('draft-1'));
+      const { rerender } = renderHook<
+        { nodes: Node[]; edges: Edge[] },
+        void
+      >(
+        ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
+        { initialProps: { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES } },
+      );
 
+      const updatedNodes = [...DEFAULT_NODES, makeSceneNode()];
       // First change → first save.
-      act(() => {
-        mockSubscribeCallback.current?.();
-      });
+      rerender({ nodes: updatedNodes, edges: DEFAULT_EDGES });
       await act(async () => {
         vi.advanceTimersByTime(30_001);
         await Promise.resolve();
       });
       expect(saveStoryboard).toHaveBeenCalledTimes(1);
 
-      // Second change → debounce fires again but state key is the same (mock getSnapshot
-      // always returns the same value) → no additional API call.
-      act(() => {
-        mockSubscribeCallback.current?.();
-      });
+      // Re-render with the exact same nodes/edges reference — debounce fires again
+      // but stateKey is identical → no additional API call.
+      rerender({ nodes: updatedNodes, edges: DEFAULT_EDGES });
       await act(async () => {
         vi.advanceTimersByTime(30_001);
         await Promise.resolve();
@@ -152,15 +148,18 @@ describe('useStoryboardAutosave', () => {
       // Make saveStoryboard never resolve so we can observe the "Saving…" state.
       vi.mocked(saveStoryboard).mockImplementation(() => new Promise(() => undefined));
 
-      const { result } = renderHook(() => useStoryboardAutosave('draft-1'));
+      const { result, rerender } = renderHook<
+        { nodes: Node[]; edges: Edge[] },
+        { saveLabel: string; saveNow: () => Promise<void> }
+      >(
+        ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
+        { initialProps: { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES } },
+      );
 
-      act(() => {
-        mockSubscribeCallback.current?.();
-      });
+      rerender({ nodes: [...DEFAULT_NODES, makeSceneNode()], edges: DEFAULT_EDGES });
 
       await act(async () => {
         vi.advanceTimersByTime(30_001);
-        // Flush the setState('saving') call.
         await Promise.resolve();
       });
 
@@ -168,11 +167,15 @@ describe('useStoryboardAutosave', () => {
     });
 
     it('shows "Saved just now" immediately after a successful save', async () => {
-      const { result } = renderHook(() => useStoryboardAutosave('draft-1'));
+      const { result, rerender } = renderHook<
+        { nodes: Node[]; edges: Edge[] },
+        { saveLabel: string; saveNow: () => Promise<void> }
+      >(
+        ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
+        { initialProps: { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES } },
+      );
 
-      act(() => {
-        mockSubscribeCallback.current?.();
-      });
+      rerender({ nodes: [...DEFAULT_NODES, makeSceneNode()], edges: DEFAULT_EDGES });
 
       await act(async () => {
         vi.advanceTimersByTime(30_001);
@@ -181,40 +184,6 @@ describe('useStoryboardAutosave', () => {
       });
 
       expect(result.current.saveLabel).toBe('Saved just now');
-    });
-  });
-
-  describe('saveNow', () => {
-    it('triggers an immediate save bypassing the debounce timer', async () => {
-      const { result } = renderHook(() => useStoryboardAutosave('draft-1'));
-
-      act(() => {
-        mockSubscribeCallback.current?.();
-      });
-
-      // Call saveNow immediately without advancing the debounce timer.
-      await act(async () => {
-        await result.current.saveNow();
-      });
-
-      expect(saveStoryboard).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('beforeunload listener', () => {
-    it('registers a beforeunload listener on mount', () => {
-      const addSpy = vi.spyOn(window, 'addEventListener');
-      renderHook(() => useStoryboardAutosave('draft-1'));
-      expect(addSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function));
-      vi.restoreAllMocks();
-    });
-
-    it('removes the beforeunload listener on unmount', () => {
-      const removeSpy = vi.spyOn(window, 'removeEventListener');
-      const { unmount } = renderHook(() => useStoryboardAutosave('draft-1'));
-      unmount();
-      expect(removeSpy).toHaveBeenCalledWith('beforeunload', expect.any(Function));
-      vi.restoreAllMocks();
     });
   });
 });

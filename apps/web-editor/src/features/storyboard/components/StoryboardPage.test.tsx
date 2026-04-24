@@ -276,32 +276,4 @@ describe('StoryboardPage', () => {
     renderPage();
     expect(screen.getByText(/step 2.*storyboard/i)).toBeTruthy();
   });
-
-  it('Back button is present with correct aria-label', () => {
-    renderPage();
-    const backBtn = screen.getByTestId('back-button');
-    expect(backBtn).toBeTruthy();
-    expect(backBtn.getAttribute('aria-label')).toBe('Back to Step 1');
-  });
-
-  it('Back button navigates to /generate?draftId=<draftId>', () => {
-    renderPage('my-draft-id');
-    const backBtn = screen.getByTestId('back-button');
-    fireEvent.click(backBtn);
-    expect(mockNavigate).toHaveBeenCalledWith('/generate?draftId=my-draft-id');
-  });
-
-  it('"Next: Step 3 →" button is present', () => {
-    renderPage();
-    const nextBtn = screen.getByTestId('next-step3-button');
-    expect(nextBtn).toBeTruthy();
-    expect(nextBtn.getAttribute('aria-label')).toBe('Next: Step 3');
-  });
-
-  it('"Next: Step 3 →" button navigates to /generate/road-map', () => {
-    renderPage();
-    const nextBtn = screen.getByTestId('next-step3-button');
-    fireEvent.click(nextBtn);
-    expect(mockNavigate).toHaveBeenCalledWith('/generate/road-map');
-  });
 });
