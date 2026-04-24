@@ -319,6 +319,13 @@
 - edited: `StoryboardPage.tsx` — added `isHistoryOpen` state; replaced inline header with `<StoryboardTopBar>`; conditionally renders `<StoryboardHistoryPanel>`; exactly 300 lines
 - tests: `StoryboardHistoryPanel.test.tsx` (10 tests: loading/error/empty/entries/restore/save/close/title states); all pass
 
+### Guardian Fix Round (FIX-1 + FIX-2)
+- fixed: `storyboard-store.ts` `restoreFromSnapshot` — replaced broken `as Node[]`/`as Edge[]` casts with proper reconstruction: `StoryboardBlock` → `Node` (`id`, `type`, `position: {x,y}`, `data`); `StoryboardEdge` → Edge (`source←sourceBlockId`, `target←targetBlockId`); position fallback `snapshot.positions?.[block.id] ?? { x: block.positionX ?? 0, y: block.positionY ?? 0 }`
+- fixed: `storyboard-history-store.ts` — `CanvasSnapshot.positions` made optional (`positions?:`); `applySnapshot` uses optional chaining
+- fixed: `StoryboardHistoryPanel.tsx` — removed `as unknown as CanvasSnapshot` double-cast; replaced with `entry.snapshot as CanvasSnapshot` (valid now positions is optional)
+- documented: `docs/architecture-rules.md` §9.7 — added approved exception table; `storyboard-store.ts (307L)` listed with justification
+- updated: `storyboard-store.restore.test.ts` — fixtures use real Node shapes; added position-fallback test; 6/6 pass
+
 ---
 
 ## Architectural Decisions / Notes
@@ -347,7 +354,7 @@
 - **Docker image node_modules**: must `docker compose build <service>` to reinstall baked packages
 - **DEV_AUTH_BYPASS identity**: injects `dev-user-001`; all user-id assertions in that context must expect `dev-user-001`
 - **E2E CORS on deployed instance**: use `page.request.fetch()` (bypasses browser CORS) + `page.route()` with `access-control-allow-origin: *`
-- `entry.snapshot as unknown as CanvasSnapshot`: history panel cast is safe — history store writes CanvasSnapshot-shaped data; Zod validation deferred
+- `CanvasSnapshot.positions` is optional — server snapshots carry `{blocks, edges}` only; positions reconstructed from `block.positionX/Y` fallback in `restoreFromSnapshot`
 
 ---
 
@@ -371,79 +378,3 @@
 - **ST-B6 test bug**: `StoryboardPage.assetPanel.test.tsx` needs `vi.mock('@/features/storyboard/components/LibraryPanel', ...)` to fix useQueryClient() error on lines 157–178
 - **ST-B5 TS2305**: `STORYBOARD_STYLES` import from `@ai-video-editor/api-contracts` fails in container (stale dist); tests pass via vi.mock; fix by rebuilding api-contracts in Docker image
 
----
-
-## [2026-04-23]
-
-### Task: Storyboard History Restore — Guardian Fix Round
-**Subtask:** FIX-1: Correct `restoreFromSnapshot` to use proper Node reconstruction
-
-**What was done:**
-- Rewrote `restoreFromSnapshot` in `storyboard-store.ts` to properly reconstruct React Flow `Node[]` from `StoryboardBlock[]` using `block.blockType`, `block.positionX/Y`, and block data — eliminating the broken `as Node[]` cast
-- Rewrote edge reconstruction to map `sourceBlockId → source` and `targetBlockId → target` — eliminating the broken `as Edge[]` cast
-- Position resolved with fallback: `snapshot.positions?.[block.id] ?? { x: block.positionX ?? 0, y: block.positionY ?? 0 }` (handles both local history with positions map and server history without it)
-- Positions map is rebuilt from the reconstructed node positions for consistency
-- Updated `storyboard-store.restore.test.ts`: replaced raw StoryboardBlock fixture assertions with Node shape assertions; added 1 test for position fallback path; all 6 tests pass
-
-**Notes:**
-- The reference implementation is `storyboard-history-store.ts:applySnapshot()` — the fix mirrors that pattern but handles the full-replace path (not merge-with-existing)
-- `CanvasSnapshot.positions` is still a required field in the type; FIX-2 will make it optional — the `?.` optional chaining is forward-compatible
-- `storyboard-store.ts` is now 350L (over the 300-line §9.7 cap); FIX-2 will add it to the approved exceptions list
-- 2 pre-existing test failures in `StoryboardPage.assetPanel.test.tsx` (ST-B6 bug) are unrelated to this change
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: FIX-1: Correct restoreFromSnapshot to use proper Node reconstruction</summary>
-
-- What: Rewrite `restoreFromSnapshot` in `storyboard-store.ts` to reconstruct valid React Flow `Node[]` from `StoryboardBlock[]` using `block.positionX`, `block.positionY`, `block.type`, `block.data` — matching the pattern in `storyboard-history-store.ts:applySnapshot()`. Also reconstruct `Edge[]` from `StoryboardEdge[]` mapping `sourceBlockId → source`, `targetBlockId → target`.
-- Acceptance criteria all met: no `as Node[]`/`as Edge[]` casts; proper position fallback; 6 unit tests pass.
-
-</details>
-
-checked by code-reviewer - YES
-checked by qa-reviewer - YES
-checked by design-reviewer - YES
-design-reviewer notes: No UI components or design surface — pure store/logic fix. FIX-1 rewrites `restoreFromSnapshot` to reconstruct React Flow nodes/edges from serialized data; zero styling, tokens, or visual changes. No design review required.
-checked by playwright-reviewer: YES
-
----
-
-## [2026-04-23]
-
-### Task: Storyboard History Restore — Guardian Fix Round
-**Subtask:** FIX-2: Fix `StoryboardHistoryPanel` snapshot type + resolve §9.7 storyboard-store.ts
-
-**What was done:**
-- Made `CanvasSnapshot.positions` optional in `storyboard-history-store.ts` — server snapshots never carry `positions` (stored per-block as `positionX/Y` in DB); the type now reflects reality
-- Fixed `applySnapshot` in `storyboard-history-store.ts` to use `snapshot.positions?.[block.id]` (optional chaining) so it compiles after `positions` became optional
-- Removed `as unknown as CanvasSnapshot` double-cast in `StoryboardHistoryPanel.tsx` — replaced with direct `entry.snapshot as CanvasSnapshot` (valid because `StoryboardState` is a structural subset of `CanvasSnapshot` now that `positions` is optional)
-- Added `storyboard-store.ts (307L)` to the §9.7 approved individual-file exceptions table in `docs/architecture-rules.md` with justification
-- Test fixtures in `StoryboardHistoryPanel.test.tsx` were already `StoryboardState`-shaped (`{ blocks: [], edges: [] }`) — no fixture changes needed; all 10 tests pass
-
-**Files modified:**
-- `apps/web-editor/src/features/storyboard/store/storyboard-history-store.ts` — `CanvasSnapshot.positions` made optional; `applySnapshot` uses optional chaining
-- `apps/web-editor/src/features/storyboard/components/StoryboardHistoryPanel.tsx` — removed `as unknown as` double-cast
-- `docs/architecture-rules.md` — added §9.7 approved individual-file exceptions table with `storyboard-store.ts (307L)` entry
-- `apps/web-editor/src/features/storyboard/__tests__/StoryboardHistoryPanel.test.tsx` — no changes needed; fixtures already matched `StoryboardState` shape
-
-**Notes:**
-- `StoryboardState` (`{blocks, edges}`) is structurally assignable to `CanvasSnapshot` once `positions` is optional — no unsafe cast needed
-- Pre-existing failures in `StoryboardPage.assetPanel.test.tsx` (2 tests, QueryClient missing) are unrelated to this change and existed before FIX-2
-- `applySnapshot` in `storyboard-history-store.ts` (used by undo/redo, not the server-restore path) always has `positions` populated by `loadServerHistory`, so the `?.` fallback is safe
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: FIX-2: Fix StoryboardHistoryPanel snapshot type + resolve §9.7 storyboard-store.ts</summary>
-
-- What: (a) Made `CanvasSnapshot.positions` optional. (b) Fixed `StoryboardHistoryPanel.tsx` cast. (c) Added `storyboard-store.ts (307L)` to §9.7 approved exceptions.
-- Acceptance criteria all met: no `as unknown as` cast; `positions` optional; test fixtures are `StoryboardState`-shaped; all 10 panel tests pass; §9.7 exception entry added.
-
-</details>
-
-checked by code-reviewer - YES
-checked by qa-reviewer - YES
-checked by design-reviewer - YES
-checked by playwright-reviewer: YES
-design-reviewer notes: Type-level fix only. `CanvasSnapshot.positions` made optional + cast removed + §9.7 exception documented. Zero UI/styling/token changes. Design review: PASS.
-playwright-reviewer notes: Type + docs only fix; no UI features to test. Storyboard unit test suite (230 tests): 228/230 pass; 2 pre-existing failures in StoryboardPage.assetPanel.test.tsx (QueryClient missing, ST-B6 bug documented). No new regressions from FIX-2: StoryboardHistoryPanel tests 10/10, storyboard-history-store tests 14/14, storyboard-store.restore tests 6/6 all pass.
-qa-reviewer notes: Target tests verified: StoryboardHistoryPanel.test.tsx 10/10 PASS, storyboard-store.restore.test.ts 6/6 PASS (16 total). Fixtures confirmed `StoryboardState`-shaped (no positions field). Regression gate: 228/230 storyboard tests pass (2 pre-existing unrelated failures in StoryboardPage.assetPanel.test.tsx, documented in dev log line 302). FIX-2 introduces zero new test regressions. Type-only refactor verified.
