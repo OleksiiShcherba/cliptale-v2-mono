@@ -33,6 +33,7 @@ const { mockPool, mockConn, mockGenDraftRepo, mockStoryboardRepo } = vi.hoisted(
 
   const mockGenDraftRepo = {
     findDraftById: vi.fn(),
+    updateDraftStatus: vi.fn().mockResolvedValue(undefined),
   };
 
   const mockStoryboardRepo = {
@@ -59,24 +60,7 @@ vi.mock('@/repositories/storyboard.repository.js', () => mockStoryboardRepo);
 
 import * as storyboardService from './storyboard.service.js';
 import { ForbiddenError, NotFoundError } from '@/lib/errors.js';
-
-// ── Fixtures ──────────────────────────────────────────────────────────────────
-
-const USER_A = 'user-aaa';
-const USER_B = 'user-bbb';
-const DRAFT_ID = 'draft-111';
-
-function makeDraft(userId: string) {
-  return {
-    id: DRAFT_ID,
-    userId,
-    promptDoc: {},
-    status: 'draft',
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    deletedAt: null,
-  };
-}
+import { USER_A, USER_B, DRAFT_ID, makeDraft } from './storyboard.service.fixtures.js';
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -89,6 +73,7 @@ beforeEach(() => {
   mockStoryboardRepo.insertHistoryAndPrune.mockResolvedValue(1);
   mockStoryboardRepo.findHistoryByDraftId.mockResolvedValue([]);
   mockStoryboardRepo.getConnection.mockResolvedValue(mockConn);
+  mockGenDraftRepo.updateDraftStatus.mockResolvedValue(undefined);
   mockConn.beginTransaction.mockResolvedValue(undefined);
   mockConn.commit.mockResolvedValue(undefined);
   mockConn.rollback.mockResolvedValue(undefined);

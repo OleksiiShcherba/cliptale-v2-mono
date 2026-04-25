@@ -7,6 +7,7 @@ import type {
   EdgeInsert,
 } from '@/repositories/storyboard.repository.js';
 import * as generationDraftRepository from '@/repositories/generationDraft.repository.js';
+import type { GenerationDraft } from '@/repositories/generationDraft.repository.js';
 import { ForbiddenError, NotFoundError } from '@/lib/errors.js';
 
 /** Maximum history entries retained per draft (both in-memory and DB). */
@@ -29,10 +30,13 @@ export type StoryboardState = {
 /**
  * Resolves the generation draft and enforces ownership.
  *
+ * Returns the full draft row so callers can read fields (e.g. status) without
+ * issuing a second DB round-trip.
+ *
  * - Row missing → NotFoundError (404)
  * - Row exists but belongs to a different user → ForbiddenError (403)
  */
-async function assertOwnership(userId: string, draftId: string): Promise<void> {
+async function assertOwnership(userId: string, draftId: string): Promise<GenerationDraft> {
   const draft = await generationDraftRepository.findDraftById(draftId);
   if (!draft) {
     throw new NotFoundError(`Storyboard draft ${draftId} not found`);
@@ -40,6 +44,7 @@ async function assertOwnership(userId: string, draftId: string): Promise<void> {
   if (draft.userId !== userId) {
     throw new ForbiddenError(`You do not own storyboard draft ${draftId}`);
   }
+  return draft;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -196,6 +201,10 @@ export async function saveStoryboard(
  * returns the current state unchanged. Otherwise inserts them and returns the
  * updated state.
  *
+ * Also advances the draft status from `'draft'` to `'step2'` the first time
+ * this endpoint is called. Subsequent calls with status already at `'step2'`,
+ * `'step3'`, or `'completed'` are no-ops — the status is never downgraded.
+ *
  * The two sentinel blocks are always inserted together; partial state (one
  * without the other) is not possible because we only insert when both counts
  * are zero.
@@ -204,7 +213,13 @@ export async function initializeStoryboard(
   userId: string,
   draftId: string,
 ): Promise<StoryboardState> {
-  await assertOwnership(userId, draftId);
+  const draft = await assertOwnership(userId, draftId);
+
+  // Advance status from 'draft' → 'step2' on first canvas open. Already-advanced
+  // statuses ('step2', 'step3', 'completed') are left untouched (idempotent).
+  if (draft.status === 'draft') {
+    await generationDraftRepository.updateDraftStatus(draftId, 'step2');
+  }
 
   const [startCount, endCount] = await Promise.all([
     storyboardRepository.countBlocksByType(draftId, 'start'),
