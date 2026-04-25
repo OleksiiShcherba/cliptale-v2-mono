@@ -95,53 +95,29 @@
 - documented: `docs/architecture-rules.md` §9.7 approved exceptions table
 
 ## Storyboard Bug Fixes + Follow-ups (2026-04-24)
-- ST-FIX-1: added `onNavigateHome` prop + Home button (`data-testid="home-button"`, SVG icon) to `StoryboardPage.topBar.tsx`; tokens moved to `storyboardPageStyles.ts`; navigation tests split to `StoryboardPage.navigation.test.tsx` (177L); 23 tests pass
-- ST-FIX-2: `draggable: false → true` for START/END sentinels in `useStoryboardCanvas.blockToNode`, `storyboard-store.restoreFromSnapshot`, `storyboard-history-store.applySnapshot`; `deletable` unchanged; 4 new unit tests
-- ST-FIX-3: refactored `useStoryboardAutosave` — signature `(draftId, nodes, edges)`; removed external store subscription; `useEffect([nodes, edges])` debounce; mutable refs; test split: `.test.ts` (189L) + `.save-now.test.ts` (158L) + `.fixtures.ts` (42L); 13 tests
-- ST-FIX-4: `useAddBlock.ts` IDs → `crypto.randomUUID()` (server requires UUID); `handleAddBlock` extracted to `useHandleAddBlock.ts`; `StoryboardPage.save-on-add.test.tsx` (3 tests) + `useHandleAddBlock.test.ts` (4 tests); `StoryboardPage.tsx` at 300L
-- ST-FIX-5: `StoryboardHistoryPanel` — added `onRestore: (nodes, edges) => void`; `useHandleRestore.ts` hook re-wires `onRemove` on scene-blocks then calls `setNodes/setEdges/pushSnapshot/saveNow`; `StoryboardPage.tsx` at 299L; 18 tests
-- ST-FIX-6: `e2e/storyboard-fixes.spec.ts` — 4+1 Playwright E2E tests (all pass); home button, sentinel draggable, block persistence (direct API PUT), history restore, UI-click save trigger
-- FOLLOW-1: fixed `StoryboardPage.assetPanel.test.tsx` — added `vi.mock('@/features/storyboard/components/LibraryPanel')`; 2 pre-existing failures resolved; 7/7 pass
-- FOLLOW-2: `useStoryboardDrag.ts` — edge IDs → `crypto.randomUUID()` (was `edge-${source}-${target}`); new `useStoryboardDrag.test.ts` (10 tests including UUID format assertion)
-- FOLLOW-3: `e2e/storyboard-fixes.spec.ts` — 5th test: clicks `[data-testid="add-block-button"]`, asserts PUT to `/storyboards/` initiated within 5s via `page.waitForRequest`; passes at 2.3s
+- ST-FIX-1: added `onNavigateHome` prop + Home button to `StoryboardPage.topBar.tsx`; tokens → `storyboardPageStyles.ts`; navigation tests split; 23 tests
+- ST-FIX-2: `draggable: false → true` for START/END sentinels in `useStoryboardCanvas.blockToNode`, `storyboard-store.restoreFromSnapshot`, `storyboard-history-store.applySnapshot`; 4 new unit tests
+- ST-FIX-3: refactored `useStoryboardAutosave` — signature `(draftId, nodes, edges)`; removed store subscription; test split: `.test.ts` + `.save-now.test.ts` + `.fixtures.ts`; 13 tests
+- ST-FIX-4: `useAddBlock.ts` IDs → `crypto.randomUUID()`; `handleAddBlock` → `useHandleAddBlock.ts`; `StoryboardPage.save-on-add.test.tsx` (3 tests) + `useHandleAddBlock.test.ts` (4 tests)
+- ST-FIX-5: `StoryboardHistoryPanel` `onRestore`; `useHandleRestore.ts` re-wires `onRemove` + `setNodes/setEdges/pushSnapshot/saveNow`; 18 tests
+- ST-FIX-6: `e2e/storyboard-fixes.spec.ts` — 5 Playwright E2E tests (home button, sentinel draggable, block persistence, history restore, UI-click save)
+- FOLLOW-1: `StoryboardPage.assetPanel.test.tsx` — added `vi.mock LibraryPanel`; 7/7 pass
+- FOLLOW-2: `useStoryboardDrag.ts` — edge IDs → `crypto.randomUUID()`; `useStoryboardDrag.test.ts` (10 tests)
 
 ## Storyboard Layout Bug Fixes (2026-04-25)
-- SB-BUG-A: fixed duplicate START/END sentinel race — `insertSentinelsAtomically(draftId)` in `storyboard.service.ts` uses `SELECT COUNT(*) ... FOR UPDATE` + single deadlock retry (errno 1213); merged into `loadStoryboard` (GET auto-initializes); `insertSentinelsInTx(conn, start, end)` added to `storyboard.repository.ts`
-- SB-BUG-A: removed `initializeStoryboard` POST call from `useStoryboardCanvas.ts`; added `dedupSentinels()` client-side filter (first START + first END kept); created `useStoryboardCanvas.test.ts` (6 tests); extended concurrent-init integration test in `storyboard.integration.test.ts`
-- SB-BUG-B: `AUTOSAVE_DEBOUNCE_MS` 30 000 → 5 000 in `useStoryboardAutosave.ts`
-- SB-BUG-B: `StoryboardPage.tsx` (296L) — `hasMoved`/`hasStructuralChange` moved outside updater callbacks; `setTimeout(() => void saveNow(), 0)` added to `handleNodesChange` (drag-end), `handleConnect`, `handleEdgesChange` (structural)
-- SB-BUG-B: `useAddBlock.ts` — added `saveNow` param; `setTimeout(() => void saveNow(), 0)` after `setNodes`; 3 new fake-timer tests (16 total)
-- SB-BUG-B: `useStoryboardAutosave.test.ts` — timer advances updated 30 001 → 5 001; extended `e2e/storyboard-fixes.spec.ts` with drag-end PUT assertion
+- SB-BUG-A: `insertSentinelsAtomically(draftId)` — `SELECT COUNT(*) FOR UPDATE` + deadlock retry; `insertSentinelsInTx` in repo (§5); `dedupSentinels()` client-side filter; `useStoryboardCanvas.test.ts` (6 tests)
+- SB-BUG-B: autosave debounce 30 000 → 5 000ms; `setTimeout(() => void saveNow(), 0)` on drag-end, connect, structural edge change; `useAddBlock.ts` saveNow param; timer tests updated
 
-## ST-SB-BUG5-1 — Sync React Flow nodes state in useSceneModal after updateBlock
+## Storyboard Status Advance (ST-BUG2c) (2026-04-25)
+- moved: `updateDraftStatus(draftId, 'step2')` from dead-code `initializeStoryboard` POST → `loadStoryboard` GET (where FE actually calls); `assertOwnership` now returns draft row
+- removed: `POST /:draftId/initialize` route, controller handler, FE `initializeStoryboard()` api.ts export
+- added: `countSentinelBlocksForUpdate(conn, draftId)` in storyboard.repository.ts (§5 — moved inline SQL from service)
+- added: `storyboard.service.status.test.ts` (5 tests); `storyboard.service.fixtures.ts`
+- fixed: 4 E2E spec files — `initializeDraft()` helper updated from `POST /initialize` → `GET /storyboards/:draftId`
 
-**What was done:**
-- Root cause: `updateBlock` only updated the external store; React Flow nodes (used by `SceneBlockNode` display and `nodesRef` in autosave) remained stale after Edit Scene save. This caused SceneBlockNode to show old data, and autosave to fire 5s later with stale nodes, overwriting the correct Edit Scene save.
-- Fix: `useSceneModal` now accepts `setNodes` (`React.Dispatch<React.SetStateAction<Node[]>>`) as its sole parameter. After calling `updateBlock(blockId, patch)`, it also calls `setNodes(prev => prev.map(...))` to patch the matching node's `data.block` in-place, keeping React Flow state and autosave `nodesRef` fresh.
-- `StoryboardPage.tsx`: `useSceneModal()` → `useSceneModal(setNodes)` — inline argument change, no new lines added (file remains at 300L).
-- `useSceneModal.ts`: updated signature, extracted `patch` variable (shared between `updateBlock` and `setNodes`), added `setNodes` to `useCallback` deps. File at 101L.
-- `useSceneModal.test.ts`: created (new file, 8 tests). Tests cover: openModal, handleClose, handleDelete, handleSave updating block + clearing editingBlock, setNodes called with an updater that correctly patches `data.block`, non-matching nodes left unchanged, empty name → null, mediaItem sequential ID generation.
-
-**Notes:**
-- The `patch` object is constructed once and passed to both `updateBlock` and the `setNodes` spread, ensuring both the external store and React Flow state receive identical data.
-- `setNodes` must be in `useCallback` deps since the callback closes over it.
-
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: ST-SB-BUG5-1</summary>
-
-Sync React Flow nodes state in useSceneModal after updateBlock — accept setNodes as second parameter; call setNodes after updateBlock to patch the matching node's data.block in-place.
-
-</details>
-
-checked by code-reviewer - YES
-checked by qa-reviewer - YES
-checked by design-reviewer - YES
-design-reviewer notes: Reviewed on 2026-04-25. Hook signature change only (setNodes parameter passed to useSceneModal). No UI components, styles, tokens, or layout modified. Verified: only two files changed — StoryboardPage.tsx (one-line arg change) and useSceneModal.ts (hook implementation). No design surface impacted.
-playwright-reviewer notes: No E2E spec covers Edit Scene modal flow. Unit test suite is comprehensive: 8/8 tests pass, covering openModal, handleClose, handleDelete, handleSave with setNodes sync, non-matching node identity, empty name mapping, media ID generation. No pre-existing E2E infrastructure (auth CORS issue pre-dates this change). Hook-only change verified via unit tests per pattern.
-checked by playwright-reviewer: YES
-
----
+## Storyboard Edit-Scene + Canvas Restore (ST-SB-BUG5) (2026-04-25)
+- ST-SB-BUG5-1: `useSceneModal` now accepts `setNodes` — after `updateBlock(blockId, patch)` calls `setNodes` to sync React Flow `node.data.block` in-place; `StoryboardPage.tsx` passes `setNodes`; `useSceneModal.test.ts` (8 tests, new)
+- ST-SB-BUG5-2: `useHandleRestore.ts` — added `HandleRestoreOptions { skipSave?: boolean }`; skips `saveNow()` when true; `useStoryboardHistorySeed.ts` (new, 80L) — fetches history on page load, calls `handleRestore({ skipSave: true })` with `hasSeeded` guard; `StoryboardPage.tsx` wires seed hook (297L); `useHandleRestore.test.ts` extended (+4 tests); `useStoryboardHistorySeed.test.ts` new (6 tests); StoryboardPage test files mocked for QueryClientProvider
 
 ## Architectural Decisions
 - §9.7 300-line cap: `*.fixtures.ts` + `.<topic>.test.ts` splits; approved exceptions: `fal-models.ts` (1093L), `file.repository.ts` (306L), `useProjectInit.test.ts` (318L), `StoryboardCard.tsx` (319L), `storyboard-store.ts` (307L); e2e/*.spec.ts exempt
@@ -160,10 +136,9 @@ checked by playwright-reviewer: YES
 - E2E CORS: `page.request.fetch()` + `page.route()` with `access-control-allow-origin: *`; PUT requests use `page.request.put` (server-side, bypasses browser CORS)
 - Storyboard autosave: `useStoryboardAutosave` reads React state via params+refs, NOT external store subscription
 - Storyboard IDs: blocks and edges always `crypto.randomUUID()` at creation — server schema requires UUID
-- Immediate save pattern: extract callback to `useHandle*.ts` hook to keep `StoryboardPage.tsx` ≤300L; `setTimeout(() => void saveNow(), 0)` defers save until after React re-render so `nodesRef.current` reflects new positions
+- Immediate save pattern: extract callback to `useHandle*.ts` hook; `setTimeout(() => void saveNow(), 0)` defers save until after React re-render
 - Sentinel init: `loadStoryboard` auto-initializes START/END atomically via `SELECT ... FOR UPDATE` + deadlock retry; client-side `dedupSentinels()` as safety net
-
----
+- Auto-restore skip-save: `handleRestore({ skipSave: true })` in seed path prevents DB overwrite before React re-render; manual restore always calls saveNow
 
 ## Known Issues / TODOs
 - ACL middleware stub — real ownership check deferred (B3 it.todo 403 tests)
@@ -178,40 +153,91 @@ checked by playwright-reviewer: YES
 - E2E image/audio timeline-drop tests skip when no assets linked to test project
 - **ST-B5 TS2305**: `STORYBOARD_STYLES` import from api-contracts fails in container (stale dist); fix: rebuild api-contracts Docker image
 - **Keyboard undo/redo broken**: `storyboard-history-store.applySnapshot` calls `storyboard-store.setNodes/setEdges` but React Flow renders from `useState` — Ctrl+Z/Y don't visually update canvas
+- `initializeStoryboard` service function orphaned (no callers) — remove or add deprecation warning
+- `StoryboardCard.tsx` (319L) exceeds §9.7 cap — formalize as approved exception in architecture-rules.md
 
 ---
 
-## [2026-04-25]
+## E2E-FIX-1 — Extract shared helpers and broaden CORS proxy
+**Date:** 2026-04-25
+**Branch:** fix/e2e-storyboard-coverage
 
-### Task: Fix Storyboard Bugs — Edit Scene save + canvas empty on open (ST-SB-BUG5)
-**Subtask:** ST-SB-BUG5-2: Remove saveNow from auto-restore path in useHandleRestore
+### What was done
+- Created `e2e/helpers/cors-workaround.ts` exporting `installCorsWorkaround(page, token)` that (a) mocks `**/auth/me` with the hardcoded dev-user payload and (b) proxies ALL `http://localhost:3001/**` requests to `E2E_API_URL/**` via `page.request`. IS_LOCAL_TARGET guard makes it a no-op for local dev. Broadened proxy from `/storyboards/**` (old) to `/**` (new) so all API routes (assets, projects, auth, etc.) are covered.
+- Created `e2e/helpers/storyboard.ts` exporting `readBearerToken`, `createTempDraft`, `initializeDraft`, `cleanupDraft`, `waitForCanvas` — extracted verbatim from `storyboard-fixes.spec.ts` with the `__dirname` path adjusted for the `e2e/helpers/` subdirectory.
+- Updated `e2e/storyboard-fixes.spec.ts` to import all helpers from the new modules; removed all duplicate function bodies; removed now-unused `fs`, `path`, and `Page` imports.
 
-**What was done:**
-- Added `HandleRestoreOptions` type with `skipSave?: boolean` to `useHandleRestore.ts`. When `skipSave: true`, the `void saveNow()` call at the end of the restore is skipped, preventing the DB from being overwritten with pre-restore (stale sentinel-only) state before React re-renders.
-- Created `useStoryboardHistorySeed.ts` (new file, 80L): on page load, fetches server history entries via `useStoryboardHistoryFetch`, applies the most recent snapshot via `restoreFromSnapshot`, then calls `handleRestore({ skipSave: true })`. A `hasSeeded` ref prevents re-triggering on re-renders.
-- Wired `useStoryboardHistorySeed` into `StoryboardPage.tsx` (now 297L — within cap). Collapsed two import lines to offset additions.
-- Extended `useHandleRestore.test.ts` with 4 new tests (7–10) covering `skipSave` undefined, false, true, and combined behavior.
-- Created `useStoryboardHistorySeed.test.ts` (new file): 6 tests covering loading/empty states, correct entry selection (last = most recent), `{ skipSave: true }` passed to handleRestore, node/edge passthrough, and once-only guard.
-- Added `vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed')` to 3 existing StoryboardPage test files to prevent QueryClientProvider errors.
+### Files created / modified
+- `e2e/helpers/cors-workaround.ts` (new — 93 lines)
+- `e2e/helpers/storyboard.ts` (new — 167 lines)
+- `e2e/storyboard-fixes.spec.ts` (modified — imports updated, 194 lines removed)
 
-**Notes:**
-- The root cause: `handleRestore` called `saveNow()` synchronously after `setNodes`. At that point `nodesRef.current` in `useStoryboardAutosave` still held the pre-restore state (setNodes hasn't propagated). This caused the DB to be overwritten with sentinel-only nodes on every auto-restore, creating oscillating corruption on page reloads.
-- Manual restore path (StoryboardHistoryPanel) is unaffected — no `skipSave` is passed, so `saveNow` still fires as before.
-- `StoryboardPage.tsx` is 297L — within the 300L cap after collapsing the `addEdge`/`applyNodeChanges/applyEdgeChanges` @xyflow imports and the `storyboardIcons` named import.
+checked by code-reviewer: YES
+checked by qa-reviewer: YES
+checked by design-reviewer: YES
+design-reviewer notes: Reviewed on 2026-04-25. Pure test infrastructure (helpers, CORS proxy mock). Zero UI/component changes — no design tokens, colors, typography, or spacing to review.
+checked by playwright-reviewer: YES
+playwright-reviewer notes: All 6/6 E2E tests pass (13.5s) against deployed instance. Helper refactoring successful — no regressions introduced.
+code-reviewer notes: All files compliant with architecture-rules.md §9. Helper file line counts under 300-line cap (cors-workaround: 93L, storyboard: 167L). E2E spec file properly structured (single test.describe block per §9 exemption). Function naming follows verb-first convention. Import ordering correct. JSDoc present on all exported functions. No relative imports crossing directory boundaries. No duplicate code in spec file.
 
-**Completed subtask from active_task.md:**
-<details>
-<summary>Subtask: ST-SB-BUG5-2</summary>
+---
 
-- [ ] **ST-SB-BUG5-2: Remove saveNow from auto-restore path in useHandleRestore**
-  - What: Add an optional `skipSave?: boolean` flag to the callback returned by `useHandleRestore`. When `skipSave` is `true`, skip the `void saveNow()` call at the end of the restore. In `useStoryboardHistorySeed`, call `handleRestore(nodes, edges, { skipSave: true })`.
-  - Where: `apps/web-editor/src/features/storyboard/hooks/useHandleRestore.ts`; `apps/web-editor/src/features/storyboard/hooks/useStoryboardHistorySeed.ts`.
+## E2E-FIX-2 — Fix app-shell, asset-manager, preview specs (add CORS workaround)
+**Date:** 2026-04-25
+**Branch:** fix/e2e-storyboard-coverage
 
-</details>
+### What was done
+- Added `beforeEach` blocks to all three failing spec files that call `readBearerToken()` then `installCorsWorkaround(page, token)` before any `page.goto()`.
+- For `app-shell.spec.ts` (no existing `beforeEach`): a new `beforeEach` was added; each test retains its individual `page.goto()` call.
+- For `asset-manager.spec.ts` and `preview.spec.ts` (existing `beforeEach` with `page.goto()`): the two workaround lines were inserted at the top, before the `page.goto()`.
+- The `IS_LOCAL_TARGET` guard lives inside `installCorsWorkaround` — no conditional logic needed in the specs.
+- No existing test assertions or logic were modified.
 
-checked by code-reviewer - YES
-checked by qa-reviewer - YES
-checked by design-reviewer - YES
-design-reviewer notes: Reviewed on 2026-04-25. Pure React hook logic fix (skipSave flag + auto-restore seed guard). No UI components, styles, tokens, or layout modified. Zero design surface impact. Verified: hook signature only, no visual or spacing changes.
-checked by playwright-reviewer - YES
-playwright-reviewer notes: Hook-only change verified via unit tests per pattern. useHandleRestore.test.ts: 10/10 tests pass (including skipSave behavior). useStoryboardHistorySeed.test.ts: 6/6 tests pass (load, select, guard, passthrough). Full storyboard suite: 295/295 tests pass, 28/28 files, zero regressions. Change complies with hook-only testing pattern: backward compatible, no UI/route modifications, comprehensive unit coverage sufficient for E2E exemption.
+### Files created / modified
+- `e2e/app-shell.spec.ts` (modified — added 2 imports + new `beforeEach` block)
+- `e2e/asset-manager.spec.ts` (modified — added 2 imports + 2 lines at top of existing `beforeEach`)
+- `e2e/preview.spec.ts` (modified — added 2 imports + 2 lines at top of existing `beforeEach`)
+
+checked by code-reviewer: YES
+checked by qa-reviewer: YES
+checked by design-reviewer: YES
+design-reviewer notes: Reviewed on 2026-04-25. Pure test infrastructure (E2E spec setup + CORS helper integration). Zero UI/component changes — no design tokens, colors, typography, spacing, or component structure to review.
+code-reviewer notes: Reviewed on 2026-04-25. All three spec files (app-shell, asset-manager, preview) are fully compliant with §9 (import ordering, file structure) and §9.7 (E2E exemptions). Helper functions (readBearerToken, installCorsWorkaround) called in correct sequence before page.goto() per CORS proxy requirements. No dead code, no naming violations, no cross-boundary relative imports violating §9 — E2E helpers are co-located in same directory.
+checked by playwright-reviewer: YES
+playwright-reviewer notes: All 19/19 E2E tests pass (30.5s). app-shell (3 tests), asset-manager (11 tests), preview (5 tests) confirmed working against deployed instance. CORS workaround successfully enables FE-to-API communication in Playwright environment.
+
+<!-- QA NOTES (auto-generated):
+  - E2E infrastructure only (Playwright spec setup, CORS workaround). Out of scope for unit/integration test review.
+  - No unit/integration tests changed or added.
+  - Reviewed by qa-reviewer on 2026-04-25.
+-->
+
+---
+
+## E2E-FIX-3 — Add storyboard E2E coverage for 2026-04-25 fixes
+**Date:** 2026-04-25
+**Branch:** fix/e2e-storyboard-coverage
+
+### What was done
+- Extended `e2e/storyboard-fixes.spec.ts` with 3 new tests (Test 7, Test 8, Test 9) covering the storyboard fixes shipped on 2026-04-25.
+- Added `UUID_RE` constant (UUID v4 pattern) at module level, before the `test.describe` block, for reuse across tests.
+- Updated the file-level comment to list the 3 new tests alongside the existing 6.
+- Test 7 validates that the PUT body sent by the UI after clicking "+" Add Block contains: (a) every block's `durationS >= 1` (not 0 — sentinel fix), and (b) every block's `id` matching UUID v4 format.
+- Test 8 verifies that clicking Save in the Edit Scene modal triggers an immediate PUT within 3 s (via the `saveNow()` path bypassing the 5 s debounce). Pre-seeds a scene block via direct API PUT; clicks `[data-testid="scene-block-node"]`; fills prompt via `[data-testid="prompt-input"]`; clicks `[data-testid="save-button"]`.
+- Test 9 verifies end-to-end mediaItem persistence: obtains a real `fileId` via `POST /files/upload-url` (satisfies FK constraint on `storyboard_block_media.file_id` without S3 upload), PUTs a scene block with that mediaItem, then GETs and asserts the block's `mediaItems` array is non-empty with the correct `fileId`.
+
+### Files created / modified
+- `e2e/storyboard-fixes.spec.ts` (modified — 383 lines added; 3 new tests appended)
+
+### Tests added
+- Test 7: PUT body validation — sentinel durationS ≥ 1 and all block IDs are valid UUIDs; uses `page.waitForRequest` + `postDataJSON()` to capture and parse the live browser PUT body.
+- Test 8: Edit Scene modal save timing — registers `waitForRequest` before clicking Save button; asserts PUT fires within 3 000 ms of click; uses data-testid locators for scene-block-node, prompt-input, and save-button.
+- Test 9: mediaItem persistence round-trip — creates a pending file row via `POST /files/upload-url` to satisfy FK; PUTs storyboard with mediaItem; GETs and asserts `mediaItems[0].fileId` matches the seeded value.
+
+checked by code-reviewer: YES
+code-reviewer notes: All files compliant with architecture-rules.md §9 (naming, imports, file placement) and §9.7 (E2E spec exempt from 300-line cap). UUID_RE pattern correct for v4 validation. createTempDraft/cleanupDraft properly used in try/finally on all 3 tests. Helper functions (readBearerToken, installCorsWorkaround, waitForCanvas) correctly imported and used per established E2E patterns. Test isolation verified — each test creates own draft, initializes, runs independently, cleans up idempotently. Proper error handling on all API calls; JSDoc present; no hardcoded business logic values; Playwright best practices (waitForRequest before interaction, page.request for CORS bypass, data-testid locators).
+checked by qa-reviewer: YES
+checked by design-reviewer: YES
+design-reviewer notes: Reviewed on 2026-04-25. Pure E2E test infrastructure (3 new tests for storyboard fixes). Zero UI/component changes — no design tokens, colors, typography, spacing, or component structure to review. E2E specs exempt per architecture-rules.md §9.7.
+checked by playwright-reviewer: YES
+playwright-reviewer notes: All 9/9 E2E tests pass (17.2s) against deployed instance https://15-236-162-140.nip.io. Tests 1-6 existing fixes verified working. Tests 7-9 new coverage: Test 7 validates PUT body sentinel durationS ≥ 1 and all block IDs are valid UUIDs. Test 8 confirms Edit Scene modal Save triggers PUT within 3s. Test 9 verifies mediaItem persistence round-trip via FK-satisfying POST /files/upload-url.
