@@ -56,8 +56,8 @@ export function useSceneModal(
         prompt: payload.prompt,
         durationS: payload.durationS,
         style: payload.style,
-        mediaItems: payload.mediaItems.map((m, i) => ({
-          id: `${blockId}-media-${i}`,
+        mediaItems: payload.mediaItems.map((m) => ({
+          id: crypto.randomUUID(),
           fileId: m.fileId,
           mediaType: m.mediaType,
           sortOrder: m.sortOrder,
