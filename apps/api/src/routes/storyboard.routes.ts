@@ -7,18 +7,9 @@ import * as storyboardController from '@/controllers/storyboard.controller.js';
 
 const router = Router();
 
-// IMPORTANT: sub-resource routes (/initialize, /history) must be registered
+// IMPORTANT: sub-resource routes (/history) must be registered
 // before the bare /:draftId routes to prevent Express from interpreting the
 // literal sub-path strings as draftId param values.
-
-// POST /storyboards/:draftId/initialize
-// Idempotent seeding of START + END sentinel blocks. Returns 200 { blocks, edges }.
-router.post(
-  '/storyboards/:draftId/initialize',
-  authMiddleware,
-  aclMiddleware('editor'),
-  storyboardController.initializeStoryboard,
-);
 
 // GET /storyboards/:draftId/history
 // Returns the last 50 snapshots for the draft, newest first.

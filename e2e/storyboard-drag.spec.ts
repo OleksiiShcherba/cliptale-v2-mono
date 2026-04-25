@@ -135,7 +135,7 @@ async function createTempDraft(
 
 async function initializeDraft(
   apiContext: {
-    post: (
+    get: (
       url: string,
       opts: object,
     ) => Promise<{
@@ -147,20 +147,18 @@ async function initializeDraft(
   token: string,
   draftId: string,
 ): Promise<void> {
-  const res = await apiContext.post(
-    `${E2E_API_URL}/storyboards/${draftId}/initialize`,
+  const res = await apiContext.get(
+    `${E2E_API_URL}/storyboards/${draftId}`,
     {
       headers: {
-        'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      data: {},
     },
   );
   if (!res.ok()) {
     const body = await res.text();
     throw new Error(
-      `POST /storyboards/${draftId}/initialize failed (${res.status()}): ${body}`,
+      `GET /storyboards/${draftId} failed (${res.status()}): ${body}`,
     );
   }
 }

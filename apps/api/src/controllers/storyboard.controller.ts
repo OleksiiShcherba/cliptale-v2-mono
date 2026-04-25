@@ -56,27 +56,6 @@ export async function putStoryboard(
 }
 
 /**
- * POST /storyboards/:draftId/initialize
- * Seeds START and END sentinel blocks when they do not yet exist (idempotent).
- * Returns 200 with { blocks, edges }.
- */
-export async function initializeStoryboard(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): Promise<void> {
-  try {
-    const state = await storyboardService.initializeStoryboard(
-      req.user!.userId,
-      req.params['draftId']!,
-    );
-    res.json(state);
-  } catch (err) {
-    next(err);
-  }
-}
-
-/**
  * GET /storyboards/:draftId/history
  * Returns the last 50 snapshots ordered newest-first.
  */

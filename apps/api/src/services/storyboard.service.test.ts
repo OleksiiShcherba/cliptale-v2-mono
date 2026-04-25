@@ -40,6 +40,7 @@ const { mockPool, mockConn, mockGenDraftRepo, mockStoryboardRepo } = vi.hoisted(
     findBlocksByDraftId: vi.fn().mockResolvedValue([]),
     findEdgesByDraftId: vi.fn().mockResolvedValue([]),
     countBlocksByType: vi.fn().mockResolvedValue(0),
+    countSentinelBlocksForUpdate: vi.fn().mockResolvedValue(0),
     insertBlock: vi.fn().mockResolvedValue(undefined),
     insertSentinelsInTx: vi.fn().mockResolvedValue(undefined),
     replaceStoryboard: vi.fn().mockResolvedValue(undefined),
@@ -68,6 +69,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Restore sensible defaults after each test.
   mockStoryboardRepo.countBlocksByType.mockResolvedValue(0);
+  mockStoryboardRepo.countSentinelBlocksForUpdate.mockResolvedValue(0);
   mockStoryboardRepo.findBlocksByDraftId.mockResolvedValue([]);
   mockStoryboardRepo.findEdgesByDraftId.mockResolvedValue([]);
   mockStoryboardRepo.insertHistoryAndPrune.mockResolvedValue(1);

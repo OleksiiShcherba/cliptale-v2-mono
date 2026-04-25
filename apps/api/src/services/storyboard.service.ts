@@ -73,14 +73,7 @@ async function insertSentinelsAtomically(draftId: string): Promise<void> {
 
       // Lock the sentinel rows (or the gap if they don't exist yet) to prevent
       // concurrent inserts from racing past the count = 0 check.
-      const [rows] = await conn.execute<import('mysql2/promise').RowDataPacket[]>(
-        `SELECT COUNT(*) AS cnt
-         FROM storyboard_blocks
-         WHERE draft_id = ? AND block_type IN ('start', 'end')
-         FOR UPDATE`,
-        [draftId],
-      );
-      const existingCount = Number((rows[0] as { cnt: number }).cnt);
+      const existingCount = await storyboardRepository.countSentinelBlocksForUpdate(conn, draftId);
 
       if (existingCount === 0) {
         const startBlock: BlockInsert = {
@@ -134,13 +127,20 @@ async function insertSentinelsAtomically(draftId: string): Promise<void> {
 /**
  * Loads the full storyboard state for a draft.
  * Atomically seeds START/END sentinels on first load (idempotent).
+ * Advances the draft status from `'draft'` to `'step2'` on first load (idempotent).
  * Throws 404 if the draft does not exist, 403 if it belongs to another user.
  */
 export async function loadStoryboard(
   userId: string,
   draftId: string,
 ): Promise<StoryboardState> {
-  await assertOwnership(userId, draftId);
+  const draft = await assertOwnership(userId, draftId);
+
+  // Advance status from 'draft' → 'step2' on first storyboard page load.
+  // Already-advanced statuses ('step2', 'step3', 'completed') are left untouched (idempotent).
+  if (draft.status === 'draft') {
+    await generationDraftRepository.updateDraftStatus(draftId, 'step2');
+  }
 
   // Seed sentinels atomically on every load — no-op if they already exist.
   await insertSentinelsAtomically(draftId);
@@ -201,10 +201,6 @@ export async function saveStoryboard(
  * returns the current state unchanged. Otherwise inserts them and returns the
  * updated state.
  *
- * Also advances the draft status from `'draft'` to `'step2'` the first time
- * this endpoint is called. Subsequent calls with status already at `'step2'`,
- * `'step3'`, or `'completed'` are no-ops — the status is never downgraded.
- *
  * The two sentinel blocks are always inserted together; partial state (one
  * without the other) is not possible because we only insert when both counts
  * are zero.
@@ -213,13 +209,7 @@ export async function initializeStoryboard(
   userId: string,
   draftId: string,
 ): Promise<StoryboardState> {
-  const draft = await assertOwnership(userId, draftId);
-
-  // Advance status from 'draft' → 'step2' on first canvas open. Already-advanced
-  // statuses ('step2', 'step3', 'completed') are left untouched (idempotent).
-  if (draft.status === 'draft') {
-    await generationDraftRepository.updateDraftStatus(draftId, 'step2');
-  }
+  await assertOwnership(userId, draftId);
 
   const [startCount, endCount] = await Promise.all([
     storyboardRepository.countBlocksByType(draftId, 'start'),

@@ -10,9 +10,6 @@
  *   PUT /storyboards/:draftId
  *     - full round-trip: PUT then GET returns the same graph
  *     - 400 on invalid body
- *   POST /storyboards/:draftId/initialize
- *     - seeds START + END blocks on first call
- *     - idempotent on second call (no duplicate blocks)
  *   GET /storyboards/:draftId/history
  *     - returns ≤ 50 entries sorted newest-first
  *   POST /storyboards/:draftId/history
@@ -192,34 +189,6 @@ describe('GET /storyboards/:draftId', () => {
     expect(res.body).toHaveProperty('edges');
     expect(Array.isArray(res.body.blocks)).toBe(true);
     expect(Array.isArray(res.body.edges)).toBe(true);
-  });
-});
-
-// ── POST /storyboards/:draftId/initialize ─────────────────────────────────────
-
-describe('POST /storyboards/:draftId/initialize', () => {
-  it('seeds START and END blocks on first call', async () => {
-    const res = await request(app)
-      .post(`/storyboards/${draftAId}/initialize`)
-      .set('Authorization', authA());
-    expect(res.status).toBe(200);
-    const { blocks } = res.body as { blocks: Array<{ blockType: string }> };
-    const types = blocks.map((b) => b.blockType);
-    expect(types).toContain('start');
-    expect(types).toContain('end');
-  });
-
-  it('is idempotent — calling again returns the same block count', async () => {
-    const first = await request(app)
-      .post(`/storyboards/${draftAId}/initialize`)
-      .set('Authorization', authA());
-    const second = await request(app)
-      .post(`/storyboards/${draftAId}/initialize`)
-      .set('Authorization', authA());
-
-    expect(first.status).toBe(200);
-    expect(second.status).toBe(200);
-    expect(second.body.blocks.length).toBe(first.body.blocks.length);
   });
 });
 

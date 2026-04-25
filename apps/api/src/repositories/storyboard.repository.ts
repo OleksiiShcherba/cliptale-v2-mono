@@ -200,6 +200,28 @@ export async function insertBlock(block: BlockInsert): Promise<void> {
 }
 
 /**
+ * Counts START and END sentinel blocks for a draft using a locking read
+ * (`FOR UPDATE`) inside a caller-supplied connection.
+ *
+ * MUST be called within an active transaction — the caller owns BEGIN/COMMIT/ROLLBACK.
+ * The FOR UPDATE acquires gap locks that prevent concurrent inserts from racing
+ * past the count = 0 check.
+ */
+export async function countSentinelBlocksForUpdate(
+  conn: PoolConnection,
+  draftId: string,
+): Promise<number> {
+  const [rows] = await conn.execute<RowDataPacket[]>(
+    `SELECT COUNT(*) AS cnt
+     FROM storyboard_blocks
+     WHERE draft_id = ? AND block_type IN ('start', 'end')
+     FOR UPDATE`,
+    [draftId],
+  );
+  return Number((rows[0] as { cnt: number }).cnt);
+}
+
+/**
  * Inserts START and END sentinel blocks inside a caller-supplied connection.
  * MUST be called within an active transaction — the caller owns BEGIN/COMMIT/ROLLBACK.
  */

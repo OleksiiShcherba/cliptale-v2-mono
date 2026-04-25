@@ -1,7 +1,7 @@
 /**
- * Unit tests for storyboard.service.ts — initializeStoryboard status advancement
+ * Unit tests for storyboard.service.ts — loadStoryboard status advancement
  *
- * Covers the idempotent status guard added to initializeStoryboard:
+ * Covers the idempotent status guard added to loadStoryboard:
  *  - advances draft from 'draft' → 'step2' via updateDraftStatus
  *  - does NOT advance when status is already 'step2', 'step3', or 'completed'
  *  - still returns the correct { blocks, edges } response after advancement
@@ -33,8 +33,7 @@ const { mockPool, mockConn, mockGenDraftRepo, mockStoryboardRepo } = vi.hoisted(
   const mockStoryboardRepo = {
     findBlocksByDraftId: vi.fn().mockResolvedValue([]),
     findEdgesByDraftId: vi.fn().mockResolvedValue([]),
-    countBlocksByType: vi.fn().mockResolvedValue(0),
-    insertBlock: vi.fn().mockResolvedValue(undefined),
+    countSentinelBlocksForUpdate: vi.fn().mockResolvedValue(2),
     insertSentinelsInTx: vi.fn().mockResolvedValue(undefined),
     replaceStoryboard: vi.fn().mockResolvedValue(undefined),
     insertHistoryAndPrune: vi.fn().mockResolvedValue(1),
@@ -52,7 +51,7 @@ vi.mock('@/repositories/storyboard.repository.js', () => mockStoryboardRepo);
 
 // ── Import service under test after mocks are in place ────────────────────────
 
-import * as storyboardService from './storyboard.service.js';
+import { loadStoryboard } from './storyboard.service.js';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -62,7 +61,7 @@ import { USER_A, DRAFT_ID, makeDraft } from './storyboard.service.fixtures.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockStoryboardRepo.countBlocksByType.mockResolvedValue(0);
+  mockStoryboardRepo.countSentinelBlocksForUpdate.mockResolvedValue(2);
   mockStoryboardRepo.findBlocksByDraftId.mockResolvedValue([]);
   mockStoryboardRepo.findEdgesByDraftId.mockResolvedValue([]);
   mockStoryboardRepo.getConnection.mockResolvedValue(mockConn);
@@ -72,13 +71,13 @@ beforeEach(() => {
   mockConn.rollback.mockResolvedValue(undefined);
 });
 
-// ── initializeStoryboard — draft status advancement ───────────────────────────
+// ── loadStoryboard — draft status advancement ─────────────────────────────────
 
-describe('storyboard.service — initializeStoryboard status advancement', () => {
+describe('storyboard.service — loadStoryboard status advancement', () => {
   it("calls updateDraftStatus with 'step2' when draft status is 'draft'", async () => {
     mockGenDraftRepo.findDraftById.mockResolvedValue(makeDraft(USER_A, 'draft'));
 
-    await storyboardService.initializeStoryboard(USER_A, DRAFT_ID);
+    await loadStoryboard(USER_A, DRAFT_ID);
 
     expect(mockGenDraftRepo.updateDraftStatus).toHaveBeenCalledOnce();
     expect(mockGenDraftRepo.updateDraftStatus).toHaveBeenCalledWith(DRAFT_ID, 'step2');
@@ -87,7 +86,7 @@ describe('storyboard.service — initializeStoryboard status advancement', () =>
   it("does NOT call updateDraftStatus when draft status is already 'step2'", async () => {
     mockGenDraftRepo.findDraftById.mockResolvedValue(makeDraft(USER_A, 'step2'));
 
-    await storyboardService.initializeStoryboard(USER_A, DRAFT_ID);
+    await loadStoryboard(USER_A, DRAFT_ID);
 
     expect(mockGenDraftRepo.updateDraftStatus).not.toHaveBeenCalled();
   });
@@ -95,7 +94,7 @@ describe('storyboard.service — initializeStoryboard status advancement', () =>
   it("does NOT call updateDraftStatus when draft status is 'step3'", async () => {
     mockGenDraftRepo.findDraftById.mockResolvedValue(makeDraft(USER_A, 'step3'));
 
-    await storyboardService.initializeStoryboard(USER_A, DRAFT_ID);
+    await loadStoryboard(USER_A, DRAFT_ID);
 
     expect(mockGenDraftRepo.updateDraftStatus).not.toHaveBeenCalled();
   });
@@ -103,7 +102,7 @@ describe('storyboard.service — initializeStoryboard status advancement', () =>
   it("does NOT call updateDraftStatus when draft status is 'completed'", async () => {
     mockGenDraftRepo.findDraftById.mockResolvedValue(makeDraft(USER_A, 'completed'));
 
-    await storyboardService.initializeStoryboard(USER_A, DRAFT_ID);
+    await loadStoryboard(USER_A, DRAFT_ID);
 
     expect(mockGenDraftRepo.updateDraftStatus).not.toHaveBeenCalled();
   });
@@ -114,7 +113,7 @@ describe('storyboard.service — initializeStoryboard status advancement', () =>
     mockStoryboardRepo.findBlocksByDraftId.mockResolvedValue(expectedBlocks);
     mockStoryboardRepo.findEdgesByDraftId.mockResolvedValue([]);
 
-    const result = await storyboardService.initializeStoryboard(USER_A, DRAFT_ID);
+    const result = await loadStoryboard(USER_A, DRAFT_ID);
 
     expect(result.blocks).toEqual(expectedBlocks);
     expect(result.edges).toEqual([]);

@@ -109,20 +109,18 @@ test.describe('Storyboard history endpoint — regression guard (ER_WRONG_ARGUME
     const draftId = await createTempDraft(page.request, token);
 
     try {
-      // Seed sentinel blocks (idempotent) so the draft is in a valid state
-      const initRes = await page.request.post(
-        `${E2E_API_URL}/storyboards/${draftId}/initialize`,
+      // Load the storyboard state (idempotent — initializes sentinel nodes and advances status)
+      const initRes = await page.request.get(
+        `${E2E_API_URL}/storyboards/${draftId}`,
         {
           headers: {
-            'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          data: {},
         },
       );
       expect(
         initRes.ok(),
-        `POST /storyboards/${draftId}/initialize should succeed (status: ${initRes.status()})`,
+        `GET /storyboards/${draftId} should succeed (status: ${initRes.status()})`,
       ).toBe(true);
 
       // This is the regression gate: GET /history used pool.execute with LIMIT ?
@@ -163,15 +161,13 @@ test.describe('Storyboard history endpoint — regression guard (ER_WRONG_ARGUME
     const draftId = await createTempDraft(page.request, token);
 
     try {
-      // Initialize so the draft has a valid state on the server
-      await page.request.post(
-        `${E2E_API_URL}/storyboards/${draftId}/initialize`,
+      // Load storyboard state to ensure draft is in a valid state on the server (idempotent)
+      await page.request.get(
+        `${E2E_API_URL}/storyboards/${draftId}`,
         {
           headers: {
-            'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          data: {},
         },
       );
 
@@ -210,14 +206,12 @@ test.describe('Storyboard history endpoint — regression guard (ER_WRONG_ARGUME
     const draftId = await createTempDraft(page.request, token);
 
     try {
-      await page.request.post(
-        `${E2E_API_URL}/storyboards/${draftId}/initialize`,
+      await page.request.get(
+        `${E2E_API_URL}/storyboards/${draftId}`,
         {
           headers: {
-            'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          data: {},
         },
       );
 
@@ -285,17 +279,16 @@ test.describe('Storyboard history endpoint — regression guard (ER_WRONG_ARGUME
 
     try {
       // Exercise the history endpoints from within the live browser context
-      const initRes = await page.request.post(
-        `${E2E_API_URL}/storyboards/${draftId}/initialize`,
+      // GET /storyboards/:draftId now initializes sentinel nodes and advances status (idempotent)
+      const initRes = await page.request.get(
+        `${E2E_API_URL}/storyboards/${draftId}`,
         {
           headers: {
-            'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          data: {},
         },
       );
-      expect(initRes.status(), 'POST /initialize must return 200').toBe(200);
+      expect(initRes.status(), 'GET /storyboards/:draftId must return 200').toBe(200);
 
       const postRes = await page.request.post(
         `${E2E_API_URL}/storyboards/${draftId}/history`,
