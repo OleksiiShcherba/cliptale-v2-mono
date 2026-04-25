@@ -94,6 +94,12 @@ vi.mock('./StoryboardAssetPanel', () => ({
   ),
 }));
 
+// Mock useStoryboardHistorySeed — it calls useStoryboardHistoryFetch (React Query)
+// which requires a QueryClientProvider. Seed logic is tested in its own unit test.
+vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
+  useStoryboardHistorySeed: vi.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Import after mocks
 // ---------------------------------------------------------------------------

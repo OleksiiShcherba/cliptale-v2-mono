@@ -200,4 +200,84 @@ describe('useHandleRestore', () => {
     rerender();
     expect(result.current.handleRestore).toBe(firstRef);
   });
+
+  it('(7) calls saveNow by default (skipSave undefined)', () => {
+    const removeNode = vi.fn();
+    const setNodes = vi.fn();
+    const setEdges = vi.fn();
+    const pushSnapshot = vi.fn();
+    const saveNow = vi.fn().mockResolvedValue(undefined);
+
+    const { result } = renderHook(() =>
+      useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow }),
+    );
+
+    act(() => {
+      result.current.handleRestore([], []);
+    });
+
+    expect(saveNow).toHaveBeenCalledTimes(1);
+  });
+
+  it('(8) calls saveNow when skipSave is false', () => {
+    const removeNode = vi.fn();
+    const setNodes = vi.fn();
+    const setEdges = vi.fn();
+    const pushSnapshot = vi.fn();
+    const saveNow = vi.fn().mockResolvedValue(undefined);
+
+    const { result } = renderHook(() =>
+      useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow }),
+    );
+
+    act(() => {
+      result.current.handleRestore([], [], { skipSave: false });
+    });
+
+    expect(saveNow).toHaveBeenCalledTimes(1);
+  });
+
+  it('(9) does NOT call saveNow when skipSave is true', () => {
+    const removeNode = vi.fn();
+    const setNodes = vi.fn();
+    const setEdges = vi.fn();
+    const pushSnapshot = vi.fn();
+    const saveNow = vi.fn().mockResolvedValue(undefined);
+
+    const { result } = renderHook(() =>
+      useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow }),
+    );
+
+    act(() => {
+      result.current.handleRestore([], [], { skipSave: true });
+    });
+
+    // skipSave: true → auto-restore path; saveNow must be skipped to avoid
+    // persisting pre-restore (stale) state to the DB.
+    expect(saveNow).not.toHaveBeenCalled();
+  });
+
+  it('(10) still calls setNodes, setEdges, pushSnapshot even when skipSave is true', () => {
+    const removeNode = vi.fn();
+    const setNodes = vi.fn();
+    const setEdges = vi.fn();
+    const pushSnapshot = vi.fn();
+    const saveNow = vi.fn().mockResolvedValue(undefined);
+
+    const { result } = renderHook(() =>
+      useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow }),
+    );
+
+    const sceneNode = makeSceneNode('scene-1');
+    const edges: Edge[] = [makeEdge('e1', 'start-1', 'scene-1')];
+
+    act(() => {
+      result.current.handleRestore([sceneNode], edges, { skipSave: true });
+    });
+
+    expect(setNodes).toHaveBeenCalledTimes(1);
+    expect(setEdges).toHaveBeenCalledTimes(1);
+    expect(pushSnapshot).toHaveBeenCalledTimes(1);
+    expect(saveNow).not.toHaveBeenCalled();
+  });
 });

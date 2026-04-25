@@ -91,6 +91,12 @@ vi.mock(
 // a QueryClientProvider that this test wrapper does not provide).
 vi.mock('@/features/storyboard/components/LibraryPanel');
 
+// Mock useStoryboardHistorySeed — it calls useStoryboardHistoryFetch (React Query)
+// which requires a QueryClientProvider. Seed logic is tested in its own unit test.
+vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
+  useStoryboardHistorySeed: vi.fn(),
+}));
+
 // Ensure TranscribeButton is not rendered anywhere by mocking it
 // so any accidental import would produce a trackable element.
 const transcribeRenderSpy = vi.fn();
