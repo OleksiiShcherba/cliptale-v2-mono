@@ -1,30 +1,35 @@
 /**
  * Tests for useStoryboardHistorySeed.
  *
- * Covers:
- * - Seeds history and auto-restores most recent snapshot when canvas + history are loaded
- * - Does NOT seed when canvas is still loading
- * - Does NOT seed when history is still loading
- * - Does NOT seed when history entries are empty
- * - Seeds only once (guard prevents re-seeding on re-render)
+ * Verifies that the hook:
+ * 1. Does nothing while the history fetch is still loading.
+ * 2. Does nothing when there are no history entries.
+ * 3. Calls restoreFromSnapshot with the most recent (last) entry's snapshot.
+ * 4. Calls handleRestore with { skipSave: true } — NOT calling saveNow.
+ * 5. Fires at most once per mount (hasSeeded guard prevents repeated calls).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 
+import type { Node, Edge } from '@xyflow/react';
+
+import { useStoryboardHistorySeed } from './useStoryboardHistorySeed';
+
 // ── Hoisted mocks ──────────────────────────────────────────────────────────────
 
-const { mockLoadServerHistory, mockRestoreFromSnapshot, mockGetSnapshot, mockHistoryEntries, mockIsHistoryLoading } =
-  vi.hoisted(() => ({
-    mockLoadServerHistory: vi.fn(),
-    mockRestoreFromSnapshot: vi.fn(),
-    mockGetSnapshot: vi.fn(() => ({ nodes: [{ id: 'n1' }], edges: [] })),
-    mockHistoryEntries: [] as { snapshot: { blocks: unknown[]; edges: unknown[] }; createdAt: string }[],
-    mockIsHistoryLoading: { value: false },
-  }));
+const {
+  mockUseStoryboardHistoryFetch,
+  mockRestoreFromSnapshot,
+  mockGetSnapshot,
+} = vi.hoisted(() => ({
+  mockUseStoryboardHistoryFetch: vi.fn(),
+  mockRestoreFromSnapshot: vi.fn(),
+  mockGetSnapshot: vi.fn(),
+}));
 
-vi.mock('../store/storyboard-history-store', () => ({
-  loadServerHistory: mockLoadServerHistory,
+vi.mock('./useStoryboardHistoryFetch', () => ({
+  useStoryboardHistoryFetch: mockUseStoryboardHistoryFetch,
 }));
 
 vi.mock('../store/storyboard-store', () => ({
@@ -32,126 +37,159 @@ vi.mock('../store/storyboard-store', () => ({
   getSnapshot: mockGetSnapshot,
 }));
 
-vi.mock('./useStoryboardHistoryFetch', () => ({
-  useStoryboardHistoryFetch: vi.fn(() => ({
-    entries: mockHistoryEntries,
-    isLoading: mockIsHistoryLoading.value,
-    isError: false,
-  })),
-}));
-
-import { useStoryboardHistorySeed } from './useStoryboardHistorySeed';
-
 // ── Fixtures ───────────────────────────────────────────────────────────────────
 
-function makeEntry(createdAt: string) {
-  return {
-    snapshot: { blocks: [{ id: 'b1' }], edges: [] },
-    createdAt,
-  };
-}
+const STALE_BLOCK = {
+  id: 'start-1',
+  draftId: 'draft-1',
+  blockType: 'start' as const,
+  name: 'START',
+  prompt: null,
+  durationS: 0,
+  positionX: 0,
+  positionY: 0,
+  sortOrder: 0,
+  style: null,
+  createdAt: '',
+  updatedAt: '',
+  mediaItems: [],
+};
+
+const SCENE_BLOCK = {
+  id: 'scene-1',
+  draftId: 'draft-1',
+  blockType: 'scene' as const,
+  name: 'Scene 1',
+  prompt: 'A scene',
+  durationS: 5,
+  positionX: 200,
+  positionY: 200,
+  sortOrder: 1,
+  style: null,
+  createdAt: '',
+  updatedAt: '',
+  mediaItems: [],
+};
+
+const OLDER_SNAPSHOT = {
+  snapshot: { blocks: [STALE_BLOCK], edges: [] },
+  createdAt: '2024-01-01T10:00:00Z',
+};
+
+const LATEST_SNAPSHOT = {
+  snapshot: { blocks: [STALE_BLOCK, SCENE_BLOCK], edges: [] },
+  createdAt: '2024-01-01T12:00:00Z',
+};
+
+const RESTORED_NODES: Node[] = [
+  { id: 'start-1', type: 'start', position: { x: 0, y: 0 }, data: { label: 'START' } },
+  { id: 'scene-1', type: 'scene-block', position: { x: 200, y: 200 }, data: { block: SCENE_BLOCK, onRemove: () => undefined } },
+];
+const RESTORED_EDGES: Edge[] = [];
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
 describe('useStoryboardHistorySeed', () => {
-  const handleRestore = vi.fn();
-
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset shared mutable defaults
-    mockHistoryEntries.length = 0;
-    mockIsHistoryLoading.value = false;
-    mockGetSnapshot.mockReturnValue({ nodes: [{ id: 'n1' }], edges: [] });
+    mockGetSnapshot.mockReturnValue({ nodes: RESTORED_NODES, edges: RESTORED_EDGES });
   });
 
-  it('should seed history and auto-restore when canvas and history are both loaded', () => {
-    const entry = makeEntry('2026-04-25T10:00:00Z');
-    mockHistoryEntries.push(entry);
+  it('(1) does nothing while the history fetch is loading', () => {
+    mockUseStoryboardHistoryFetch.mockReturnValue({ entries: [], isLoading: true, isError: false });
 
-    renderHook(() =>
-      useStoryboardHistorySeed({
-        draftId: 'draft-1',
-        isCanvasLoading: false,
-        handleRestore,
-      }),
-    );
+    const handleRestore = vi.fn();
+    renderHook(() => useStoryboardHistorySeed({ draftId: 'draft-1', handleRestore }));
 
-    expect(mockLoadServerHistory).toHaveBeenCalledOnce();
-    expect(mockLoadServerHistory).toHaveBeenCalledWith([entry]);
-
-    expect(mockRestoreFromSnapshot).toHaveBeenCalledOnce();
-    expect(mockRestoreFromSnapshot).toHaveBeenCalledWith(entry.snapshot);
-
-    expect(handleRestore).toHaveBeenCalledOnce();
-    const [restoredNodes, restoredEdges] = handleRestore.mock.calls[0] as [unknown[], unknown[]];
-    expect(restoredNodes).toEqual([{ id: 'n1' }]);
-    expect(restoredEdges).toEqual([]);
-  });
-
-  it('should restore the LAST (most recent) entry when multiple snapshots exist', () => {
-    const first = makeEntry('2026-04-25T09:00:00Z');
-    const second = makeEntry('2026-04-25T10:00:00Z');
-    mockHistoryEntries.push(first, second);
-
-    renderHook(() =>
-      useStoryboardHistorySeed({
-        draftId: 'draft-1',
-        isCanvasLoading: false,
-        handleRestore,
-      }),
-    );
-
-    expect(mockRestoreFromSnapshot).toHaveBeenCalledWith(second.snapshot);
-  });
-
-  it('should NOT seed when canvas is still loading', () => {
-    const entry = makeEntry('2026-04-25T10:00:00Z');
-    mockHistoryEntries.push(entry);
-
-    renderHook(() =>
-      useStoryboardHistorySeed({
-        draftId: 'draft-1',
-        isCanvasLoading: true,
-        handleRestore,
-      }),
-    );
-
-    expect(mockLoadServerHistory).not.toHaveBeenCalled();
     expect(mockRestoreFromSnapshot).not.toHaveBeenCalled();
     expect(handleRestore).not.toHaveBeenCalled();
   });
 
-  it('should NOT seed when history is still loading', () => {
-    const entry = makeEntry('2026-04-25T10:00:00Z');
-    mockHistoryEntries.push(entry);
-    mockIsHistoryLoading.value = true;
+  it('(2) does nothing when there are no history entries', () => {
+    mockUseStoryboardHistoryFetch.mockReturnValue({ entries: [], isLoading: false, isError: false });
 
-    renderHook(() =>
-      useStoryboardHistorySeed({
-        draftId: 'draft-1',
-        isCanvasLoading: false,
-        handleRestore,
-      }),
-    );
+    const handleRestore = vi.fn();
+    renderHook(() => useStoryboardHistorySeed({ draftId: 'draft-1', handleRestore }));
 
-    expect(mockLoadServerHistory).not.toHaveBeenCalled();
     expect(mockRestoreFromSnapshot).not.toHaveBeenCalled();
     expect(handleRestore).not.toHaveBeenCalled();
   });
 
-  it('should NOT seed when history entries list is empty', () => {
-    // mockHistoryEntries is empty by default after beforeEach
+  it('(3) calls restoreFromSnapshot with the LAST (most recent) entry snapshot', () => {
+    mockUseStoryboardHistoryFetch.mockReturnValue({
+      entries: [OLDER_SNAPSHOT, LATEST_SNAPSHOT],
+      isLoading: false,
+      isError: false,
+    });
 
-    renderHook(() =>
-      useStoryboardHistorySeed({
-        draftId: 'draft-1',
-        isCanvasLoading: false,
-        handleRestore,
-      }),
+    const handleRestore = vi.fn();
+    renderHook(() => useStoryboardHistorySeed({ draftId: 'draft-1', handleRestore }));
+
+    expect(mockRestoreFromSnapshot).toHaveBeenCalledTimes(1);
+    // Should have used the latest snapshot, not the older one.
+    expect(mockRestoreFromSnapshot).toHaveBeenCalledWith(LATEST_SNAPSHOT.snapshot);
+  });
+
+  it('(4) calls handleRestore with { skipSave: true } — saveNow must NOT be called', () => {
+    mockUseStoryboardHistoryFetch.mockReturnValue({
+      entries: [LATEST_SNAPSHOT],
+      isLoading: false,
+      isError: false,
+    });
+
+    const handleRestore = vi.fn();
+    renderHook(() => useStoryboardHistorySeed({ draftId: 'draft-1', handleRestore }));
+
+    expect(handleRestore).toHaveBeenCalledTimes(1);
+    const [, , options] = handleRestore.mock.calls[0] as [Node[], Edge[], { skipSave?: boolean }];
+    expect(options?.skipSave).toBe(true);
+  });
+
+  it('(4b) passes the nodes and edges from getSnapshot to handleRestore', () => {
+    mockUseStoryboardHistoryFetch.mockReturnValue({
+      entries: [LATEST_SNAPSHOT],
+      isLoading: false,
+      isError: false,
+    });
+
+    const handleRestore = vi.fn();
+    renderHook(() => useStoryboardHistorySeed({ draftId: 'draft-1', handleRestore }));
+
+    expect(handleRestore).toHaveBeenCalledTimes(1);
+    const [nodes, edges] = handleRestore.mock.calls[0] as [Node[], Edge[]];
+    expect(nodes).toBe(RESTORED_NODES);
+    expect(edges).toBe(RESTORED_EDGES);
+  });
+
+  it('(5) only seeds once — subsequent entry updates do not trigger another restore', () => {
+    // First render: loading
+    mockUseStoryboardHistoryFetch.mockReturnValue({ entries: [], isLoading: true, isError: false });
+
+    const handleRestore = vi.fn();
+    const { rerender } = renderHook(() =>
+      useStoryboardHistorySeed({ draftId: 'draft-1', handleRestore }),
     );
 
-    expect(mockLoadServerHistory).not.toHaveBeenCalled();
-    expect(mockRestoreFromSnapshot).not.toHaveBeenCalled();
-    expect(handleRestore).not.toHaveBeenCalled();
+    // Simulate entries becoming available (fetch resolves).
+    mockUseStoryboardHistoryFetch.mockReturnValue({
+      entries: [LATEST_SNAPSHOT],
+      isLoading: false,
+      isError: false,
+    });
+    rerender();
+
+    expect(handleRestore).toHaveBeenCalledTimes(1);
+
+    // Another re-render (e.g. new entries arrive later) must NOT re-seed.
+    const EXTRA_SNAPSHOT = { snapshot: { blocks: [STALE_BLOCK], edges: [] }, createdAt: '2024-01-02T00:00:00Z' };
+    mockUseStoryboardHistoryFetch.mockReturnValue({
+      entries: [LATEST_SNAPSHOT, EXTRA_SNAPSHOT],
+      isLoading: false,
+      isError: false,
+    });
+    rerender();
+
+    // Still only called once.
+    expect(handleRestore).toHaveBeenCalledTimes(1);
   });
 });

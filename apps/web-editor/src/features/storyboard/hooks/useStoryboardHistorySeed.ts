@@ -1,80 +1,85 @@
 /**
- * useStoryboardHistorySeed — seeds the in-memory undo/redo stack from server
- * history and auto-restores the most recent snapshot into the canvas on mount.
+ * useStoryboardHistorySeed — auto-restores the most recent server-persisted
+ * history snapshot onto the canvas on page load.
  *
- * Called once when the storyboard page finishes loading and the server history
- * has resolved. Subsequent re-fetches within the React Query stale window are
- * ignored via the `seededRef` guard.
+ * Problem: the canvas hydrates from `GET /storyboards/:draftId` which returns
+ * the raw DB state. If the DB was corrupted by a prior premature `saveNow`
+ * (which wrote sentinel-only state), the hydrated canvas shows only START/END.
+ * The user's actual scene blocks exist only in the history log.
  *
- * Steps performed on first successful load:
- *  1. `loadServerHistory(entries)` — seeds the undo/redo stack so keyboard
- *     undo/redo works across browser sessions.
- *  2. `restoreFromSnapshot(mostRecent.snapshot)` — applies the latest snapshot
- *     to the external canvas store.
- *  3. `handleRestore(nodes, edges)` — bridges the store state back into React
- *     Flow so the canvas re-renders with the restored graph.
+ * Solution: after the history entries are fetched, take the latest snapshot,
+ * call `restoreFromSnapshot` (external store), then call `handleRestore` with
+ * `{ skipSave: true }` so React Flow state is updated WITHOUT overwriting the DB.
+ * The deferred autosave (30 s) will eventually write the correct restored state.
+ *
+ * Guard: only fires once per mount (`hasSeeded` ref). Re-renders caused by
+ * query state updates do not trigger repeated restores.
+ *
+ * Caller: `StoryboardPage` after `useStoryboardCanvas` and `useHandleRestore` are
+ * both initialised, and after `initHistoryStore` has been called for the draft.
  */
 
 import { useEffect, useRef } from 'react';
 
 import type { Node, Edge } from '@xyflow/react';
 
-import { loadServerHistory } from '../store/storyboard-history-store';
-import { restoreFromSnapshot, getSnapshot } from '../store/storyboard-store';
 import { useStoryboardHistoryFetch } from './useStoryboardHistoryFetch';
+import { restoreFromSnapshot, getSnapshot } from '../store/storyboard-store';
+import type { CanvasSnapshot } from '../store/storyboard-history-store';
 
 // ── Args ───────────────────────────────────────────────────────────────────────
 
 type UseStoryboardHistorySeedArgs = {
-  /** The generation draft ID — passed through to `useStoryboardHistoryFetch`. */
+  /** The generation draft ID used to fetch history snapshots. */
   draftId: string;
-  /** True while the canvas initial fetch is still in-flight. */
-  isCanvasLoading: boolean;
   /**
-   * Callback that bridges store-restored nodes/edges back into React Flow state.
-   * Provided by `useHandleRestore` from `StoryboardPage`.
+   * Callback returned by `useHandleRestore`. Called with `{ skipSave: true }`
+   * so that the auto-restore path does NOT write back to the DB immediately.
    */
-  handleRestore: (nodes: Node[], edges: Edge[]) => void;
+  handleRestore: (nodes: Node[], edges: Edge[], options?: { skipSave?: boolean }) => void;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 
 /**
- * Fetches server history snapshots and seeds the in-memory undo/redo stack,
- * then auto-restores the most recent snapshot into the canvas on initial load.
+ * Applies the most recent server-persisted history snapshot to the canvas when
+ * the history entries first become available after page load.
  *
- * @param draftId         - Generation draft ID.
- * @param isCanvasLoading - Canvas loading state from `useStoryboardCanvas`.
- * @param handleRestore   - Restore bridge from `useHandleRestore`.
+ * If there are no history entries, or if the fetch is still in flight, this hook
+ * is a no-op. It fires at most once per mount (guarded by a `hasSeeded` ref).
+ *
+ * @param draftId       - The draft whose history is fetched.
+ * @param handleRestore - The restore callback from `useHandleRestore`.
  */
 export function useStoryboardHistorySeed({
   draftId,
-  isCanvasLoading,
   handleRestore,
 }: UseStoryboardHistorySeedArgs): void {
-  const { entries, isLoading: isHistoryLoading } = useStoryboardHistoryFetch(draftId);
-
-  // Guard: seed at most once per page lifecycle.
-  const seededRef = useRef(false);
+  const { entries, isLoading } = useStoryboardHistoryFetch(draftId);
+  const hasSeeded = useRef(false);
 
   useEffect(() => {
-    // Wait until both the canvas and the history fetch have completed.
-    if (isCanvasLoading || isHistoryLoading) return;
-    // Only seed once per page lifecycle.
-    if (seededRef.current) return;
-    if (!entries.length) return;
+    // Wait until the history fetch has resolved and we haven't already seeded.
+    if (isLoading || hasSeeded.current || entries.length === 0) return;
 
-    seededRef.current = true;
+    hasSeeded.current = true;
 
-    // Seed the in-memory undo/redo stack from server snapshots.
-    loadServerHistory(entries);
+    // The entries array is oldest-first; the last entry is the most recent.
+    const latest = entries[entries.length - 1];
 
-    // Auto-restore the most recent snapshot (last entry = newest) into the canvas.
-    const mostRecent = entries[entries.length - 1];
-    restoreFromSnapshot(mostRecent.snapshot);
+    // Apply the snapshot to the external store. This reconstructs React Flow
+    // Node[] and Edge[] from the serialisable StoryboardBlock[] / StoryboardEdge[].
+    // `positions` is optional on CanvasSnapshot — the cast is safe because
+    // StoryboardState is a valid CanvasSnapshot subset (positions absent → fallback
+    // to block.positionX/Y in restoreFromSnapshot).
+    const snapshot = latest.snapshot as CanvasSnapshot;
+    restoreFromSnapshot(snapshot);
 
-    // Bridge the restored store state back into React Flow so the canvas re-renders.
-    const { nodes, edges } = getSnapshot();
-    handleRestore(nodes, edges);
-  }, [isCanvasLoading, isHistoryLoading, entries, handleRestore]);
+    // Read back the reconstructed React Flow state and hand it to handleRestore.
+    // Pass { skipSave: true } so the DB is NOT overwritten at this point — the
+    // nodesRef in useStoryboardAutosave hasn't updated yet (setNodes not yet
+    // propagated), and saving now would persist the pre-restore sentinel-only state.
+    const { nodes: storeNodes, edges: storeEdges } = getSnapshot();
+    handleRestore(storeNodes, storeEdges, { skipSave: true });
+  }, [entries, isLoading, handleRestore]);
 }

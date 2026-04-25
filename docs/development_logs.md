@@ -40,13 +40,13 @@
 - added: `useExportRender.ts`, `RenderProgressBar.tsx`, `ExportModal.tsx`, `RendersQueueModal.tsx`
 - fixed: REMOTION_ENTRY_POINT; black screen (presigned URLs); download URLs
 
-## Authentication
+## Authentication (Epic 8)
 - added: session-based auth (32-byte tokens, SHA-256, 7-day TTL, bcrypt-12); rate limiting
 - added: auth routes (register/login/logout/me); password-reset + email-verify (single-use)
 - added: OAuth (Google + GitHub); Bearer injection + 401 interceptor; `APP_DEV_AUTH_BYPASS`
 - added FE: LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage; AuthProvider, ProtectedRoute
 
-## AI Platform (fal.ai + ElevenLabs)
+## AI Platform — Epic 9 (fal.ai + ElevenLabs)
 - removed: BYOK layer; added `APP_FAL_KEY`, `APP_ELEVENLABS_API_KEY`
 - added: `fal-models.ts` (9 models), `elevenlabs-models.ts`; unified AI_MODELS (13); `falOptions.validator.ts`; `aiGeneration.assetResolver.ts`
 - added: `ai-generate-audio.handler.ts`; `voice.repository.ts`; `GET /ai/models`, `GET /ai/voices`
@@ -94,32 +94,30 @@
 - fixed: `restoreFromSnapshot` — proper Node/Edge reconstruction from StoryboardBlock/StoryboardEdge; `positions?` optional in CanvasSnapshot
 - documented: `docs/architecture-rules.md` §9.7 approved exceptions table
 
-## Storyboard Bug Fixes (2026-04-24)
-- ST-FIX-1: Home button added to `StoryboardPage.topBar.tsx`; tokens → `storyboardPageStyles.ts`; navigation tests split (177L); 23 tests
-- ST-FIX-2: `draggable: false → true` for START/END sentinels in `useStoryboardCanvas`, `restoreFromSnapshot`, `applySnapshot`; 4 tests
-- ST-FIX-3: `useStoryboardAutosave` — signature `(draftId, nodes, edges)`; removed store subscription; debounce via useEffect; split: `.test.ts`+`.save-now.test.ts`+`.fixtures.ts`; 13 tests
-- ST-FIX-4: block IDs → `crypto.randomUUID()`; `handleAddBlock` → `useHandleAddBlock.ts`; 7 tests; `StoryboardPage.tsx` at 300L
-- ST-FIX-5: `useHandleRestore.ts` — re-wires `onRemove`, calls setNodes/setEdges/pushSnapshot/saveNow; 18 tests; `StoryboardPage.tsx` at 299L
-- ST-FIX-6: `e2e/storyboard-fixes.spec.ts` — 5 Playwright E2E tests (home button, sentinel draggable, block persistence, history restore, save trigger)
-- FOLLOW-2: edge IDs → `crypto.randomUUID()`; `useStoryboardDrag.test.ts` (10 tests)
+## Storyboard Bug Fixes + Follow-ups (2026-04-24)
+- ST-FIX-1: added `onNavigateHome` prop + Home button to `StoryboardPage.topBar.tsx`; tokens → `storyboardPageStyles.ts`; navigation tests split; 23 tests
+- ST-FIX-2: `draggable: false → true` for START/END sentinels in `useStoryboardCanvas.blockToNode`, `storyboard-store.restoreFromSnapshot`, `storyboard-history-store.applySnapshot`; 4 new unit tests
+- ST-FIX-3: refactored `useStoryboardAutosave` — signature `(draftId, nodes, edges)`; removed store subscription; test split: `.test.ts` + `.save-now.test.ts` + `.fixtures.ts`; 13 tests
+- ST-FIX-4: `useAddBlock.ts` IDs → `crypto.randomUUID()`; `handleAddBlock` → `useHandleAddBlock.ts`; `StoryboardPage.save-on-add.test.tsx` (3 tests) + `useHandleAddBlock.test.ts` (4 tests)
+- ST-FIX-5: `StoryboardHistoryPanel` `onRestore`; `useHandleRestore.ts` re-wires `onRemove` + `setNodes/setEdges/pushSnapshot/saveNow`; 18 tests
+- ST-FIX-6: `e2e/storyboard-fixes.spec.ts` — 5 Playwright E2E tests (home button, sentinel draggable, block persistence, history restore, UI-click save)
+- FOLLOW-1: `StoryboardPage.assetPanel.test.tsx` — added `vi.mock LibraryPanel`; 7/7 pass
+- FOLLOW-2: `useStoryboardDrag.ts` — edge IDs → `crypto.randomUUID()`; `useStoryboardDrag.test.ts` (10 tests)
 
-## Storyboard Layout Bugs (2026-04-25)
-- SB-BUG-A: `insertSentinelsAtomically` in `storyboard.service.ts` — `SELECT ... FOR UPDATE` + deadlock retry (errno 1213); `loadStoryboard` auto-initializes; `dedupSentinels()` client-side filter; 6 tests
-- SB-BUG-A: removed `initializeStoryboard` POST call from `useStoryboardCanvas.ts`
-- SB-BUG-B: `AUTOSAVE_DEBOUNCE_MS` 30 000 → 5 000; `setTimeout(() => void saveNow(), 0)` on drag-end, connect, structural edge change, block add; E2E drag-end PUT assertion added
+## Storyboard Layout Bug Fixes (2026-04-25)
+- SB-BUG-A: `insertSentinelsAtomically(draftId)` — `SELECT COUNT(*) FOR UPDATE` + deadlock retry; `insertSentinelsInTx` in repo (§5); `dedupSentinels()` client-side filter; `useStoryboardCanvas.test.ts` (6 tests)
+- SB-BUG-B: autosave debounce 30 000 → 5 000ms; `setTimeout(() => void saveNow(), 0)` on drag-end, connect, structural edge change; `useAddBlock.ts` saveNow param; timer tests updated
 
-## Storyboard Bug Fixes — Telegram Report (2026-04-25)
-- Bug 1 (history auto-restore): added `useStoryboardHistorySeed.ts` — seeds undo/redo stack from server history + restores most recent snapshot on load; wired into `StoryboardPage.tsx`; 5 tests
-- Bug 2 (step navigation): `StoryboardCard.handleResume/handleKeyDown` — navigate to `/storyboard/:id` for step2/step3/completed, `/generate` only for draft; 8 new navigation tests
-- Bug 3 (scene save): `useSceneModal` now accepts `draftId`; calls `saveStoryboard` immediately after `updateBlock`, bypassing 5s autosave; 8 tests
-- Bug 2b (status never set): added `updateDraftStatus(draftId, status): Promise<void>` to `generationDraft.repository.ts` (292L); 4 tests
-- Bug 2b service: `assertOwnership` refactored to return `GenerationDraft` (zero extra round-trips); `initializeStoryboard` calls `updateDraftStatus(draftId, 'step2')` only when `draft.status === 'draft'`; 5 tests split to `storyboard.service.status.test.ts` + `storyboard.service.fixtures.ts`
+## Storyboard Status Advance (ST-BUG2c) (2026-04-25)
+- moved: `updateDraftStatus(draftId, 'step2')` from dead-code `initializeStoryboard` POST → `loadStoryboard` GET (where FE actually calls); `assertOwnership` now returns draft row
+- removed: `POST /:draftId/initialize` route, controller handler, FE `initializeStoryboard()` api.ts export
+- added: `countSentinelBlocksForUpdate(conn, draftId)` in storyboard.repository.ts (§5 — moved inline SQL from service)
+- added: `storyboard.service.status.test.ts` (5 tests); `storyboard.service.fixtures.ts`
+- fixed: 4 E2E spec files — `initializeDraft()` helper updated from `POST /initialize` → `GET /storyboards/:draftId`
 
-## ST-BUG2c — Fix Bug 2 Status Advance (2026-04-25)
-- ST-BUG2c-1: committed ST-BUG2b-2+3 working-tree changes; extracted `countSentinelBlocksForUpdate(conn, draftId)` from inline SQL in `storyboard.service.ts` → `storyboard.repository.ts` (§5 fix); 17/17 tests pass; `storyboard.repository.ts` 290L
-- ST-BUG2c-2: moved `updateDraftStatus(draftId, 'step2')` guard from `initializeStoryboard` → `loadStoryboard`; FE calls only GET, making status advance live on every real page load; `storyboard.service.ts` 281L
-- ST-BUG2c-3: rewrote `storyboard.service.status.test.ts` — 5 tests now target `loadStoryboard` (draft→called, step2/step3/completed→not called, correct {blocks,edges}); removed stale `updateDraftStatus` assertions from `initializeStoryboard` describe in `storyboard.service.test.ts`; 17/17 pass
-- ST-BUG2c-4: removed orphaned `POST /storyboards/:draftId/initialize` route — deleted handler from `storyboard.controller.ts`, route from `storyboard.routes.ts`, export from `storyboard/api.ts`; removed mocks from `StoryboardPage.save-on-add.test.tsx`, `useSceneTemplates.test.ts`, `useStoryboardCanvas.test.ts`; removed POST /initialize integration tests; updated 4 E2E specs (`storyboard-drag`, `storyboard-canvas`, `storyboard-fixes`, `storyboard-history-regression`) to use GET /storyboards/:draftId instead of POST /initialize; service function `initializeStoryboard` retained for unit tests; 1207 API + 2543 FE tests pass
+## Storyboard Edit-Scene + Canvas Restore (ST-SB-BUG5) (2026-04-25)
+- ST-SB-BUG5-1: `useSceneModal` now accepts `setNodes` — after `updateBlock(blockId, patch)` calls `setNodes` to sync React Flow `node.data.block` in-place; `StoryboardPage.tsx` passes `setNodes`; `useSceneModal.test.ts` (8 tests, new)
+- ST-SB-BUG5-2: `useHandleRestore.ts` — added `HandleRestoreOptions { skipSave?: boolean }`; skips `saveNow()` when true; `useStoryboardHistorySeed.ts` (new, 80L) — fetches history on page load, calls `handleRestore({ skipSave: true })` with `hasSeeded` guard; `StoryboardPage.tsx` wires seed hook (297L); `useHandleRestore.test.ts` extended (+4 tests); `useStoryboardHistorySeed.test.ts` new (6 tests); StoryboardPage test files mocked for QueryClientProvider
 
 ## Architectural Decisions
 - §9.7 300-line cap: `*.fixtures.ts` + `.<topic>.test.ts` splits; approved exceptions: `fal-models.ts` (1093L), `file.repository.ts` (306L), `useProjectInit.test.ts` (318L), `StoryboardCard.tsx` (319L), `storyboard-store.ts` (307L); e2e/*.spec.ts exempt
@@ -138,10 +136,9 @@
 - E2E CORS: `page.request.fetch()` + `page.route()` with `access-control-allow-origin: *`; PUT requests use `page.request.put` (server-side, bypasses browser CORS)
 - Storyboard autosave: `useStoryboardAutosave` reads React state via params+refs, NOT external store subscription
 - Storyboard IDs: blocks and edges always `crypto.randomUUID()` at creation — server schema requires UUID
-- Immediate save pattern: extract callback to `useHandle*.ts` hook; `setTimeout(() => void saveNow(), 0)` defers until after React re-render
-- Sentinel init: `loadStoryboard` auto-initializes START/END atomically; client-side `dedupSentinels()` as safety net
-- Status advance: `loadStoryboard` (GET) advances draft status draft→step2 on first call; `initializeStoryboard` (POST) removed from HTTP routing (service function kept for unit tests only)
-- §5 SQL placement: all transactional SQL including `SELECT ... FOR UPDATE` must be in repository methods, not inline in service functions
+- Immediate save pattern: extract callback to `useHandle*.ts` hook; `setTimeout(() => void saveNow(), 0)` defers save until after React re-render
+- Sentinel init: `loadStoryboard` auto-initializes START/END atomically via `SELECT ... FOR UPDATE` + deadlock retry; client-side `dedupSentinels()` as safety net
+- Auto-restore skip-save: `handleRestore({ skipSave: true })` in seed path prevents DB overwrite before React re-render; manual restore always calls saveNow
 
 ## Known Issues / TODOs
 - ACL middleware stub — real ownership check deferred (B3 it.todo 403 tests)
@@ -156,6 +153,5 @@
 - E2E image/audio timeline-drop tests skip when no assets linked to test project
 - **ST-B5 TS2305**: `STORYBOARD_STYLES` import from api-contracts fails in container (stale dist); fix: rebuild api-contracts Docker image
 - **Keyboard undo/redo broken**: `storyboard-history-store.applySnapshot` calls `storyboard-store.setNodes/setEdges` but React Flow renders from `useState` — Ctrl+Z/Y don't visually update canvas
-- **StoryboardPage.tsx 305L**: exceeds 300-line cap by 5 lines; needs extraction or consolidation
-- **StoryboardCard.tsx 322L**: exceeds approved exception (319L); needs reduction or formal exception extension
-- **E2E auth infrastructure**: storageState/ProtectedRoute issue causes storyboard E2E specs to fail at Sign In page; pre-existing, unrelated to ST-BUG2c
+- `initializeStoryboard` service function orphaned (no callers) — remove or add deprecation warning
+- `StoryboardCard.tsx` (319L) exceeds §9.7 cap — formalize as approved exception in architecture-rules.md

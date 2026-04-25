@@ -7,8 +7,9 @@
 
 import { useState, useCallback } from 'react';
 
-import { updateBlock, removeBlock, getSnapshot } from '../store/storyboard-store';
-import { saveStoryboard } from '../api';
+import type { Node } from '@xyflow/react';
+
+import { updateBlock, removeBlock } from '../store/storyboard-store';
 import type { StoryboardBlock } from '../types';
 import type { SceneModalSavePayload } from '../components/SceneModal.types';
 
@@ -32,10 +33,13 @@ type UseSceneModalResult = {
 /**
  * Encapsulates SceneModal state and store interactions for StoryboardPage.
  *
- * @param draftId - The generation draft ID, used to immediately persist the
- *   storyboard after a scene is saved (bypasses the 5 s autosave debounce).
+ * @param setNodes - React Flow setNodes dispatch; called after updateBlock to
+ *   patch the matching node's data.block in-place so SceneBlockNode re-renders
+ *   immediately with the new values, and autosave nodesRef stays fresh.
  */
-export function useSceneModal(draftId: string): UseSceneModalResult {
+export function useSceneModal(
+  setNodes: React.Dispatch<React.SetStateAction<Node[]>>,
+): UseSceneModalResult {
   const [editingBlock, setEditingBlock] = useState<StoryboardBlock | null>(null);
 
   const openModal = useCallback((block: StoryboardBlock): void => {
@@ -44,7 +48,7 @@ export function useSceneModal(draftId: string): UseSceneModalResult {
 
   const handleSave = useCallback(
     (blockId: string, payload: SceneModalSavePayload): void => {
-      updateBlock(blockId, {
+      const patch = {
         name: payload.name || null,
         prompt: payload.prompt,
         durationS: payload.durationS,
@@ -55,53 +59,33 @@ export function useSceneModal(draftId: string): UseSceneModalResult {
           mediaType: m.mediaType,
           sortOrder: m.sortOrder,
         })),
-      });
-      setEditingBlock(null);
+      };
 
-      // Immediately persist the updated block to the server, bypassing the
-      // autosave debounce. The store has already been updated by updateBlock()
-      // above, so getSnapshot() reflects the new state.
-      if (draftId) {
-        const { nodes, edges } = getSnapshot();
-        const stateToSave = {
-          blocks: nodes.map((node) => {
-            if (node.type === 'scene-block') {
-              const data = node.data as { block: import('../types').StoryboardBlock };
-              return {
-                ...data.block,
-                positionX: node.position.x,
-                positionY: node.position.y,
-              };
-            }
-            return {
-              id: node.id,
-              draftId,
-              blockType: (node.type === 'start' ? 'start' : 'end') as 'start' | 'end',
-              name: null,
-              prompt: null,
-              durationS: 0,
-              positionX: node.position.x,
-              positionY: node.position.y,
-              sortOrder: 0,
-              style: null,
-              createdAt: '',
-              updatedAt: '',
-              mediaItems: [],
-            };
-          }),
-          edges: edges.map((e) => ({
-            id: e.id,
-            draftId,
-            sourceBlockId: e.source,
-            targetBlockId: e.target,
-          })),
-        };
-        saveStoryboard(draftId, stateToSave).catch((err: unknown) => {
-          console.error('[useSceneModal] Immediate save after scene edit failed:', err);
-        });
-      }
+      // Update the external store (read by autosave getSnapshot).
+      updateBlock(blockId, patch);
+
+      // Sync React Flow nodes state so SceneBlockNode re-renders immediately
+      // and nodesRef in useStoryboardAutosave reflects the current block data.
+      setNodes((prev) =>
+        prev.map((n) =>
+          n.id !== blockId
+            ? n
+            : {
+                ...n,
+                data: {
+                  ...n.data,
+                  block: {
+                    ...(n.data as { block: StoryboardBlock }).block,
+                    ...patch,
+                  },
+                },
+              },
+        ),
+      );
+
+      setEditingBlock(null);
     },
-    [draftId],
+    [setNodes],
   );
 
   const handleDelete = useCallback((blockId: string): void => {

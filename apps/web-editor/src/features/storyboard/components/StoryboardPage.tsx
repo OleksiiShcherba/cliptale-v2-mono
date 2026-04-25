@@ -8,7 +8,7 @@ import '@xyflow/react/dist/style.css';
 
 import React, { useState, useCallback, useEffect } from 'react';
 
-import { addEdge } from '@xyflow/react';
+import { addEdge, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
 import type {
   NodeTypes,
   OnNodesChange,
@@ -20,7 +20,6 @@ import type {
   Node,
   NodeMouseHandler,
 } from '@xyflow/react';
-import { applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { useStoryboardCanvas } from '../hooks/useStoryboardCanvas';
@@ -28,10 +27,10 @@ import { useAddBlock } from '../hooks/useAddBlock';
 import { useHandleAddBlock } from '../hooks/useHandleAddBlock';
 import { useHandleRestore } from '../hooks/useHandleRestore';
 import { useSceneModal } from '../hooks/useSceneModal';
+import { useStoryboardHistorySeed } from '../hooks/useStoryboardHistorySeed';
 import { useStoryboardAutosave } from '../hooks/useStoryboardAutosave';
 import { useStoryboardDrag } from '../hooks/useStoryboardDrag';
 import { useStoryboardHistoryPush } from '../hooks/useStoryboardHistoryPush';
-import { useStoryboardHistorySeed } from '../hooks/useStoryboardHistorySeed';
 import { useStoryboardKeyboard } from '../hooks/useStoryboardKeyboard';
 import {
   storyboardHistoryStore,
@@ -49,11 +48,7 @@ import { SidebarTab } from './SidebarTab';
 import { StartNode } from './StartNode';
 import { StoryboardAssetPanel } from './StoryboardAssetPanel';
 import { StoryboardCanvas } from './StoryboardCanvas';
-import {
-  EffectsIcon,
-  LibraryIcon,
-  StoryboardIcon,
-} from './storyboardIcons';
+import { EffectsIcon, LibraryIcon, StoryboardIcon } from './storyboardIcons';
 import { StoryboardHistoryPanel } from './StoryboardHistoryPanel';
 import { StoryboardTopBar } from './StoryboardPage.topBar';
 import { storyboardPageStyles as s, BORDER, ERROR } from './storyboardPageStyles';
@@ -90,7 +85,7 @@ export function StoryboardPage(): React.ReactElement {
 
   // ── SceneModal ───────────────────────────────────────────────────────────────
 
-  const { editingBlock, openModal, handleSave, handleDelete, handleClose } = useSceneModal(safeDraftId);
+  const { editingBlock, openModal, handleSave, handleDelete, handleClose } = useSceneModal(setNodes);
 
   const handleNodeClick: NodeMouseHandler<Node> = useCallback(
     (_event, node) => {
@@ -139,10 +134,7 @@ export function StoryboardPage(): React.ReactElement {
   const { pushSnapshot } = useStoryboardHistoryPush(safeDraftId);
   const { handleAddBlock } = useHandleAddBlock({ addBlock, saveNow });
   const { handleRestore } = useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow });
-
-  // ── Seed history + auto-restore most recent snapshot on mount ────────────────
-
-  useStoryboardHistorySeed({ draftId: safeDraftId, isCanvasLoading: isLoading, handleRestore });
+  useStoryboardHistorySeed({ draftId: safeDraftId, handleRestore });
 
   // ── Edge connection callbacks ────────────────────────────────────────────────
 

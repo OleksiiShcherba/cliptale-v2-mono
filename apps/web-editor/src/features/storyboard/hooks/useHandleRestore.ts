@@ -39,13 +39,35 @@ type UseHandleRestoreArgs = {
   saveNow: () => Promise<void>;
 };
 
+/**
+ * Options for the `handleRestore` callback.
+ */
+type HandleRestoreOptions = {
+  /**
+   * When `true`, skips the `saveNow()` call at the end of the restore.
+   *
+   * Use this on the auto-restore path (page-load seed) to avoid overwriting the
+   * DB with the pre-restore React Flow state. At the point `saveNow` would fire,
+   * `nodesRef.current` in `useStoryboardAutosave` still holds the stale
+   * sentinel-only state because `setNodes` hasn't propagated through the render
+   * cycle yet. Skipping the save prevents oscillating DB corruption.
+   *
+   * Manual restores (via `StoryboardHistoryPanel`) should leave this `false` (the
+   * default) so the restored state is immediately persisted to the server.
+   */
+  skipSave?: boolean;
+};
+
 type UseHandleRestoreResult = {
   /**
    * Callback passed as `onRestore` to `StoryboardHistoryPanel`.
    * Receives the reconstructed nodes/edges from the external store and
    * syncs them into React state with a correctly wired `onRemove` handler.
+   *
+   * Pass `{ skipSave: true }` on the auto-restore / seed path to prevent
+   * overwriting the DB with pre-restore state.
    */
-  handleRestore: (nodes: Node[], edges: Edge[]) => void;
+  handleRestore: (nodes: Node[], edges: Edge[], options?: HandleRestoreOptions) => void;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -62,7 +84,7 @@ export function useHandleRestore({
   saveNow,
 }: UseHandleRestoreArgs): UseHandleRestoreResult {
   const handleRestore = useCallback(
-    (nodes: Node[], edges: Edge[]): void => {
+    (nodes: Node[], edges: Edge[], options?: HandleRestoreOptions): void => {
       // Re-wire onRemove for scene-block nodes. restoreFromSnapshot sets it to
       // `() => undefined` as a placeholder — replace with the real removeNode.
       const rewiredNodes = nodes.map((node) => {
@@ -79,7 +101,14 @@ export function useHandleRestore({
       setNodes(rewiredNodes);
       setEdges(edges);
       pushSnapshot(rewiredNodes, edges);
-      void saveNow();
+
+      // Skip the immediate save on the auto-restore / seed path. At the point
+      // saveNow would fire, nodesRef.current in useStoryboardAutosave still has
+      // the pre-restore state (setNodes hasn't propagated yet), so calling it
+      // would persist stale sentinel-only nodes to the DB.
+      if (!options?.skipSave) {
+        void saveNow();
+      }
     },
     [setNodes, setEdges, pushSnapshot, removeNode, saveNow],
   );

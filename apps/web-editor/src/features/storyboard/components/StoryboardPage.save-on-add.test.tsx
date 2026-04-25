@@ -27,6 +27,7 @@ const { mockSaveStoryboard } = vi.hoisted(() => ({
 // Mock the storyboard API — this is what saveNow ultimately calls.
 vi.mock('@/features/storyboard/api', () => ({
   saveStoryboard: mockSaveStoryboard,
+  initializeStoryboard: vi.fn().mockResolvedValue({ blocks: [], edges: [] }),
   fetchStoryboard: vi.fn().mockResolvedValue({ blocks: [], edges: [] }),
   persistHistorySnapshot: vi.fn().mockResolvedValue(undefined),
   fetchHistorySnapshots: vi.fn().mockResolvedValue([]),
@@ -102,8 +103,8 @@ vi.mock('./StoryboardAssetPanel', () => ({
   ),
 }));
 
-// Mock useStoryboardHistorySeed — uses React Query internally; no-op in
-// StoryboardPage save-on-add tests which do not need the history-seed behaviour.
+// Mock useStoryboardHistorySeed — it calls useStoryboardHistoryFetch (React Query)
+// which requires a QueryClientProvider. Seed logic is tested in its own unit test.
 vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
   useStoryboardHistorySeed: vi.fn(),
 }));

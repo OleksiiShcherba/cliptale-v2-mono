@@ -5,9 +5,9 @@
  * - openModal: sets editingBlock
  * - handleClose: clears editingBlock
  * - handleDelete: calls removeBlock and clears editingBlock
- * - handleSave: calls updateBlock, clears editingBlock, and immediately calls
- *   saveStoryboard (Bug 3 fix: immediate save after scene edit)
- * - handleSave: does NOT call saveStoryboard when draftId is empty
+ * - handleSave: calls updateBlock with correct patch, clears editingBlock
+ * - handleSave: calls setNodes with a function that patches data.block in-place
+ * - handleSave: does NOT mutate nodes for non-matching node ids
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -15,53 +15,19 @@ import { renderHook, act } from '@testing-library/react';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────────
 
-const { mockUpdateBlock, mockRemoveBlock, mockGetSnapshot, mockSaveStoryboard } = vi.hoisted(() => ({
+const { mockUpdateBlock, mockRemoveBlock } = vi.hoisted(() => ({
   mockUpdateBlock: vi.fn(),
   mockRemoveBlock: vi.fn(),
-  mockGetSnapshot: vi.fn(() => ({
-    nodes: [
-      {
-        id: 'block-1',
-        type: 'scene-block',
-        position: { x: 100, y: 200 },
-        data: {
-          block: {
-            id: 'block-1',
-            draftId: 'draft-1',
-            blockType: 'scene',
-            name: 'Scene A',
-            prompt: 'A prompt',
-            durationS: 10,
-            positionX: 100,
-            positionY: 200,
-            sortOrder: 1,
-            style: null,
-            createdAt: '',
-            updatedAt: '',
-            mediaItems: [],
-          },
-        },
-      },
-    ],
-    edges: [],
-    positions: {},
-    selectedBlockId: null,
-  })),
-  mockSaveStoryboard: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../store/storyboard-store', () => ({
   updateBlock: mockUpdateBlock,
   removeBlock: mockRemoveBlock,
-  getSnapshot: mockGetSnapshot,
-}));
-
-vi.mock('../api', () => ({
-  saveStoryboard: mockSaveStoryboard,
 }));
 
 import { useSceneModal } from './useSceneModal';
 import type { StoryboardBlock } from '../types';
+import type { Node } from '@xyflow/react';
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
 
@@ -84,27 +50,46 @@ function makeBlock(overrides: Partial<StoryboardBlock> = {}): StoryboardBlock {
   };
 }
 
-function makeSavePayload(overrides = {}) {
+function makeSavePayload(overrides: Partial<{
+  name: string;
+  prompt: string;
+  durationS: number;
+  style: string | null;
+  mediaItems: Array<{ fileId: string; mediaType: 'image' | 'video' | 'audio'; filename: string; sortOrder: number }>;
+}> = {}) {
   return {
     name: 'Updated Scene',
     prompt: 'New prompt',
     durationS: 20,
-    style: 'cyberpunk',
-    mediaItems: [],
+    style: 'cyberpunk' as string | null,
+    mediaItems: [] as Array<{ fileId: string; mediaType: 'image' | 'video' | 'audio'; filename: string; sortOrder: number }>,
     ...overrides,
+  };
+}
+
+function makeFlowNode(blockOverrides: Partial<StoryboardBlock> = {}): Node {
+  const block = makeBlock(blockOverrides);
+  return {
+    id: block.id,
+    type: 'scene-block',
+    position: { x: block.positionX, y: block.positionY },
+    data: { block, onRemove: vi.fn() },
   };
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
 describe('useSceneModal', () => {
+  let mockSetNodes: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSetNodes = vi.fn();
   });
 
   describe('openModal', () => {
     it('should set editingBlock when openModal is called', () => {
-      const { result } = renderHook(() => useSceneModal('draft-1'));
+      const { result } = renderHook(() => useSceneModal(mockSetNodes));
 
       expect(result.current.editingBlock).toBeNull();
 
@@ -119,7 +104,7 @@ describe('useSceneModal', () => {
 
   describe('handleClose', () => {
     it('should clear editingBlock when handleClose is called', () => {
-      const { result } = renderHook(() => useSceneModal('draft-1'));
+      const { result } = renderHook(() => useSceneModal(mockSetNodes));
 
       act(() => {
         result.current.openModal(makeBlock());
@@ -135,7 +120,7 @@ describe('useSceneModal', () => {
 
   describe('handleDelete', () => {
     it('should call removeBlock with blockId and clear editingBlock', () => {
-      const { result } = renderHook(() => useSceneModal('draft-1'));
+      const { result } = renderHook(() => useSceneModal(mockSetNodes));
 
       act(() => {
         result.current.openModal(makeBlock());
@@ -153,7 +138,7 @@ describe('useSceneModal', () => {
 
   describe('handleSave', () => {
     it('should call updateBlock with the correct patch and clear editingBlock', () => {
-      const { result } = renderHook(() => useSceneModal('draft-1'));
+      const { result } = renderHook(() => useSceneModal(mockSetNodes));
 
       act(() => {
         result.current.openModal(makeBlock());
@@ -172,43 +157,53 @@ describe('useSceneModal', () => {
       expect(result.current.editingBlock).toBeNull();
     });
 
-    it('should immediately call saveStoryboard after updateBlock (Bug 3 fix)', () => {
-      const { result } = renderHook(() => useSceneModal('draft-1'));
+    it('should call setNodes after updateBlock to patch data.block in-place', () => {
+      const { result } = renderHook(() => useSceneModal(mockSetNodes));
+      const existingNode = makeFlowNode();
 
       act(() => {
         result.current.openModal(makeBlock());
       });
 
       act(() => {
-        result.current.handleSave('block-1', makeSavePayload());
+        result.current.handleSave('block-1', makeSavePayload({ prompt: 'Updated prompt' }));
       });
 
-      // saveStoryboard should have been called once with draftId and a StoryboardState
-      expect(mockSaveStoryboard).toHaveBeenCalledOnce();
-      const [draftIdArg, stateArg] = mockSaveStoryboard.mock.calls[0] as [string, { blocks: unknown[]; edges: unknown[] }];
-      expect(draftIdArg).toBe('draft-1');
-      expect(Array.isArray(stateArg.blocks)).toBe(true);
-      expect(Array.isArray(stateArg.edges)).toBe(true);
+      // setNodes must be called exactly once with a mapper function.
+      expect(mockSetNodes).toHaveBeenCalledOnce();
+
+      // Extract and invoke the updater function to verify it patches correctly.
+      const updater = mockSetNodes.mock.calls[0][0] as (prev: Node[]) => Node[];
+      const nextNodes = updater([existingNode]);
+
+      expect(nextNodes).toHaveLength(1);
+      const updatedData = nextNodes[0].data as { block: StoryboardBlock };
+      expect(updatedData.block.prompt).toBe('Updated prompt');
+      expect(updatedData.block.name).toBe('Updated Scene');
+      expect(updatedData.block.durationS).toBe(20);
     });
 
-    it('should NOT call saveStoryboard when draftId is empty string', () => {
-      const { result } = renderHook(() => useSceneModal(''));
+    it('should not mutate nodes whose id does not match blockId', () => {
+      const { result } = renderHook(() => useSceneModal(mockSetNodes));
+      const otherNode = makeFlowNode({ id: 'block-other', prompt: 'Original prompt' });
 
       act(() => {
         result.current.openModal(makeBlock());
       });
 
       act(() => {
-        result.current.handleSave('block-1', makeSavePayload());
+        result.current.handleSave('block-1', makeSavePayload({ prompt: 'Changed prompt' }));
       });
 
-      // updateBlock should still run, but saveStoryboard should not
-      expect(mockUpdateBlock).toHaveBeenCalledOnce();
-      expect(mockSaveStoryboard).not.toHaveBeenCalled();
+      const updater = mockSetNodes.mock.calls[0][0] as (prev: Node[]) => Node[];
+      const nextNodes = updater([otherNode]);
+
+      // The other node must be returned unchanged.
+      expect(nextNodes[0]).toBe(otherNode);
     });
 
     it('should map empty name string to null in the patch', () => {
-      const { result } = renderHook(() => useSceneModal('draft-1'));
+      const { result } = renderHook(() => useSceneModal(mockSetNodes));
 
       act(() => {
         result.current.openModal(makeBlock());
@@ -223,7 +218,7 @@ describe('useSceneModal', () => {
     });
 
     it('should map mediaItems with sequential IDs derived from blockId', () => {
-      const { result } = renderHook(() => useSceneModal('draft-1'));
+      const { result } = renderHook(() => useSceneModal(mockSetNodes));
 
       act(() => {
         result.current.openModal(makeBlock());
@@ -234,8 +229,8 @@ describe('useSceneModal', () => {
           'block-1',
           makeSavePayload({
             mediaItems: [
-              { fileId: 'file-a', mediaType: 'image', sortOrder: 0 },
-              { fileId: 'file-b', mediaType: 'video', sortOrder: 1 },
+              { fileId: 'file-a', mediaType: 'image', filename: 'a.jpg', sortOrder: 0 },
+              { fileId: 'file-b', mediaType: 'video', filename: 'b.mp4', sortOrder: 1 },
             ],
           }),
         );

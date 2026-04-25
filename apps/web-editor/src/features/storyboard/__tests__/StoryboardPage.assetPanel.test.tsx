@@ -91,8 +91,8 @@ vi.mock(
 // a QueryClientProvider that this test wrapper does not provide).
 vi.mock('@/features/storyboard/components/LibraryPanel');
 
-// Mock useStoryboardHistorySeed — uses React Query internally; no-op in
-// StoryboardPage asset-panel tests which do not need the history-seed behaviour.
+// Mock useStoryboardHistorySeed — it calls useStoryboardHistoryFetch (React Query)
+// which requires a QueryClientProvider. Seed logic is tested in its own unit test.
 vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
   useStoryboardHistorySeed: vi.fn(),
 }));

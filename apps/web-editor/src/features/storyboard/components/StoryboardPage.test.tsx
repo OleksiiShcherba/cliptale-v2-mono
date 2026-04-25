@@ -113,8 +113,9 @@ vi.mock('./StoryboardAssetPanel', () => ({
   ),
 }));
 
-// Mock useStoryboardHistorySeed — uses React Query internally; no-op in
-// StoryboardPage shell tests which do not need the history-seed behaviour.
+// Mock useStoryboardHistorySeed — it calls useStoryboardHistoryFetch (React Query)
+// which requires a QueryClientProvider. The seed logic is tested in its own unit
+// test file; here we only need the StoryboardPage shell to mount without errors.
 vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
   useStoryboardHistorySeed: vi.fn(),
 }));
