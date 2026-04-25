@@ -155,3 +155,86 @@
 - **Keyboard undo/redo broken**: `storyboard-history-store.applySnapshot` calls `storyboard-store.setNodes/setEdges` but React Flow renders from `useState` — Ctrl+Z/Y don't visually update canvas
 - `initializeStoryboard` service function orphaned (no callers) — remove or add deprecation warning
 - `StoryboardCard.tsx` (319L) exceeds §9.7 cap — formalize as approved exception in architecture-rules.md
+
+---
+
+## E2E-FIX-1 — Extract shared helpers and broaden CORS proxy
+**Date:** 2026-04-25
+**Branch:** fix/e2e-storyboard-coverage
+
+### What was done
+- Created `e2e/helpers/cors-workaround.ts` exporting `installCorsWorkaround(page, token)` that (a) mocks `**/auth/me` with the hardcoded dev-user payload and (b) proxies ALL `http://localhost:3001/**` requests to `E2E_API_URL/**` via `page.request`. IS_LOCAL_TARGET guard makes it a no-op for local dev. Broadened proxy from `/storyboards/**` (old) to `/**` (new) so all API routes (assets, projects, auth, etc.) are covered.
+- Created `e2e/helpers/storyboard.ts` exporting `readBearerToken`, `createTempDraft`, `initializeDraft`, `cleanupDraft`, `waitForCanvas` — extracted verbatim from `storyboard-fixes.spec.ts` with the `__dirname` path adjusted for the `e2e/helpers/` subdirectory.
+- Updated `e2e/storyboard-fixes.spec.ts` to import all helpers from the new modules; removed all duplicate function bodies; removed now-unused `fs`, `path`, and `Page` imports.
+
+### Files created / modified
+- `e2e/helpers/cors-workaround.ts` (new — 93 lines)
+- `e2e/helpers/storyboard.ts` (new — 167 lines)
+- `e2e/storyboard-fixes.spec.ts` (modified — imports updated, 194 lines removed)
+
+checked by code-reviewer: YES
+checked by qa-reviewer: YES
+checked by design-reviewer: YES
+design-reviewer notes: Reviewed on 2026-04-25. Pure test infrastructure (helpers, CORS proxy mock). Zero UI/component changes — no design tokens, colors, typography, or spacing to review.
+checked by playwright-reviewer: YES
+playwright-reviewer notes: All 6/6 E2E tests pass (13.5s) against deployed instance. Helper refactoring successful — no regressions introduced.
+code-reviewer notes: All files compliant with architecture-rules.md §9. Helper file line counts under 300-line cap (cors-workaround: 93L, storyboard: 167L). E2E spec file properly structured (single test.describe block per §9 exemption). Function naming follows verb-first convention. Import ordering correct. JSDoc present on all exported functions. No relative imports crossing directory boundaries. No duplicate code in spec file.
+
+---
+
+## E2E-FIX-2 — Fix app-shell, asset-manager, preview specs (add CORS workaround)
+**Date:** 2026-04-25
+**Branch:** fix/e2e-storyboard-coverage
+
+### What was done
+- Added `beforeEach` blocks to all three failing spec files that call `readBearerToken()` then `installCorsWorkaround(page, token)` before any `page.goto()`.
+- For `app-shell.spec.ts` (no existing `beforeEach`): a new `beforeEach` was added; each test retains its individual `page.goto()` call.
+- For `asset-manager.spec.ts` and `preview.spec.ts` (existing `beforeEach` with `page.goto()`): the two workaround lines were inserted at the top, before the `page.goto()`.
+- The `IS_LOCAL_TARGET` guard lives inside `installCorsWorkaround` — no conditional logic needed in the specs.
+- No existing test assertions or logic were modified.
+
+### Files created / modified
+- `e2e/app-shell.spec.ts` (modified — added 2 imports + new `beforeEach` block)
+- `e2e/asset-manager.spec.ts` (modified — added 2 imports + 2 lines at top of existing `beforeEach`)
+- `e2e/preview.spec.ts` (modified — added 2 imports + 2 lines at top of existing `beforeEach`)
+
+checked by code-reviewer: YES
+checked by qa-reviewer: YES
+checked by design-reviewer: YES
+design-reviewer notes: Reviewed on 2026-04-25. Pure test infrastructure (E2E spec setup + CORS helper integration). Zero UI/component changes — no design tokens, colors, typography, spacing, or component structure to review.
+code-reviewer notes: Reviewed on 2026-04-25. All three spec files (app-shell, asset-manager, preview) are fully compliant with §9 (import ordering, file structure) and §9.7 (E2E exemptions). Helper functions (readBearerToken, installCorsWorkaround) called in correct sequence before page.goto() per CORS proxy requirements. No dead code, no naming violations, no cross-boundary relative imports violating §9 — E2E helpers are co-located in same directory.
+checked by playwright-reviewer: YES
+playwright-reviewer notes: All 19/19 E2E tests pass (30.5s). app-shell (3 tests), asset-manager (11 tests), preview (5 tests) confirmed working against deployed instance. CORS workaround successfully enables FE-to-API communication in Playwright environment.
+
+<!-- QA NOTES (auto-generated):
+  - E2E infrastructure only (Playwright spec setup, CORS workaround). Out of scope for unit/integration test review.
+  - No unit/integration tests changed or added.
+  - Reviewed by qa-reviewer on 2026-04-25.
+-->
+
+---
+
+## E2E-FIX-3 — Add storyboard E2E coverage for 2026-04-25 fixes
+**Date:** 2026-04-25
+**Branch:** fix/e2e-storyboard-coverage
+
+### What was done
+- Extended `e2e/storyboard-fixes.spec.ts` with 3 new tests (Test 7, Test 8, Test 9) covering the storyboard fixes shipped on 2026-04-25.
+- Added `UUID_RE` constant (UUID v4 pattern) at module level, before the `test.describe` block, for reuse across tests.
+- Updated the file-level comment to list the 3 new tests alongside the existing 6.
+- Test 7 validates that the PUT body sent by the UI after clicking "+" Add Block contains: (a) every block's `durationS >= 1` (not 0 — sentinel fix), and (b) every block's `id` matching UUID v4 format.
+- Test 8 verifies that clicking Save in the Edit Scene modal triggers an immediate PUT within 3 s (via the `saveNow()` path bypassing the 5 s debounce). Pre-seeds a scene block via direct API PUT; clicks `[data-testid="scene-block-node"]`; fills prompt via `[data-testid="prompt-input"]`; clicks `[data-testid="save-button"]`.
+- Test 9 verifies end-to-end mediaItem persistence: obtains a real `fileId` via `POST /files/upload-url` (satisfies FK constraint on `storyboard_block_media.file_id` without S3 upload), PUTs a scene block with that mediaItem, then GETs and asserts the block's `mediaItems` array is non-empty with the correct `fileId`.
+
+### Files created / modified
+- `e2e/storyboard-fixes.spec.ts` (modified — 383 lines added; 3 new tests appended)
+
+### Tests added
+- Test 7: PUT body validation — sentinel durationS ≥ 1 and all block IDs are valid UUIDs; uses `page.waitForRequest` + `postDataJSON()` to capture and parse the live browser PUT body.
+- Test 8: Edit Scene modal save timing — registers `waitForRequest` before clicking Save button; asserts PUT fires within 3 000 ms of click; uses data-testid locators for scene-block-node, prompt-input, and save-button.
+- Test 9: mediaItem persistence round-trip — creates a pending file row via `POST /files/upload-url` to satisfy FK; PUTs storyboard with mediaItem; GETs and asserts `mediaItems[0].fileId` matches the seeded value.
+
+checked by code-reviewer: NOT
+checked by qa-reviewer: NOT
+checked by design-reviewer: NOT
+checked by playwright-reviewer: NOT
