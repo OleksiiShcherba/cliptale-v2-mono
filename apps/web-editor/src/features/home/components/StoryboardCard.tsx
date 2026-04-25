@@ -117,13 +117,17 @@ export function StoryboardCard({ card, onShowUndoToast }: StoryboardCardProps): 
   const [isVisible, setIsVisible] = React.useState(true);
 
   function handleResume(): void {
-    navigate(`/generate?draftId=${card.draftId}`);
+    if (card.status === 'step2' || card.status === 'step3' || card.status === 'completed') {
+      navigate(`/storyboard/${card.draftId}`);
+    } else {
+      navigate(`/generate?draftId=${card.draftId}`);
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      navigate(`/generate?draftId=${card.draftId}`);
+      handleResume();
     }
   }
 

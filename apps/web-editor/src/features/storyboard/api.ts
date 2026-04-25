@@ -17,20 +17,6 @@ import type {
 export type { StoryboardState, SceneTemplate, CreateSceneTemplatePayload, UpdateSceneTemplatePayload };
 
 /**
- * Seeds START and END sentinel blocks when they do not yet exist (idempotent).
- *
- * Maps to POST /storyboards/:draftId/initialize.
- * Called on page load before fetching the full state.
- */
-export async function initializeStoryboard(draftId: string): Promise<StoryboardState> {
-  const res = await apiClient.post(`/storyboards/${draftId}/initialize`, {});
-  if (!res.ok) {
-    throw new Error(`POST /storyboards/${draftId}/initialize failed: ${res.status}`);
-  }
-  return res.json() as Promise<StoryboardState>;
-}
-
-/**
  * Fetches the current storyboard state (blocks + edges) for a generation draft.
  *
  * Maps to GET /storyboards/:draftId.

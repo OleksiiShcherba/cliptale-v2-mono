@@ -218,11 +218,12 @@ describe('StoryboardPanel', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/generate?draftId=draft-1');
   });
 
-  it('should navigate with correct draftId when Resume button is clicked', () => {
+  it('should navigate to /storyboard/<id> when Resume is clicked for a step2 card', () => {
     mockUseStoryboardCards.mockReturnValue({ data: CARDS, isLoading: false, isError: false });
     renderPanel();
     const resumeBtns = screen.getAllByRole('button', { name: /resume storyboard draft/i });
+    // resumeBtns[1] corresponds to draft-2 which has status 'step2'
     fireEvent.click(resumeBtns[1]);
-    expect(mockNavigate).toHaveBeenCalledWith('/generate?draftId=draft-2');
+    expect(mockNavigate).toHaveBeenCalledWith('/storyboard/draft-2');
   });
 });

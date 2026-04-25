@@ -2,7 +2,7 @@
  * Tests for useStoryboardCanvas.
  *
  * Covers:
- * - On mount: calls fetchStoryboard (GET) only — no initializeStoryboard (POST).
+ * - On mount: calls fetchStoryboard (GET) only.
  * - Client-side dedup: duplicate START/END blocks are filtered, keeping the first.
  * - All scene blocks are preserved regardless of dedup.
  * - Happy path: blocks and edges are mapped to React Flow nodes/edges.
@@ -16,14 +16,12 @@ import type { StoryboardState } from '../types';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────────
 
-const { mockFetchStoryboard, mockInitializeStoryboard } = vi.hoisted(() => ({
+const { mockFetchStoryboard } = vi.hoisted(() => ({
   mockFetchStoryboard: vi.fn(),
-  mockInitializeStoryboard: vi.fn(),
 }));
 
 vi.mock('../api', () => ({
   fetchStoryboard: mockFetchStoryboard,
-  initializeStoryboard: mockInitializeStoryboard,
 }));
 
 // ── Import SUT after mocks ─────────────────────────────────────────────────────
@@ -79,16 +77,13 @@ describe('useStoryboardCanvas', () => {
     mockFetchStoryboard.mockResolvedValue(makeState());
   });
 
-  it('calls fetchStoryboard (GET) on mount and does NOT call initializeStoryboard (POST)', async () => {
+  it('calls fetchStoryboard (GET) on mount', async () => {
     renderHook(() => useStoryboardCanvas('draft-1'));
 
     await waitFor(() => {
       expect(mockFetchStoryboard).toHaveBeenCalledOnce();
       expect(mockFetchStoryboard).toHaveBeenCalledWith('draft-1');
     });
-
-    // initializeStoryboard must NOT be called — sentinel seeding is server-side now.
-    expect(mockInitializeStoryboard).not.toHaveBeenCalled();
   });
 
   it('maps blocks and edges to React Flow nodes and edges on success', async () => {

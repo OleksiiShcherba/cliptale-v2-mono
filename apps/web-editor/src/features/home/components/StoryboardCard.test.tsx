@@ -176,32 +176,59 @@ describe('StoryboardCard', () => {
     expect(el).toBeDefined();
   });
 
-  // ── Navigation ─────────────────────────────────────────────────────────────
+  // ── Navigation — status-aware routing (Bug 2 fix) ─────────────────────────
 
-  it('should navigate to /generate?draftId=<id> when card is clicked', () => {
-    renderCard(makeCard({ draftId: 'draft-xyz' }));
-    // The outer card div has aria-label starting with "Resume storyboard: "
+  it('should navigate to /generate?draftId=<id> for draft status when card is clicked', () => {
+    renderCard(makeCard({ draftId: 'draft-xyz', status: 'draft' }));
     const card = screen.getByRole('button', { name: /^resume storyboard:/i });
     fireEvent.click(card);
     expect(mockNavigate).toHaveBeenCalledWith('/generate?draftId=draft-xyz');
   });
 
-  it('should navigate to /generate?draftId=<id> when Resume button is clicked', () => {
-    renderCard(makeCard({ draftId: 'draft-xyz' }));
+  it('should navigate to /storyboard/<id> for step2 status when card is clicked', () => {
+    renderCard(makeCard({ draftId: 'draft-xyz', status: 'step2' }));
+    const card = screen.getByRole('button', { name: /^resume storyboard:/i });
+    fireEvent.click(card);
+    expect(mockNavigate).toHaveBeenCalledWith('/storyboard/draft-xyz');
+  });
+
+  it('should navigate to /storyboard/<id> for step3 status when card is clicked', () => {
+    renderCard(makeCard({ draftId: 'draft-xyz', status: 'step3' }));
+    const card = screen.getByRole('button', { name: /^resume storyboard:/i });
+    fireEvent.click(card);
+    expect(mockNavigate).toHaveBeenCalledWith('/storyboard/draft-xyz');
+  });
+
+  it('should navigate to /storyboard/<id> for completed status when card is clicked', () => {
+    renderCard(makeCard({ draftId: 'draft-xyz', status: 'completed' }));
+    const card = screen.getByRole('button', { name: /^resume storyboard:/i });
+    fireEvent.click(card);
+    expect(mockNavigate).toHaveBeenCalledWith('/storyboard/draft-xyz');
+  });
+
+  it('should navigate to /generate?draftId=<id> for draft status when Resume button is clicked', () => {
+    renderCard(makeCard({ draftId: 'draft-xyz', status: 'draft' }));
     const resumeBtn = screen.getByRole('button', { name: /resume storyboard draft/i });
     fireEvent.click(resumeBtn);
     expect(mockNavigate).toHaveBeenCalledWith('/generate?draftId=draft-xyz');
   });
 
-  it('should navigate when Enter key is pressed on the card', () => {
-    renderCard(makeCard({ draftId: 'draft-xyz' }));
-    const card = screen.getByRole('button', { name: /^resume storyboard:/i });
-    fireEvent.keyDown(card, { key: 'Enter' });
-    expect(mockNavigate).toHaveBeenCalledWith('/generate?draftId=draft-xyz');
+  it('should navigate to /storyboard/<id> for step2 status when Resume button is clicked', () => {
+    renderCard(makeCard({ draftId: 'draft-xyz', status: 'step2' }));
+    const resumeBtn = screen.getByRole('button', { name: /resume storyboard draft/i });
+    fireEvent.click(resumeBtn);
+    expect(mockNavigate).toHaveBeenCalledWith('/storyboard/draft-xyz');
   });
 
-  it('should navigate when Space key is pressed on the card', () => {
-    renderCard(makeCard({ draftId: 'draft-xyz' }));
+  it('should navigate to /storyboard/<id> for step2 status when Enter key is pressed', () => {
+    renderCard(makeCard({ draftId: 'draft-xyz', status: 'step2' }));
+    const card = screen.getByRole('button', { name: /^resume storyboard:/i });
+    fireEvent.keyDown(card, { key: 'Enter' });
+    expect(mockNavigate).toHaveBeenCalledWith('/storyboard/draft-xyz');
+  });
+
+  it('should navigate to /generate?draftId=<id> for draft status when Space key is pressed', () => {
+    renderCard(makeCard({ draftId: 'draft-xyz', status: 'draft' }));
     const card = screen.getByRole('button', { name: /^resume storyboard:/i });
     fireEvent.keyDown(card, { key: ' ' });
     expect(mockNavigate).toHaveBeenCalledWith('/generate?draftId=draft-xyz');

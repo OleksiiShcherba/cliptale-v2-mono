@@ -31,6 +31,7 @@ import { useSceneModal } from '../hooks/useSceneModal';
 import { useStoryboardAutosave } from '../hooks/useStoryboardAutosave';
 import { useStoryboardDrag } from '../hooks/useStoryboardDrag';
 import { useStoryboardHistoryPush } from '../hooks/useStoryboardHistoryPush';
+import { useStoryboardHistorySeed } from '../hooks/useStoryboardHistorySeed';
 import { useStoryboardKeyboard } from '../hooks/useStoryboardKeyboard';
 import {
   storyboardHistoryStore,
@@ -89,7 +90,7 @@ export function StoryboardPage(): React.ReactElement {
 
   // ── SceneModal ───────────────────────────────────────────────────────────────
 
-  const { editingBlock, openModal, handleSave, handleDelete, handleClose } = useSceneModal();
+  const { editingBlock, openModal, handleSave, handleDelete, handleClose } = useSceneModal(safeDraftId);
 
   const handleNodeClick: NodeMouseHandler<Node> = useCallback(
     (_event, node) => {
@@ -138,6 +139,10 @@ export function StoryboardPage(): React.ReactElement {
   const { pushSnapshot } = useStoryboardHistoryPush(safeDraftId);
   const { handleAddBlock } = useHandleAddBlock({ addBlock, saveNow });
   const { handleRestore } = useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow });
+
+  // ── Seed history + auto-restore most recent snapshot on mount ────────────────
+
+  useStoryboardHistorySeed({ draftId: safeDraftId, isCanvasLoading: isLoading, handleRestore });
 
   // ── Edge connection callbacks ────────────────────────────────────────────────
 

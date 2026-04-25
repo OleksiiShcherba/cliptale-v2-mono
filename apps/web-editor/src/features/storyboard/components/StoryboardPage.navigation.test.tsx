@@ -94,6 +94,12 @@ vi.mock('./StoryboardAssetPanel', () => ({
   ),
 }));
 
+// Mock useStoryboardHistorySeed — uses React Query internally; no-op in
+// StoryboardPage navigation tests which do not need the history-seed behaviour.
+vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
+  useStoryboardHistorySeed: vi.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Import after mocks
 // ---------------------------------------------------------------------------

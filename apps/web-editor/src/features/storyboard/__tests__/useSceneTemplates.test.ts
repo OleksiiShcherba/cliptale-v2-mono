@@ -39,7 +39,6 @@ vi.mock('@/features/storyboard/api', () => ({
   deleteSceneTemplate: mockDeleteSceneTemplate,
   addTemplateToStoryboard: mockAddTemplateToStoryboard,
   // other exports not needed here
-  initializeStoryboard: vi.fn(),
   fetchStoryboard: vi.fn(),
   saveStoryboard: vi.fn(),
   persistHistorySnapshot: vi.fn(),
