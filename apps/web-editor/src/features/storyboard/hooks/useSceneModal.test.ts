@@ -81,15 +81,17 @@ function makeFlowNode(blockOverrides: Partial<StoryboardBlock> = {}): Node {
 
 describe('useSceneModal', () => {
   let mockSetNodes: ReturnType<typeof vi.fn>;
+  let mockSaveNow: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockSetNodes = vi.fn();
+    mockSaveNow = vi.fn().mockResolvedValue(undefined);
   });
 
   describe('openModal', () => {
     it('should set editingBlock when openModal is called', () => {
-      const { result } = renderHook(() => useSceneModal(mockSetNodes));
+      const { result } = renderHook(() => useSceneModal(mockSetNodes, mockSaveNow));
 
       expect(result.current.editingBlock).toBeNull();
 
@@ -104,7 +106,7 @@ describe('useSceneModal', () => {
 
   describe('handleClose', () => {
     it('should clear editingBlock when handleClose is called', () => {
-      const { result } = renderHook(() => useSceneModal(mockSetNodes));
+      const { result } = renderHook(() => useSceneModal(mockSetNodes, mockSaveNow));
 
       act(() => {
         result.current.openModal(makeBlock());
@@ -120,7 +122,7 @@ describe('useSceneModal', () => {
 
   describe('handleDelete', () => {
     it('should call removeBlock with blockId and clear editingBlock', () => {
-      const { result } = renderHook(() => useSceneModal(mockSetNodes));
+      const { result } = renderHook(() => useSceneModal(mockSetNodes, mockSaveNow));
 
       act(() => {
         result.current.openModal(makeBlock());
@@ -138,7 +140,7 @@ describe('useSceneModal', () => {
 
   describe('handleSave', () => {
     it('should call updateBlock with the correct patch and clear editingBlock', () => {
-      const { result } = renderHook(() => useSceneModal(mockSetNodes));
+      const { result } = renderHook(() => useSceneModal(mockSetNodes, mockSaveNow));
 
       act(() => {
         result.current.openModal(makeBlock());
@@ -158,7 +160,7 @@ describe('useSceneModal', () => {
     });
 
     it('should call setNodes after updateBlock to patch data.block in-place', () => {
-      const { result } = renderHook(() => useSceneModal(mockSetNodes));
+      const { result } = renderHook(() => useSceneModal(mockSetNodes, mockSaveNow));
       const existingNode = makeFlowNode();
 
       act(() => {
@@ -184,7 +186,7 @@ describe('useSceneModal', () => {
     });
 
     it('should not mutate nodes whose id does not match blockId', () => {
-      const { result } = renderHook(() => useSceneModal(mockSetNodes));
+      const { result } = renderHook(() => useSceneModal(mockSetNodes, mockSaveNow));
       const otherNode = makeFlowNode({ id: 'block-other', prompt: 'Original prompt' });
 
       act(() => {
@@ -203,7 +205,7 @@ describe('useSceneModal', () => {
     });
 
     it('should map empty name string to null in the patch', () => {
-      const { result } = renderHook(() => useSceneModal(mockSetNodes));
+      const { result } = renderHook(() => useSceneModal(mockSetNodes, mockSaveNow));
 
       act(() => {
         result.current.openModal(makeBlock());
@@ -217,8 +219,8 @@ describe('useSceneModal', () => {
       expect(patch.name).toBeNull();
     });
 
-    it('should map mediaItems with sequential IDs derived from blockId', () => {
-      const { result } = renderHook(() => useSceneModal(mockSetNodes));
+    it('should assign a unique UUID to each mediaItem', () => {
+      const { result } = renderHook(() => useSceneModal(mockSetNodes, mockSaveNow));
 
       act(() => {
         result.current.openModal(makeBlock());
@@ -236,9 +238,11 @@ describe('useSceneModal', () => {
         );
       });
 
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       const [, patch] = mockUpdateBlock.mock.calls[0] as [string, { mediaItems: Array<{ id: string }> }];
-      expect(patch.mediaItems[0].id).toBe('block-1-media-0');
-      expect(patch.mediaItems[1].id).toBe('block-1-media-1');
+      expect(patch.mediaItems[0].id).toMatch(uuidRe);
+      expect(patch.mediaItems[1].id).toMatch(uuidRe);
+      expect(patch.mediaItems[0].id).not.toBe(patch.mediaItems[1].id);
     });
   });
 });
