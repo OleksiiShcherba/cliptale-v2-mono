@@ -23,7 +23,7 @@ const { mockPool, mockConn, mockGenDraftRepo, mockStoryboardRepo } = vi.hoisted(
     commit: vi.fn().mockResolvedValue(undefined),
     rollback: vi.fn().mockResolvedValue(undefined),
     release: vi.fn(),
-    execute: vi.fn().mockResolvedValue([[], []]),
+    execute: vi.fn().mockResolvedValue([[{ cnt: 0 }], []]),
   };
 
   const mockPool = {
@@ -40,6 +40,7 @@ const { mockPool, mockConn, mockGenDraftRepo, mockStoryboardRepo } = vi.hoisted(
     findEdgesByDraftId: vi.fn().mockResolvedValue([]),
     countBlocksByType: vi.fn().mockResolvedValue(0),
     insertBlock: vi.fn().mockResolvedValue(undefined),
+    insertSentinelsInTx: vi.fn().mockResolvedValue(undefined),
     replaceStoryboard: vi.fn().mockResolvedValue(undefined),
     insertHistoryAndPrune: vi.fn().mockResolvedValue(1),
     findHistoryByDraftId: vi.fn().mockResolvedValue([]),

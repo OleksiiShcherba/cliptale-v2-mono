@@ -1,380 +1,209 @@
 # Development Log (compacted — 2026-03-29 to 2026-04-23)
 
-## Monorepo Scaffold (Epic 1)
-- added: root config (`package.json`, `turbo.json`, `tsconfig.json`, `.env.example`, `.gitignore`, `docker-compose.yml` — MySQL 8 + Redis 7)
-- added: `apps/api/` (Express + helmet/cors/rate-limit, BullMQ stubs), `apps/web-editor/` (React 18 + Vite), `apps/media-worker/`, `apps/render-worker/`
-- added: `packages/project-schema/` (Zod: ProjectDoc, Track, Clip union, imageClipSchema), `packages/remotion-comps/` (VideoComposition + layers)
-- fixed: `APP_` env prefix; Zod startup validation; `workspace:*` → `file:` paths
+## Monorepo + DB Migrations
+- added: root config, apps (api/web-editor/media-worker/render-worker), packages (project-schema, remotion-comps)
+- added: migrations 001–036 — projects, assets, captions, versions, render_jobs, clips, users/sessions/auth, ai_generation_jobs, files/pivots, soft-delete, thumbnails, storyboard tables (blocks/edges/media/history), scene_templates/media
+- fixed: APP_ env prefix; Zod startup validation; workspace→file paths
 
-## DB Migrations
-- added: 001–020 — projects, assets, captions, versions, render_jobs, project_clips, seed, image clip ENUM, users/sessions/password_resets/email_verifications, ai_generation_jobs
-- added: 013_drop_ai_provider_configs; 014_ai_jobs_fal_reshape; 015_ai_jobs_audio_capabilities; 016_user_voices; 017_asset_display_name; 018_add_caption_clip_type; 019_generation_drafts; 020_projects_owner_title
-- added: 021_files (root table, user-scoped, status ENUM); 022_file_pivots (project_files + draft_files, composite PKs, CASCADE container / RESTRICT file)
-- added: 023_downstream_file_id_columns; 024_backfill_file_ids (project_assets_current → files + project_files; drops project_assets_current)
-- added: 025_drop_ai_job_project_id; 026_ai_jobs_draft_id; 027_drop_project_assets_current; 028_user_project_ui_state
-- added: 029_soft_delete_columns (`deleted_at DATETIME(3) NULL` on files/projects/generation_drafts/project_files/draft_files + indexes; INFORMATION_SCHEMA guards)
-- added: 030_files_thumbnail_uri (`VARCHAR(1024) NULL`)
-- added: 031_storyboard_blocks; 032_storyboard_edges (UNIQUE source+target enforces one-in/one-out); 033_storyboard_block_media; 034_storyboard_history (fire-and-forget, no FK)
+## Infrastructure
+- added: Redis healthcheck, BullMQ error handlers, graceful shutdown, S3 stream + Range endpoint
+- fixed: `@/` alias + `tsc-alias`; in-process migration runner + `schema_migrations` (sha256)
 
-## Infrastructure (Redis + BullMQ + S3)
-- updated: Redis healthcheck, error handlers, graceful shutdown, worker concurrency
-- fixed: `@/` alias + `tsc-alias` in api tsconfig
-- added: S3 stream endpoint `GET /assets/:id/stream` with Range header forwarding
+## Asset Upload + Browser UI
+- added: S3 ingest pipeline (FFprobe → thumbnail → waveform); CRUD endpoints; presign + stream
+- added: `features/asset-manager/` — AssetCard, AssetDetailPanel, UploadDropzone, UploadProgressList, AssetBrowserPanel
+- added: asset rename (`displayName`); soft-delete/restore (30-day TTL, GoneError 410); `files` root table + `project_files`/`draft_files` pivots
+- added: paginated envelope `{ items, nextCursor, totals }`; keyset cursor; `staleTime 60s`
+- fixed: S3 CORS authoritative (`infra/s3/cors.json`); buildAuthenticatedUrl on all media elements
 
-## Asset Upload Pipeline (Epic 1)
-- added: `errors.ts`, `s3.ts`, `validate.middleware.ts`, `auth.middleware.ts`, `acl.middleware.ts`
-- added: asset CRUD endpoints; `enqueue-ingest.ts` (idempotency, 3 retries, exp backoff)
-- added: `ingest.job.ts` — S3 → FFprobe → thumbnail → waveform → S3 → DB ready; audio-only `fps=30`
+## VideoComposition + Preview + Stores
+- added: `VideoComposition.tsx` (z-order, trim, image branch); `project-store.ts` (Immer patches); `ephemeral-store.ts`; `history-store.ts` (undo/redo)
+- added: `useRemotionPlayer.ts`, `PreviewPanel.tsx`, `PlaybackControls.tsx`, `VolumeControl.tsx`, `usePrefetchAssets.ts`
+- fixed: rAF tick; waitUntilDone() call; playhead freezing
 
-## Asset Browser + Upload UI (Epic 1)
-- added: `features/asset-manager/` — types, api, hooks (useAssetUpload, useAssetPolling), components (AssetCard, AssetDetailPanel, UploadDropzone, UploadProgressList, AssetBrowserPanel)
-- added: `getAssetPreviewUrl()`, `matchesTab()`, `TypeIcon`, `hideFilterTabs` prop
+## Timeline Editor
+- added: `clip.repository.ts`, `clip.service.ts`, clips routes; PATCH + POST clip endpoints
+- added: TimelineRuler, TrackHeader, ClipBlock, WaveformSvg, ClipLane, ClipContextMenu, TrackList, TimelinePanel, ScrollbarStrip
+- added: useSnapping, useClipDrag, useClipTrim, useClipDeleteShortcut, useScrollbarThumbDrag, useTrackReorder, useTimelineWheel
+- fixed: float→Math.round; split edge case; passive wheel; context menu portal; clip scroll sync; ruler seek
 
-## VideoComposition + Storybook (Epic 2)
-- updated: `VideoComposition.tsx` — z-order sort, muted filtering, trim frames, image branch
-- added: Storybook config + stories; extracted `VideoComposition.utils.ts`
+## Captions / Transcription
+- added: `POST /assets/:id/transcribe` (202); `transcribe.job.ts` (S3 → Whisper → DB); word timestamps
+- added: `CaptionEditorPanel.tsx`, `CaptionLayer.tsx` (per-word color, premountFor), `useAddCaptionsToTimeline.ts`
 
-## Stores (Epic 2)
-- added: `project-store.ts` (useSyncExternalStore, Immer patches, computeProjectDuration), `ephemeral-store.ts`, `history-store.ts` (undo/redo, drainPatches)
-- added: `computeProjectDuration()` in `packages/editor-core`
-
-## Preview + Playback (Epic 2)
-- added: `useRemotionPlayer.ts`, `PreviewPanel.tsx`, `usePlaybackControls.ts`, `PlaybackControls.tsx`, `formatTimecode.ts`, `VolumeControl.tsx`, `usePrefetchAssets.ts`
-- fixed: rAF tick; `waitUntilDone()` is function not Promise (Remotion v4); playhead freezing
-
-## App Shell (Epic 2)
-- added: `App.tsx` (two-column desktop + mobile layout), `App.panels.tsx`, `App.styles.ts`, `MobileInspectorTabs.tsx`, `MobileBottomBar.tsx`, `useWindowWidth.ts`
-
-## Captions / Transcription (Epic 3)
-- added: caption CRUD + `POST /assets/:id/transcribe` (202); `transcribe.job.ts` (S3 → Whisper → DB)
-- added: FE `TranscribeButton.tsx`, `useAddCaptionsToTimeline.ts`, `CaptionEditorPanel.tsx`
-
-## Version History & Rollback (Epic 4)
-- added: version CRUD + restore; `useAutosave.ts` (debounce 2s, drainPatches, beforeunload flush)
+## Version History + Autosave
+- added: version CRUD + restore; `useAutosave.ts` (2s debounce, beforeunload flush)
 - added: `VersionHistoryPanel.tsx`, `RestoreModal.tsx`, `TopBar.tsx`, `SaveStatusBadge.tsx`
-- added: `GET /projects/:id/versions/latest`; `fetchLatestVersion`, `save()`/`resolveConflictByOverwrite()`, `performSave(force)`; Save + Overwrite buttons
 
-## Background Render Pipeline (Epic 5)
-- added: render CRUD + per-user 2-concurrent limit; `render.job.ts` (fetch doc → Remotion render → S3)
-- added: FE `useExportRender.ts`, `RenderProgressBar.tsx`, `ExportModal.tsx`; render-worker Docker (node:20-slim + Chromium)
-- added: `RendersQueueModal.tsx`, `useListRenders.ts` (polls 5s), renders badge in TopBar
-- fixed: `REMOTION_ENTRY_POINT`; render black screen (presigned S3 URLs); download URLs
-- created: `packages/remotion-comps/src/remotion-entry.tsx` — `registerRoot()` for `bundle()`
+## Background Render Pipeline
+- added: render CRUD (per-user 2-concurrent limit); `render.job.ts` (Remotion → S3); render-worker Docker
+- added: `useExportRender.ts`, `RenderProgressBar.tsx`, `ExportModal.tsx`, `RendersQueueModal.tsx`
+- fixed: REMOTION_ENTRY_POINT; black screen (presigned URLs); download URLs
 
-## Timeline Editor (Epic 6)
-- added: BE — `clip.repository.ts`, `clip.service.ts`, `clips.controller.ts`, `clips.routes.ts`; PATCH + POST clip endpoints with cross-track moves
-- added: FE — TimelineRuler, TrackHeader, ClipBlock, WaveformSvg, ClipLane, ClipContextMenu, TrackList, TimelinePanel, ScrollbarStrip
-- added: hooks — useSnapping, useClipDrag, useClipTrim, useClipDeleteShortcut, useScrollbarThumbDrag, useTrackReorder, useTimelineWheel
-- added: `clipTrimMath.ts`, `clipContextMenuActions.ts`, `AddTrackMenu.tsx`, `useAddEmptyTrack.ts`, `useTimelineResize.ts`, `TimelineResizeHandle.tsx`
-- fixed: float frames → `Math.round()`; split edge case; passive wheel; context menu portal; clip scroll sync; playhead needle rAF bridge; ruler click seek
-- removed: cross-track drag
-- updated: TRACK_HEADER_WIDTH 64→160; TRACK_ROW_HEIGHT 48→36
-
-## Clip Persistence + Asset Drop
-- updated: `useAddAssetToTimeline.ts` — calls `createClip()` after `setProject()`
-- added: `useDropAssetToTimeline.ts` — auto-creates track on empty timeline drop
-
-## Inspector Panels
-- added: `ImageClipEditorPanel`, `VideoClipEditorPanel`, `AudioClipEditorPanel` + hooks
-- updated: `App.panels.tsx` — inspector branches in RightSidebar/MobileTabContent
-
-## Additional Features
-- fixed: CSS reset (white border); mobile preview height
-- added: `DeleteTrackDialog.tsx`, Scroll-to-Beginning button, `useReplaceAsset.ts`/`ReplaceAssetDialog.tsx`, `useDeleteAsset.ts`/`DeleteAssetDialog.tsx`
-- added: `AddToTimelineDropdown.tsx`/`useTracksForAsset.ts`, `ProjectSettingsModal.tsx` (FPS + resolution presets)
-- added: `POST /projects`; `useProjectInit.ts` (reads `?projectId=` or creates new; hydrates via `fetchLatestVersion`)
-- fixed: `useCurrentVersionId()` reactivity via `useSyncExternalStore`
-
-## Authentication & Authorization (Epic 8)
-- added: `user.repository.ts`, `session.repository.ts`, `auth.service.ts` (32-byte tokens, SHA-256, 7-day TTL, bcrypt-12)
-- added: auth routes — register, login, logout, me; rate limiting (5 reg/IP/hr, 5 login/email/15min)
-- added: `email.service.ts` (stub), password-reset (1hr TTL), email-verify (24hr TTL), single-use
-- rewrote: `auth.middleware.ts` — session-based via `authService.validateSession()`; `APP_DEV_AUTH_BYPASS` env
-- updated: `acl.middleware.ts`, `express.d.ts`, all controllers (`req.user.id` → `req.user.userId`)
-- added FE: `features/auth/` — LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage; React Router; auth styles
-- added: `AuthProvider.tsx`, `ProtectedRoute.tsx`, `useAuth.ts`; Bearer token injection + 401 interceptor
-- added: `oauth.service.ts` (Google + GitHub code exchange, account linking); OAuth routes + FE buttons
-- added: query-param `?token=` fallback for media auth; `buildAuthenticatedUrl()` in `api-client.ts`
+## Authentication (Epic 8)
+- added: session-based auth (32-byte tokens, SHA-256, 7-day TTL, bcrypt-12); rate limiting
+- added: auth routes (register/login/logout/me); password-reset + email-verify (single-use)
+- added: OAuth (Google + GitHub); Bearer injection + 401 interceptor; `APP_DEV_AUTH_BYPASS`
+- added FE: LoginPage, RegisterPage, ForgotPasswordPage, ResetPasswordPage; AuthProvider, ProtectedRoute
 
 ## AI Platform — Epic 9 (fal.ai + ElevenLabs)
-- removed: BYOK layer (aiProvider.*, lib/encryption.ts, `APP_AI_ENCRYPTION_KEY`, FE `features/ai-providers/`)
-- added: `APP_FAL_KEY`, `apps/media-worker/src/lib/fal-client.ts`
-- added: `packages/api-contracts/src/fal-models.ts` (1093 lines, §9.7 exception) — 9 fal models
-- added: `apps/api/src/services/falOptions.validator.ts`; `aiGeneration.assetResolver.ts`
-- rewrote: `aiGeneration.service.ts`, `aiGenerationJob.repository.ts`, `ai-generate.job.ts`
-- added: `ai-generate.output.ts`; `GET /ai/models`; removed 8 legacy provider adapters
-- added: `packages/api-contracts/src/elevenlabs-models.ts`, `elevenlabs-client.ts`; `AiProvider = 'fal'|'elevenlabs'`; unified `AI_MODELS` (13)
-- added: `APP_ELEVENLABS_API_KEY`, `ai-generate-audio.handler.ts`, `voice.repository.ts`, `listUserVoices`, `GET /ai/voices`
+- removed: BYOK layer; added `APP_FAL_KEY`, `APP_ELEVENLABS_API_KEY`
+- added: `fal-models.ts` (9 models), `elevenlabs-models.ts`; unified AI_MODELS (13); `falOptions.validator.ts`; `aiGeneration.assetResolver.ts`
+- added: `ai-generate-audio.handler.ts`; `voice.repository.ts`; `GET /ai/models`, `GET /ai/voices`
+- added FE: `CapabilityTabs.tsx`, `ModelCard.tsx`, `AssetPickerField.tsx`, `SchemaFieldInput.tsx`; 28 unit tests
 
-## AI Generation — FE Schema-Driven Panel
-- rewrote: `features/ai-generation/types.ts`, `api.ts`
-- created: `CapabilityTabs.tsx`, `ModelCard.tsx`, `AssetPickerField.tsx`, `SchemaFieldInput.tsx` (8-type dispatcher)
-- rewrote: `GenerationOptionsForm.tsx`, `AiGenerationPanel.tsx`
-- added: `aiGenerationPanel.utils.ts` + 28 unit tests; styles split (tokens/field/panel)
+## Video Generation Wizard
+- added: migration 019; `generationDraft.*` (repository/service/controller/routes — 5 routes)
+- added: `features/generate-wizard/` — PromptEditor (contenteditable chips), WizardStepper, GenerateWizardPage, MediaGalleryPanel, AssetPickerModal, PromptToolbar, WizardFooter
+- added: `EnhancePromptJobPayload`; `enhancePrompt.job.ts`; enhance rate-limit (10/hr); `EnhancePreviewModal.tsx`
 
-## Asset Rename
-- added: migration 017 `displayName` column; repo type + `updateAssetDisplayName`
-- added: `renameAsset` service; `PATCH /assets/:id` with Zod validation
-- added: FE `Asset.displayName`, `updateAsset()`, `InlineRenameField.tsx`; `AssetCard`/`AssetDetailPanel` render `displayName ?? filename`
+## Home + Project Hub
+- added: migration 020; `listForUser`; `listStoryboardCardsForUser`; `GET /generation-drafts/cards`
+- added: `features/home/` — HomePage, HomeSidebar, ProjectCard, StoryboardCard; `/` → HomePage
 
-## Progressive Reveal Captions
-- added: `CaptionWord` + `CaptionSegment.words?` to project-schema (additive)
-- updated: `transcribe.job.ts` to extract Whisper word timestamps
-- added: `captionClipSchema` (discriminated union); `ClipInsert.type` includes `'caption'`
-- added: `CaptionLayer.tsx` — per-word color via `useCurrentFrame()`, `premountFor={fps}`, `clipStartFrame` prop
-- updated: `useAddCaptionsToTimeline.ts` — branches on words (CaptionClip vs TextOverlayClip fallback)
-- added: `CaptionEditor` dual-hex color inputs; 5 regression tests
+## Backlog Batch (2026-04-20)
+- A: migration 028; `userProjectUiState.*`; `GET/PUT /projects/:id/ui-state`; `useProjectUiState.ts` (800ms debounce)
+- B: soft-delete/restore for assets, projects, drafts; `GoneError` 410; trash cursor + `TrashPanel.tsx`
+- C: migration 030; `ingest.job.ts` ffmpeg thumbnail → S3; `findProjectsByUserId` correlated for thumbnailFileId
+- D: `AssetDetailPanel` → `shared/asset-detail/`; `WizardAssetDetailSlot.tsx`
+- E: scope toggle (general/project/draft) in AssetBrowserPanel + MediaGallery; fire-and-forget auto-link
+- F: `getPanelStyle(compact)` factory — compact=320px sidebar, fluid=100%/720px wizard
 
-## AssetPreviewModal Fix
-- fixed: `AssetPreviewModal.tsx` — replaced presigned `downloadUrl` with `${apiBaseUrl}/assets/${id}/stream` + `buildAuthenticatedUrl`
-
-## EPIC 10 STAGE 1 — Design Tooling (Figma → Stitch)
-- installed: `davideast/stitch-mcp`; removed `figma-remote-mcp`
-- created: Stitch project `1905176480942766690` + DS `assets/17601109738921479972` v1 "ClipTale Dark"
-- generated: 4 DESKTOP screens (Landing/Dashboard/Editor/Asset Browser); transient dup Landing (OQ-S1)
-- rewrote: `docs/design-guide.md` — §1 Stitch, §3 tokens + DS ID, §6 screen IDs, §7 tool patterns, §10 OQ-S1..S4
-
-## Video Generation Wizard (Phase 0 + Step 1)
-- added: migration 019; `promptDocSchema`; `generationDraft.repository.ts`, `generationDraft.service.ts`, controllers + routes (5 routes)
-- added: `features/generate-wizard/` (components/, hooks/, api.ts, types.ts)
-- added: `WizardStepper.tsx`, `GenerateWizardPage.tsx`, `/generate` route (protected)
-- added: `PromptEditor.tsx` + `promptEditorDOM.ts` — contenteditable chip controller
-- chip colors: video=#0EA5E9, image=#F59E0B, audio=#10B981
-- added: `useAssets.ts` (React Query); `MediaGalleryPanel.tsx`; `AssetThumbCard.tsx`, `AudioRowCard.tsx`
-- added: `mediaGalleryStyles.ts`; `AssetPickerModal.tsx` (520×580, type-filtered, focus trap)
-- added: `PromptToolbar.tsx`; `useGenerationDraft.ts` (debounced 800ms, POST-then-PUT)
-- added: `WizardFooter.tsx` + `CancelConfirmDialog.tsx`; `GenerateRoadMapPlaceholder.tsx`
-
-## Wizard Phase 2 (AI Enhance + Pro Tip)
-- added: `EnhancePromptJobPayload`; `QUEUE_AI_ENHANCE`; `enhancePrompt.job.ts`; `enhance.rate-limiter.ts` (10/hr per userId)
-- added: `POST /generation-drafts/:id/enhance` (202), `GET .../enhance/:jobId`; `useEnhancePrompt.ts` (1000ms poll, 60s cap)
-- added: `EnhancePreviewModal.tsx` + `renderPromptDocText.ts`; `useDismissableFlag.ts` + `ProTipCard.tsx`
-- fixed: `mapRowToDraft` — `typeof === 'string'` guard for mysql2 JSON columns
-
-## Home: Projects & Storyboard Hub
-- added: migration 020; `findProjectsByUserId`, `listForUser`; `listStoryboardCardsForUser`
-- added: `GET /generation-drafts/cards`; FE `features/home/` (HomePage, HomeSidebar, ProjectCard/Panel, StoryboardCard/Panel)
-- updated: `/` → `HomePage`; wizard reads `?draftId=` via useSearchParams
-
-## Editor + Generate-Wizard UX Batch
-- added: Home button + Manual Save + Overwrite buttons in editor TopBar; `BackToStoryboardButton.tsx`
-- fixed: PromptEditor chip-deletion (walk past consecutive empty text nodes); 3 regression tests
-- added: HTML5 drag-drop from AssetThumbCard/AudioRowCard into PromptEditor; × remove button on chips
-
-## Files-as-Root Foundation (Batches 1–6, 2026-04-18..19)
-- DDL: migrations 021–027; in-process runner `apps/api/src/db/migrate.ts` + `schema_migrations` table
-- BE: `file.repository.ts`, `file.service.ts`, `file.controller.ts`, `file.routes.ts`; `fileLinks.repository.ts` + service + response.service
-- refactored: `clip.repository.ts` / `clip.service.ts` / `clips.controller.ts` — asset_id → file_id
-- refactored: `caption.repository.ts` + service + `transcribe.job.ts` — file_id
-- refactored: `aiGenerationJob.repository.ts` (removed projectId/resultAssetId; added outputFileId)
-- FE: `shared/file-upload/` (useFileUpload, UploadDropzone, UploadProgressList); moved 47 files `features/ai-generation/` → `shared/ai-generation/`
-- render-worker: `resolveAssetUrls()` rewritten — filter `'fileId' in c`, SELECT from files
-- Wire rename: `assetId` → `fileId` across api-contracts + FE (~70 files) + workers
-- S3 CORS: `infra/s3/cors.json` authoritative; regression test in `apps/api/src/__tests__/infra/cors.test.ts`
-- fixed: `project.repository.ts` broken JOIN subquery; `VideoComposition.tsx` clip.assetId → clip.fileId
-- tests: 56 new files-as-root tests; render-worker 26/26; ai-generate 134/134; migrate 19; E2E 5/5
-
-## Backlog Batch — general_tasks.md issues 1–6 (2026-04-20)
-
-### EPIC A — Per-project timeline UI state
-- A1: migration 028; `userProjectUiState.repository.ts`; integration + unit tests
-- A2: `userProjectUiState.service.ts` + controller + routes; `GET/PUT /projects/:id/ui-state`
-- A3: `useProjectUiState.ts` two-phase (fetch+restore; subscribe + debounce-save 800ms + beforeunload flush); tests split per §9.7 into 4 files + fixtures
-
-### EPIC B — Soft-delete + Undo
-- B1: migration 029; B2: audit 22 SELECTs; `softDelete/restore` families; split `asset.repository.ts` → `asset.repository.list.ts`
-- B3: `GoneError` (→410); `asset.service.deleteAsset` soft-delete; restore services with 30-day TTL
-- B4: `DELETE /projects/:id` (soft); `POST /{assets,projects,generation-drafts}/:id/restore`; `GET /trash` cursor; trash splits
-- B5: `shared/undo/{useUndoToast,UndoToast}` (5s auto-dismiss); `features/trash/TrashPanel.tsx`; `/trash` ProtectedRoute
-
-### EPIC C — Project preview = first frame
-- C1: migration 030; C2: `ingest.job.ts` ffmpeg seekInput thumbnail → S3 → `setThumbnailUri`
-- C3: `findProjectsByUserId` correlated subqueries for `thumbnailFileId`; proxy URL `${baseUrl}/assets/:fileId/thumbnail`
-
-### EPIC D — Storyboard asset detail panel
-- D1: moved `AssetDetailPanel` → `shared/asset-detail/`; discriminated-union context prop; tests split
-- D2: `WizardAssetDetailSlot.tsx`; `useWizardAsset.ts` (React Query); `InlineRenameField.onRenameSuccess?`
-
-### EPIC E — General vs project/draft file scope
-- E1: Zod enums per endpoint; `file.repository.list.findAllForUser(userId)`
-- E2: `useScopeToggle.ts` + AssetBrowserPanel toggle; wizard `MediaGalleryRecentBody.tsx`; React Query keys include scope
-- E3: fire-and-forget auto-link on use (`linkFileToProject` / `linkFileToDraft`); server endpoints idempotent (INSERT IGNORE)
-
-### EPIC F — AI panel fluid
-- F1: `getPanelStyle(compact: boolean)` — compact=true → 320px, compact=false → 100%/max 720px; `App.tsx` passes `compact={true}`
-
-### Guardian Post-Review Fixes (2026-04-20)
-- fixed: vi.hoisted TDZ in 4 `useProjectUiState.*.test.ts` files
-- fixed: `subscribe/getSnapshot/setAll` added to ephemeral-store mock in 6 App test files
-- fixed: `thumbnailUri` mapping in `asset.repository.ts`; 3 new tests
-- fixed: trash cursor pagination — `deletedAt:id` keyset cursor threaded through trash repos + service + controller
-- fixed: `ProjectCard.tsx` delete-button typography 11/400 → 12/500 per design-guide §3
-
-## Editor asset-fetch loop + /generate error (2026-04-21)
-- added: `GET /projects/:id/assets` keyset pagination envelope `{ items, nextCursor, totals }`; `fileLinks.repository.findFilesByProjectIdPaginatedWithCursor`; `encodeProjectCursor`/`decodeProjectCursor`
-- added: `packages/api-contracts/src/asset-list.schemas.ts` (Zod + inferred types)
-- rewired FE to envelope: `getAssets()` returns `AssetListResponse`; `AssetBrowserPanel` reads `data?.items ?? []`
-- configured: `main.tsx` QueryClient `staleTime: 60_000`, `refetchOnWindowFocus: false`, `retry: 1`
-- fixed: `/generate` page — `getDraftFilesResponse` returns envelope; `getDraftAssets` calls `getById(userId, draftId)` for ownership (security fix)
-- tests: projects-assets-pagination (17), contract (3), generation-drafts-assets (5), useProjectAssets (8), useRemotionPlayer (23), useAddAssetToTimeline (22 across splits)
-
-## Guardian test regressions follow-up (2026-04-21)
-- fixed: `useAddAssetToTimeline.placement.test.ts` — vi.hoisted + react-query mock; 30 tests green
-- fixed: `assets-scope-param.test.ts` draft-half — envelope migration; 12/12 green
-- fixed: `generation-draft-ai-generate.test.ts:212` — envelope cast; 8/8 green
-
-## Telegram Bugs Batch (2026-04-21)
-- added: `resetProjectStore(projectId)` + `resetHistoryStore()` called before `fetchLatestVersion` in `useProjectInit.ts`
-- fixed: `ProjectCard.tsx` + `StoryboardCard.tsx` — `buildAuthenticatedUrl()` on thumbnail `<img>`
-- refactored: `getAssetDetailPanelStyles(compact)` factory; `AssetDetailPanel` compact prop; `WizardAssetDetailSlot` passes `compact={false}`
-
-## Storyboard Editor — Part A: Backend + Canvas Foundation (2026-04-22)
-- added: migrations 031–034 (storyboard_blocks, storyboard_edges, storyboard_block_media, storyboard_history)
-- added: `storyboard.repository.ts`, `storyboard.service.ts`, `storyboard.controller.ts`, `storyboard.routes.ts`; 5 REST endpoints
-- added: `packages/api-contracts/src/storyboard-styles.ts` — 3 styles (cyberpunk, cinematic-glow, film-noir)
-- added: `features/storyboard/` — types, api, StoryboardPage (top bar + 3-tab sidebar + canvas + bottom bar)
-- installed: `@xyflow/react@^12.10.2`; added `StartNode`, `EndNode`, `SceneBlockNode`, `storyboardIcons.tsx`, `nodeStyles.ts`
-- added: `useStoryboardCanvas.ts`, `useAddBlock.ts`, `useStoryboardDrag.ts` (ghost drag + auto-insert on edge hit)
-- added: `CanvasToolbar.tsx`, `GhostDragPortal.tsx`, `SidebarTab.tsx`, `StoryboardCanvas.tsx`
-- added: `useStoryboardKeyboard.ts` (Delete/Ctrl+Z/Ctrl+Y), `ZoomToolbar.tsx` (25–200%, step 10)
-- added: `storyboard-store.ts` (useSyncExternalStore), `storyboard-history-store.ts` (MAX_HISTORY_SIZE=50, 1s debounce)
-- added: `useStoryboardAutosave.ts` (30s debounce), `useStoryboardHistoryPush.ts`
-- tests: 102/102 full storyboard suite
-
-## Storyboard Part A — Regression Fixes (2026-04-23)
-- fixed: `storyboard.repository.ts:110,224` — `pool.execute` → `pool.query` for LIMIT-bound queries (mysql2 ER_WRONG_ARGUMENTS errno 1210)
-- added: `e2e/storyboard-history-regression.spec.ts` (4 tests)
-- fixed: rebuilt `web-editor` Docker image to hoist `@xyflow/react` into container node_modules
-- added: 5 storyboard OpenAPI paths + 8 component schemas in `packages/api-contracts/src/openapi.ts`
-- added: `openapi.storyboard.paths.test.ts` (31 tests) + `openapi.storyboard.schemas.test.ts` (18 tests); 89/89 api-contracts pass
-
-## Guardian Recommendations Batch (2026-04-23)
-- deleted: `storyboard-history-store.stub.ts` (dead code)
-- added: `e2e/storyboard-canvas.spec.ts` (5 E2E tests; 5/5 pass)
-- added: `CanvasToolbar.test.tsx` (11 unit tests)
-- fixed: `assets-finalize-endpoint.test.ts` + `assets-list-endpoint.test.ts` — reseeded with `files`+`project_files`
-- fixed: `versions-list-restore-endpoint.test.ts` — `'user-test-001'` → `'dev-user-001'`
-- configured: `docker-compose.yml` — `APP_CORS_ORIGIN` + `VITE_PUBLIC_API_BASE_URL` parametrized; `.env.example` documented
-- documented: E2E spec exemption added to §9.7 in `docs/architecture-rules.md`
-- removed: stale Class A Known Issue bullet
+## Storyboard Editor — Part A (2026-04-22)
+- added: migrations 031–034; `storyboard.*` (repo/service/controller/routes); 5 REST endpoints
+- added: `storyboard-styles.ts` (3 styles); `@xyflow/react@^12.10.2`
+- added: StartNode, EndNode, SceneBlockNode, CanvasToolbar, GhostDragPortal, StoryboardPage
+- added: `useStoryboardCanvas.ts`, `useAddBlock.ts`, `useStoryboardDrag.ts`, `useStoryboardKeyboard.ts`, `ZoomToolbar.tsx`
+- added: `storyboard-store.ts` (useSyncExternalStore), `storyboard-history-store.ts` (MAX=50, 1s debounce)
+- added: `useStoryboardAutosave.ts` (30s debounce); 102/102 tests
+- fixed: `pool.execute` → `pool.query` for LIMIT params (mysql2 ER_WRONG_ARGUMENTS); Docker image rebuild for `@xyflow/react`
+- added: 5 storyboard OpenAPI paths + 8 schemas; 89/89 api-contracts tests
 
 ## Storyboard Editor — Part B (2026-04-23)
+- ST-B1: migrations 035–036 (scene_templates, media); `sceneTemplate.*`; 6 routes; 73/73 tests
+- ST-B2: SceneTemplate types + 6 API functions in `storyboard/api.ts`; 20 tests
+- ST-B3: `SceneModal.tsx` (6-file split); `useSceneModal.ts`; real thumbnails + CLIP badges in SceneBlockNode; 25 tests
+- ST-B4: `useSceneTemplates.ts` (300ms debounce), `LibraryPanel.tsx` (4-file split); `addBlockNode` action; 23 tests
+- ST-B5: `EffectsPanel.tsx` (3 style cards + Coming Soon); `selectedBlockId`/`setSelectedBlock`/`applyStyleToBlock`; 22 tests
+- ST-B6: `hideTranscribe` prop on AssetDetailPanel/AssetBrowserPanel; `StoryboardAssetPanel.tsx`; scope toggle labels
+- hotfix: `useStoryboardDrag.ts` — `nativeEvent.clientX` → raw DOM event clientX (React Flow v12 passes DOM not synthetic)
 
-### ST-B1: Scene Templates API
-- added: migrations 035–036 (scene_templates, scene_template_media)
-- added: `sceneTemplate.repository.ts`, `sceneTemplate.service.ts`, `sceneTemplate.controller.ts`, `sceneTemplate.routes.ts`; 6 routes registered in `index.ts`
-- added: 6 scene-template paths + 3 schemas in `openapi.ts`
-- tests: scene-templates-endpoint (21), scene-templates-add-to-storyboard (10), openapi.scene-templates (42); 73/73 pass
-
-### ST-B2: FE Types + API client for scene templates
-- edited: `storyboard/types.ts` — SceneTemplateMedia, SceneTemplate, CreateSceneTemplatePayload, UpdateSceneTemplatePayload, AddToStoryboardPayload; `media` → `mediaItems` rename
-- edited: `storyboard/api.ts` — 6 new API functions (list/create/get/update/delete/addToStoryboard)
-- tests: `storyboard-api.test.ts` (20 tests; all pass)
-
-### ST-B3: SceneModal + SceneBlockNode thumbnails
-- added: `SceneModal.tsx`, `SceneModal.styles.ts`, `SceneModal.types.ts`, `SceneModal.formFields.tsx`, `SceneModal.mediaSection.tsx`, `SceneModal.styleSection.tsx` (6-file split for §9.7 cap)
-- added: `useSceneModal.ts` — store-wiring for open/save/delete/close
-- edited: `SceneBlockNode.tsx` — real thumbnail via buildAuthenticatedUrl, CLIP badges, onEdit callback
-- edited: `StoryboardPage.tsx`, `StoryboardCanvas.tsx` — wire onNodeClick → openModal
-- edited: `storyboard-store.ts` — added `updateBlock()`, `removeBlock()`
-- tests: SceneModal.test.tsx (16), SceneBlockNode.thumbnails.test.tsx (9); 25 new; 158 storyboard pass
-
-### ST-B4: LibraryPanel
-- added: `useSceneTemplates.ts` (React Query, 300ms debounce filter, CRUD + addToStoryboard)
-- added: `LibraryPanel.tsx`, `LibraryPanel.styles.ts`, `LibraryPanel.templateCard.tsx` (4-file split)
-- edited: `storyboard-store.ts` — `addBlockNode(block, onRemove)` action
-- edited: `StoryboardPage.tsx` — renders `<LibraryPanel>` on library tab
-- tests: useSceneTemplates.test.ts (9), LibraryPanel.test.tsx (14); 23 new; 181 storyboard pass
-
-### ST-B5: EffectsPanel + sidebar design fixes
-- added: `EffectsPanel.tsx`, `EffectsPanel.styles.ts` — 3 STORYBOARD_STYLES cards + Animation stub with Coming Soon badge
-- edited: `storyboard-store.ts` — `selectedBlockId`, `setSelectedBlock`, `applyStyleToBlock`, `applyStyleToAllBlocks`
-- edited: `StoryboardPage.tsx` — renders EffectsPanel on effects tab; "STEP 2: STORYBOARD" label; handleNodeClick → setSelectedBlock
-- tests: EffectsPanel.test.tsx (22 tests); 203/203 storyboard pass
-
-### ST-B6: Asset panel fixes (A1–A3)
-- edited: `AssetBrowserPanel.tsx` — scope toggle labels; `hideTranscribe` prop
-- edited: `AssetDetailPanel.tsx` — `hideTranscribe?: boolean` prop, conditional TranscribeButton
-- edited: `WizardAssetDetailSlot.tsx` — forwarded `hideTranscribe` prop
-- added: `StoryboardAssetPanel.tsx` — wraps AssetBrowserPanel with `hideTranscribe={true}`
-- edited: `StoryboardPage.tsx` — renders StoryboardAssetPanel on storyboard tab
-- tests: StoryboardAssetPanel.test.tsx (new), StoryboardPage.assetPanel.test.tsx (new); updated scope + page tests
-- **KNOWN ISSUE**: `StoryboardPage.assetPanel.test.tsx` — LibraryPanel missing vi.mock → `useQueryClient()` fails (lines 157–178); requires `vi.mock('@/features/storyboard/components/LibraryPanel', ...)` fix
-
-### [hotfix] useStoryboardDrag clientX crash
-- fixed: `useStoryboardDrag.ts` — `event.nativeEvent.clientX` → `(event as unknown as { clientX?: number }).clientX ?? 0`; React Flow v12 passes raw DOM event (not React synthetic), `nativeEvent` is undefined at runtime
-- added: `e2e/storyboard-drag.spec.ts` — E2E regression test
-
-## Storyboard Editor — Part C: Finishing Touches (2026-04-23)
-
-### ST-C1: Store — `restoreFromSnapshot` action
-- edited: `storyboard-store.ts` — `restoreFromSnapshot(snapshot: CanvasSnapshot)` export; atomically sets nodes←blocks, edges←edges, positions←positions, selectedBlockId←null, calls notify(); `import type { CanvasSnapshot }` (type-only to avoid circular runtime dep)
-- added: `storyboard-store.restore.test.ts` — 5 Vitest unit tests (nodes/edges/positions replaced, selectedBlockId null, listeners notified); no DOM, no React
-
-### ST-C2: History UI — Hook + Panel + StoryboardPage trigger
-- added: `useStoryboardHistoryFetch.ts` — React Query hook; queryKey `['storyboard-history', draftId]`; staleTime 30s; returns `{ entries, isLoading, isError }`
-- added: `StoryboardHistoryPanel.tsx` — 320px side panel; loading/error/empty states; entry list with relative timestamps; window.confirm restore; calls `restoreFromSnapshot` + `saveStoryboard(draftId, ...)` directly; closes via onClose
-- added: `StoryboardHistoryPanel.styles.ts` — hex constants + CSSProperties (panel, header, close btn, scroll area, entry row, timestamp, restore btn); borderRadius 4px (radius-sm), padding 8px multiples
-- added: `StoryboardPage.topBar.tsx` — extracted top bar (`StoryboardTopBar`); History toggle button with aria-pressed; `BORDER_COLOR = '#252535'` constant; padding `'0 8px'` (4px grid)
-- edited: `StoryboardPage.tsx` — added `isHistoryOpen` state; replaced inline header with `<StoryboardTopBar>`; conditionally renders `<StoryboardHistoryPanel>`; exactly 300 lines
-- tests: `StoryboardHistoryPanel.test.tsx` (10 tests: loading/error/empty/entries/restore/save/close/title states); all pass
-
-### Guardian Fix Round (FIX-1 + FIX-2)
-- fixed: `storyboard-store.ts` `restoreFromSnapshot` — replaced broken `as Node[]`/`as Edge[]` casts with proper reconstruction: `StoryboardBlock` → `Node` (`id`, `type`, `position: {x,y}`, `data`); `StoryboardEdge` → Edge (`source←sourceBlockId`, `target←targetBlockId`); position fallback `snapshot.positions?.[block.id] ?? { x: block.positionX ?? 0, y: block.positionY ?? 0 }`
-- fixed: `storyboard-history-store.ts` — `CanvasSnapshot.positions` made optional (`positions?:`); `applySnapshot` uses optional chaining
-- fixed: `StoryboardHistoryPanel.tsx` — removed `as unknown as CanvasSnapshot` double-cast; replaced with `entry.snapshot as CanvasSnapshot` (valid now positions is optional)
-- documented: `docs/architecture-rules.md` §9.7 — added approved exception table; `storyboard-store.ts (307L)` listed with justification
-- updated: `storyboard-store.restore.test.ts` — fixtures use real Node shapes; added position-fallback test; 6/6 pass
+## Storyboard Editor — Part C (2026-04-23)
+- ST-C1: `restoreFromSnapshot(snapshot)` in storyboard-store — atomically replaces nodes/edges/positions; 6 unit tests
+- ST-C2: `useStoryboardHistoryFetch.ts` (React Query, staleTime 30s); `StoryboardHistoryPanel.tsx` (320px, restore via window.confirm); `StoryboardTopBar` extracted; 10 tests
+- fixed: `restoreFromSnapshot` — proper Node/Edge reconstruction from StoryboardBlock/StoryboardEdge; `positions?` optional in CanvasSnapshot
+- documented: `docs/architecture-rules.md` §9.7 approved exceptions table
 
 ---
 
-## Architectural Decisions / Notes
-- §9.7 300-line cap enforced via `*.fixtures.ts` + `.<topic>.test.ts` splits (dot-infix mandatory); approved exceptions: `fal-models.ts` (1093L), `file.repository.ts` (306L), `useProjectInit.test.ts` (318L), `StoryboardCard.tsx` (319L), `StoryboardPage.tsx` (322L); `e2e/*.spec.ts` files exempt (one describe block quality gate)
-- Worker env discipline: only `index.ts` reads `config.*.key`; handlers receive secrets + repos via `deps`
-- Migration strategy: in-process runner + `schema_migrations` (sha256 checksum) = only sanctioned mutation path
-- MySQL 8.0 DDL non-transactional; INSERT into `schema_migrations` AFTER DDL; migration files must be idempotent
-- Vitest integration: `pool: 'forks'` + `singleFork: true`; each split test file declares own `vi.hoisted()` block
-- Files-as-root: `files` user-scoped root; `project_files`/`draft_files` pivots (CASCADE container, RESTRICT file)
-- Soft-delete: application-level `deleted_at IS NULL`; `*IncludingDeleted` helpers; 30-day TTL → `GoneError` (410)
-- Reviewer verdict tokens: EXACTLY `NOT`/`YES`/`COMMENTED`
-- Wire DTO naming: `fileId` across wire; `assetId` compat shim removed
-- **Project-switch store reset**: `resetProjectStore(projectId) + resetHistoryStore()` BEFORE `fetchLatestVersion`
-- **Media elements need `buildAuthenticatedUrl`**: `<img>`/`<video>`/`<audio>` from `/assets/:id/{thumbnail,stream}` MUST be wrapped
-- `findByIdForUser` unifies existence + ownership (cross-user → null → NotFoundError)
-- Audio via ElevenLabs (not fal.ai); Wizard MediaGalleryPanel separate from editor AssetBrowserPanel (§14)
-- mysql2 JSON columns: mappers guard `typeof === 'string'` before `JSON.parse`
-- Typography §3: body 14/400, label 12/500, heading-3 16/600; spacing 4px multiples; radius-md 8px
-- Per-file design-token pattern: hex constants at top of `.styles.ts`; NO CSS custom properties in web-editor
-- React component props: `interface` (not `type`), suffixed `Props` — §9
-- FE asset list: paginated envelope `{ items, nextCursor, totals }`; QueryClient `staleTime: 60_000 / refetchOnWindowFocus: false / retry: 1`
-- **Panel `compact` prop pattern**: `getXyzStyles(compact)` factory — compact=true narrow (sidebar), compact=false fluid 100%/maxWidth (wizard)
-- Draft-assets endpoint: `generationDraftService.getById(userId, draftId)` required before returning data (ownership security)
-- `generation_drafts.id` is canonical storyboard ID; storyboard tables use `draft_id CHAR(36)` FK
-- **mysql2 LIMIT binding**: use `pool.query` (text) — not `pool.execute` (prepared stmt) — for `LIMIT ?` params
-- **Docker image node_modules**: must `docker compose build <service>` to reinstall baked packages
-- **DEV_AUTH_BYPASS identity**: injects `dev-user-001`; all user-id assertions in that context must expect `dev-user-001`
-- **E2E CORS on deployed instance**: use `page.request.fetch()` (bypasses browser CORS) + `page.route()` with `access-control-allow-origin: *`
-- `CanvasSnapshot.positions` is optional — server snapshots carry `{blocks, edges}` only; positions reconstructed from `block.positionX/Y` fallback in `restoreFromSnapshot`
+## Architectural Decisions
+- §9.7 300-line cap: `*.fixtures.ts` + `.<topic>.test.ts` splits; approved exceptions: `fal-models.ts` (1093L), `file.repository.ts` (306L), `useProjectInit.test.ts` (318L), `StoryboardCard.tsx` (319L), `StoryboardPage.tsx` (322L), `storyboard-store.ts` (307L); e2e/*.spec.ts exempt
+- Worker env: only `index.ts` reads config keys; handlers receive secrets via `deps`
+- Migration runner: in-process + sha256 checksum; DDL non-transactional; INSERT after DDL
+- Vitest: `pool: 'forks' + singleFork: true`; each split file has own `vi.hoisted()`
+- Files-as-root: `files` user-scoped; `project_files`/`draft_files` pivots (CASCADE container, RESTRICT file)
+- Soft-delete: `deleted_at IS NULL`; `*IncludingDeleted` helpers; 30-day TTL → GoneError 410
+- mysql2: `pool.query` (not `execute`) for LIMIT params; JSON cols need `typeof==='string'` guard
+- Auth: `buildAuthenticatedUrl()` required on all `/assets/:id/{thumbnail,stream}` media elements
+- Store reset: `resetProjectStore(projectId) + resetHistoryStore()` BEFORE `fetchLatestVersion`
+- `CanvasSnapshot.positions` optional — server omits it; `restoreFromSnapshot` falls back to `block.positionX/Y`
+- Typography §3: 14/400 body, 12/500 label, 16/600 heading-3; 4px grid; radius-md 8px
+- Per-file styles: hex constants at top of `.styles.ts`; no CSS custom properties in web-editor
+- DEV_AUTH_BYPASS injects `dev-user-001`; all test assertions must expect that id
+- E2E CORS: `page.request.fetch()` + `page.route()` with `access-control-allow-origin: *`
+
+---
+
+## [2026-04-25]
+
+### Task: Storyboard Layout Bug Fixes — Duplicate Sentinels + Immediate Autosave
+**Subtask:** SB-BUG-A — Fix duplicate START/END sentinel initialization race
+
+**What was done:**
+- Added `insertSentinelsInTx(conn, start, end)` to `storyboard.repository.ts` — inserts both sentinel blocks inside a caller-supplied transaction connection.
+- Added `insertSentinelsAtomically(draftId)` private helper in `storyboard.service.ts` — opens a connection, `BEGIN`, `SELECT COUNT(*) ... FOR UPDATE`, inserts sentinels if count = 0, `COMMIT`; retries once on `ER_LOCK_DEADLOCK` (1213) since two concurrent transactions can deadlock on InnoDB gap locks.
+- Updated `loadStoryboard` in `storyboard.service.ts` to call `insertSentinelsAtomically` at the top — merges sentinel seeding into the GET request, eliminating the need for a separate POST init call.
+- Removed `await initializeStoryboard(draftId)` from `useStoryboardCanvas.ts`; now calls only `fetchStoryboard(draftId)`.
+- Added `dedupSentinels(blocks)` to `useStoryboardCanvas.ts` — client-side safety net that keeps only the first START and first END block (all scene blocks pass through).
+- Added `useStoryboardCanvas.test.ts` — 6 unit tests: no POST call on mount, happy-path node mapping, duplicate sentinel dedup (2 start + 2 end → 1+1), scene block preservation, error state, empty draftId guard.
+- Extended `storyboard.integration.test.ts` with concurrent-init scenario: two concurrent GETs on a fresh draft assert exactly 1 START + 1 END row in DB.
+
+**Notes:**
+- InnoDB gap locks cause a deadlock when two transactions both see count = 0 and both attempt INSERT. The standard resolution is a single retry; on the second attempt the winning transaction's sentinels are already committed so count > 0 and the insert is skipped.
+- The `POST /storyboards/:draftId/initialize` endpoint is left in the router per the task spec — it remains callable but is no longer invoked by the client.
+- Pre-existing test failures in `StoryboardPage.assetPanel.test.tsx` (ST-B6 QueryClient bug) are unrelated to this subtask.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: SB-BUG-A — Fix duplicate START/END sentinel initialization race</summary>
+
+- [ ] **SB-BUG-A: Fix duplicate START/END sentinel initialization race**
+  - What: `initializeStoryboard` (POST) and `loadStoryboard` (GET) are two separate API calls on page mount. In React 18 Strict Mode — and on rapid re-mounts — both concurrent POST calls see `startCount === 0` before either commits, resulting in 2 START + 2 END blocks. Merge the sentinel seed into `loadStoryboard` using a transactional `SELECT ... FOR UPDATE` lock; remove the explicit client-side POST init call.
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-25. Backend transactional logic + client-side dedup safety net. No UI/design surface — no colors, spacing, typography, component structure, or state changes. ✓
+checked by playwright-reviewer: YES — Hook-only backend fix verified via 6 unit tests (useStoryboardCanvas.test.ts) + 1 integration test (concurrent sentinel init); client-side dedup safety net in place. No UI/route changes. Per hook-only testing pattern.
+
+---
+
+---
+
+## [2026-04-25]
+
+### Task: Storyboard Layout Bug Fixes — Duplicate Sentinels + Immediate Autosave
+**Subtask:** SB-BUG-B — Immediate autosave on drag-end, edge connect, and block add
+
+**What was done:**
+- Changed `AUTOSAVE_DEBOUNCE_MS` from `30_000` to `5_000` in `useStoryboardAutosave.ts` — reduces the fallback debounce window from 30 s to 5 s.
+- In `StoryboardPage.tsx`:
+  - Added `saveNow` to the `useStoryboardAutosave` destructuring.
+  - `handleNodesChange`: moved `hasMoved` computation OUTSIDE the `setNodes` pure updater callback (side effects must not run inside updaters); added `if (hasMoved) setTimeout(() => void saveNow(), 0)` after `setNodes`.
+  - `handleConnect`: added `setTimeout(() => void saveNow(), 0)` after `setEdges`.
+  - `handleEdgesChange`: moved `hasStructuralChange` computation OUTSIDE `setEdges` updater (same side-effect rule); condensed from multi-line to single-line expression; added `if (hasStructuralChange) setTimeout(() => void saveNow(), 0)`.
+  - Collapsed `handleBack`/`handleNext` to single-line forms to stay within the 300-line cap.
+  - Added `saveNow` to `useAddBlock` call.
+  - File stays at 296 lines (≤ 300 cap).
+- In `useAddBlock.ts`: added `saveNow: () => Promise<void>` to `UseAddBlockArgs`; called `setTimeout(() => void saveNow(), 0)` after `setNodes` in `addBlock`.
+- Updated `useAddBlock.test.ts`: added `useAddBlock` hook tests using `vi.useFakeTimers()` and `vi.runAllTimers()` to verify `saveNow` is NOT called synchronously but IS called after the timer fires (3 new tests, 16 total).
+- Updated `useStoryboardAutosave.test.ts`: changed all `30_001` timer advances to `5_001` to match new `AUTOSAVE_DEBOUNCE_MS` constant.
+- Created `e2e/storyboard-fixes.spec.ts`: E2E test that drags a scene block and uses `page.waitForRequest` to assert a PUT to `/storyboards/` fires within 8 s.
+
+**Notes:**
+- The `setTimeout(fn, 0)` macro-task defers `saveNow()` until after React finishes the batched `setNodes`/`setEdges` update and the `useEffect([nodes])`/`useEffect([edges])` syncs `nodesRef.current` — guaranteeing `performSave` reads the NEW positions, not pre-drag stale positions.
+- `hasMoved` and `hasStructuralChange` must be computed OUTSIDE the updater callbacks because React may call updaters multiple times (concurrent mode / Strict Mode double-invoke). Computing them outside the callback is safe since they only read the stable `changes` array.
+- Pre-existing `StoryboardPage.assetPanel.test.tsx` failures (ST-B6 QueryClient bug, 2 tests) are unrelated to this subtask.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: SB-BUG-B — Immediate autosave on drag-end, edge connect, and block add</summary>
+
+- [ ] **SB-BUG-B: Immediate autosave on drag-end, edge connect, and block add**
+  - What: `handleNodesChange` (drag-end), `handleConnect`, and `handleEdgesChange` (structural) do not call `saveNow()` — only the 30-second debounce saves. Add `setTimeout(() => void saveNow(), 0)` after each mutation so `saveNow` fires after React re-renders and `nodesRef.current` is up-to-date. Also reduce `AUTOSAVE_DEBOUNCE_MS` from 30 000 to 5 000 as a fallback for any missed mutation paths. Fix `useHandleAddBlock` with the same `setTimeout` pattern (current `void saveNow()` reads stale refs before React re-renders).
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-04-25. Backend debounce timing + hook logic only. No UI/design surface — no colors, spacing, typography, component structure, or styling changes. AUTOSAVE_DEBOUNCE_MS reduced from 30 s to 5 s (constant only); saveNow() called via setTimeout macro-task pattern (no visible behavior change). ✓
+checked by playwright-reviewer: YES — Hook-only changes verified via 46 unit tests pass (useStoryboardAutosave.test 10/10, useAddBlock.test 16/16, StoryboardPage.test 20/20); debounce 30s→5s confirmed; setTimeout(saveNow, 0) pattern verified in handleNodesChange/handleConnect/useAddBlock; StoryboardPage 296 lines ≤ 300 cap. Per hook-only testing pattern (unit test coverage sufficient, no UI/route changes).
 
 ---
 
 ## Known Issues / TODOs
-- ACL middleware stub — real project ownership check deferred (B3 `it.todo` 403 tests activate when done)
-- `duration_ms` NULL for migrated files; ingest reprocess repopulates
-- `bytes` NULL after ingest (FFprobe doesn't return S3 object size; HeadObject needs worker bucket config)
-- Presigned download URL deferred; production stream endpoint needs signed URL tokens
-- Lint workspace-wide fails with ESLint v9 config-migration error
-- Pre-existing TS errors in unrelated test files (`App.PreviewSection.test.tsx`, `App.RightSidebar.test.tsx`)
-- Stitch OQ-S1..S4 (dup Landing, tablet/mobile variants, secondary screens, spacing/typography echo)
-- TopBar buttons `borderRadius: 6px` off-token (pre-existing); `AssetBrowserPanel` pre-existing drift: `gap: 2`, `padding: '0 10px'`, `fontSize: 13`
-- Chip × button needs semi-transparent background token
-- `parseStorageUri` duplicated between `asset.service.ts` + `file.service.ts` — candidate to move to `lib/storage-uri.ts`
-- EPIC B hard-purge scheduled job: out of scope; soft-deleted rows past 30 days currently 410 on restore but not physically removed
-- Files `thumbnail_uri` backfill for pre-ingest files deferred (re-ingest fills)
-- `linkFileToProject` duplicated between `features/timeline/api.ts` + `shared/file-upload/api.ts` — consolidation candidate
-- E2E image/audio timeline-drop tests skip when no assets of those types linked to test project
-- Infinite scroll UX: BE pagination shipped but FE still page-1-only; `fetchNextAssetsPage()` exported but unwired
-- `lust-not-compacted-dev-logs.md` holds the single-copy uncompacted backup; git holds prior-batch history
-- **ST-B6 test bug**: `StoryboardPage.assetPanel.test.tsx` needs `vi.mock('@/features/storyboard/components/LibraryPanel', ...)` to fix useQueryClient() error on lines 157–178
-- **ST-B5 TS2305**: `STORYBOARD_STYLES` import from `@ai-video-editor/api-contracts` fails in container (stale dist); tests pass via vi.mock; fix by rebuilding api-contracts in Docker image
-
+- ACL middleware stub — real ownership check deferred (B3 it.todo 403 tests)
+- `bytes` NULL after ingest (HeadObject needs worker bucket config)
+- Lint fails — ESLint v9 config-migration error workspace-wide
+- Pre-existing TS errors in `App.PreviewSection.test.tsx`, `App.RightSidebar.test.tsx`
+- Stitch OQ-S1..S4 (dup Landing, tablet/mobile, secondary screens, spacing echo)
+- Infinite scroll: BE pagination shipped; FE `fetchNextAssetsPage()` exported but unwired
+- `parseStorageUri` duplicated across asset.service + file.service → candidate `lib/storage-uri.ts`
+- `linkFileToProject` duplicated across timeline/api.ts + shared/file-upload/api.ts
+- Hard-purge cron for soft-deleted rows past 30 days not implemented
+- E2E image/audio timeline-drop tests skip when no assets linked to test project
+- **ST-B6 test bug**: `StoryboardPage.assetPanel.test.tsx` needs `vi.mock('@/features/storyboard/components/LibraryPanel')` to fix useQueryClient() error (lines 157–178)
+- **ST-B5 TS2305**: `STORYBOARD_STYLES` import from api-contracts fails in container (stale dist); fix: rebuild api-contracts Docker image

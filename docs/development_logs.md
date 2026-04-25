@@ -1,4 +1,4 @@
-# Development Log (compacted — 2026-03-29 to 2026-04-23)
+# Development Log (compacted — 2026-03-29 to 2026-04-25)
 
 ## Monorepo + DB Migrations
 - added: root config, apps (api/web-editor/media-worker/render-worker), packages (project-schema, remotion-comps)
@@ -54,7 +54,7 @@
 
 ## Video Generation Wizard
 - added: migration 019; `generationDraft.*` (repository/service/controller/routes — 5 routes)
-- added: `features/generate-wizard/` — PromptEditor (contenteditable chips), WizardStepper, GenerateWizardPage, MediaGalleryPanel, AssetPickerModal, PromptToolbar, WizardFooter
+- added: `features/generate-wizard/` — PromptEditor, WizardStepper, GenerateWizardPage, MediaGalleryPanel, AssetPickerModal, PromptToolbar, WizardFooter
 - added: `EnhancePromptJobPayload`; `enhancePrompt.job.ts`; enhance rate-limit (10/hr); `EnhancePreviewModal.tsx`
 
 ## Home + Project Hub
@@ -94,10 +94,28 @@
 - fixed: `restoreFromSnapshot` — proper Node/Edge reconstruction from StoryboardBlock/StoryboardEdge; `positions?` optional in CanvasSnapshot
 - documented: `docs/architecture-rules.md` §9.7 approved exceptions table
 
+## Storyboard Bug Fixes + Follow-ups (2026-04-24)
+- ST-FIX-1: added `onNavigateHome` prop + Home button (`data-testid="home-button"`) to `StoryboardPage.topBar.tsx`; navigation tests split to `StoryboardPage.navigation.test.tsx` (177L); 23 tests pass
+- ST-FIX-2: `draggable: false → true` for START/END sentinels in `useStoryboardCanvas.blockToNode`, `storyboard-store.restoreFromSnapshot`, `storyboard-history-store.applySnapshot`; 4 new unit tests
+- ST-FIX-3: `useStoryboardAutosave` refactored — signature `(draftId, nodes, edges)`; removed external store subscription; `useEffect([nodes, edges])` debounce; split: `.test.ts` (189L) + `.save-now.test.ts` (158L) + `.fixtures.ts` (42L); 13 tests
+- ST-FIX-4: `useAddBlock.ts` IDs → `crypto.randomUUID()`; `handleAddBlock` extracted to `useHandleAddBlock.ts`; 7 tests
+- ST-FIX-5: `StoryboardHistoryPanel` — `onRestore: (nodes, edges) => void` prop; `useHandleRestore.ts` re-wires `onRemove` then calls `setNodes/setEdges/pushSnapshot/saveNow`; 18 tests
+- ST-FIX-6: `e2e/storyboard-fixes.spec.ts` — 5 Playwright E2E tests (all pass)
+- FOLLOW-1: fixed `StoryboardPage.assetPanel.test.tsx` — added `vi.mock('@/features/storyboard/components/LibraryPanel')`; 7/7 pass
+- FOLLOW-2: `useStoryboardDrag.ts` — edge IDs → `crypto.randomUUID()`; split test files (175L + 136L + 73L fixtures); UUID regex tightened to RFC 4122 v4
+
+## Storyboard Layout Bug Fixes (2026-04-25)
+- SB-BUG-A: fixed duplicate START/END sentinel race — `insertSentinelsAtomically(draftId)` in `storyboard.service.ts` uses `SELECT COUNT(*) ... FOR UPDATE` + single deadlock retry (errno 1213); merged into `loadStoryboard` (GET auto-initializes); `insertSentinelsInTx(conn, start, end)` added to `storyboard.repository.ts`
+- SB-BUG-A: removed `initializeStoryboard` POST call from `useStoryboardCanvas.ts`; added `dedupSentinels()` client-side filter (first START + first END kept); created `useStoryboardCanvas.test.ts` (6 tests); extended concurrent-init integration test in `storyboard.integration.test.ts`
+- SB-BUG-B: `AUTOSAVE_DEBOUNCE_MS` 30 000 → 5 000 in `useStoryboardAutosave.ts`
+- SB-BUG-B: `StoryboardPage.tsx` (296L) — `hasMoved`/`hasStructuralChange` moved outside updater callbacks; `setTimeout(() => void saveNow(), 0)` added to `handleNodesChange` (drag-end), `handleConnect`, `handleEdgesChange` (structural)
+- SB-BUG-B: `useAddBlock.ts` — added `saveNow` param; `setTimeout(() => void saveNow(), 0)` after `setNodes`; 3 new fake-timer tests (16 total)
+- SB-BUG-B: `useStoryboardAutosave.test.ts` — timer advances updated 30 001 → 5 001; extended `e2e/storyboard-fixes.spec.ts` with drag-end PUT assertion
+
 ---
 
 ## Architectural Decisions
-- §9.7 300-line cap: `*.fixtures.ts` + `.<topic>.test.ts` splits; approved exceptions: `fal-models.ts` (1093L), `file.repository.ts` (306L), `useProjectInit.test.ts` (318L), `StoryboardCard.tsx` (319L), `StoryboardPage.tsx` (322L), `storyboard-store.ts` (307L); e2e/*.spec.ts exempt
+- §9.7 300-line cap: `*.fixtures.ts` + `.<topic>.test.ts` splits; approved exceptions: `fal-models.ts` (1093L), `file.repository.ts` (306L), `useProjectInit.test.ts` (318L), `StoryboardCard.tsx` (319L), `storyboard-store.ts` (307L); e2e/*.spec.ts exempt
 - Worker env: only `index.ts` reads config keys; handlers receive secrets via `deps`
 - Migration runner: in-process + sha256 checksum; DDL non-transactional; INSERT after DDL
 - Vitest: `pool: 'forks' + singleFork: true`; each split file has own `vi.hoisted()`
@@ -110,7 +128,11 @@
 - Typography §3: 14/400 body, 12/500 label, 16/600 heading-3; 4px grid; radius-md 8px
 - Per-file styles: hex constants at top of `.styles.ts`; no CSS custom properties in web-editor
 - DEV_AUTH_BYPASS injects `dev-user-001`; all test assertions must expect that id
-- E2E CORS: `page.request.fetch()` + `page.route()` with `access-control-allow-origin: *`
+- E2E CORS: `page.request.fetch()` + `page.route()` with `access-control-allow-origin: *`; PUT requests use `page.request.put` (server-side, bypasses browser CORS)
+- Storyboard autosave: `useStoryboardAutosave` reads React state via params+refs, NOT external store subscription
+- Storyboard IDs: blocks and edges always `crypto.randomUUID()` at creation — server schema requires UUID
+- Immediate save pattern: `setTimeout(() => void saveNow(), 0)` defers save until after React re-render so `nodesRef.current` reflects new positions
+- Sentinel init: `loadStoryboard` auto-initializes START/END atomically via `SELECT ... FOR UPDATE` + deadlock retry; client-side `dedupSentinels()` as safety net
 
 ---
 
@@ -125,5 +147,6 @@
 - `linkFileToProject` duplicated across timeline/api.ts + shared/file-upload/api.ts
 - Hard-purge cron for soft-deleted rows past 30 days not implemented
 - E2E image/audio timeline-drop tests skip when no assets linked to test project
-- **ST-B6 test bug**: `StoryboardPage.assetPanel.test.tsx` needs `vi.mock('@/features/storyboard/components/LibraryPanel')` to fix useQueryClient() error (lines 157–178)
+- **ST-B6 test bug**: `StoryboardPage.assetPanel.test.tsx` needs `vi.mock('@/features/storyboard/components/LibraryPanel')` to fix useQueryClient() error
 - **ST-B5 TS2305**: `STORYBOARD_STYLES` import from api-contracts fails in container (stale dist); fix: rebuild api-contracts Docker image
+- **Keyboard undo/redo broken**: `storyboard-history-store.applySnapshot` calls `storyboard-store.setNodes/setEdges` but React Flow renders from `useState` — Ctrl+Z/Y don't visually update canvas

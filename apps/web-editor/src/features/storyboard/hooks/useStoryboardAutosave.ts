@@ -2,7 +2,7 @@
  * useStoryboardAutosave — debounced autosave for the storyboard canvas.
  *
  * Behaviour:
- * - Subscribes to the storyboard-store; after each mutation debounces 30 s.
+ * - Subscribes to the storyboard-store; after each mutation debounces 5 s.
  * - On timer expiry, calls `PUT /storyboards/:draftId` with the current state
  *   only if the state has changed since the last successful save.
  * - Returns a `saveLabel` string for the top-bar indicator:
@@ -28,7 +28,7 @@ import type { StoryboardState } from '../types';
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 /** Autosave debounce window in ms. */
-const AUTOSAVE_DEBOUNCE_MS = 30_000;
+const AUTOSAVE_DEBOUNCE_MS = 5_000;
 
 /** Label refresh interval — used to age "Saved X ago" labels. */
 const LABEL_REFRESH_INTERVAL_MS = 30_000;

@@ -2,11 +2,11 @@
  * Tests for useStoryboardAutosave.
  *
  * Covers:
- * - Calls PUT /storyboards/:draftId after 30s debounce when state has changed.
+ * - Calls PUT /storyboards/:draftId after 5s debounce when state has changed.
  * - Does NOT call the API again if state has not changed since last save.
  * - saveLabel shows "—" on initial render, "Saving…" during save, "Saved just now" after save.
  * - beforeunload listener is registered and removed on unmount.
- * - Multiple store-change events within 30s collapse into a single API call.
+ * - Multiple store-change events within 5s collapse into a single API call.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -71,14 +71,14 @@ describe('useStoryboardAutosave', () => {
 
     it('does NOT call saveStoryboard on mount', () => {
       renderHook(() => useStoryboardAutosave('draft-1'));
-      vi.advanceTimersByTime(30_001);
+      vi.advanceTimersByTime(5_001);
       // No store change was fired — no save expected.
       expect(saveStoryboard).not.toHaveBeenCalled();
     });
   });
 
   describe('debounced save after state change', () => {
-    it('calls saveStoryboard once after 30s when the store emits a change', async () => {
+    it('calls saveStoryboard once after 5s when the store emits a change', async () => {
       renderHook(() => useStoryboardAutosave('draft-1'));
 
       // Simulate a store mutation.
@@ -89,9 +89,9 @@ describe('useStoryboardAutosave', () => {
       // Not yet called — debounce hasn't fired.
       expect(saveStoryboard).not.toHaveBeenCalled();
 
-      // Advance timers past the 30s debounce.
+      // Advance timers past the 5s debounce.
       await act(async () => {
-        vi.advanceTimersByTime(30_001);
+        vi.advanceTimersByTime(5_001);
         // Flush pending microtasks from the async save.
         await Promise.resolve();
       });
@@ -100,7 +100,7 @@ describe('useStoryboardAutosave', () => {
       expect(saveStoryboard).toHaveBeenCalledWith('draft-1', expect.any(Object));
     });
 
-    it('collapses multiple changes within 30s into a single API call', async () => {
+    it('collapses multiple changes within 5s into a single API call', async () => {
       renderHook(() => useStoryboardAutosave('draft-1'));
 
       // Fire store changes rapidly.
@@ -111,7 +111,7 @@ describe('useStoryboardAutosave', () => {
       });
 
       await act(async () => {
-        vi.advanceTimersByTime(30_001);
+        vi.advanceTimersByTime(5_001);
         await Promise.resolve();
       });
 
@@ -127,7 +127,7 @@ describe('useStoryboardAutosave', () => {
         mockSubscribeCallback.current?.();
       });
       await act(async () => {
-        vi.advanceTimersByTime(30_001);
+        vi.advanceTimersByTime(5_001);
         await Promise.resolve();
       });
       expect(saveStoryboard).toHaveBeenCalledTimes(1);
@@ -138,7 +138,7 @@ describe('useStoryboardAutosave', () => {
         mockSubscribeCallback.current?.();
       });
       await act(async () => {
-        vi.advanceTimersByTime(30_001);
+        vi.advanceTimersByTime(5_001);
         await Promise.resolve();
       });
 
@@ -159,7 +159,7 @@ describe('useStoryboardAutosave', () => {
       });
 
       await act(async () => {
-        vi.advanceTimersByTime(30_001);
+        vi.advanceTimersByTime(5_001);
         // Flush the setState('saving') call.
         await Promise.resolve();
       });
@@ -175,7 +175,7 @@ describe('useStoryboardAutosave', () => {
       });
 
       await act(async () => {
-        vi.advanceTimersByTime(30_001);
+        vi.advanceTimersByTime(5_001);
         await Promise.resolve();
         await Promise.resolve(); // additional flush for state updates
       });

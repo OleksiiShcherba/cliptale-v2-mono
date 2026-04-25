@@ -1,6 +1,5 @@
 /**
- * Tests for useAddBlock — specifically the pure helper functions
- * `findInsertionPoint` and `nextSceneIndex`.
+ * Tests for useAddBlock — pure helper functions and the hook itself.
  *
  * Covers:
  * - findInsertionPoint: no blocks → null
@@ -9,13 +8,15 @@
  * - findInsertionPoint: START block without exit edge → START chosen
  * - nextSceneIndex: no scene nodes → 1
  * - nextSceneIndex: scene nodes present → max sortOrder + 1
+ * - useAddBlock hook: addBlock calls saveNow inside a setTimeout (not synchronously)
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
 
 import type { Node, Edge } from '@xyflow/react';
 
-import { findInsertionPoint, nextSceneIndex } from './useAddBlock';
+import { findInsertionPoint, nextSceneIndex, useAddBlock } from './useAddBlock';
 import type { SceneBlockNodeData } from '../types';
 
 // ── Fixture helpers ────────────────────────────────────────────────────────────
@@ -184,5 +185,101 @@ describe('nextSceneIndex', () => {
     // Only START and END — no scenes — should return 1.
     const nodes = [makeStartNode(), makeEndNode()];
     expect(nextSceneIndex(nodes)).toBe(1);
+  });
+});
+
+// ── useAddBlock hook tests ─────────────────────────────────────────────────────
+
+describe('useAddBlock hook', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('does NOT call saveNow synchronously when addBlock is called', () => {
+    const mockSaveNow = vi.fn().mockResolvedValue(undefined);
+    const mockSetNodes = vi.fn();
+
+    const { result } = renderHook(() =>
+      useAddBlock({
+        nodes: [makeStartNode(), makeEndNode()],
+        edges: [],
+        setNodes: mockSetNodes,
+        onRemoveNode: vi.fn(),
+        saveNow: mockSaveNow,
+      }),
+    );
+
+    act(() => {
+      result.current.addBlock();
+    });
+
+    // saveNow must NOT be called synchronously — it is deferred via setTimeout(fn, 0).
+    expect(mockSaveNow).not.toHaveBeenCalled();
+  });
+
+  it('calls saveNow after the timer fires (setTimeout deferred)', () => {
+    const mockSaveNow = vi.fn().mockResolvedValue(undefined);
+    const mockSetNodes = vi.fn();
+
+    const { result } = renderHook(() =>
+      useAddBlock({
+        nodes: [makeStartNode(), makeEndNode()],
+        edges: [],
+        setNodes: mockSetNodes,
+        onRemoveNode: vi.fn(),
+        saveNow: mockSaveNow,
+      }),
+    );
+
+    act(() => {
+      result.current.addBlock();
+    });
+
+    // Still not called before timers run.
+    expect(mockSaveNow).not.toHaveBeenCalled();
+
+    // Advance past the setTimeout(fn, 0) — now saveNow should have been called.
+    act(() => {
+      vi.runAllTimers();
+    });
+
+    expect(mockSaveNow).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds a new scene-block node to the nodes list when addBlock is called', () => {
+    const mockSaveNow = vi.fn().mockResolvedValue(undefined);
+    const capturedNodes: Node[][] = [];
+    const mockSetNodes = vi.fn((updater: (prev: Node[]) => Node[]) => {
+      const initial: Node[] = [makeStartNode(), makeEndNode()];
+      capturedNodes.push(updater(initial));
+    });
+
+    const { result } = renderHook(() =>
+      useAddBlock({
+        nodes: [makeStartNode(), makeEndNode()],
+        edges: [],
+        setNodes: mockSetNodes,
+        onRemoveNode: vi.fn(),
+        saveNow: mockSaveNow,
+      }),
+    );
+
+    act(() => {
+      result.current.addBlock();
+      vi.runAllTimers();
+    });
+
+    expect(mockSetNodes).toHaveBeenCalledTimes(1);
+    const resultNodes = capturedNodes[0];
+    // Should have 3 nodes: START + END + new scene-block
+    expect(resultNodes).toHaveLength(3);
+    const newNode = resultNodes.find((n) => n.type === 'scene-block');
+    expect(newNode).toBeDefined();
+    expect((newNode?.data as SceneBlockNodeData).block.name).toBe('SCENE 1');
   });
 });

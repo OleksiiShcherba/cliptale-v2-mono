@@ -113,7 +113,7 @@ export function StoryboardPage(): React.ReactElement {
 
   // ── Autosave ─────────────────────────────────────────────────────────────────
 
-  const { saveLabel } = useStoryboardAutosave(safeDraftId);
+  const { saveLabel, saveNow } = useStoryboardAutosave(safeDraftId);
 
   // ── Drag hook ────────────────────────────────────────────────────────────────
 
@@ -134,7 +134,7 @@ export function StoryboardPage(): React.ReactElement {
   });
 
   // ── Add Block + History push ─────────────────────────────────────────────────
-  const { addBlock } = useAddBlock({ nodes, edges, setNodes, onRemoveNode: removeNode });
+  const { addBlock } = useAddBlock({ nodes, edges, setNodes, onRemoveNode: removeNode, saveNow });
   const { pushSnapshot } = useStoryboardHistoryPush(safeDraftId);
 
   // ── Edge connection callbacks ────────────────────────────────────────────────
@@ -165,47 +165,43 @@ export function StoryboardPage(): React.ReactElement {
         pushSnapshot(nodes, next);
         return next;
       });
+      setTimeout(() => void saveNow(), 0);
     },
-    [setEdges, nodes, pushSnapshot],
+    [setEdges, nodes, pushSnapshot, saveNow],
   );
 
   // ── Node / edge change handlers ──────────────────────────────────────────────
 
   const handleNodesChange: OnNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      const hasMoved = changes.some((c) => c.type === 'position' && c.dragging === false);
       setNodes((prev) => {
         const next = applyNodeChanges(changes, prev);
-        const hasMoved = changes.some((c) => c.type === 'position' && c.dragging === false);
         if (hasMoved) pushSnapshot(next, edges);
         return next;
       });
+      if (hasMoved) setTimeout(() => void saveNow(), 0);
     },
-    [setNodes, edges, pushSnapshot],
+    [setNodes, edges, pushSnapshot, saveNow],
   );
 
   const handleEdgesChange: OnEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
+      const hasStructuralChange = changes.some((c) => c.type === 'add' || c.type === 'remove');
       setEdges((prev) => {
         const next = applyEdgeChanges(changes, prev);
-        const hasStructuralChange = changes.some(
-          (c) => c.type === 'add' || c.type === 'remove',
-        );
         if (hasStructuralChange) pushSnapshot(nodes, next);
         return next;
       });
+      if (hasStructuralChange) setTimeout(() => void saveNow(), 0);
     },
-    [setEdges, nodes, pushSnapshot],
+    [setEdges, nodes, pushSnapshot, saveNow],
   );
 
   // ── Navigation ───────────────────────────────────────────────────────────────
 
-  const handleBack = (): void => {
-    navigate(draftId ? `/generate?draftId=${draftId}` : '/generate');
-  };
-
-  const handleNext = (): void => {
-    navigate('/generate/road-map');
-  };
+  const handleBack = (): void => { navigate(draftId ? `/generate?draftId=${draftId}` : '/generate'); };
+  const handleNext = (): void => { navigate('/generate/road-map'); };
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
