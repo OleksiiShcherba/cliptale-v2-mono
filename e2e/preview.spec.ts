@@ -3,7 +3,9 @@
 
 import { test, expect } from '@playwright/test';
 
+import { installCorsWorkaround } from './helpers/cors-workaround';
 import { readE2eProjectId } from './helpers/e2e-context';
+import { readBearerToken } from './helpers/storyboard';
 
 const editorUrl = () => `/editor?projectId=${readE2eProjectId()}`;
 
@@ -12,6 +14,8 @@ test.describe('Preview panel — Remotion player and playback controls', () => {
   test.setTimeout(60_000);
 
   test.beforeEach(async ({ page }) => {
+    const token = await readBearerToken();
+    await installCorsWorkaround(page, token);
     await page.goto(editorUrl());
     // Project hydration + Remotion player mount can take several seconds
     // on a cold page, so allow a generous wait before assertions begin.

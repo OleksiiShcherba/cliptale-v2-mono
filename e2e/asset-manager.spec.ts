@@ -3,12 +3,16 @@
 
 import { test, expect } from '@playwright/test';
 
+import { installCorsWorkaround } from './helpers/cors-workaround';
 import { readE2eProjectId } from './helpers/e2e-context';
+import { readBearerToken } from './helpers/storyboard';
 
 const editorUrl = () => `/editor?projectId=${readE2eProjectId()}`;
 
 test.describe('Asset manager — panel and upload dropzone', () => {
   test.beforeEach(async ({ page }) => {
+    const token = await readBearerToken();
+    await installCorsWorkaround(page, token);
     await page.goto(editorUrl());
     await expect(
       page.getByRole('complementary', { name: 'Left sidebar' }),
