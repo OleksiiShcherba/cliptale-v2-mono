@@ -155,6 +155,7 @@ export function StoryboardPage(): React.ReactElement {
         const next = addEdge(
           {
             ...connection,
+            id: crypto.randomUUID(),
             sourceHandle: connection.sourceHandle ?? 'exit',
             targetHandle: connection.targetHandle ?? 'income',
             style: { stroke: BORDER, strokeWidth: 2 },
