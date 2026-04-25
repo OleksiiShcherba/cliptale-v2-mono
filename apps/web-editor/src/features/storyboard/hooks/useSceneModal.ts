@@ -36,9 +36,12 @@ type UseSceneModalResult = {
  * @param setNodes - React Flow setNodes dispatch; called after updateBlock to
  *   patch the matching node's data.block in-place so SceneBlockNode re-renders
  *   immediately with the new values, and autosave nodesRef stays fresh.
+ * @param saveNow - immediate autosave trigger; called after setNodes so
+ *   nodesRef reflects the updated block before the save fires.
  */
 export function useSceneModal(
   setNodes: React.Dispatch<React.SetStateAction<Node[]>>,
+  saveNow: () => Promise<void>,
 ): UseSceneModalResult {
   const [editingBlock, setEditingBlock] = useState<StoryboardBlock | null>(null);
 
@@ -84,8 +87,9 @@ export function useSceneModal(
       );
 
       setEditingBlock(null);
+      setTimeout(() => void saveNow(), 0);
     },
-    [setNodes],
+    [setNodes, saveNow],
   );
 
   const handleDelete = useCallback((blockId: string): void => {

@@ -85,7 +85,7 @@ export function StoryboardPage(): React.ReactElement {
 
   // ── SceneModal ───────────────────────────────────────────────────────────────
 
-  const { editingBlock, openModal, handleSave, handleDelete, handleClose } = useSceneModal(setNodes);
+  const { editingBlock, openModal, handleSave, handleDelete, handleClose } = useSceneModal(setNodes, saveNow);
 
   const handleNodeClick: NodeMouseHandler<Node> = useCallback(
     (_event, node) => {
