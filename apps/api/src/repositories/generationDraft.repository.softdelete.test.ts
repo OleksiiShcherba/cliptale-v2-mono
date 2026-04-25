@@ -34,6 +34,7 @@ import {
   findAssetPreviewsByIds,
   softDeleteDraft,
   restoreDraft,
+  updateDraftStatus,
 } from './generationDraft.repository.js';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -248,5 +249,48 @@ describe('generationDraft.repository — deletedAt field mapping', () => {
     const result = await findDraftByIdIncludingDeleted('draft-uuid-001');
 
     expect(result!.deletedAt).toEqual(deletedAt);
+  });
+});
+
+// ── updateDraftStatus ─────────────────────────────────────────────────────────
+
+describe('generationDraft.repository — updateDraftStatus', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('executes UPDATE generation_drafts SET status = ?, updated_at = NOW() WHERE id = ?', async () => {
+    mockQuery.mockResolvedValueOnce([{ affectedRows: 1 } as ResultSetHeader]);
+
+    await updateDraftStatus('draft-uuid-001', 'step2');
+
+    expect(mockQuery).toHaveBeenCalledOnce();
+    const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/UPDATE\s+generation_drafts\s+SET\s+status\s*=\s*\?.*updated_at\s*=\s*NOW\(\)/is);
+    expect(sql).toMatch(/WHERE\s+id\s*=\s*\?/i);
+    expect(params).toEqual(['step2', 'draft-uuid-001']);
+  });
+
+  it('resolves void when the row is updated', async () => {
+    mockQuery.mockResolvedValueOnce([{ affectedRows: 1 } as ResultSetHeader]);
+
+    const result = await updateDraftStatus('draft-uuid-001', 'step2');
+
+    expect(result).toBeUndefined();
+  });
+
+  it('resolves void even when no row matched (zero affectedRows — caller asserts ownership)', async () => {
+    mockQuery.mockResolvedValueOnce([{ affectedRows: 0 } as ResultSetHeader]);
+
+    await expect(updateDraftStatus('nonexistent-draft', 'step3')).resolves.toBeUndefined();
+  });
+
+  it('passes the status value correctly for each GenerationDraftStatus variant', async () => {
+    const statuses = ['draft', 'step2', 'step3', 'completed'] as const;
+
+    for (const status of statuses) {
+      mockQuery.mockResolvedValueOnce([{ affectedRows: 1 } as ResultSetHeader]);
+      await updateDraftStatus('draft-uuid-001', status);
+      const [, params] = mockQuery.mock.calls[mockQuery.mock.calls.length - 1] as [string, unknown[]];
+      expect(params[0]).toBe(status);
+    }
   });
 });

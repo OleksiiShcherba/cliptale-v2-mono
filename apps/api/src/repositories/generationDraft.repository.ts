@@ -183,6 +183,21 @@ export async function deleteDraft(id: string, userId: string): Promise<boolean> 
 }
 
 /**
+ * Updates the status of a draft.
+ * Silently ignores zero-affected-row results — the caller (service) is
+ * responsible for asserting ownership before calling this function.
+ */
+export async function updateDraftStatus(
+  draftId: string,
+  status: GenerationDraftStatus,
+): Promise<void> {
+  await pool.query<ResultSetHeader>(
+    'UPDATE generation_drafts SET status = ?, updated_at = NOW() WHERE id = ?',
+    [status, draftId],
+  );
+}
+
+/**
  * Soft-deletes a draft by setting `deleted_at` to the current timestamp.
  * Returns true when a row was updated, false when `id` was not found or was
  * already soft-deleted.
