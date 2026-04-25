@@ -83,6 +83,19 @@ export function StoryboardPage(): React.ReactElement {
 
   const { selectedBlockId } = useStoryboardStore();
 
+  // ── History store init/destroy ───────────────────────────────────────────────
+
+  useEffect(() => {
+    initHistoryStore(safeDraftId);
+    return () => {
+      destroyHistoryStore();
+    };
+  }, [safeDraftId]);
+
+  // ── Autosave ─────────────────────────────────────────────────────────────────
+
+  const { saveLabel, saveNow } = useStoryboardAutosave(safeDraftId, nodes, edges);
+
   // ── SceneModal ───────────────────────────────────────────────────────────────
 
   const { editingBlock, openModal, handleSave, handleDelete, handleClose } = useSceneModal(setNodes, saveNow);
@@ -97,19 +110,6 @@ export function StoryboardPage(): React.ReactElement {
     },
     [openModal],
   );
-
-  // ── History store init/destroy ───────────────────────────────────────────────
-
-  useEffect(() => {
-    initHistoryStore(safeDraftId);
-    return () => {
-      destroyHistoryStore();
-    };
-  }, [safeDraftId]);
-
-  // ── Autosave ─────────────────────────────────────────────────────────────────
-
-  const { saveLabel, saveNow } = useStoryboardAutosave(safeDraftId, nodes, edges);
 
   // ── Drag hook ────────────────────────────────────────────────────────────────
 
