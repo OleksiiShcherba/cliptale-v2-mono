@@ -88,6 +88,7 @@ type UseAddBlockArgs = {
   nodes: Node[];
   edges: Edge[];
   setNodes: React.Dispatch<React.SetStateAction<Node[]>>;
+  draftId: string;
   /** Stable `onRemove` callback passed to new scene block nodes. */
   onRemoveNode: (nodeId: string) => void;
   /** Triggers an immediate autosave after the React re-render cycle completes. */
@@ -110,6 +111,7 @@ export function useAddBlock({
   nodes,
   edges,
   setNodes,
+  draftId,
   onRemoveNode,
   saveNow,
 }: UseAddBlockArgs): UseAddBlockResult {
@@ -136,7 +138,7 @@ export function useAddBlock({
       data: {
         block: {
           id: newId,
-          draftId: '',
+          draftId,
           blockType: 'scene',
           name: `SCENE ${sceneIndex}`,
           prompt: null,

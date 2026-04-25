@@ -130,7 +130,7 @@ export function StoryboardPage(): React.ReactElement {
   });
 
   // ── Add Block + History push + Restore ──────────────────────────────────────
-  const { addBlock } = useAddBlock({ nodes, edges, setNodes, onRemoveNode: removeNode, saveNow });
+  const { addBlock } = useAddBlock({ nodes, edges, setNodes, draftId: safeDraftId, onRemoveNode: removeNode, saveNow });
   const { pushSnapshot } = useStoryboardHistoryPush(safeDraftId);
   const { handleAddBlock } = useHandleAddBlock({ addBlock, saveNow });
   const { handleRestore } = useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow });

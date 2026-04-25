@@ -149,6 +149,7 @@ export function useStoryboardAutosave(
           const data = node.data as { block: StoryboardState['blocks'][number] };
           return {
             ...data.block,
+            draftId: currentDraftId,
             positionX: node.position.x,
             positionY: node.position.y,
           };
