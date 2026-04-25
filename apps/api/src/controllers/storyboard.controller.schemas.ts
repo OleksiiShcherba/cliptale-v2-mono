@@ -26,7 +26,6 @@ export const blockInsertSchema = z.object({
   positionY: z.number(),
   sortOrder: z.number().int().min(0),
   style: z.string().max(64).nullable(),
-  // mediaItems is present in the GET response but ignored in PUT (not stored via this endpoint)
   mediaItems: z.array(blockMediaItemSchema).optional(),
 });
 

@@ -63,6 +63,7 @@ export type BlockInsert = {
   positionY: number;
   sortOrder: number;
   style: string | null;
+  mediaItems?: BlockMediaItem[];
 };
 
 /** Shape accepted by replaceStoryboard for edge inserts. */

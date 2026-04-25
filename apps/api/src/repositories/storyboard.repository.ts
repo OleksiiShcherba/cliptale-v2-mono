@@ -162,7 +162,7 @@ export async function replaceStoryboard(
     [draftId],
   );
 
-  // Insert blocks.
+  // Insert blocks and their media items.
   for (const b of blocks) {
     await conn.execute<ResultSetHeader>(
       `INSERT INTO storyboard_blocks
@@ -172,6 +172,13 @@ export async function replaceStoryboard(
       [b.id, b.draftId, b.blockType, b.name, b.prompt, b.durationS,
        b.positionX, b.positionY, b.sortOrder, b.style],
     );
+    for (const m of b.mediaItems ?? []) {
+      await conn.execute<ResultSetHeader>(
+        `INSERT INTO storyboard_block_media (id, block_id, file_id, media_type, sort_order)
+         VALUES (?, ?, ?, ?, ?)`,
+        [m.id, b.id, m.fileId, m.mediaType, m.sortOrder],
+      );
+    }
   }
 
   // Insert edges.
