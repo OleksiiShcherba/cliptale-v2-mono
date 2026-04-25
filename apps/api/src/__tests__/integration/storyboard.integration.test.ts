@@ -320,6 +320,54 @@ describe('PUT /storyboards/:draftId', () => {
   });
 });
 
+// ── Concurrent GET /storyboards/:draftId — sentinel dedup race ───────────────
+
+describe('GET /storyboards/:draftId (concurrent sentinel initialization)', () => {
+  /**
+   * Two concurrent GET requests on a fresh draft must result in exactly 1 START
+   * and 1 END row in the DB — the transactional FOR UPDATE lock prevents duplicate
+   * inserts even when both calls race past the count = 0 check simultaneously.
+   */
+  it('produces exactly 1 START row and 1 END row when two GETs run concurrently', async () => {
+    // Use a dedicated fresh draft so this test is independent of draftAId state.
+    const freshDraftId = randomUUID();
+    await conn.execute(
+      'INSERT INTO generation_drafts (id, user_id, prompt_doc) VALUES (?, ?, ?)',
+      [freshDraftId, USER_A_ID, JSON.stringify({ schemaVersion: 1, blocks: [] })],
+    );
+
+    try {
+      // Fire two concurrent GET requests — both trigger insertSentinelsAtomically.
+      const [res1, res2] = await Promise.all([
+        request(app).get(`/storyboards/${freshDraftId}`).set('Authorization', authA()),
+        request(app).get(`/storyboards/${freshDraftId}`).set('Authorization', authA()),
+      ]);
+
+      expect(res1.status).toBe(200);
+      expect(res2.status).toBe(200);
+
+      // Verify the DB contains exactly 1 START and 1 END block.
+      const [startRows] = await conn.execute<import('mysql2/promise').RowDataPacket[]>(
+        `SELECT COUNT(*) AS cnt FROM storyboard_blocks
+         WHERE draft_id = ? AND block_type = 'start'`,
+        [freshDraftId],
+      );
+      const [endRows] = await conn.execute<import('mysql2/promise').RowDataPacket[]>(
+        `SELECT COUNT(*) AS cnt FROM storyboard_blocks
+         WHERE draft_id = ? AND block_type = 'end'`,
+        [freshDraftId],
+      );
+
+      expect(Number((startRows[0] as { cnt: number }).cnt)).toBe(1);
+      expect(Number((endRows[0] as { cnt: number }).cnt)).toBe(1);
+    } finally {
+      // Clean up the fresh draft.
+      await conn.execute('DELETE FROM storyboard_blocks WHERE draft_id = ?', [freshDraftId]);
+      await conn.execute('DELETE FROM generation_drafts WHERE id = ?', [freshDraftId]);
+    }
+  });
+});
+
 // ── GET/POST /storyboards/:draftId/history ────────────────────────────────────
 
 describe('history endpoints', () => {

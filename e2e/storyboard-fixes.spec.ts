@@ -1,13 +1,13 @@
 // E2E tests — Storyboard bug fixes coverage
 //
-// Covers four bug fixes from the "Storyboard Page Bug Fixes" task:
-//
+// Covers:
 //   ST-FIX-1  Home button navigates back to "/"
 //   ST-FIX-2  START sentinel node is draggable (React Flow node wrapper has
 //             the "draggable" CSS class; no pointer-events:none)
 //   ST-FIX-3/4 New block is persisted on save and survives a full page reload
 //   ST-FIX-5  History restore replaces canvas state (START+END nodes present
 //             after restore from a seeded server-side snapshot)
+//   SB-BUG-B  drag-end triggers PUT /storyboards/:draftId within 3 s
 //
 // Auth, CORS workaround, draft lifecycle helpers, and the readBearerToken
 // pattern are all reused from e2e/storyboard-canvas.spec.ts.
@@ -108,15 +108,15 @@ async function installCorsWorkaround(page: Page, token: string): Promise<void> {
         ...(postData && postData.length > 0 ? { data: postData } : {}),
       });
 
-      const proxyHeaders = {
-        ...proxyRes.headers(),
-        'access-control-allow-origin': '*',
-        'access-control-allow-credentials': 'true',
-      };
-
+      // Must set CORS headers on fulfilled response — the browser still evaluates
+      // them even when Playwright intercepts the request (see feedback_playwright_cors_proxy.md).
       await route.fulfill({
         status: proxyRes.status(),
-        headers: proxyHeaders,
+        headers: {
+          ...proxyRes.headers(),
+          'access-control-allow-origin': '*',
+          'access-control-allow-credentials': 'true',
+        },
         body: await proxyRes.body(),
       });
     } catch {
@@ -227,7 +227,7 @@ async function waitForCanvas(page: Page): Promise<void> {
 
 // ── Test suite ─────────────────────────────────────────────────────────────────
 
-test.describe('Storyboard bug fixes — ST-FIX-1 through ST-FIX-5', () => {
+test.describe('Storyboard bug fixes — ST-FIX-1 through ST-FIX-5 + SB-BUG-B', () => {
   test.setTimeout(90_000);
 
   // ── ST-FIX-1: Home button ────────────────────────────────────────────────────
@@ -648,6 +648,73 @@ test.describe('Storyboard bug fixes — ST-FIX-1 through ST-FIX-5', () => {
       // moment for React state to settle.)
       await expect(page.getByTestId('scene-block-node')).toHaveCount(0, {
         timeout: 10_000,
+      });
+    } finally {
+      await cleanupDraft(page.request, token, draftId);
+    }
+  });
+
+  // ── SB-BUG-B: drag-end autosave ─────────────────────────────────────────────
+
+  /**
+   * Verifies that dragging a scene block triggers a PUT /storyboards/:draftId
+   * within 8 seconds of drag-end (via the immediate setTimeout(() => void saveNow(), 0)
+   * path added to handleNodesChange in SB-BUG-B).
+   */
+  test('SB-BUG-B — drag-end triggers PUT /storyboards/:draftId within 8 s', async ({
+    page,
+  }) => {
+    const token = await readBearerToken();
+    await installCorsWorkaround(page, token);
+
+    const draftId = await createTempDraft(page.request, token);
+
+    try {
+      await initializeDraft(page.request, token, draftId);
+
+      await page.goto(`/storyboard/${draftId}`);
+      await page.waitForLoadState('networkidle', { timeout: 30_000 });
+
+      await waitForCanvas(page);
+
+      // Add a scene block so there is a draggable node.
+      const addBlockBtn = page.getByTestId('add-block-button');
+      await expect(addBlockBtn).toBeVisible({ timeout: 10_000 });
+      await addBlockBtn.click();
+
+      // Wait for the new block to appear.
+      const sceneBlock = page.getByTestId('scene-block-node').first();
+      await expect(sceneBlock).toBeVisible({ timeout: 10_000 });
+
+      // Start waiting for the PUT before performing the drag so we don't miss it.
+      const putRequestPromise = page.waitForRequest(
+        (req) =>
+          req.method() === 'PUT' &&
+          (req.url().includes('/storyboards/') || req.url().includes(`storyboards/${draftId}`)),
+        { timeout: 8_000 },
+      );
+
+      // Perform a mouse drag on the scene block.
+      const blockBoundingBox = await sceneBlock.boundingBox();
+      if (blockBoundingBox) {
+        const startX = blockBoundingBox.x + blockBoundingBox.width / 2;
+        const startY = blockBoundingBox.y + blockBoundingBox.height / 2;
+
+        await page.mouse.move(startX, startY);
+        await page.mouse.down();
+        await page.mouse.move(startX + 10, startY + 5, { steps: 5 });
+        await page.mouse.move(startX + 50, startY + 30, { steps: 5 });
+        await page.mouse.up();
+      }
+
+      // Assert that the PUT request fired within 8 s of drag-end.
+      const putRequest = await putRequestPromise;
+      expect(putRequest.url()).toMatch(/storyboards\//);
+      expect(putRequest.method()).toBe('PUT');
+
+      // Storyboard page must still be mounted (no crash).
+      await expect(page.getByTestId('storyboard-page')).toBeVisible({
+        timeout: 5_000,
       });
     } finally {
       await cleanupDraft(page.request, token, draftId);

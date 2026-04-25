@@ -4,13 +4,10 @@
  * Covers:
  * - saveLabel shows "—" on initial render.
  * - Does NOT call the API on mount when nodes/edges are empty.
- * - Calls PUT /storyboards/:draftId after 30s debounce when nodes/edges change.
- * - Multiple changes within 30s collapse into a single API call.
+ * - Calls PUT /storyboards/:draftId after 5s debounce when nodes/edges change.
+ * - Multiple changes within 5s collapse into a single API call.
  * - Does NOT call the API again if state has not changed since last save.
  * - saveLabel shows "Saving…" during save, "Saved just now" after save.
- *
- * See useStoryboardAutosave.save-now.test.ts for saveNow, beforeunload,
- * and edge-case tests.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -57,13 +54,13 @@ describe('useStoryboardAutosave', () => {
 
     it('does NOT call saveStoryboard on mount when nodes is empty', () => {
       renderHook(() => useStoryboardAutosave(DRAFT_ID, [], []));
-      vi.advanceTimersByTime(30_001);
+      vi.advanceTimersByTime(5_001);
       expect(saveStoryboard).not.toHaveBeenCalled();
     });
   });
 
   describe('debounced save after state change', () => {
-    it('calls saveStoryboard once after 30s when nodes change', async () => {
+    it('calls saveStoryboard once after 5s when nodes change', async () => {
       const { rerender } = renderHook<
         { nodes: Node[]; edges: Edge[] },
         void
@@ -79,9 +76,9 @@ describe('useStoryboardAutosave', () => {
       // Not yet called — debounce hasn't fired.
       expect(saveStoryboard).not.toHaveBeenCalled();
 
-      // Advance timers past the 30s debounce.
+      // Advance timers past the 5s debounce.
       await act(async () => {
-        vi.advanceTimersByTime(30_001);
+        vi.advanceTimersByTime(5_001);
         await Promise.resolve();
       });
 
@@ -89,7 +86,7 @@ describe('useStoryboardAutosave', () => {
       expect(saveStoryboard).toHaveBeenCalledWith(DRAFT_ID, expect.any(Object));
     });
 
-    it('collapses multiple rapid re-renders within 30s into a single API call', async () => {
+    it('collapses multiple rapid re-renders within 5s into a single API call', async () => {
       const { rerender } = renderHook<
         { nodes: Node[]; edges: Edge[] },
         void
@@ -104,7 +101,7 @@ describe('useStoryboardAutosave', () => {
       rerender({ nodes: [...DEFAULT_NODES, makeSceneNode('s1'), makeSceneNode('s2'), makeSceneNode('s3')], edges: DEFAULT_EDGES });
 
       await act(async () => {
-        vi.advanceTimersByTime(30_001);
+        vi.advanceTimersByTime(5_001);
         await Promise.resolve();
       });
 
@@ -125,7 +122,7 @@ describe('useStoryboardAutosave', () => {
       // First change → first save.
       rerender({ nodes: updatedNodes, edges: DEFAULT_EDGES });
       await act(async () => {
-        vi.advanceTimersByTime(30_001);
+        vi.advanceTimersByTime(5_001);
         await Promise.resolve();
       });
       expect(saveStoryboard).toHaveBeenCalledTimes(1);
@@ -134,7 +131,7 @@ describe('useStoryboardAutosave', () => {
       // but stateKey is identical → no additional API call.
       rerender({ nodes: updatedNodes, edges: DEFAULT_EDGES });
       await act(async () => {
-        vi.advanceTimersByTime(30_001);
+        vi.advanceTimersByTime(5_001);
         await Promise.resolve();
       });
 
@@ -159,7 +156,7 @@ describe('useStoryboardAutosave', () => {
       rerender({ nodes: [...DEFAULT_NODES, makeSceneNode()], edges: DEFAULT_EDGES });
 
       await act(async () => {
-        vi.advanceTimersByTime(30_001);
+        vi.advanceTimersByTime(5_001);
         await Promise.resolve();
       });
 
@@ -178,7 +175,7 @@ describe('useStoryboardAutosave', () => {
       rerender({ nodes: [...DEFAULT_NODES, makeSceneNode()], edges: DEFAULT_EDGES });
 
       await act(async () => {
-        vi.advanceTimersByTime(30_001);
+        vi.advanceTimersByTime(5_001);
         await Promise.resolve();
         await Promise.resolve(); // additional flush for state updates
       });

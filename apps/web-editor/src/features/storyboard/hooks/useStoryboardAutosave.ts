@@ -34,7 +34,7 @@ import type { StoryboardState } from '../types';
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 /** Autosave debounce window in ms. */
-const AUTOSAVE_DEBOUNCE_MS = 30_000;
+const AUTOSAVE_DEBOUNCE_MS = 5_000;
 
 /** Label refresh interval — used to age "Saved X ago" labels. */
 const LABEL_REFRESH_INTERVAL_MS = 30_000;

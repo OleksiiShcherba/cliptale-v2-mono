@@ -200,6 +200,27 @@ export async function insertBlock(block: BlockInsert): Promise<void> {
 }
 
 /**
+ * Inserts START and END sentinel blocks inside a caller-supplied connection.
+ * MUST be called within an active transaction — the caller owns BEGIN/COMMIT/ROLLBACK.
+ */
+export async function insertSentinelsInTx(
+  conn: PoolConnection,
+  start: BlockInsert,
+  end: BlockInsert,
+): Promise<void> {
+  for (const block of [start, end]) {
+    await conn.execute<ResultSetHeader>(
+      `INSERT INTO storyboard_blocks
+         (id, draft_id, block_type, name, prompt, duration_s,
+          position_x, position_y, sort_order, style)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [block.id, block.draftId, block.blockType, block.name, block.prompt,
+       block.durationS, block.positionX, block.positionY, block.sortOrder, block.style],
+    );
+  }
+}
+
+/**
  * Inserts a history snapshot row and then prunes rows beyond the most recent
  * `keepCount` for the draft (single DELETE + subquery in one round-trip).
  *

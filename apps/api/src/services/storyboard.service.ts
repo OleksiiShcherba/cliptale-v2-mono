@@ -44,8 +44,91 @@ async function assertOwnership(userId: string, draftId: string): Promise<void> {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+/** InnoDB error code for deadlock — retrying is the standard resolution. */
+const ER_LOCK_DEADLOCK = 1213;
+
+/**
+ * Atomically seeds START and END sentinel blocks for a draft if they do not
+ * yet exist. Uses a transactional `SELECT COUNT(*) ... FOR UPDATE` to prevent
+ * duplicate inserts when the load endpoint is called concurrently (e.g. React
+ * 18 Strict Mode double-mount).
+ *
+ * When two concurrent transactions both see count = 0 they can deadlock on the
+ * INSERT phase (both hold gap locks, then try to insert into each other's gap).
+ * InnoDB automatically resolves the deadlock by rolling back one transaction;
+ * we retry that transaction once, at which point the count will be > 0 and the
+ * sentinel insert is skipped.
+ */
+async function insertSentinelsAtomically(draftId: string): Promise<void> {
+  // Retry once on deadlock — InnoDB resolves deadlocks by aborting one tx.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const conn = await storyboardRepository.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // Lock the sentinel rows (or the gap if they don't exist yet) to prevent
+      // concurrent inserts from racing past the count = 0 check.
+      const [rows] = await conn.execute<import('mysql2/promise').RowDataPacket[]>(
+        `SELECT COUNT(*) AS cnt
+         FROM storyboard_blocks
+         WHERE draft_id = ? AND block_type IN ('start', 'end')
+         FOR UPDATE`,
+        [draftId],
+      );
+      const existingCount = Number((rows[0] as { cnt: number }).cnt);
+
+      if (existingCount === 0) {
+        const startBlock: BlockInsert = {
+          id: storyboardRepository.newId(),
+          draftId,
+          blockType: 'start',
+          name: null,
+          prompt: null,
+          durationS: 5,
+          positionX: START_POSITION.x,
+          positionY: START_POSITION.y,
+          sortOrder: 0,
+          style: null,
+        };
+        const endBlock: BlockInsert = {
+          id: storyboardRepository.newId(),
+          draftId,
+          blockType: 'end',
+          name: null,
+          prompt: null,
+          durationS: 5,
+          positionX: END_POSITION.x,
+          positionY: END_POSITION.y,
+          sortOrder: 9999,
+          style: null,
+        };
+        await storyboardRepository.insertSentinelsInTx(conn, startBlock, endBlock);
+      }
+
+      await conn.commit();
+      return; // Success — stop retrying.
+    } catch (err) {
+      await conn.rollback();
+      const isDeadlock =
+        typeof err === 'object' &&
+        err !== null &&
+        'errno' in err &&
+        (err as { errno: number }).errno === ER_LOCK_DEADLOCK;
+      if (isDeadlock && attempt === 0) {
+        // InnoDB rolled back this transaction; retry once — by the second attempt
+        // the winning transaction will have committed its sentinels.
+        continue;
+      }
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
+}
+
 /**
  * Loads the full storyboard state for a draft.
+ * Atomically seeds START/END sentinels on first load (idempotent).
  * Throws 404 if the draft does not exist, 403 if it belongs to another user.
  */
 export async function loadStoryboard(
@@ -53,6 +136,9 @@ export async function loadStoryboard(
   draftId: string,
 ): Promise<StoryboardState> {
   await assertOwnership(userId, draftId);
+
+  // Seed sentinels atomically on every load — no-op if they already exist.
+  await insertSentinelsAtomically(draftId);
 
   const [blocks, edges] = await Promise.all([
     storyboardRepository.findBlocksByDraftId(draftId),

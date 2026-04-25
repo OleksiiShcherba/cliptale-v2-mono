@@ -1,4 +1,4 @@
-# Development Log (compacted — 2026-03-29 to 2026-04-24)
+# Development Log (compacted — 2026-03-29 to 2026-04-25)
 
 ## Monorepo + DB Migrations
 - added: root config, apps (api/web-editor/media-worker/render-worker), packages (project-schema, remotion-comps)
@@ -105,6 +105,14 @@
 - FOLLOW-2: `useStoryboardDrag.ts` — edge IDs → `crypto.randomUUID()` (was `edge-${source}-${target}`); new `useStoryboardDrag.test.ts` (10 tests including UUID format assertion)
 - FOLLOW-3: `e2e/storyboard-fixes.spec.ts` — 5th test: clicks `[data-testid="add-block-button"]`, asserts PUT to `/storyboards/` initiated within 5s via `page.waitForRequest`; passes at 2.3s
 
+## Storyboard Layout Bug Fixes (2026-04-25)
+- SB-BUG-A: fixed duplicate START/END sentinel race — `insertSentinelsAtomically(draftId)` in `storyboard.service.ts` uses `SELECT COUNT(*) ... FOR UPDATE` + single deadlock retry (errno 1213); merged into `loadStoryboard` (GET auto-initializes); `insertSentinelsInTx(conn, start, end)` added to `storyboard.repository.ts`
+- SB-BUG-A: removed `initializeStoryboard` POST call from `useStoryboardCanvas.ts`; added `dedupSentinels()` client-side filter (first START + first END kept); created `useStoryboardCanvas.test.ts` (6 tests); extended concurrent-init integration test in `storyboard.integration.test.ts`
+- SB-BUG-B: `AUTOSAVE_DEBOUNCE_MS` 30 000 → 5 000 in `useStoryboardAutosave.ts`
+- SB-BUG-B: `StoryboardPage.tsx` (296L) — `hasMoved`/`hasStructuralChange` moved outside updater callbacks; `setTimeout(() => void saveNow(), 0)` added to `handleNodesChange` (drag-end), `handleConnect`, `handleEdgesChange` (structural)
+- SB-BUG-B: `useAddBlock.ts` — added `saveNow` param; `setTimeout(() => void saveNow(), 0)` after `setNodes`; 3 new fake-timer tests (16 total)
+- SB-BUG-B: `useStoryboardAutosave.test.ts` — timer advances updated 30 001 → 5 001; extended `e2e/storyboard-fixes.spec.ts` with drag-end PUT assertion
+
 ---
 
 ## Architectural Decisions
@@ -124,7 +132,8 @@
 - E2E CORS: `page.request.fetch()` + `page.route()` with `access-control-allow-origin: *`; PUT requests use `page.request.put` (server-side, bypasses browser CORS)
 - Storyboard autosave: `useStoryboardAutosave` reads React state via params+refs, NOT external store subscription
 - Storyboard IDs: blocks and edges always `crypto.randomUUID()` at creation — server schema requires UUID
-- Immediate save pattern: extract callback to `useHandle*.ts` hook to keep `StoryboardPage.tsx` ≤300L
+- Immediate save pattern: extract callback to `useHandle*.ts` hook to keep `StoryboardPage.tsx` ≤300L; `setTimeout(() => void saveNow(), 0)` defers save until after React re-render so `nodesRef.current` reflects new positions
+- Sentinel init: `loadStoryboard` auto-initializes START/END atomically via `SELECT ... FOR UPDATE` + deadlock retry; client-side `dedupSentinels()` as safety net
 
 ---
 

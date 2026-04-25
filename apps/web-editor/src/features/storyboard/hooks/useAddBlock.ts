@@ -90,6 +90,8 @@ type UseAddBlockArgs = {
   setNodes: React.Dispatch<React.SetStateAction<Node[]>>;
   /** Stable `onRemove` callback passed to new scene block nodes. */
   onRemoveNode: (nodeId: string) => void;
+  /** Triggers an immediate autosave after the React re-render cycle completes. */
+  saveNow: () => Promise<void>;
 };
 
 type UseAddBlockResult = {
@@ -109,6 +111,7 @@ export function useAddBlock({
   edges,
   setNodes,
   onRemoveNode,
+  saveNow,
 }: UseAddBlockArgs): UseAddBlockResult {
   const addBlock = useCallback((): void => {
     const insertAfter = findInsertionPoint(nodes, edges);
@@ -153,7 +156,9 @@ export function useAddBlock({
     };
 
     setNodes((prev) => [...prev, newNode]);
-  }, [nodes, edges, setNodes, onRemoveNode]);
+    // Defer save until after React re-renders so nodesRef.current is up-to-date.
+    setTimeout(() => void saveNow(), 0);
+  }, [nodes, edges, setNodes, onRemoveNode, saveNow]);
 
   return { addBlock };
 }

@@ -2,8 +2,11 @@
  * useStoryboardCanvas — handles page-load initialization and hydration.
  *
  * On mount:
- * 1. Calls POST /storyboards/:draftId/initialize (idempotent — seeds START/END).
- * 2. Calls GET /storyboards/:draftId to fetch current state.
+ * 1. Calls GET /storyboards/:draftId to fetch current state.
+ *    The GET endpoint atomically seeds START/END sentinels on the server side,
+ *    so no separate POST /initialize call is needed.
+ * 2. Client-side dedup: keeps only the first START and first END block so that
+ *    any pre-existing duplicate sentinels in the DB are filtered before render.
  * 3. Converts StoryboardBlock[] and StoryboardEdge[] to React Flow Node[] and Edge[].
  *
  * Returns the React Flow nodes, edges, and a removeNode callback.
@@ -13,7 +16,7 @@ import { useState, useEffect, useCallback } from 'react';
 
 import type { Node, Edge } from '@xyflow/react';
 
-import { initializeStoryboard, fetchStoryboard } from '../api';
+import { fetchStoryboard } from '../api';
 import type { StoryboardBlock, StoryboardEdge, SceneBlockNodeData, SentinelNodeData } from '../types';
 
 // ── Canvas layout constants ────────────────────────────────────────────────────
@@ -88,6 +91,19 @@ function edgeToFlowEdge(edge: StoryboardEdge): Edge {
 }
 
 /**
+ * Deduplicates sentinel blocks: keeps only the first START and first END block.
+ * All scene blocks are kept unchanged. This is a client-side safety net for
+ * pre-existing duplicate sentinels in the DB caused by the prior race condition.
+ */
+function dedupSentinels(blocks: StoryboardBlock[]): StoryboardBlock[] {
+  return blocks.filter(
+    (b, i, arr) =>
+      b.blockType === 'scene' ||
+      arr.findIndex((x) => x.blockType === b.blockType) === i,
+  );
+}
+
+/**
  * Assigns fallback positions for START/END blocks when the server returns (0,0).
  * This occurs on first visit before the user has manually arranged nodes.
  */
@@ -144,8 +160,8 @@ type UseStoryboardCanvasResult = CanvasState & {
 /**
  * Initializes the storyboard canvas on page load.
  *
- * Calls `POST /storyboards/:draftId/initialize` (idempotent),
- * then `GET /storyboards/:draftId`, and hydrates React Flow state.
+ * Calls `GET /storyboards/:draftId` (which seeds sentinels server-side),
+ * deduplicates any pre-existing duplicate sentinels, and hydrates React Flow state.
  */
 export function useStoryboardCanvas(draftId: string): UseStoryboardCanvasResult {
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -172,16 +188,16 @@ export function useStoryboardCanvas(draftId: string): UseStoryboardCanvasResult 
         setIsLoading(true);
         setError(null);
 
-        // Step 1 — seed START/END if not yet present (idempotent).
-        await initializeStoryboard(draftId);
-
-        // Step 2 — fetch full canvas state.
+        // Fetch canvas state — the GET endpoint seeds sentinels atomically.
         const state = await fetchStoryboard(draftId);
 
         if (cancelled) return;
 
-        // Step 3 — apply default positions on first visit, then convert to React Flow.
-        const positionedBlocks = applyDefaultPositions(state.blocks);
+        // Dedup: keep only first START + first END (safety net for legacy duplicates).
+        const dedupedBlocks = dedupSentinels(state.blocks);
+
+        // Apply default positions on first visit, then convert to React Flow.
+        const positionedBlocks = applyDefaultPositions(dedupedBlocks);
 
         const flowNodes = positionedBlocks.map((block) =>
           blockToNode(block, removeNode),
