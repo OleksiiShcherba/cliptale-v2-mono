@@ -13,6 +13,12 @@ services:
       - '3306:3306'
     volumes:
       - db_data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-u', 'cliptale', '-pcliptale']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   redis:
     image: redis:7-alpine
@@ -36,7 +42,7 @@ services:
       redis:
         condition: service_healthy
       db:
-        condition: service_started
+        condition: service_healthy
     ports:
       - '3001:3001'
     environment:
@@ -94,7 +100,7 @@ services:
       redis:
         condition: service_healthy
       db:
-        condition: service_started
+        condition: service_healthy
     environment:
       APP_REDIS_URL: redis://redis:6379
       APP_DB_HOST: db
@@ -124,7 +130,7 @@ services:
       redis:
         condition: service_healthy
       db:
-        condition: service_started
+        condition: service_healthy
     environment:
       APP_REDIS_URL: redis://redis:6379
       APP_DB_HOST: db
