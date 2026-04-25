@@ -160,7 +160,7 @@ export function useStoryboardAutosave(
           blockType: (node.type === 'start' ? 'start' : 'end') as 'start' | 'end',
           name: null,
           prompt: null,
-          durationS: 0,
+          durationS: 5,
           positionX: node.position.x,
           positionY: node.position.y,
           sortOrder: 0,
