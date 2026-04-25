@@ -17,8 +17,8 @@
 // at https://15-236-162-140.nip.io makes requests the browser's Origin is
 // rejected by the API CORS allowlist. installCorsWorkaround() intercepts:
 //   1. GET **/auth/me — returns hardcoded dev-user payload.
-//   2. http://localhost:3001/storyboards/** — proxies via page.request to
-//      E2E_API_URL so the canvas can load its data.
+//   2. http://localhost:3001/** — proxies ALL requests via page.request to
+//      E2E_API_URL so the editor can load its data.
 // On IS_LOCAL_TARGET the interceptors are no-ops.
 //
 // Target instance:
@@ -27,201 +27,18 @@
 //   npx playwright test e2e/storyboard-fixes.spec.ts
 
 import * as crypto from 'node:crypto';
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 
 import { test, expect } from '@playwright/test';
-import type { Page } from '@playwright/test';
 
-import { AUTH_TOKEN_LOCAL_STORAGE_KEY } from './helpers/auth';
-import { E2E_API_URL, IS_LOCAL_TARGET } from './helpers/env';
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-/**
- * Reads the bearer token from the storageState written by global-setup.
- * The FE injects this token into every apiClient request via localStorage.
- */
-async function readBearerToken(): Promise<string> {
-  const statePath = path.resolve(
-    __dirname,
-    '../test-results/e2e-auth-state.json',
-  );
-  const raw = await fs.readFile(statePath, 'utf-8');
-  const state = JSON.parse(raw) as {
-    origins?: Array<{
-      localStorage?: Array<{ name: string; value: string }>;
-    }>;
-  };
-  for (const origin of state.origins ?? []) {
-    const entry = origin.localStorage?.find(
-      (e) => e.name === AUTH_TOKEN_LOCAL_STORAGE_KEY,
-    );
-    if (entry?.value) return entry.value;
-  }
-  throw new Error(
-    'auth_token not found in storageState — ensure globalSetup ran.',
-  );
-}
-
-// installCorsWorkaround installs route interceptors that work around the CORS
-// issue on the deployed instance. IS_LOCAL_TARGET makes it a no-op.
-//
-// Two interceptors:
-//   1. GET any-url/auth/me — fulfills with hardcoded dev-user payload so
-//      AuthProvider authenticates without reaching the CORS-blocked API.
-//   2. http://localhost:3001/storyboards/... — proxies via page.request
-//      (no browser CORS) to the real deployed API so the canvas loads data.
-async function installCorsWorkaround(page: Page, token: string): Promise<void> {
-  if (IS_LOCAL_TARGET) return;
-
-  await page.route('**/auth/me', (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          userId: 'dev-user-001',
-          email: 'dev@cliptale.local',
-          displayName: 'Dev User',
-        }),
-      });
-    }
-    return route.continue();
-  });
-
-  await page.route('http://localhost:3001/storyboards/**', async (route) => {
-    const original = route.request();
-    const rewrittenUrl = original.url().replace(
-      'http://localhost:3001',
-      E2E_API_URL,
-    );
-
-    try {
-      const postData = original.postDataBuffer();
-      const proxyRes = await page.request.fetch(rewrittenUrl, {
-        method: original.method(),
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        ...(postData && postData.length > 0 ? { data: postData } : {}),
-      });
-
-      // Must set CORS headers on fulfilled response — the browser still evaluates
-      // them even when Playwright intercepts the request (see feedback_playwright_cors_proxy.md).
-      await route.fulfill({
-        status: proxyRes.status(),
-        headers: {
-          ...proxyRes.headers(),
-          'access-control-allow-origin': '*',
-          'access-control-allow-credentials': 'true',
-        },
-        body: await proxyRes.body(),
-      });
-    } catch {
-      await route.continue().catch(() => { /* ignore */ });
-    }
-  });
-}
-
-/**
- * Creates a temporary generation draft and returns its id.
- * Uses page.request so the HTTP call bypasses browser CORS.
- */
-async function createTempDraft(
-  apiContext: {
-    post: (
-      url: string,
-      opts: object,
-    ) => Promise<{
-      ok: () => boolean;
-      json: () => Promise<unknown>;
-      status: () => number;
-      text: () => Promise<string>;
-    }>;
-  },
-  token: string,
-): Promise<string> {
-  const res = await apiContext.post(`${E2E_API_URL}/generation-drafts`, {
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    data: { promptDoc: { schemaVersion: 1, blocks: [] } },
-  });
-  if (!res.ok()) {
-    const body = await res.text();
-    throw new Error(
-      `Failed to create test draft (${res.status()}): ${body}`,
-    );
-  }
-  const data = (await res.json()) as { id?: string };
-  if (!data.id) throw new Error('Draft creation response missing id field');
-  return data.id;
-}
-
-/** Loads the storyboard state, which also initializes sentinel nodes and advances draft status (idempotent). */
-async function initializeDraft(
-  apiContext: {
-    get: (
-      url: string,
-      opts: object,
-    ) => Promise<{
-      ok: () => boolean;
-      status: () => number;
-      text: () => Promise<string>;
-    }>;
-  },
-  token: string,
-  draftId: string,
-): Promise<void> {
-  const res = await apiContext.get(
-    `${E2E_API_URL}/storyboards/${draftId}`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
-  );
-  if (!res.ok()) {
-    const body = await res.text();
-    throw new Error(
-      `GET /storyboards/${draftId} failed (${res.status()}): ${body}`,
-    );
-  }
-}
-
-/** Soft-deletes the draft — best-effort cleanup in finally blocks. */
-async function cleanupDraft(
-  apiContext: {
-    delete: (url: string, opts: object) => Promise<unknown>;
-  },
-  token: string,
-  draftId: string,
-): Promise<void> {
-  await apiContext
-    .delete(`${E2E_API_URL}/generation-drafts/${draftId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    .catch(() => {
-      /* best-effort */
-    });
-}
-
-/**
- * Waits for the canvas and React Flow to be fully loaded.
- * Extracted to avoid repeating the same await sequence in every test.
- */
-async function waitForCanvas(page: Page): Promise<void> {
-  await expect(page.getByTestId('storyboard-canvas')).toBeVisible({
-    timeout: 15_000,
-  });
-  await expect(page.locator('.react-flow')).toBeVisible({ timeout: 15_000 });
-  // START and END nodes must both be rendered before we interact with them.
-  await expect(page.getByTestId('start-node')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('end-node')).toBeVisible({ timeout: 15_000 });
-}
+import { E2E_API_URL } from './helpers/env';
+import { installCorsWorkaround } from './helpers/cors-workaround';
+import {
+  readBearerToken,
+  createTempDraft,
+  initializeDraft,
+  cleanupDraft,
+  waitForCanvas,
+} from './helpers/storyboard';
 
 // ── Test suite ─────────────────────────────────────────────────────────────────
 
