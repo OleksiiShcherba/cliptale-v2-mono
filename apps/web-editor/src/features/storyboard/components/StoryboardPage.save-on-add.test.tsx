@@ -20,8 +20,11 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 // Hoisted mocks
 // ---------------------------------------------------------------------------
 
-const { mockSaveStoryboard } = vi.hoisted(() => ({
+const { mockSaveStoryboard, mockAddTemplateToStoryboard, capturedOnAddTemplate } = vi.hoisted(() => ({
   mockSaveStoryboard: vi.fn().mockResolvedValue(undefined),
+  mockAddTemplateToStoryboard: vi.fn(),
+  // Allows tests to grab the onAddTemplate prop passed to the LibraryPanel mock.
+  capturedOnAddTemplate: { current: null as ((templateId: string) => Promise<void>) | null },
 }));
 
 // Mock the storyboard API — this is what saveNow ultimately calls.
@@ -31,6 +34,7 @@ vi.mock('@/features/storyboard/api', () => ({
   fetchStoryboard: vi.fn().mockResolvedValue({ blocks: [], edges: [] }),
   persistHistorySnapshot: vi.fn().mockResolvedValue(undefined),
   fetchHistorySnapshots: vi.fn().mockResolvedValue([]),
+  addTemplateToStoryboard: mockAddTemplateToStoryboard,
 }));
 
 vi.mock('react-router-dom', async (importOriginal) => {
@@ -86,9 +90,17 @@ vi.mock('@/features/storyboard/hooks/useStoryboardCanvas', () => ({
 }));
 
 vi.mock('@/features/storyboard/components/LibraryPanel', () => ({
-  LibraryPanel: ({ draftId }: { draftId: string }) => (
-    <div data-testid="library-panel-mock" data-draft-id={draftId} />
-  ),
+  LibraryPanel: ({
+    draftId,
+    onAddTemplate,
+  }: {
+    draftId: string;
+    onAddTemplate: (templateId: string) => Promise<void>;
+  }) => {
+    // Capture onAddTemplate so tests can invoke it directly to simulate add.
+    capturedOnAddTemplate.current = onAddTemplate;
+    return <div data-testid="library-panel-mock" data-draft-id={draftId} />;
+  },
 }));
 
 vi.mock('@/features/storyboard/components/EffectsPanel', () => ({
@@ -114,7 +126,7 @@ vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
 // ---------------------------------------------------------------------------
 
 import { StoryboardPage } from './StoryboardPage';
-import { saveStoryboard } from '@/features/storyboard/api';
+import { saveStoryboard, addTemplateToStoryboard } from '@/features/storyboard/api';
 
 // ---------------------------------------------------------------------------
 // Render helper
@@ -196,5 +208,77 @@ describe('StoryboardPage / save-on-add (ST-FIX-4)', () => {
 
     // After the save resolves, the label should show "Saved just now".
     expect(screen.getByTestId('autosave-indicator').textContent).toBe('Saved just now');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SB-UI-BUG-1: Library Add — immediate canvas render
+// ---------------------------------------------------------------------------
+
+describe('StoryboardPage / library-add (SB-UI-BUG-1)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.clearAllMocks();
+    vi.mocked(saveStoryboard).mockResolvedValue(undefined);
+    capturedOnAddTemplate.current = null;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('passes onAddTemplate prop to LibraryPanel when library tab is active', async () => {
+    renderPage();
+
+    // Switch to Library tab so LibraryPanel mounts and captures onAddTemplate.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('sidebar-tab-library'));
+    });
+
+    expect(capturedOnAddTemplate.current).toBeTypeOf('function');
+  });
+
+  it('calls addTemplateToStoryboard and saveStoryboard when onAddTemplate is invoked', async () => {
+    const fakeBlock = {
+      id: 'blk-lib-1',
+      draftId: 'test-draft-abc',
+      blockType: 'scene',
+      name: 'Library Scene',
+      prompt: 'p',
+      durationS: 10,
+      positionX: 340,
+      positionY: 200,
+      sortOrder: 1,
+      style: null,
+      createdAt: '',
+      updatedAt: '',
+      mediaItems: [],
+    };
+    vi.mocked(addTemplateToStoryboard).mockResolvedValue(fakeBlock);
+
+    renderPage();
+
+    // Switch to Library tab so LibraryPanel mounts and captures onAddTemplate.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('sidebar-tab-library'));
+    });
+
+    // Call the captured onAddTemplate as LibraryPanel would.
+    await act(async () => {
+      await capturedOnAddTemplate.current!('tpl-lib-1');
+    });
+
+    expect(addTemplateToStoryboard).toHaveBeenCalledWith({
+      templateId: 'tpl-lib-1',
+      draftId: 'test-draft-abc',
+    });
+
+    // Advance timers by 1 ms to trigger the deferred setTimeout(() => void saveNow(), 0).
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+    });
+
+    expect(saveStoryboard).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,7 +6,7 @@
  * - Search input is present
  * - Empty state shown when templates list is empty
  * - Template cards rendered for each template
- * - "Add to Storyboard" calls addToStoryboard + switches tab
+ * - "Add to Storyboard" delegates to onAddTemplate prop + switches tab
  * - "+ New Scene" opens SceneModal in template-create mode
  * - Edit button on card opens SceneModal in template-edit mode
  * - Delete button on card calls removeTemplate
@@ -16,7 +16,7 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────────
 
@@ -30,7 +30,6 @@ const {
   mockUpdateTemplate,
   mockRemoveTemplate,
   mockAddToStoryboard,
-  mockAddBlockNode,
 } = vi.hoisted(() => ({
   mockTemplates: { current: [] as ReturnType<typeof makeTemplate>[] },
   mockIsLoading: { current: false },
@@ -41,7 +40,6 @@ const {
   mockUpdateTemplate: vi.fn(),
   mockRemoveTemplate: vi.fn(),
   mockAddToStoryboard: vi.fn(),
-  mockAddBlockNode: vi.fn(),
 }));
 
 vi.mock('@/features/storyboard/hooks/useSceneTemplates', () => ({
@@ -56,12 +54,6 @@ vi.mock('@/features/storyboard/hooks/useSceneTemplates', () => ({
     removeTemplate: mockRemoveTemplate,
     addToStoryboard: mockAddToStoryboard,
   }),
-}));
-
-vi.mock('@/features/storyboard/store/storyboard-store', () => ({
-  addBlockNode: mockAddBlockNode,
-  subscribe: vi.fn(() => vi.fn()),
-  getSnapshot: vi.fn(() => ({ nodes: [], edges: [], positions: {} })),
 }));
 
 vi.mock('@/lib/api-client', () => ({
@@ -112,6 +104,7 @@ function makeTemplate(overrides: Partial<SceneTemplate> = {}): SceneTemplate {
 const defaultProps = {
   draftId: 'draft-1',
   onSwitchToStoryboard: vi.fn(),
+  onAddTemplate: vi.fn().mockResolvedValue(undefined),
 };
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -124,6 +117,7 @@ describe('LibraryPanel', () => {
     mockFilterText.current = '';
     vi.clearAllMocks();
     defaultProps.onSwitchToStoryboard = vi.fn();
+    defaultProps.onAddTemplate = vi.fn().mockResolvedValue(undefined);
   });
 
   describe('layout', () => {
@@ -173,19 +167,35 @@ describe('LibraryPanel', () => {
   });
 
   describe('add to storyboard', () => {
-    it('calls addToStoryboard + addBlockNode + onSwitchToStoryboard on Add click', async () => {
-      const block = { id: 'blk-1', draftId: 'draft-1', blockType: 'scene', name: null, prompt: 'p', durationS: 10, positionX: 0, positionY: 0, sortOrder: 1, style: null, createdAt: '', updatedAt: '', mediaItems: [] };
-      mockAddToStoryboard.mockResolvedValue(block);
+    it('calls onAddTemplate + onSwitchToStoryboard on Add click', async () => {
       mockTemplates.current = [makeTemplate()];
       render(<LibraryPanel {...defaultProps} />);
 
       fireEvent.click(screen.getByTestId('add-template-tpl-1'));
 
       await waitFor(() => {
-        expect(mockAddToStoryboard).toHaveBeenCalledWith('tpl-1', 'draft-1');
-        expect(mockAddBlockNode).toHaveBeenCalled();
+        expect(defaultProps.onAddTemplate).toHaveBeenCalledWith('tpl-1');
         expect(defaultProps.onSwitchToStoryboard).toHaveBeenCalled();
       });
+    });
+
+    it('disables the Add button while onAddTemplate is in flight', async () => {
+      let resolveAdd!: () => void;
+      defaultProps.onAddTemplate = vi.fn().mockReturnValue(
+        new Promise<void>((resolve) => { resolveAdd = resolve; }),
+      );
+      mockTemplates.current = [makeTemplate()];
+      render(<LibraryPanel {...defaultProps} />);
+
+      const addBtn = screen.getByTestId('add-template-tpl-1');
+      fireEvent.click(addBtn);
+
+      // The card should be disabled (isAdding=true) while promise is pending.
+      expect(addBtn.hasAttribute('disabled')).toBe(true);
+
+      // Resolve — disabled state should clear.
+      await act(async () => { resolveAdd(); await Promise.resolve(); });
+      expect(addBtn.hasAttribute('disabled')).toBe(false);
     });
   });
 

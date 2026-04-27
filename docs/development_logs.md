@@ -1,4 +1,4 @@
-# Development Log (compacted — 2026-03-29 to 2026-04-25)
+# Development Log (compacted — 2026-03-29 to 2026-04-27)
 
 ## Monorepo + DB Migrations
 - added: root config, apps (api/web-editor/media-worker/render-worker), packages (project-schema, remotion-comps)
@@ -133,6 +133,10 @@
 - E2E-FIX-2: added `installCorsWorkaround` + `readBearerToken` in `beforeEach` to `e2e/app-shell.spec.ts`, `e2e/asset-manager.spec.ts`, `e2e/preview.spec.ts`; 19/19 previously-failing tests now pass
 - E2E-FIX-3: added 3 new tests to `e2e/storyboard-fixes.spec.ts` — Test 7 (PUT body: sentinel durationS ≥ 1 + UUID block IDs), Test 8 (Edit Scene modal Save triggers PUT ≤ 3s via saveNow), Test 9 (mediaItem round-trip via POST /files/upload-url for FK + GET assertion); 9/9 pass
 
+## Storyboard UI Bug Fixes (2026-04-27)
+- SB-UI-BUG-1: `LibraryPanel` was calling `addBlockNode` (external store only) → canvas never re-rendered after Add; fixed by lifting `addToStoryboard` API call into `StoryboardPage.handleAddFromLibrary` callback; `setNodes` + deferred `saveNow` called after API response; `LibraryPanel` accepts `onAddTemplate` prop; `addBlockNode` import removed from panel; `NEW_BLOCK_X_OFFSET`/`FALLBACK_X`/`FALLBACK_Y` at module scope; 3 new tests (LibraryPanel.test.tsx + StoryboardPage.save-on-add.test.tsx); 302/302 storyboard tests pass
+- SB-UI-BUG-2: `handleNodesChange` was calling `applyNodeChanges` for all events including `{ type: 'position', dragging: true }` → original block moved during drag alongside ghost portal; fixed by filtering `nonDraggingChanges` (strips mid-drag position events before `applyNodeChanges`); drag-end `dragging: false` events still applied; `StoryboardPage.drag-filter.test.tsx` (4 tests); 9/9 E2E pass
+
 ## Architectural Decisions
 - §9.7 300-line cap: `*.fixtures.ts` + `.<topic>.test.ts` splits; approved exceptions: `fal-models.ts` (1093L), `file.repository.ts` (306L), `useProjectInit.test.ts` (318L), `StoryboardCard.tsx` (319L), `storyboard-store.ts` (307L); e2e/*.spec.ts exempt
 - Worker env: only `index.ts` reads config keys; handlers receive secrets via `deps`
@@ -153,6 +157,8 @@
 - Immediate save pattern: extract callback to `useHandle*.ts` hook; `setTimeout(() => void saveNow(), 0)` defers save until after React re-render
 - Sentinel init: `loadStoryboard` auto-initializes START/END atomically via `SELECT ... FOR UPDATE` + deadlock retry; client-side `dedupSentinels()` as safety net
 - Auto-restore skip-save: `handleRestore({ skipSave: true })` in seed path prevents DB overwrite before React re-render; manual restore always calls saveNow
+- React Flow two-state rule: canvas driven by `nodes` useState; external store alone does NOT update canvas — `setNodes` must always be called for visible changes
+- Drag position filter: `handleNodesChange` strips `{ type: 'position', dragging: true }` before `applyNodeChanges` — original node frozen during drag; drag-end `dragging: false` commits final position
 
 ## Known Issues / TODOs
 - ACL middleware stub — real ownership check deferred (B3 it.todo 403 tests)
@@ -169,3 +175,4 @@
 - **Keyboard undo/redo broken**: `storyboard-history-store.applySnapshot` calls `storyboard-store.setNodes/setEdges` but React Flow renders from `useState` — Ctrl+Z/Y don't visually update canvas
 - `initializeStoryboard` service function orphaned (no callers) — remove or add deprecation warning
 - `StoryboardCard.tsx` (319L) exceeds §9.7 cap — formalize as approved exception in architecture-rules.md
+- `e2e/storyboard-canvas.spec.ts` + `e2e/storyboard-drag.spec.ts` — local CORS proxy still narrow (`/storyboards/**`); should import from `e2e/helpers/cors-workaround.ts`

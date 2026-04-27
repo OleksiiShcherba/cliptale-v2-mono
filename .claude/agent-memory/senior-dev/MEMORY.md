@@ -20,7 +20,12 @@
 - [Project: Guardian Cleanup Batch 4 progress](project_guardian_cleanup_batch4.md) — Guardian Cleanup Batch 4; ALL 4 SUBTASKS COMPLETE (2026-04-23); CORS fix + branch push + e2e §9.7 exemption + stale known issue removed
 - [Project: Guardian Recommendations Batch 3](project_guardian_batch3.md) — 6-subtask P2-P4 follow-up; ALL 6 SUBTASKS COMPLETE (2026-04-22); docker-exec vitest gotcha documented in arch-rules §10
 - [Project: Storyboard sentinel dedup + autosave bug fixes](project_storyboard_sentinel_autosave.md) — SB-BUG-A + SB-BUG-B BOTH COMPLETE (2026-04-25); branch fix/storyboard-sentinel-autosave; hasMoved/hasStructuralChange must be OUTSIDE updater callbacks
+- [Project: Storyboard Bugs 1-2-3 Fix](project_storyboard_bugs_1_2_3.md) — history auto-restore + step navigation + scene save endpoint; ALL 3 COMPLETE (2026-04-25); branch fix/storyboard-bugs-1-2-3
 - [Feedback: Playwright CORS proxy](feedback_playwright_cors_proxy.md) — route.fulfill() still triggers browser CORS; must set access-control-allow-origin in fulfilled headers
 - [Feedback: Playwright PUT replay pattern](feedback_playwright_put_replay.md) — for PUT/PATCH saves in deployed E2E, use waitForRequest + page.request.put replay; don't rely on UI indicator text
 - [Feedback: React Flow v12 OnNodeDrag event type mismatch](feedback_xyflow_event_type.md) — event is raw native DOM event (not React.MouseEvent); use event.clientX not event.nativeEvent.clientX
 - [Project: Storyboard History Restore Guardian Fix progress](project_storyboard_restore_guardian.md) — ALL COMPLETE (2026-04-23); CanvasSnapshot.positions optional; StoryboardHistoryPanel as-cast fixed; §9.7 exception added
+- [Project: Storyboard Bug 2b/2c — Draft Status Never Advanced](project_storyboard_bug2b_status.md) — ALL COMPLETE (2026-04-25); branch fix/storyboard-bug2b-status
+- [Project: Storyboard Bug 5 — Edit Scene save + canvas empty on open](project_storyboard_scene_restore.md) — ST-SB-BUG5; branch fix/storyboard-scene-restore; ALL COMPLETE (2026-04-25)
+- [Project: E2E Fix Batch (E2E-FIX-1 through E2E-FIX-3)](project_e2e_fix_batch.md) — branch fix/e2e-storyboard-coverage; ALL 3 SUBTASKS COMPLETE (2026-04-25); Test7/8/9 added
+- [Project: Storyboard UI Bugs (SB-UI-BUG-1 + SB-UI-BUG-2)](project_storyboard_ui_bugs.md) — Library Add canvas render + drag ghost; branch fix/storyboard-ui-bugs; BOTH COMPLETE (2026-04-27)
