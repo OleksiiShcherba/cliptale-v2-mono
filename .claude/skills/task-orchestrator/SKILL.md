@@ -135,7 +135,7 @@ Agent(subagent_type="design-reviewer",
 
 Agent(subagent_type="playwright-reviewer",
       description="Run E2E checks for latest subtask",
-      prompt="Run Playwright E2E checks for the latest subtask entry in ./docs/development_logs.md. Update the 'checked by playwright-reviewer' line to YES or COMMENTED. Return a one-line verdict plus any comments.")
+      prompt="Run Playwright E2E checks for the latest subtask entry in ./docs/development_logs.md. MANDATORY: for every UI feature added or modified by this subtask, a .spec.ts test must exist in ./e2e/ that exercises it in a real browser (navigate → interact → assert → screenshot). Unit tests and prop-threading tests do NOT count as E2E coverage. If any UI change lacks a covering E2E spec, write the spec yourself, run it, capture screenshots, then mark YES. If you cannot write or run the spec, mark COMMENTED and list the missing scenarios. Update the 'checked by playwright-reviewer' line to YES or COMMENTED. Return a one-line verdict plus any comments.")
 ```
 
 Collect the four responses.

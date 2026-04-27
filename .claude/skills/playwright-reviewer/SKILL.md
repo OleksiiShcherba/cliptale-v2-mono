@@ -83,6 +83,16 @@ Build a test plan: one test scenario per unchecked log entry.
 
 > If ALL entries are already marked YES or COMMENTED → inform the user everything is already reviewed and exit.
 
+### Mandatory E2E coverage check (do this before writing any test)
+
+For every unchecked entry, identify every UI change (new component, removed element, new button, new modal, changed interaction, visual difference). Then check `./e2e/` for an existing `.spec.ts` that covers each change:
+
+- If a covering spec exists → run it, capture screenshots, verify it passes.
+- If **no covering spec exists for a UI change** → **write one** in `./e2e/<feature-slug>.spec.ts` (or extend the nearest existing spec), run it, capture screenshots, verify it passes. Only then may you mark `YES`.
+- If you cannot write or run the spec (environment issue, auth blocker, etc.) → mark `COMMENTED` and list exactly which scenarios are missing.
+
+**Unit tests and integration tests do NOT count as E2E coverage for UI features.** A jsdom component mount that checks prop values does not confirm the feature works in a real browser. Only a Playwright scenario that navigates to the live app, performs the interaction, and captures a screenshot counts.
+
 ---
 
 ## Step 3 — Start the Dev Server
