@@ -169,3 +169,27 @@
 - **Keyboard undo/redo broken**: `storyboard-history-store.applySnapshot` calls `storyboard-store.setNodes/setEdges` but React Flow renders from `useState` — Ctrl+Z/Y don't visually update canvas
 - `initializeStoryboard` service function orphaned (no callers) — remove or add deprecation warning
 - `StoryboardCard.tsx` (319L) exceeds §9.7 cap — formalize as approved exception in architecture-rules.md
+
+## SB-UI-BUG-1 — Fix Library Add immediate canvas render
+**Date:** 2026-04-27
+**Branch:** fix/storyboard-ui-bugs
+
+### What was done
+- Lifted the `addToStoryboard` + canvas-update logic from `LibraryPanel.tsx` into `StoryboardPage.tsx` as a `handleAddFromLibrary(templateId)` `useCallback`.
+- `handleAddFromLibrary` calls `addTemplateToStoryboard` (API), computes a sensible canvas position using `findInsertionPoint` + `nextSceneIndex` (same logic as `useAddBlock`), then calls `setNodes((prev) => [...prev, newNode])` so the React Flow canvas updates immediately.
+- `setTimeout(() => void saveNow(), 0)` defers autosave until after React re-renders so `nodesRef.current` reflects the new state.
+- `LibraryPanel` now accepts an `onAddTemplate: (templateId: string) => Promise<void>` prop; `handleAddToStoryboard` inside the panel delegates to it instead of calling `addBlockNode` from the store directly.
+- `addBlockNode` import removed from `LibraryPanel.tsx` — the canvas is now always driven via `setNodes`.
+- `LibraryPanel.test.tsx` updated: `addBlockNode` mock removed; `onAddTemplate` spy added to `defaultProps`; "add to storyboard" test asserts `onAddTemplate` called with correct templateId; new test asserts the Add button is disabled while the promise is in-flight.
+- `StoryboardPage.save-on-add.test.tsx` extended with two new test cases: (a) `onAddTemplate` prop is passed to LibraryPanel mock when library tab is active; (b) invoking `onAddTemplate` calls `addTemplateToStoryboard` with correct params and triggers `saveStoryboard` via the deferred timer.
+
+### Files created / modified
+- `apps/web-editor/src/features/storyboard/components/LibraryPanel.tsx` — remove `addBlockNode` import; add `onAddTemplate` prop; delegate `handleAddToStoryboard` to prop
+- `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — add `handleAddFromLibrary` callback; pass `onAddTemplate` prop to `<LibraryPanel>`; add `addTemplateToStoryboard` + `findInsertionPoint` + `nextSceneIndex` imports
+- `apps/web-editor/src/features/storyboard/__tests__/LibraryPanel.test.tsx` — remove `addBlockNode` mock; add `onAddTemplate` spy; update assertions
+- `apps/web-editor/src/features/storyboard/components/StoryboardPage.save-on-add.test.tsx` — add `capturedOnAddTemplate` hoisted ref; extend LibraryPanel mock to capture prop; add 2 new test cases for library-add flow
+
+checked by code-reviewer - NOT
+checked by qa-reviewer - NOT
+checked by design-reviewer - NOT
+checked by playwright-reviewer: NOT

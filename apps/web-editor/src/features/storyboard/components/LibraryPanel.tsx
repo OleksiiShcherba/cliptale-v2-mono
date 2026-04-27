@@ -10,13 +10,13 @@
  * - Scrollable list of TemplateCards
  * - Empty state when no templates match
  *
- * SceneModal is used in template mode for both create and edit flows;
- * the parent (StoryboardPage) supplies `draftId` for add-to-storyboard calls.
+ * SceneModal is used in template mode for both create and edit flows.
+ * The parent (StoryboardPage) supplies `onAddTemplate` which handles the
+ * API call and canvas update — keeping `setNodes` ownership in StoryboardPage.
  */
 
 import React, { useState, useCallback } from 'react';
 
-import { addBlockNode } from '../store/storyboard-store';
 import type { SceneTemplate } from '../types';
 import type { SceneModalSavePayload } from './SceneModal.types';
 import { useSceneTemplates } from '../hooks/useSceneTemplates';
@@ -39,10 +39,20 @@ import {
 // ── Props ──────────────────────────────────────────────────────────────────────
 
 export interface LibraryPanelProps {
-  /** The draftId of the current storyboard — needed for add-to-storyboard. */
+  /**
+   * The draftId of the current storyboard.
+   * Passed through for reference; the actual API call is handled by StoryboardPage
+   * via the `onAddTemplate` callback, keeping `setNodes` ownership in one place.
+   */
   draftId: string;
   /** Callback so the panel can switch the active tab to 'storyboard' after adding. */
   onSwitchToStoryboard: () => void;
+  /**
+   * Called when the user clicks "Add to Storyboard" on a template card.
+   * StoryboardPage owns this callback so it can call `setNodes` directly,
+   * ensuring the canvas updates immediately without a page reload.
+   */
+  onAddTemplate: (templateId: string) => Promise<void>;
 }
 
 // ── LibraryPanel ───────────────────────────────────────────────────────────────
@@ -50,7 +60,7 @@ export interface LibraryPanelProps {
 /**
  * Library sidebar panel listing the user's scene templates.
  */
-export function LibraryPanel({ draftId, onSwitchToStoryboard }: LibraryPanelProps): React.ReactElement {
+export function LibraryPanel({ onSwitchToStoryboard, onAddTemplate }: LibraryPanelProps): React.ReactElement {
   const {
     templates,
     isLoading,
@@ -60,7 +70,6 @@ export function LibraryPanel({ draftId, onSwitchToStoryboard }: LibraryPanelProp
     createTemplate,
     updateTemplate,
     removeTemplate,
-    addToStoryboard,
   } = useSceneTemplates();
 
   // ── Modal state ──────────────────────────────────────────────────────────────
@@ -92,15 +101,15 @@ export function LibraryPanel({ draftId, onSwitchToStoryboard }: LibraryPanelProp
     async (templateId: string): Promise<void> => {
       setAddingId(templateId);
       try {
-        // onRemove is a no-op here — removal is handled via the canvas keyboard/menu
-        const block = await addToStoryboard(templateId, draftId);
-        addBlockNode(block, () => { /* node removal handled by StoryboardPage */ });
+        // Delegate to StoryboardPage which owns setNodes — ensuring the canvas
+        // updates immediately without requiring a page reload.
+        await onAddTemplate(templateId);
         onSwitchToStoryboard();
       } finally {
         setAddingId(null);
       }
     },
-    [addToStoryboard, draftId, onSwitchToStoryboard],
+    [onAddTemplate, onSwitchToStoryboard],
   );
 
   const handleModalSave = useCallback(

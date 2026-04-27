@@ -22,8 +22,9 @@ import type {
 } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { addTemplateToStoryboard } from '../api';
+import { findInsertionPoint, nextSceneIndex, useAddBlock } from '../hooks/useAddBlock';
 import { useStoryboardCanvas } from '../hooks/useStoryboardCanvas';
-import { useAddBlock } from '../hooks/useAddBlock';
 import { useHandleAddBlock } from '../hooks/useHandleAddBlock';
 import { useHandleRestore } from '../hooks/useHandleRestore';
 import { useSceneModal } from '../hooks/useSceneModal';
@@ -170,6 +171,49 @@ export function StoryboardPage(): React.ReactElement {
     [setEdges, nodes, pushSnapshot, saveNow],
   );
 
+  // ── Library-add handler ──────────────────────────────────────────────────────
+
+  /**
+   * Handles "Add to Storyboard" from LibraryPanel.
+   * Calls the API to create the block, then adds it to React Flow `nodes` state
+   * immediately so the canvas renders without a page reload.
+   * Deferred saveNow ensures the autosave reads from an up-to-date nodesRef.
+   */
+  const handleAddFromLibrary = useCallback(
+    async (templateId: string): Promise<void> => {
+      const block = await addTemplateToStoryboard({ templateId, draftId: safeDraftId });
+
+      // Compute position using the same logic as useAddBlock so the new node
+      // lands next to the last block rather than at 0,0.
+      const insertAfter = findInsertionPoint(nodes, edges);
+      const NEW_BLOCK_X_OFFSET = 280;
+      const FALLBACK_X = 60;
+      const FALLBACK_Y = 200;
+      const newX = insertAfter
+        ? (insertAfter.position?.x ?? FALLBACK_X) + NEW_BLOCK_X_OFFSET
+        : FALLBACK_X;
+      const newY = insertAfter ? (insertAfter.position?.y ?? FALLBACK_Y) : FALLBACK_Y;
+      const sceneIndex = nextSceneIndex(nodes);
+
+      const newNode = {
+        id: block.id,
+        type: 'scene-block' as const,
+        position: { x: newX, y: newY },
+        data: {
+          block: { ...block, positionX: newX, positionY: newY, sortOrder: block.sortOrder ?? sceneIndex },
+          onRemove: removeNode,
+        },
+        draggable: true,
+        deletable: true,
+      };
+
+      setNodes((prev) => [...prev, newNode]);
+      // Defer save until after React re-renders so nodesRef.current is up-to-date.
+      setTimeout(() => void saveNow(), 0);
+    },
+    [safeDraftId, nodes, edges, removeNode, setNodes, saveNow],
+  );
+
   // ── Node / edge change handlers ──────────────────────────────────────────────
 
   const handleNodesChange: OnNodesChange = useCallback(
@@ -230,7 +274,13 @@ export function StoryboardPage(): React.ReactElement {
         )}
 
         {/* ── Library panel + Effects panel ── */}
-        {activeTab === 'library' && <LibraryPanel draftId={safeDraftId} onSwitchToStoryboard={() => setActiveTab('storyboard')} />}
+        {activeTab === 'library' && (
+          <LibraryPanel
+            draftId={safeDraftId}
+            onSwitchToStoryboard={() => setActiveTab('storyboard')}
+            onAddTemplate={handleAddFromLibrary}
+          />
+        )}
         {activeTab === 'effects' && <EffectsPanel selectedBlockId={selectedBlockId} />}
 
         {/* ── Canvas area ── */}
