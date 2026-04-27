@@ -189,7 +189,12 @@
 - `apps/web-editor/src/features/storyboard/__tests__/LibraryPanel.test.tsx` — remove `addBlockNode` mock; add `onAddTemplate` spy; update assertions
 - `apps/web-editor/src/features/storyboard/components/StoryboardPage.save-on-add.test.tsx` — add `capturedOnAddTemplate` hoisted ref; extend LibraryPanel mock to capture prop; add 2 new test cases for library-add flow
 
-checked by code-reviewer - NOT
-checked by qa-reviewer - NOT
-checked by design-reviewer - NOT
-checked by playwright-reviewer: NOT
+checked by code-reviewer - COMMENTED
+> ❌ §9 violation: StoryboardPage.tsx lines 189–191 declare UPPER_SNAKE_CASE constants (NEW_BLOCK_X_OFFSET, FALLBACK_X, FALLBACK_Y) inside handleAddFromLibrary function body; architecture rule §9 requires UPPER_SNAKE_CASE only for module-level constants; fix by moving to module scope or renaming to camelCase
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer: YES — 15 LibraryPanel tests + 5 StoryboardPage.save-on-add tests + 298 total storyboard tests pass; handleAddFromLibrary implementation verified (immediate canvas render via setNodes, deferred saveNow, correct positioning)
+
+design-reviewer notes: Reviewed on 2026-04-27. All checks passed. Block positioning uses same 4px-grid defaults as useAddBlock (NEW_BLOCK_X_OFFSET=280, FALLBACK_X=60, FALLBACK_Y=200). Immediate canvas rendering is a UX improvement with no design token violations. Deferred autosave `setTimeout(..., 0)` matches established pattern. All colors, typography, spacing use design-guide tokens. No violations found.
+
+Fix round 1: moved NEW_BLOCK_X_OFFSET, FALLBACK_X, FALLBACK_Y constants to module scope (§9 compliance).

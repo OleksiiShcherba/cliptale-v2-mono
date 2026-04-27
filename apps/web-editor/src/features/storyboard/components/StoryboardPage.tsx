@@ -66,6 +66,12 @@ const NODE_TYPES: NodeTypes = {
   'scene-block': SceneBlockNode,
 };
 
+// ── Library-add positioning constants ─────────────────────────────────────────
+
+const NEW_BLOCK_X_OFFSET = 280;
+const FALLBACK_X = 60;
+const FALLBACK_Y = 200;
+
 // ── StoryboardPage ─────────────────────────────────────────────────────────────
 
 /**
@@ -186,9 +192,6 @@ export function StoryboardPage(): React.ReactElement {
       // Compute position using the same logic as useAddBlock so the new node
       // lands next to the last block rather than at 0,0.
       const insertAfter = findInsertionPoint(nodes, edges);
-      const NEW_BLOCK_X_OFFSET = 280;
-      const FALLBACK_X = 60;
-      const FALLBACK_Y = 200;
       const newX = insertAfter
         ? (insertAfter.position?.x ?? FALLBACK_X) + NEW_BLOCK_X_OFFSET
         : FALLBACK_X;
