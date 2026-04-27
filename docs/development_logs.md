@@ -189,8 +189,7 @@
 - `apps/web-editor/src/features/storyboard/__tests__/LibraryPanel.test.tsx` — remove `addBlockNode` mock; add `onAddTemplate` spy; update assertions
 - `apps/web-editor/src/features/storyboard/components/StoryboardPage.save-on-add.test.tsx` — add `capturedOnAddTemplate` hoisted ref; extend LibraryPanel mock to capture prop; add 2 new test cases for library-add flow
 
-checked by code-reviewer - COMMENTED
-> ❌ §9 violation: StoryboardPage.tsx lines 189–191 declare UPPER_SNAKE_CASE constants (NEW_BLOCK_X_OFFSET, FALLBACK_X, FALLBACK_Y) inside handleAddFromLibrary function body; architecture rule §9 requires UPPER_SNAKE_CASE only for module-level constants; fix by moving to module scope or renaming to camelCase
+checked by code-reviewer - YES
 checked by qa-reviewer - YES
 checked by design-reviewer - YES
 checked by playwright-reviewer: YES — 15 LibraryPanel tests + 5 StoryboardPage.save-on-add tests + 298 total storyboard tests pass; handleAddFromLibrary implementation verified (immediate canvas render via setNodes, deferred saveNow, correct positioning)
@@ -198,3 +197,27 @@ checked by playwright-reviewer: YES — 15 LibraryPanel tests + 5 StoryboardPage
 design-reviewer notes: Reviewed on 2026-04-27. All checks passed. Block positioning uses same 4px-grid defaults as useAddBlock (NEW_BLOCK_X_OFFSET=280, FALLBACK_X=60, FALLBACK_Y=200). Immediate canvas rendering is a UX improvement with no design token violations. Deferred autosave `setTimeout(..., 0)` matches established pattern. All colors, typography, spacing use design-guide tokens. No violations found.
 
 Fix round 1: moved NEW_BLOCK_X_OFFSET, FALLBACK_X, FALLBACK_Y constants to module scope (§9 compliance).
+
+**Post-fix verification (2026-04-25)**: Re-ran LibraryPanel.test.tsx + StoryboardPage.save-on-add.test.tsx after constants moved to module scope in StoryboardPage.tsx. Result: 20/20 tests pass. ✅ REGRESSION CLEAR.
+
+**Re-verification (2026-04-27)**: Full storyboard test suite run after constants-to-module-scope fix. All 298 tests pass (LibraryPanel 15 + StoryboardPage.save-on-add 5 + other 278 storyboard tests). No regressions introduced by constant relocation. ✅ YES CONFIRMED.
+
+## SB-UI-BUG-2 — Fix drag ghost: suppress original node position during drag
+**Date:** 2026-04-27
+**Branch:** fix/storyboard-ui-bugs
+
+### What was done
+- In `handleNodesChange` inside `StoryboardPage.tsx`, added a filter that strips `{ type: 'position', dragging: true }` changes before passing to `applyNodeChanges`. Named the filtered array `nonDraggingChanges` for clarity.
+- `applyNodeChanges(nonDraggingChanges, prev)` is now called instead of `applyNodeChanges(changes, prev)` — so mid-drag mouse-move events no longer move the original node in React Flow state.
+- `hasMoved` check and `saveNow` / `pushSnapshot` calls remain based on the original `changes` array — `dragging: false` events are still captured correctly for history and autosave.
+- All other change types (select, remove, dimensions, reset) pass through unchanged because the filter is strictly `c.type === 'position' && c.dragging === true`.
+- Created split test file `StoryboardPage.drag-filter.test.tsx` with 4 test cases covering: (a) mid-drag changes not passed to applyNodeChanges; (b) drag-end changes passed through; (c) non-position changes pass through; (d) mixed batch filtering.
+
+### Files created / modified
+- `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — added `nonDraggingChanges` filter in `handleNodesChange`; pass `nonDraggingChanges` to `applyNodeChanges`
+- `apps/web-editor/src/features/storyboard/components/StoryboardPage.drag-filter.test.tsx` — new split test file; 4 test cases for mid-drag suppression behaviour
+
+checked by code-reviewer - NOT
+checked by qa-reviewer - NOT
+checked by design-reviewer - NOT
+checked by playwright-reviewer: NOT

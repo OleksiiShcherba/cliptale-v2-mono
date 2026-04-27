@@ -221,9 +221,16 @@ export function StoryboardPage(): React.ReactElement {
 
   const handleNodesChange: OnNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      // Suppress mid-drag position updates so the original node stays frozen at
+      // its last committed position while the GhostDragPortal shows movement.
+      // React Flow emits `{ type: 'position', dragging: false }` on mouse-up to
+      // commit the final drop position — that event passes through unchanged.
+      const nonDraggingChanges = changes.filter(
+        (c) => !(c.type === 'position' && c.dragging === true),
+      );
       const hasMoved = changes.some((c) => c.type === 'position' && c.dragging === false);
       setNodes((prev) => {
-        const next = applyNodeChanges(changes, prev);
+        const next = applyNodeChanges(nonDraggingChanges, prev);
         if (hasMoved) pushSnapshot(next, edges);
         return next;
       });

@@ -53,19 +53,7 @@ Both bugs degrade the storyboard editing experience. The Library Add bug makes s
   - Risk: Med — the `addToStoryboard` API call moves from LibraryPanel to StoryboardPage; any error handling (loading state, toast) in LibraryPanel that references the API call directly must be re-threaded. Check if LibraryPanel shows a loading spinner during the API call and preserve that behavior via a returned `Promise`.
   - Depends on: none
 
-- [ ] **SB-UI-BUG-2: Fix drag — suppress original node position during drag**
-  - What: In `handleNodesChange` inside `StoryboardPage.tsx`, filter out `{ type: 'position', dragging: true }` changes before passing to `applyNodeChanges`, so the original node stays at its starting position while the ghost portal shows movement. Apply the position change only when `dragging === false` (drag committed / dropped).
-  - Where: `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` (lines ~175–185, `handleNodesChange`); `apps/web-editor/src/features/storyboard/hooks/useStoryboardDrag.test.ts` (add test for mid-drag position suppression)
-  - Why: `applyNodeChanges(changes, prev)` is currently called for ALL change types including `{ type: 'position', dragging: true }`. This moves the original node in React Flow state on every mouse-move event during drag. The GhostDragPortal already provides the visual "in-flight" indicator — the original should be frozen at its last committed position until drop.
-  - Acceptance criteria:
-    - During a drag gesture the original block does **not** move — it stays at the position it was at before drag started
-    - On drop (mouse-up) the original block snaps to the final drop position
-    - The ghost portal continues to track the cursor during drag (no regression in ghost behavior)
-    - History snapshot and autosave fire on drop (same as before — `hasMoved` check remains)
-    - New unit test in `useStoryboardDrag.test.ts`: simulate `onNodesChange` with a `{ type: 'position', dragging: true }` change, assert the node's position in the state is unchanged; then simulate `{ type: 'position', dragging: false }`, assert the position is updated
-  - Test approach: Extend `useStoryboardDrag.test.ts` with two new test cases: (a) mid-drag position change does not update node position; (b) drag-end position change does update node position and triggers saveNow. The filter logic lives in StoryboardPage so tests may need to test via the `handleNodesChange` callback directly or via an integration test in `StoryboardPage.test.tsx`.
-  - Risk: Med — filtering `dragging: true` changes means React Flow's internal drag state diverges from displayed position during drag. Verify that React Flow still fires the `dragging: false` position event on mouse-up (it does per React Flow v12 API) so the final position is always committed. Also verify that SELECT-type changes (click, selection box) are not accidentally filtered.
-  - Depends on: none
+- [x] **SB-UI-BUG-2: Fix drag — suppress original node position during drag**
 
 ---
 
