@@ -20,3 +20,4 @@
 - [Relative imports crossing directory boundaries](ruling_relative_imports_cross_boundary.md) — `from '../types'` violates §9; always flag, fix with absolute alias `@/features/name/types`
 - [Subtask 8 — Storyboard store + autosave + undo/redo history](ruling_subtask8_storyboard_store_autosave.md) — hardcoded color violation in storyboard-history-store.ts:148; rest compliant
 - [Subtask ST-C2 — History UI review](ruling_subtask_stc2_history_ui.md) — architecture-rules §9 compliant; design-guide §3 token violations pre-flagged by design-reviewer
+- [ST-BUG2c-1 SQL in service violation](ruling_storyboard_service_sql_in_service.md) — storyboard.service.ts lines 76–82 execute SELECT directly; violates §5; extract to repository method accepting transaction conn

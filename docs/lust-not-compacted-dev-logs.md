@@ -109,15 +109,29 @@
 - SB-BUG-B: autosave debounce 30 000 → 5 000ms; `setTimeout(() => void saveNow(), 0)` on drag-end, connect, structural edge change; `useAddBlock.ts` saveNow param; timer tests updated
 
 ## Storyboard Status Advance (ST-BUG2c) (2026-04-25)
-- moved: `updateDraftStatus(draftId, 'step2')` from dead-code `initializeStoryboard` POST → `loadStoryboard` GET (where FE actually calls); `assertOwnership` now returns draft row
+- moved: `updateDraftStatus(draftId, 'step2')` from dead-code `initializeStoryboard` POST → `loadStoryboard` GET
 - removed: `POST /:draftId/initialize` route, controller handler, FE `initializeStoryboard()` api.ts export
-- added: `countSentinelBlocksForUpdate(conn, draftId)` in storyboard.repository.ts (§5 — moved inline SQL from service)
-- added: `storyboard.service.status.test.ts` (5 tests); `storyboard.service.fixtures.ts`
+- added: `countSentinelBlocksForUpdate(conn, draftId)` in storyboard.repository.ts; `storyboard.service.status.test.ts` (5 tests)
 - fixed: 4 E2E spec files — `initializeDraft()` helper updated from `POST /initialize` → `GET /storyboards/:draftId`
 
-## Storyboard Edit-Scene + Canvas Restore (ST-SB-BUG5) (2026-04-25)
-- ST-SB-BUG5-1: `useSceneModal` now accepts `setNodes` — after `updateBlock(blockId, patch)` calls `setNodes` to sync React Flow `node.data.block` in-place; `StoryboardPage.tsx` passes `setNodes`; `useSceneModal.test.ts` (8 tests, new)
-- ST-SB-BUG5-2: `useHandleRestore.ts` — added `HandleRestoreOptions { skipSave?: boolean }`; skips `saveNow()` when true; `useStoryboardHistorySeed.ts` (new, 80L) — fetches history on page load, calls `handleRestore({ skipSave: true })` with `hasSeeded` guard; `StoryboardPage.tsx` wires seed hook (297L); `useHandleRestore.test.ts` extended (+4 tests); `useStoryboardHistorySeed.test.ts` new (6 tests); StoryboardPage test files mocked for QueryClientProvider
+## Storyboard Runtime Bug Fixes (2026-04-25)
+- fixed: `useStoryboardAutosave` durationS=0 → 5 for sentinel blocks (400 validation error)
+- fixed: `useAddBlock.ts` draftId="" → pass real draftId from StoryboardPage (400 validation error)
+- fixed: `handleConnect` in StoryboardPage — `id: crypto.randomUUID()` on addEdge call (400 invalid UUID edge IDs)
+- fixed: `useSceneModal` — added `saveNow` param + `setTimeout(() => void saveNow(), 0)` after setNodes (Edit Scene Save not calling PUT)
+- fixed: TDZ crash — moved `useSceneModal(setNodes, saveNow)` call to after `useStoryboardAutosave` in StoryboardPage
+- fixed: mediaItem IDs — `${blockId}-media-${i}` → `crypto.randomUUID()` (400 invalid UUID)
+- fixed: `storyboard.repository.types.ts` BlockInsert — added `mediaItems?: BlockMediaItem[]`; `replaceStoryboard` INSERT loop for media rows (mediaItems silently dropped in PUT)
+- updated: `useSceneModal.test.ts` — added mockSaveNow param; UUID regex assertion for mediaItem IDs
+
+## Storyboard Canvas Restore (ST-SB-BUG5) (2026-04-25)
+- ST-SB-BUG5-1: `useSceneModal` now accepts `setNodes` — syncs React Flow `node.data.block` in-place after updateBlock; 8 tests
+- ST-SB-BUG5-2: `useHandleRestore.ts` — `HandleRestoreOptions { skipSave?: boolean }`; `useStoryboardHistorySeed.ts` (new, 80L) fetches history on load, calls `handleRestore({ skipSave: true })` with hasSeeded guard; 10 new tests
+
+## E2E Infrastructure + Coverage (2026-04-25)
+- E2E-FIX-1: extracted `e2e/helpers/cors-workaround.ts` (`installCorsWorkaround` — IS_LOCAL_TARGET guard, auth/me mock, broad `localhost:3001/**` proxy) and `e2e/helpers/storyboard.ts` (`readBearerToken`, `createTempDraft`, `initializeDraft`, `cleanupDraft`, `waitForCanvas`) from `storyboard-fixes.spec.ts`; 6/6 existing E2E tests still pass
+- E2E-FIX-2: added `installCorsWorkaround` + `readBearerToken` in `beforeEach` to `e2e/app-shell.spec.ts`, `e2e/asset-manager.spec.ts`, `e2e/preview.spec.ts`; 19/19 previously-failing tests now pass
+- E2E-FIX-3: added 3 new tests to `e2e/storyboard-fixes.spec.ts` — Test 7 (PUT body: sentinel durationS ≥ 1 + UUID block IDs), Test 8 (Edit Scene modal Save triggers PUT ≤ 3s via saveNow), Test 9 (mediaItem round-trip via POST /files/upload-url for FK + GET assertion); 9/9 pass
 
 ## Architectural Decisions
 - §9.7 300-line cap: `*.fixtures.ts` + `.<topic>.test.ts` splits; approved exceptions: `fal-models.ts` (1093L), `file.repository.ts` (306L), `useProjectInit.test.ts` (318L), `StoryboardCard.tsx` (319L), `storyboard-store.ts` (307L); e2e/*.spec.ts exempt
@@ -156,88 +170,58 @@
 - `initializeStoryboard` service function orphaned (no callers) — remove or add deprecation warning
 - `StoryboardCard.tsx` (319L) exceeds §9.7 cap — formalize as approved exception in architecture-rules.md
 
----
-
-## E2E-FIX-1 — Extract shared helpers and broaden CORS proxy
-**Date:** 2026-04-25
-**Branch:** fix/e2e-storyboard-coverage
+## SB-UI-BUG-1 — Fix Library Add immediate canvas render
+**Date:** 2026-04-27
+**Branch:** fix/storyboard-ui-bugs
 
 ### What was done
-- Created `e2e/helpers/cors-workaround.ts` exporting `installCorsWorkaround(page, token)` that (a) mocks `**/auth/me` with the hardcoded dev-user payload and (b) proxies ALL `http://localhost:3001/**` requests to `E2E_API_URL/**` via `page.request`. IS_LOCAL_TARGET guard makes it a no-op for local dev. Broadened proxy from `/storyboards/**` (old) to `/**` (new) so all API routes (assets, projects, auth, etc.) are covered.
-- Created `e2e/helpers/storyboard.ts` exporting `readBearerToken`, `createTempDraft`, `initializeDraft`, `cleanupDraft`, `waitForCanvas` — extracted verbatim from `storyboard-fixes.spec.ts` with the `__dirname` path adjusted for the `e2e/helpers/` subdirectory.
-- Updated `e2e/storyboard-fixes.spec.ts` to import all helpers from the new modules; removed all duplicate function bodies; removed now-unused `fs`, `path`, and `Page` imports.
+- Lifted the `addToStoryboard` + canvas-update logic from `LibraryPanel.tsx` into `StoryboardPage.tsx` as a `handleAddFromLibrary(templateId)` `useCallback`.
+- `handleAddFromLibrary` calls `addTemplateToStoryboard` (API), computes a sensible canvas position using `findInsertionPoint` + `nextSceneIndex` (same logic as `useAddBlock`), then calls `setNodes((prev) => [...prev, newNode])` so the React Flow canvas updates immediately.
+- `setTimeout(() => void saveNow(), 0)` defers autosave until after React re-renders so `nodesRef.current` reflects the new state.
+- `LibraryPanel` now accepts an `onAddTemplate: (templateId: string) => Promise<void>` prop; `handleAddToStoryboard` inside the panel delegates to it instead of calling `addBlockNode` from the store directly.
+- `addBlockNode` import removed from `LibraryPanel.tsx` — the canvas is now always driven via `setNodes`.
+- `LibraryPanel.test.tsx` updated: `addBlockNode` mock removed; `onAddTemplate` spy added to `defaultProps`; "add to storyboard" test asserts `onAddTemplate` called with correct templateId; new test asserts the Add button is disabled while the promise is in-flight.
+- `StoryboardPage.save-on-add.test.tsx` extended with two new test cases: (a) `onAddTemplate` prop is passed to LibraryPanel mock when library tab is active; (b) invoking `onAddTemplate` calls `addTemplateToStoryboard` with correct params and triggers `saveStoryboard` via the deferred timer.
 
 ### Files created / modified
-- `e2e/helpers/cors-workaround.ts` (new — 93 lines)
-- `e2e/helpers/storyboard.ts` (new — 167 lines)
-- `e2e/storyboard-fixes.spec.ts` (modified — imports updated, 194 lines removed)
+- `apps/web-editor/src/features/storyboard/components/LibraryPanel.tsx` — remove `addBlockNode` import; add `onAddTemplate` prop; delegate `handleAddToStoryboard` to prop
+- `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — add `handleAddFromLibrary` callback; pass `onAddTemplate` prop to `<LibraryPanel>`; add `addTemplateToStoryboard` + `findInsertionPoint` + `nextSceneIndex` imports
+- `apps/web-editor/src/features/storyboard/__tests__/LibraryPanel.test.tsx` — remove `addBlockNode` mock; add `onAddTemplate` spy; update assertions
+- `apps/web-editor/src/features/storyboard/components/StoryboardPage.save-on-add.test.tsx` — add `capturedOnAddTemplate` hoisted ref; extend LibraryPanel mock to capture prop; add 2 new test cases for library-add flow
 
-checked by code-reviewer: YES
-checked by qa-reviewer: YES
-checked by design-reviewer: YES
-design-reviewer notes: Reviewed on 2026-04-25. Pure test infrastructure (helpers, CORS proxy mock). Zero UI/component changes — no design tokens, colors, typography, or spacing to review.
-checked by playwright-reviewer: YES
-playwright-reviewer notes: All 6/6 E2E tests pass (13.5s) against deployed instance. Helper refactoring successful — no regressions introduced.
-code-reviewer notes: All files compliant with architecture-rules.md §9. Helper file line counts under 300-line cap (cors-workaround: 93L, storyboard: 167L). E2E spec file properly structured (single test.describe block per §9 exemption). Function naming follows verb-first convention. Import ordering correct. JSDoc present on all exported functions. No relative imports crossing directory boundaries. No duplicate code in spec file.
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer: YES — 15 LibraryPanel tests + 5 StoryboardPage.save-on-add tests + 298 total storyboard tests pass; handleAddFromLibrary implementation verified (immediate canvas render via setNodes, deferred saveNow, correct positioning)
 
----
+design-reviewer notes: Reviewed on 2026-04-27. All checks passed. Block positioning uses same 4px-grid defaults as useAddBlock (NEW_BLOCK_X_OFFSET=280, FALLBACK_X=60, FALLBACK_Y=200). Immediate canvas rendering is a UX improvement with no design token violations. Deferred autosave `setTimeout(..., 0)` matches established pattern. All colors, typography, spacing use design-guide tokens. No violations found.
 
-## E2E-FIX-2 — Fix app-shell, asset-manager, preview specs (add CORS workaround)
-**Date:** 2026-04-25
-**Branch:** fix/e2e-storyboard-coverage
+Fix round 1: moved NEW_BLOCK_X_OFFSET, FALLBACK_X, FALLBACK_Y constants to module scope (§9 compliance).
+
+**Post-fix verification (2026-04-25)**: Re-ran LibraryPanel.test.tsx + StoryboardPage.save-on-add.test.tsx after constants moved to module scope in StoryboardPage.tsx. Result: 20/20 tests pass. ✅ REGRESSION CLEAR.
+
+**Re-verification (2026-04-27)**: Full storyboard test suite run after constants-to-module-scope fix. All 298 tests pass (LibraryPanel 15 + StoryboardPage.save-on-add 5 + other 278 storyboard tests). No regressions introduced by constant relocation. ✅ YES CONFIRMED.
+
+## SB-UI-BUG-2 — Fix drag ghost: suppress original node position during drag
+**Date:** 2026-04-27
+**Branch:** fix/storyboard-ui-bugs
 
 ### What was done
-- Added `beforeEach` blocks to all three failing spec files that call `readBearerToken()` then `installCorsWorkaround(page, token)` before any `page.goto()`.
-- For `app-shell.spec.ts` (no existing `beforeEach`): a new `beforeEach` was added; each test retains its individual `page.goto()` call.
-- For `asset-manager.spec.ts` and `preview.spec.ts` (existing `beforeEach` with `page.goto()`): the two workaround lines were inserted at the top, before the `page.goto()`.
-- The `IS_LOCAL_TARGET` guard lives inside `installCorsWorkaround` — no conditional logic needed in the specs.
-- No existing test assertions or logic were modified.
+- In `handleNodesChange` inside `StoryboardPage.tsx`, added a filter that strips `{ type: 'position', dragging: true }` changes before passing to `applyNodeChanges`. Named the filtered array `nonDraggingChanges` for clarity.
+- `applyNodeChanges(nonDraggingChanges, prev)` is now called instead of `applyNodeChanges(changes, prev)` — so mid-drag mouse-move events no longer move the original node in React Flow state.
+- `hasMoved` check and `saveNow` / `pushSnapshot` calls remain based on the original `changes` array — `dragging: false` events are still captured correctly for history and autosave.
+- All other change types (select, remove, dimensions, reset) pass through unchanged because the filter is strictly `c.type === 'position' && c.dragging === true`.
+- Created split test file `StoryboardPage.drag-filter.test.tsx` with 4 test cases covering: (a) mid-drag changes not passed to applyNodeChanges; (b) drag-end changes passed through; (c) non-position changes pass through; (d) mixed batch filtering.
 
 ### Files created / modified
-- `e2e/app-shell.spec.ts` (modified — added 2 imports + new `beforeEach` block)
-- `e2e/asset-manager.spec.ts` (modified — added 2 imports + 2 lines at top of existing `beforeEach`)
-- `e2e/preview.spec.ts` (modified — added 2 imports + 2 lines at top of existing `beforeEach`)
+- `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — added `nonDraggingChanges` filter in `handleNodesChange`; pass `nonDraggingChanges` to `applyNodeChanges`
+- `apps/web-editor/src/features/storyboard/components/StoryboardPage.drag-filter.test.tsx` — new split test file; 4 test cases for mid-drag suppression behaviour
 
-checked by code-reviewer: YES
-checked by qa-reviewer: YES
-checked by design-reviewer: YES
-design-reviewer notes: Reviewed on 2026-04-25. Pure test infrastructure (E2E spec setup + CORS helper integration). Zero UI/component changes — no design tokens, colors, typography, spacing, or component structure to review.
-code-reviewer notes: Reviewed on 2026-04-25. All three spec files (app-shell, asset-manager, preview) are fully compliant with §9 (import ordering, file structure) and §9.7 (E2E exemptions). Helper functions (readBearerToken, installCorsWorkaround) called in correct sequence before page.goto() per CORS proxy requirements. No dead code, no naming violations, no cross-boundary relative imports violating §9 — E2E helpers are co-located in same directory.
-checked by playwright-reviewer: YES
-playwright-reviewer notes: All 19/19 E2E tests pass (30.5s). app-shell (3 tests), asset-manager (11 tests), preview (5 tests) confirmed working against deployed instance. CORS workaround successfully enables FE-to-API communication in Playwright environment.
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer: YES — 4/4 unit tests pass (StoryboardPage.drag-filter.test.tsx); full storyboard E2E suite 9/9 pass (storyboard-fixes.spec.ts); handleNodesChange filter verified to suppress mid-drag position updates while preserving drag-end, select, and remove changes
 
-<!-- QA NOTES (auto-generated):
-  - E2E infrastructure only (Playwright spec setup, CORS workaround). Out of scope for unit/integration test review.
-  - No unit/integration tests changed or added.
-  - Reviewed by qa-reviewer on 2026-04-25.
--->
+design-reviewer notes: Reviewed on 2026-04-27. No visual design changes — pure interaction logic (mid-drag position suppression via change filtering). No tokens, colors, spacing, or typography affected. Behavior aligns with established "Immediate save pattern" (§9.7 log line 153). No Figma/Stitch gaps. All checks passed.
 
----
-
-## E2E-FIX-3 — Add storyboard E2E coverage for 2026-04-25 fixes
-**Date:** 2026-04-25
-**Branch:** fix/e2e-storyboard-coverage
-
-### What was done
-- Extended `e2e/storyboard-fixes.spec.ts` with 3 new tests (Test 7, Test 8, Test 9) covering the storyboard fixes shipped on 2026-04-25.
-- Added `UUID_RE` constant (UUID v4 pattern) at module level, before the `test.describe` block, for reuse across tests.
-- Updated the file-level comment to list the 3 new tests alongside the existing 6.
-- Test 7 validates that the PUT body sent by the UI after clicking "+" Add Block contains: (a) every block's `durationS >= 1` (not 0 — sentinel fix), and (b) every block's `id` matching UUID v4 format.
-- Test 8 verifies that clicking Save in the Edit Scene modal triggers an immediate PUT within 3 s (via the `saveNow()` path bypassing the 5 s debounce). Pre-seeds a scene block via direct API PUT; clicks `[data-testid="scene-block-node"]`; fills prompt via `[data-testid="prompt-input"]`; clicks `[data-testid="save-button"]`.
-- Test 9 verifies end-to-end mediaItem persistence: obtains a real `fileId` via `POST /files/upload-url` (satisfies FK constraint on `storyboard_block_media.file_id` without S3 upload), PUTs a scene block with that mediaItem, then GETs and asserts the block's `mediaItems` array is non-empty with the correct `fileId`.
-
-### Files created / modified
-- `e2e/storyboard-fixes.spec.ts` (modified — 383 lines added; 3 new tests appended)
-
-### Tests added
-- Test 7: PUT body validation — sentinel durationS ≥ 1 and all block IDs are valid UUIDs; uses `page.waitForRequest` + `postDataJSON()` to capture and parse the live browser PUT body.
-- Test 8: Edit Scene modal save timing — registers `waitForRequest` before clicking Save button; asserts PUT fires within 3 000 ms of click; uses data-testid locators for scene-block-node, prompt-input, and save-button.
-- Test 9: mediaItem persistence round-trip — creates a pending file row via `POST /files/upload-url` to satisfy FK; PUTs storyboard with mediaItem; GETs and asserts `mediaItems[0].fileId` matches the seeded value.
-
-checked by code-reviewer: YES
-code-reviewer notes: All files compliant with architecture-rules.md §9 (naming, imports, file placement) and §9.7 (E2E spec exempt from 300-line cap). UUID_RE pattern correct for v4 validation. createTempDraft/cleanupDraft properly used in try/finally on all 3 tests. Helper functions (readBearerToken, installCorsWorkaround, waitForCanvas) correctly imported and used per established E2E patterns. Test isolation verified — each test creates own draft, initializes, runs independently, cleans up idempotently. Proper error handling on all API calls; JSDoc present; no hardcoded business logic values; Playwright best practices (waitForRequest before interaction, page.request for CORS bypass, data-testid locators).
-checked by qa-reviewer: YES
-checked by design-reviewer: YES
-design-reviewer notes: Reviewed on 2026-04-25. Pure E2E test infrastructure (3 new tests for storyboard fixes). Zero UI/component changes — no design tokens, colors, typography, spacing, or component structure to review. E2E specs exempt per architecture-rules.md §9.7.
-checked by playwright-reviewer: YES
-playwright-reviewer notes: All 9/9 E2E tests pass (17.2s) against deployed instance https://15-236-162-140.nip.io. Tests 1-6 existing fixes verified working. Tests 7-9 new coverage: Test 7 validates PUT body sentinel durationS ≥ 1 and all block IDs are valid UUIDs. Test 8 confirms Edit Scene modal Save triggers PUT within 3s. Test 9 verifies mediaItem persistence round-trip via FK-satisfying POST /files/upload-url.
+qa-reviewer notes: Reviewed 2026-04-27. All 4 unit tests pass (mid-drag suppression, drag-end pass-through, non-position pass-through, mixed batch filtering). Full storyboard test suite 302/302 pass — no regressions. Implementation correctly filters `{ type: 'position', dragging: true }` changes before `applyNodeChanges`, allowing drag-end (`dragging: false`) to pass through unchanged. Coverage complete: (a) mid-drag changes suppressed ✓, (b) drag-end changes applied ✓, (c) non-position changes pass through unchanged ✓.

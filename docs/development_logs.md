@@ -1,4 +1,4 @@
-# Development Log (compacted — 2026-03-29 to 2026-04-25)
+# Development Log (compacted — 2026-03-29 to 2026-04-27)
 
 ## Monorepo + DB Migrations
 - added: root config, apps (api/web-editor/media-worker/render-worker), packages (project-schema, remotion-comps)
@@ -133,6 +133,10 @@
 - E2E-FIX-2: added `installCorsWorkaround` + `readBearerToken` in `beforeEach` to `e2e/app-shell.spec.ts`, `e2e/asset-manager.spec.ts`, `e2e/preview.spec.ts`; 19/19 previously-failing tests now pass
 - E2E-FIX-3: added 3 new tests to `e2e/storyboard-fixes.spec.ts` — Test 7 (PUT body: sentinel durationS ≥ 1 + UUID block IDs), Test 8 (Edit Scene modal Save triggers PUT ≤ 3s via saveNow), Test 9 (mediaItem round-trip via POST /files/upload-url for FK + GET assertion); 9/9 pass
 
+## Storyboard UI Bug Fixes (2026-04-27)
+- SB-UI-BUG-1: `LibraryPanel` was calling `addBlockNode` (external store only) → canvas never re-rendered after Add; fixed by lifting `addToStoryboard` API call into `StoryboardPage.handleAddFromLibrary` callback; `setNodes` + deferred `saveNow` called after API response; `LibraryPanel` accepts `onAddTemplate` prop; `addBlockNode` import removed from panel; `NEW_BLOCK_X_OFFSET`/`FALLBACK_X`/`FALLBACK_Y` at module scope; 3 new tests (LibraryPanel.test.tsx + StoryboardPage.save-on-add.test.tsx); 302/302 storyboard tests pass
+- SB-UI-BUG-2: `handleNodesChange` was calling `applyNodeChanges` for all events including `{ type: 'position', dragging: true }` → original block moved during drag alongside ghost portal; fixed by filtering `nonDraggingChanges` (strips mid-drag position events before `applyNodeChanges`); drag-end `dragging: false` events still applied; `StoryboardPage.drag-filter.test.tsx` (4 tests); 9/9 E2E pass
+
 ## Architectural Decisions
 - §9.7 300-line cap: `*.fixtures.ts` + `.<topic>.test.ts` splits; approved exceptions: `fal-models.ts` (1093L), `file.repository.ts` (306L), `useProjectInit.test.ts` (318L), `StoryboardCard.tsx` (319L), `storyboard-store.ts` (307L); e2e/*.spec.ts exempt
 - Worker env: only `index.ts` reads config keys; handlers receive secrets via `deps`
@@ -153,6 +157,8 @@
 - Immediate save pattern: extract callback to `useHandle*.ts` hook; `setTimeout(() => void saveNow(), 0)` defers save until after React re-render
 - Sentinel init: `loadStoryboard` auto-initializes START/END atomically via `SELECT ... FOR UPDATE` + deadlock retry; client-side `dedupSentinels()` as safety net
 - Auto-restore skip-save: `handleRestore({ skipSave: true })` in seed path prevents DB overwrite before React re-render; manual restore always calls saveNow
+- React Flow two-state rule: canvas driven by `nodes` useState; external store alone does NOT update canvas — `setNodes` must always be called for visible changes
+- Drag position filter: `handleNodesChange` strips `{ type: 'position', dragging: true }` before `applyNodeChanges` — original node frozen during drag; drag-end `dragging: false` commits final position
 
 ## Known Issues / TODOs
 - ACL middleware stub — real ownership check deferred (B3 it.todo 403 tests)
@@ -169,55 +175,4 @@
 - **Keyboard undo/redo broken**: `storyboard-history-store.applySnapshot` calls `storyboard-store.setNodes/setEdges` but React Flow renders from `useState` — Ctrl+Z/Y don't visually update canvas
 - `initializeStoryboard` service function orphaned (no callers) — remove or add deprecation warning
 - `StoryboardCard.tsx` (319L) exceeds §9.7 cap — formalize as approved exception in architecture-rules.md
-
-## SB-UI-BUG-1 — Fix Library Add immediate canvas render
-**Date:** 2026-04-27
-**Branch:** fix/storyboard-ui-bugs
-
-### What was done
-- Lifted the `addToStoryboard` + canvas-update logic from `LibraryPanel.tsx` into `StoryboardPage.tsx` as a `handleAddFromLibrary(templateId)` `useCallback`.
-- `handleAddFromLibrary` calls `addTemplateToStoryboard` (API), computes a sensible canvas position using `findInsertionPoint` + `nextSceneIndex` (same logic as `useAddBlock`), then calls `setNodes((prev) => [...prev, newNode])` so the React Flow canvas updates immediately.
-- `setTimeout(() => void saveNow(), 0)` defers autosave until after React re-renders so `nodesRef.current` reflects the new state.
-- `LibraryPanel` now accepts an `onAddTemplate: (templateId: string) => Promise<void>` prop; `handleAddToStoryboard` inside the panel delegates to it instead of calling `addBlockNode` from the store directly.
-- `addBlockNode` import removed from `LibraryPanel.tsx` — the canvas is now always driven via `setNodes`.
-- `LibraryPanel.test.tsx` updated: `addBlockNode` mock removed; `onAddTemplate` spy added to `defaultProps`; "add to storyboard" test asserts `onAddTemplate` called with correct templateId; new test asserts the Add button is disabled while the promise is in-flight.
-- `StoryboardPage.save-on-add.test.tsx` extended with two new test cases: (a) `onAddTemplate` prop is passed to LibraryPanel mock when library tab is active; (b) invoking `onAddTemplate` calls `addTemplateToStoryboard` with correct params and triggers `saveStoryboard` via the deferred timer.
-
-### Files created / modified
-- `apps/web-editor/src/features/storyboard/components/LibraryPanel.tsx` — remove `addBlockNode` import; add `onAddTemplate` prop; delegate `handleAddToStoryboard` to prop
-- `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — add `handleAddFromLibrary` callback; pass `onAddTemplate` prop to `<LibraryPanel>`; add `addTemplateToStoryboard` + `findInsertionPoint` + `nextSceneIndex` imports
-- `apps/web-editor/src/features/storyboard/__tests__/LibraryPanel.test.tsx` — remove `addBlockNode` mock; add `onAddTemplate` spy; update assertions
-- `apps/web-editor/src/features/storyboard/components/StoryboardPage.save-on-add.test.tsx` — add `capturedOnAddTemplate` hoisted ref; extend LibraryPanel mock to capture prop; add 2 new test cases for library-add flow
-
-checked by code-reviewer - YES
-checked by qa-reviewer - YES
-checked by design-reviewer - YES
-checked by playwright-reviewer: YES — 15 LibraryPanel tests + 5 StoryboardPage.save-on-add tests + 298 total storyboard tests pass; handleAddFromLibrary implementation verified (immediate canvas render via setNodes, deferred saveNow, correct positioning)
-
-design-reviewer notes: Reviewed on 2026-04-27. All checks passed. Block positioning uses same 4px-grid defaults as useAddBlock (NEW_BLOCK_X_OFFSET=280, FALLBACK_X=60, FALLBACK_Y=200). Immediate canvas rendering is a UX improvement with no design token violations. Deferred autosave `setTimeout(..., 0)` matches established pattern. All colors, typography, spacing use design-guide tokens. No violations found.
-
-Fix round 1: moved NEW_BLOCK_X_OFFSET, FALLBACK_X, FALLBACK_Y constants to module scope (§9 compliance).
-
-**Post-fix verification (2026-04-25)**: Re-ran LibraryPanel.test.tsx + StoryboardPage.save-on-add.test.tsx after constants moved to module scope in StoryboardPage.tsx. Result: 20/20 tests pass. ✅ REGRESSION CLEAR.
-
-**Re-verification (2026-04-27)**: Full storyboard test suite run after constants-to-module-scope fix. All 298 tests pass (LibraryPanel 15 + StoryboardPage.save-on-add 5 + other 278 storyboard tests). No regressions introduced by constant relocation. ✅ YES CONFIRMED.
-
-## SB-UI-BUG-2 — Fix drag ghost: suppress original node position during drag
-**Date:** 2026-04-27
-**Branch:** fix/storyboard-ui-bugs
-
-### What was done
-- In `handleNodesChange` inside `StoryboardPage.tsx`, added a filter that strips `{ type: 'position', dragging: true }` changes before passing to `applyNodeChanges`. Named the filtered array `nonDraggingChanges` for clarity.
-- `applyNodeChanges(nonDraggingChanges, prev)` is now called instead of `applyNodeChanges(changes, prev)` — so mid-drag mouse-move events no longer move the original node in React Flow state.
-- `hasMoved` check and `saveNow` / `pushSnapshot` calls remain based on the original `changes` array — `dragging: false` events are still captured correctly for history and autosave.
-- All other change types (select, remove, dimensions, reset) pass through unchanged because the filter is strictly `c.type === 'position' && c.dragging === true`.
-- Created split test file `StoryboardPage.drag-filter.test.tsx` with 4 test cases covering: (a) mid-drag changes not passed to applyNodeChanges; (b) drag-end changes passed through; (c) non-position changes pass through; (d) mixed batch filtering.
-
-### Files created / modified
-- `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — added `nonDraggingChanges` filter in `handleNodesChange`; pass `nonDraggingChanges` to `applyNodeChanges`
-- `apps/web-editor/src/features/storyboard/components/StoryboardPage.drag-filter.test.tsx` — new split test file; 4 test cases for mid-drag suppression behaviour
-
-checked by code-reviewer - NOT
-checked by qa-reviewer - NOT
-checked by design-reviewer - NOT
-checked by playwright-reviewer: NOT
+- `e2e/storyboard-canvas.spec.ts` + `e2e/storyboard-drag.spec.ts` — local CORS proxy still narrow (`/storyboards/**`); should import from `e2e/helpers/cors-workaround.ts`
