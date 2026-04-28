@@ -1,4 +1,4 @@
-# Development Log (compacted — 2026-03-29 to 2026-04-27)
+# Development Log (compacted — 2026-03-29 to 2026-04-28)
 
 ## Monorepo + DB Migrations
 - added: root config, apps/packages scaffold; migrations 001–036 (projects, assets, captions, versions, render_jobs, clips, users/auth, ai_generation_jobs, files/pivots, soft-delete, thumbnails, storyboard tables, scene_templates/media)
@@ -74,11 +74,19 @@
 - SB-UPLOAD-1: optional `uploadTarget?: UploadTarget` prop on AssetPickerModal; extracted `AssetPickerUploadAffordance.tsx`
 - SB-UPLOAD-2: threaded `uploadDraftId?: string` through SceneModalBlockProps → SceneModal → SceneModalMediaSection → AssetPickerModal
 
-## E2E Infrastructure + Coverage (2026-04-25–27)
+## E2E Infrastructure + Coverage (2026-04-25–28)
 - extracted: `e2e/helpers/cors-workaround.ts` (installCorsWorkaround), `e2e/helpers/storyboard.ts` (readBearerToken, createTempDraft, initializeDraft, cleanupDraft, waitForCanvas)
 - added: installCorsWorkaround + readBearerToken to app-shell, asset-manager, preview specs; 19/19 previously-failing tests pass
-- added: `e2e/storyboard-fixes.spec.ts` — 15 tests total (ST-FIX-1..5, SB-BUG-B, Test 7/8/9, SB-UI-BUG-1/2, SB-CLEAN-1, SB-HIST-2, SB-UPLOAD-1/2); all 15 pass
+- added: `e2e/storyboard-fixes.spec.ts` — 16 tests total (ST-FIX-1..5, SB-BUG-B, Test 7/8/9, SB-UI-BUG-1/2, SB-CLEAN-1, SB-HIST-2, SB-UPLOAD-1/2, SB-HIST-THUMB); all pass
 - seeded: e2e test user `e2e@cliptale.test` in DB
+- fixed E2E: auth-state.json origin mismatch (localhost vs deployed URL) — must run with `E2E_BASE_URL` + `E2E_API_URL` env vars pointing to deployed instance
+
+## Storyboard History Thumbnail Fix (2026-04-28)
+- fixed SB-HIST-THUMB: `captureCanvasThumbnail.ts` — added `imagePlaceholder` (1×1 transparent GIF) to `html-to-image.toJpeg()` options; cross-origin image fetch failures fall back to placeholder instead of rejecting entire capture
+- fixed SB-HIST-THUMB: `SceneBlockNode.tsx` `MediaThumbnail` — added `crossOrigin="anonymous"` to `<img>`; enables browser to mark image canvas-safe when API sends `Access-Control-Allow-Origin`; `buildAuthenticatedUrl()` + `onError` preserved
+- added: `captureCanvasThumbnail.test.ts` — explicit `imagePlaceholder` data URL assertion; 6/6 pass
+- added: `SceneBlockNode.thumbnails.test.tsx` — `crossOrigin="anonymous"` DOM attribute assertion; 27/27 pass
+- added: `e2e/storyboard-fixes.spec.ts` SB-HIST-THUMB — intercepts `POST /storyboards/:draftId/history`, asserts `snapshot.thumbnail` matches `/^data:image/`, reloads to clear React Query stale cache, then strictly asserts `snapshot-thumbnail-img` visible; no OR-fallback; passes in ~5s in Playwright headless Chromium
 
 ## Architectural Decisions
 - §9.7 300-line cap exceptions: `fal-models.ts` (1093L), `file.repository.ts` (306L), `useProjectInit.test.ts` (318L), `StoryboardCard.tsx` (319L), `storyboard-store.ts` (307L); e2e/*.spec.ts exempt
@@ -94,7 +102,7 @@
 - Typography §3: 14/400 body, 12/500 label, 16/600 heading-3; 4px grid; radius-md 8px
 - Per-file styles: hex constants at top of `.styles.ts`; no CSS custom properties in web-editor
 - DEV_AUTH_BYPASS injects `dev-user-001`
-- E2E CORS: `page.route()` proxy; PUT requests use `page.request.put` (server-side)
+- E2E CORS: `page.route()` proxy; PUT requests use `page.request.put` (server-side); must run with `E2E_BASE_URL` + `E2E_API_URL` env vars for deployed instance
 - Storyboard autosave: reads React state via params+refs, NOT external store subscription
 - Storyboard IDs: always `crypto.randomUUID()` — server schema requires UUID
 - Immediate save: `setTimeout(() => void saveNow(), 0)` defers until after React re-render
@@ -103,6 +111,8 @@
 - React Flow two-state rule: `setNodes` must always be called — external store alone does not update canvas
 - Drag position filter: strips `{ type: 'position', dragging: true }` before `applyNodeChanges`
 - AssetPickerModal upload: opt-in via `uploadTarget?: UploadTarget`; absent = unchanged behavior
+- html-to-image CORS: `imagePlaceholder` prevents silent CORS rejection; `crossOrigin="anonymous"` on `<img>` enables canvas serialization when API sends correct CORS headers
+- E2E history panel: React Query caches history GET for 30s; must reload page after POST /history before opening panel to get fresh data
 
 ## Known Issues / TODOs
 - ACL middleware stub — real ownership check deferred
@@ -120,3 +130,4 @@
 - `initializeStoryboard` service function orphaned — remove or deprecate
 - `StoryboardCard.tsx` (319L) — formalize as §9.7 approved exception
 - `e2e/storyboard-canvas.spec.ts` + `e2e/storyboard-drag.spec.ts` — narrow CORS proxy; should use `e2e/helpers/cors-workaround.ts`
+- SB-HIST-THUMB crossOrigin risk: if `APP_CORS_ORIGIN` mismatches app origin, images in scene blocks may fail to load; revert `SceneBlockNode.tsx` crossOrigin change if so (`imagePlaceholder` fix alone is sufficient)

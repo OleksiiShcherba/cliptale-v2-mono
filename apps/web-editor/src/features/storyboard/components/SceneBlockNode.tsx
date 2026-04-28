@@ -96,6 +96,7 @@ function MediaThumbnail({ item }: { item: BlockMediaItem }): React.ReactElement 
       alt={`${item.mediaType} thumbnail`}
       style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
       loading="lazy"
+      crossOrigin="anonymous"
       data-testid="thumbnail-img"
       onError={(e) => {
         // On load error, hide img — parent shows placeholder via CSS fallback.
