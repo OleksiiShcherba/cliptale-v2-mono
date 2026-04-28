@@ -123,6 +123,19 @@ describe('SceneBlockNode thumbnails', () => {
     expect(img.src).toContain('token=mock');
   });
 
+  it('sets crossOrigin="anonymous" on thumbnail img for CORS fetching', () => {
+    const media = [makeMedia({ fileId: 'img-1', mediaType: 'image' })];
+    render(
+      <SceneBlockNode
+        id="node-1"
+        data={{ block: makeBlock(media), onRemove: mockOnRemove }}
+      />,
+    );
+
+    const img = screen.getByTestId('thumbnail-img') as HTMLImageElement;
+    expect(img.crossOrigin).toBe('anonymous');
+  });
+
   it('renders 3 thumbnail items for 3 media items', () => {
     const media = [
       makeMedia({ fileId: 'img-1', mediaType: 'image', sortOrder: 0 }),

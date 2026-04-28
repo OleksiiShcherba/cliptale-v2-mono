@@ -24,13 +24,16 @@ describe('captureCanvasThumbnail', () => {
     const result = await captureCanvasThumbnail();
 
     expect(result).toBe('data:image/jpeg;base64,abc123');
-    expect(mockToJpeg).toHaveBeenCalledWith(fakeEl, {
-      width: 320,
-      height: 180,
-      quality: 0.6,
-      skipFonts: true,
-      pixelRatio: 1,
-    });
+    expect(mockToJpeg).toHaveBeenCalledWith(
+      fakeEl,
+      expect.objectContaining({
+        width: 320,
+        height: 180,
+        quality: 0.6,
+        skipFonts: true,
+        pixelRatio: 1,
+      }),
+    );
   });
 
   it('passes correct options to toJpeg', async () => {
@@ -49,6 +52,24 @@ describe('captureCanvasThumbnail', () => {
       skipFonts: true,
       pixelRatio: 1,
     });
+    expect(typeof options.imagePlaceholder).toBe('string');
+    expect((options.imagePlaceholder as string).length).toBeGreaterThan(0);
+    expect((options.imagePlaceholder as string).startsWith('data:')).toBe(true);
+  });
+
+  it('passes imagePlaceholder as a data URL string', async () => {
+    const fakeEl = document.createElement('div');
+    vi.spyOn(document, 'querySelector').mockReturnValue(fakeEl);
+    mockToJpeg.mockResolvedValue('data:image/jpeg;base64,placeholder-test');
+
+    await captureCanvasThumbnail();
+
+    expect(mockToJpeg).toHaveBeenCalledOnce();
+    const options = mockToJpeg.mock.calls[0][1];
+    const placeholder = options.imagePlaceholder as string;
+    expect(typeof placeholder).toBe('string');
+    expect(placeholder.startsWith('data:')).toBe(true);
+    expect(placeholder.length).toBeGreaterThan(0);
   });
 
   it('returns null when .react-flow element is not found', async () => {

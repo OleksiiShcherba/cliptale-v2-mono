@@ -20,6 +20,8 @@ export async function captureCanvasThumbnail(): Promise<string | null> {
       quality: 0.6,
       skipFonts: true,
       pixelRatio: 1,
+      imagePlaceholder:
+        'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
     });
   } catch {
     return null;
