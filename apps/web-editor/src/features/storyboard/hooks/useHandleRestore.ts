@@ -31,8 +31,8 @@ type UseHandleRestoreArgs = {
   setNodes: React.Dispatch<React.SetStateAction<Node[]>>;
   /** Dispatch-setter for React Flow edges state. */
   setEdges: React.Dispatch<React.SetStateAction<Edge[]>>;
-  /** Pushes a CanvasSnapshot onto the local undo/redo stack. */
-  pushSnapshot: (nodes: Node[], edges: Edge[]) => void;
+  /** Pushes a CanvasSnapshot onto the local undo/redo stack (async — captures thumbnail). */
+  pushSnapshot: (nodes: Node[], edges: Edge[]) => Promise<void>;
   /** Removes a node (and its connected edges) from React state. */
   removeNode: (nodeId: string) => void;
   /** Flushes the autosave debounce and persists immediately. */
@@ -100,7 +100,7 @@ export function useHandleRestore({
 
       setNodes(rewiredNodes);
       setEdges(edges);
-      pushSnapshot(rewiredNodes, edges);
+      void pushSnapshot(rewiredNodes, edges);
 
       // Skip the immediate save on the auto-restore / seed path. At the point
       // saveNow would fire, nodesRef.current in useStoryboardAutosave still has

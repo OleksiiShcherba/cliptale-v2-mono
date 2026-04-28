@@ -68,7 +68,7 @@ describe('useHandleRestore', () => {
     const removeNode = vi.fn();
     const setNodes = vi.fn();
     const setEdges = vi.fn();
-    const pushSnapshot = vi.fn();
+    const pushSnapshot = vi.fn().mockResolvedValue(undefined);
     const saveNow = vi.fn().mockResolvedValue(undefined);
 
     const { result } = renderHook(() =>
@@ -96,7 +96,7 @@ describe('useHandleRestore', () => {
     const removeNode = vi.fn();
     const setNodes = vi.fn();
     const setEdges = vi.fn();
-    const pushSnapshot = vi.fn();
+    const pushSnapshot = vi.fn().mockResolvedValue(undefined);
     const saveNow = vi.fn().mockResolvedValue(undefined);
 
     const { result } = renderHook(() =>
@@ -117,7 +117,7 @@ describe('useHandleRestore', () => {
     const removeNode = vi.fn();
     const setNodes = vi.fn();
     const setEdges = vi.fn();
-    const pushSnapshot = vi.fn();
+    const pushSnapshot = vi.fn().mockResolvedValue(undefined);
     const saveNow = vi.fn().mockResolvedValue(undefined);
 
     const { result } = renderHook(() =>
@@ -147,7 +147,7 @@ describe('useHandleRestore', () => {
     const removeNode = vi.fn();
     const setNodes = vi.fn(() => { callOrder.push('setNodes'); });
     const setEdges = vi.fn(() => { callOrder.push('setEdges'); });
-    const pushSnapshot = vi.fn(() => { callOrder.push('pushSnapshot'); });
+    const pushSnapshot = vi.fn(() => { callOrder.push('pushSnapshot'); return Promise.resolve(); });
     const saveNow = vi.fn(() => { callOrder.push('saveNow'); return Promise.resolve(); });
 
     const { result } = renderHook(() =>
@@ -165,7 +165,7 @@ describe('useHandleRestore', () => {
     const removeNode = vi.fn();
     const setNodes = vi.fn();
     const setEdges = vi.fn();
-    const pushSnapshot = vi.fn();
+    const pushSnapshot = vi.fn().mockResolvedValue(undefined);
     const saveNow = vi.fn().mockResolvedValue(undefined);
 
     const { result } = renderHook(() =>
@@ -189,7 +189,7 @@ describe('useHandleRestore', () => {
     const removeNode = vi.fn();
     const setNodes = vi.fn();
     const setEdges = vi.fn();
-    const pushSnapshot = vi.fn();
+    const pushSnapshot = vi.fn().mockResolvedValue(undefined);
     const saveNow = vi.fn().mockResolvedValue(undefined);
 
     const { result, rerender } = renderHook(() =>
@@ -205,7 +205,7 @@ describe('useHandleRestore', () => {
     const removeNode = vi.fn();
     const setNodes = vi.fn();
     const setEdges = vi.fn();
-    const pushSnapshot = vi.fn();
+    const pushSnapshot = vi.fn().mockResolvedValue(undefined);
     const saveNow = vi.fn().mockResolvedValue(undefined);
 
     const { result } = renderHook(() =>
@@ -223,7 +223,7 @@ describe('useHandleRestore', () => {
     const removeNode = vi.fn();
     const setNodes = vi.fn();
     const setEdges = vi.fn();
-    const pushSnapshot = vi.fn();
+    const pushSnapshot = vi.fn().mockResolvedValue(undefined);
     const saveNow = vi.fn().mockResolvedValue(undefined);
 
     const { result } = renderHook(() =>
@@ -241,7 +241,7 @@ describe('useHandleRestore', () => {
     const removeNode = vi.fn();
     const setNodes = vi.fn();
     const setEdges = vi.fn();
-    const pushSnapshot = vi.fn();
+    const pushSnapshot = vi.fn().mockResolvedValue(undefined);
     const saveNow = vi.fn().mockResolvedValue(undefined);
 
     const { result } = renderHook(() =>
@@ -261,7 +261,7 @@ describe('useHandleRestore', () => {
     const removeNode = vi.fn();
     const setNodes = vi.fn();
     const setEdges = vi.fn();
-    const pushSnapshot = vi.fn();
+    const pushSnapshot = vi.fn().mockResolvedValue(undefined);
     const saveNow = vi.fn().mockResolvedValue(undefined);
 
     const { result } = renderHook(() =>

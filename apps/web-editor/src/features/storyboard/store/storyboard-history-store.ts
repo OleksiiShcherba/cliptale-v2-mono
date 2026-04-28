@@ -24,7 +24,7 @@
 import type { Node, Edge } from '@xyflow/react';
 
 import { persistHistorySnapshot } from '../api';
-import type { StoryboardHistorySnapshot } from '../api';
+import type { StoryboardHistorySnapshot, StoryboardHistoryPayload } from '../api';
 import type { StoryboardState } from '../types';
 import { BORDER } from '../components/nodeStyles';
 import { setNodes, setEdges, getSnapshot } from './storyboard-store';
@@ -46,6 +46,9 @@ const SERVER_PERSIST_DEBOUNCE_MS = 1000;
  * `positions` is optional: local undo/redo snapshots carry it, but server history
  * snapshots do not (the server persists positions per-block via `positionX/Y`).
  * Consumers must fall back to `block.positionX / block.positionY` when absent.
+ *
+ * `thumbnail` is an optional JPEG data URL captured at the moment of the push.
+ * Absent for server-sourced snapshots created before this feature was introduced.
  */
 export type CanvasSnapshot = {
   /** Serializable block data extracted from React Flow nodes. */
@@ -57,6 +60,11 @@ export type CanvasSnapshot = {
    * Absent for server-sourced snapshots — use `block.positionX/Y` as fallback.
    */
   positions?: Record<string, { x: number; y: number }>;
+  /**
+   * JPEG data URL thumbnail of the React Flow canvas at push time (160×90 display size).
+   * Absent when capture failed or for snapshots created before this feature.
+   */
+  thumbnail?: string;
 };
 
 /** Public interface that `useStoryboardKeyboard` and other consumers depend on. */
@@ -100,13 +108,14 @@ function schedulePersist(snapshot: CanvasSnapshot): void {
   }
 
   persistTimerHandle = setTimeout(() => {
-    // Convert CanvasSnapshot back to StoryboardState for the API call.
-    const serverState: StoryboardState = {
+    // Build history-specific payload — includes thumbnail when present.
+    const payload: StoryboardHistoryPayload = {
       blocks: snapshot.blocks,
       edges: snapshot.edges,
+      ...(snapshot.thumbnail !== undefined && { thumbnail: snapshot.thumbnail }),
     };
 
-    persistHistorySnapshot(draftId, serverState).catch((err: unknown) => {
+    persistHistorySnapshot(draftId, payload).catch((err: unknown) => {
       console.error('[storyboard-history-store] Failed to persist snapshot:', err);
     });
     persistTimerHandle = null;

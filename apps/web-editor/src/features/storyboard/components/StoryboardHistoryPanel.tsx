@@ -43,6 +43,7 @@ import {
   timestampStyle,
   restoreButtonStyle,
   minimapContainerStyle,
+  thumbnailImgStyle,
   MINIMAP_COLOR_START,
   MINIMAP_COLOR_END,
   MINIMAP_COLOR_SCENE,
@@ -169,7 +170,16 @@ function HistoryEntryRow({ entry, onRestore }: HistoryEntryRowProps): React.Reac
 
   return (
     <div style={entryRowStyle} data-testid="history-entry-row">
-      <SnapshotMinimap blocks={entry.snapshot.blocks ?? []} />
+      {entry.snapshot.thumbnail ? (
+        <img
+          src={entry.snapshot.thumbnail}
+          style={thumbnailImgStyle}
+          alt="snapshot"
+          data-testid="snapshot-thumbnail-img"
+        />
+      ) : (
+        <SnapshotMinimap blocks={entry.snapshot.blocks ?? []} />
+      )}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <div style={entryMetaStyle}>
           <span
@@ -214,9 +224,9 @@ export function StoryboardHistoryPanel({
       );
       if (!confirmed) return;
 
-      // entry.snapshot is StoryboardState ({blocks, edges}) from the server.
-      // CanvasSnapshot has positions?: optional, so StoryboardState is a valid
-      // subset — cast directly without the unsafe double-cast.
+      // entry.snapshot is StoryboardHistoryPayload ({blocks, edges, thumbnail?}).
+      // CanvasSnapshot is structurally compatible (adds positions?/thumbnail?) —
+      // cast directly without unsafe double-cast.
       // restoreFromSnapshot falls back to block.positionX/Y when positions absent.
       const snapshot = entry.snapshot as CanvasSnapshot;
       restoreFromSnapshot(snapshot);

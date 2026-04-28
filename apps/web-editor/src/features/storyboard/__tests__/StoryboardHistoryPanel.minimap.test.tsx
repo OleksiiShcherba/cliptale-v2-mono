@@ -1,18 +1,60 @@
 /**
- * Unit tests for the SnapshotMinimap sub-component.
+ * Unit tests for the SnapshotMinimap sub-component and the HistoryEntryRow
+ * thumbnail conditional-render logic.
  *
- * Covers:
+ * SnapshotMinimap covers:
  * (a) 3 blocks at varied positions → SVG renders with 3 rects, correct data-testid
  * (b) 0 blocks → SVG renders (no rects, no crash)
  * (c) 2 blocks at the same position → renders without crash (centered rects)
+ *
+ * HistoryEntryRow thumbnail covers (via StoryboardHistoryPanel):
+ * (d) snapshot WITH thumbnail → <img data-testid="snapshot-thumbnail-img"> present,
+ *     data-testid="snapshot-minimap" absent
+ * (e) snapshot WITHOUT thumbnail → data-testid="snapshot-minimap" present,
+ *     <img data-testid="snapshot-thumbnail-img"> absent
  */
 
 import React from 'react';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 import { SnapshotMinimap } from '@/features/storyboard/components/StoryboardHistoryPanel';
 import type { StoryboardBlock } from '@/features/storyboard/types';
+
+// ── Hoisted mocks for HistoryEntryRow thumbnail tests ─────────────────────────
+
+const { mockUseStoryboardHistoryFetch } = vi.hoisted(() => ({
+  mockUseStoryboardHistoryFetch: vi.fn(),
+}));
+
+vi.mock('@/features/storyboard/hooks/useStoryboardHistoryFetch', () => ({
+  useStoryboardHistoryFetch: mockUseStoryboardHistoryFetch,
+}));
+
+vi.mock('@/features/storyboard/store/storyboard-store', () => ({
+  restoreFromSnapshot: vi.fn(),
+  getSnapshot: vi.fn(() => ({ nodes: [], edges: [], positions: {}, selectedBlockId: null })),
+}));
+
+vi.mock('@/features/storyboard/store/storyboard-history-store', () => ({}));
+
+vi.mock('@/shared/utils/formatRelativeDate', () => ({
+  formatRelativeDate: () => 'just now',
+}));
+
+import { StoryboardHistoryPanel } from '@/features/storyboard/components/StoryboardHistoryPanel';
+
+// ── Setup ──────────────────────────────────────────────────────────────────────
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.stubGlobal('confirm', vi.fn(() => true));
+  mockUseStoryboardHistoryFetch.mockReturnValue({
+    entries: [],
+    isLoading: false,
+    isError: false,
+  });
+});
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
 
@@ -78,5 +120,58 @@ describe('SnapshotMinimap', () => {
     // Both rects rendered (centered) — no crash.
     const rects = screen.getAllByTestId('minimap-block-rect');
     expect(rects).toHaveLength(2);
+  });
+});
+
+// ── Thumbnail conditional render (HistoryEntryRow) ────────────────────────────
+
+describe('HistoryEntryRow — thumbnail vs minimap conditional render', () => {
+  it('(d) renders <img> and NOT <SnapshotMinimap> when snapshot has a thumbnail', () => {
+    const thumbnailDataUrl = 'data:image/jpeg;base64,/9j/thumbnaildata';
+    mockUseStoryboardHistoryFetch.mockReturnValue({
+      entries: [
+        {
+          snapshot: { blocks: [], edges: [], thumbnail: thumbnailDataUrl },
+          createdAt: new Date(2026, 3, 28, 12, 0).toISOString(),
+        },
+      ],
+      isLoading: false,
+      isError: false,
+    });
+
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={vi.fn()} onRestore={vi.fn()} />,
+    );
+
+    // <img> must be present with the correct src
+    const img = screen.getByTestId('snapshot-thumbnail-img');
+    expect(img).toBeTruthy();
+    expect((img as HTMLImageElement).src).toContain(thumbnailDataUrl);
+
+    // SVG minimap must NOT be present
+    expect(screen.queryByTestId('snapshot-minimap')).toBeNull();
+  });
+
+  it('(e) renders <SnapshotMinimap> and NOT <img> when snapshot has no thumbnail', () => {
+    mockUseStoryboardHistoryFetch.mockReturnValue({
+      entries: [
+        {
+          snapshot: { blocks: [], edges: [] },
+          createdAt: new Date(2026, 3, 28, 12, 1).toISOString(),
+        },
+      ],
+      isLoading: false,
+      isError: false,
+    });
+
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={vi.fn()} onRestore={vi.fn()} />,
+    );
+
+    // SVG minimap must be present (fallback)
+    expect(screen.getByTestId('snapshot-minimap')).toBeTruthy();
+
+    // <img> thumbnail must NOT be present
+    expect(screen.queryByTestId('snapshot-thumbnail-img')).toBeNull();
   });
 });

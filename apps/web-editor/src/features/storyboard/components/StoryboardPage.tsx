@@ -168,7 +168,7 @@ export function StoryboardPage(): React.ReactElement {
           },
           prev,
         );
-        pushSnapshot(nodes, next);
+        void pushSnapshot(nodes, next);
         return next;
       });
       setTimeout(() => void saveNow(), 0);
@@ -230,7 +230,7 @@ export function StoryboardPage(): React.ReactElement {
       const hasMoved = changes.some((c) => c.type === 'position' && c.dragging === false);
       setNodes((prev) => {
         const next = applyNodeChanges(nonDraggingChanges, prev);
-        if (hasMoved) pushSnapshot(next, edges);
+        if (hasMoved) void pushSnapshot(next, edges);
         return next;
       });
       if (hasMoved) setTimeout(() => void saveNow(), 0);
@@ -243,7 +243,7 @@ export function StoryboardPage(): React.ReactElement {
       const hasStructuralChange = changes.some((c) => c.type === 'add' || c.type === 'remove');
       setEdges((prev) => {
         const next = applyEdgeChanges(changes, prev);
-        if (hasStructuralChange) pushSnapshot(nodes, next);
+        if (hasStructuralChange) void pushSnapshot(nodes, next);
         return next;
       });
       if (hasStructuralChange) setTimeout(() => void saveNow(), 0);

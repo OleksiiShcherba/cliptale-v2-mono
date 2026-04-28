@@ -111,6 +111,19 @@ export const MINIMAP_COLOR_START = '#10B981';
 export const MINIMAP_COLOR_END = '#F59E0B';
 export const MINIMAP_COLOR_SCENE = '#7C3AED';
 
+/**
+ * Style for a real JPEG thumbnail <img> rendered in place of the SVG minimap
+ * when a snapshot carries a `thumbnail` data URL.
+ */
+export const thumbnailImgStyle: React.CSSProperties = {
+  width: '160px',
+  height: '90px',
+  objectFit: 'cover' as const,
+  borderRadius: '4px',
+  border: `1px solid ${BORDER}`,
+  display: 'block',
+};
+
 export const minimapContainerStyle: React.CSSProperties = {
   width: '160px',
   height: '90px',

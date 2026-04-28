@@ -46,9 +46,24 @@ export async function saveStoryboard(
   }
 }
 
+/**
+ * History-specific payload — extends the base storyboard state with an optional
+ * JPEG thumbnail captured at push time.
+ *
+ * Intentionally separate from `StoryboardState` so that the primary save endpoint
+ * (`PUT /storyboards/:draftId`) never receives thumbnail data.
+ * The server stores this as JSON in the `snapshot` column (accepts `z.unknown()`).
+ */
+export type StoryboardHistoryPayload = {
+  blocks: StoryboardState['blocks'];
+  edges: StoryboardState['edges'];
+  /** JPEG data URL thumbnail of the canvas at push time, captured via html-to-image. */
+  thumbnail?: string;
+};
+
 /** Shape of a single history snapshot sent to / received from the server. */
 export type StoryboardHistorySnapshot = {
-  snapshot: StoryboardState;
+  snapshot: StoryboardHistoryPayload;
   createdAt: string;
 };
 
@@ -60,9 +75,9 @@ export type StoryboardHistorySnapshot = {
  */
 export async function persistHistorySnapshot(
   draftId: string,
-  snapshot: StoryboardState,
+  payload: StoryboardHistoryPayload,
 ): Promise<void> {
-  const res = await apiClient.post(`/storyboards/${draftId}/history`, { snapshot });
+  const res = await apiClient.post(`/storyboards/${draftId}/history`, { snapshot: payload });
   if (!res.ok) {
     throw new Error(`POST /storyboards/${draftId}/history failed: ${res.status}`);
   }

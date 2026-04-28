@@ -258,6 +258,107 @@ test.describe('Storyboard history endpoint — regression guard (ER_WRONG_ARGUME
   });
 
   /**
+   * Thumbnail round-trip: POST snapshot with thumbnail → GET history returns
+   * entry where snapshot.thumbnail starts with "data:image".
+   *
+   * Guards the ST4 change (StoryboardHistoryPanel.tsx conditional <img> render):
+   * confirms that a thumbnail field included in a history snapshot is stored by
+   * the server and returned in subsequent GET /history responses without
+   * truncation or stripping.
+   *
+   * This is an API-level test only — no navigation to /storyboard/:draftId
+   * (the @xyflow/react container constraint documented at the top of this file
+   * still applies). The UI conditional-render path is covered by unit tests
+   * (d)/(e) in StoryboardHistoryPanel.minimap.test.tsx.
+   */
+  test('thumbnail round-trip: POST snapshot with thumbnail → GET /history returns entry with snapshot.thumbnail starting with "data:image"', async ({
+    page,
+  }) => {
+    const token = await readBearerToken();
+    const draftId = await createTempDraft(page.request, token);
+
+    try {
+      // Initialize the storyboard draft (idempotent — required before history operations)
+      const initRes = await page.request.get(
+        `${E2E_API_URL}/storyboards/${draftId}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      expect(
+        initRes.ok(),
+        `GET /storyboards/${draftId} must succeed (status: ${initRes.status()})`,
+      ).toBe(true);
+
+      // A minimal but realistic JPEG data URL (1×1 pixel, base64-encoded).
+      // This exercises the full thumbnail storage and retrieval path without
+      // the overhead of a real canvas capture.
+      const minimalJpegDataUrl =
+        'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFgABAQEAAAAAAAAAAAAAAAAABQYEB//EAB8QAAEEAwEBAQAAAAAAAAAAAAIAAQMEERIhBf/aAAgBAQAAPwDJ4p9mT2r0H5Xs+h8VdexhGJKkKorR5CFlmvVN4oYSf//Z';
+
+      // POST snapshot with thumbnail — this is the path exercised by the
+      // ST4 UI change (pushSnapshot async → captureCanvasThumbnail → persist)
+      const postRes = await page.request.post(
+        `${E2E_API_URL}/storyboards/${draftId}/history`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          data: {
+            snapshot: {
+              blocks: [],
+              edges: [],
+              thumbnail: minimalJpegDataUrl,
+            },
+          },
+        },
+      );
+      expect(
+        postRes.status(),
+        `POST /storyboards/${draftId}/history with thumbnail must return 201`,
+      ).toBe(201);
+
+      // GET history — the snapshot object must be returned with the thumbnail intact
+      const getRes = await page.request.get(
+        `${E2E_API_URL}/storyboards/${draftId}/history`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      expect(
+        getRes.status(),
+        `GET /storyboards/${draftId}/history must return 200`,
+      ).toBe(200);
+
+      const entries = (await getRes.json()) as Array<{
+        id: number;
+        draftId: string;
+        snapshot: { blocks: unknown[]; edges: unknown[]; thumbnail?: string };
+        createdAt: string;
+      }>;
+
+      expect(
+        entries.length,
+        'GET /history must return at least 1 entry after POST',
+      ).toBeGreaterThanOrEqual(1);
+
+      // The most recent entry is first (ORDER BY id DESC)
+      const latest = entries[0];
+      expect(
+        typeof latest?.snapshot?.thumbnail,
+        'latest entry snapshot.thumbnail must be a string',
+      ).toBe('string');
+      expect(
+        latest?.snapshot?.thumbnail?.startsWith('data:image'),
+        `snapshot.thumbnail must start with "data:image" — got: ${String(latest?.snapshot?.thumbnail).slice(0, 40)}`,
+      ).toBe(true);
+    } finally {
+      await cleanupDraft(page.request, token, draftId);
+    }
+  });
+
+  /**
    * Home page loads without 500 errors from the storyboard history endpoints.
    *
    * Navigates to the app's home page (which is reliably reachable — unlike

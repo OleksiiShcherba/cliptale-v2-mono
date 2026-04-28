@@ -4,6 +4,10 @@
  * Encapsulates the conversion from React Flow node/edge state to a
  * `CanvasSnapshot` and delegates to the history store's `push` function.
  * Extracted from `StoryboardPage` to keep the page shell under 300 lines.
+ *
+ * `pushSnapshot` is async: it captures a JPEG thumbnail of the canvas via
+ * `captureCanvasThumbnail()` before pushing the snapshot. If capture fails
+ * (returns null), the push continues without a thumbnail — never throws.
  */
 
 import { useCallback } from 'react';
@@ -11,6 +15,7 @@ import { useCallback } from 'react';
 import type { Node, Edge } from '@xyflow/react';
 
 import { push as pushHistory } from '../store/storyboard-history-store';
+import { captureCanvasThumbnail } from '../utils/captureCanvasThumbnail';
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 
@@ -18,13 +23,21 @@ import { push as pushHistory } from '../store/storyboard-history-store';
  * Returns a stable `pushSnapshot` callback that converts React Flow state to a
  * `CanvasSnapshot` and pushes it onto the history stack.
  *
+ * The callback is async: it captures a canvas thumbnail before pushing.
+ * Callers must use `void pushSnapshot(...)` or await/chain appropriately to
+ * avoid unhandled promise warnings.
+ *
  * @param draftId - The generation draft ID used to tag sentinel block shapes.
  */
 export function useStoryboardHistoryPush(draftId: string): {
-  pushSnapshot: (nodes: Node[], edges: Edge[]) => void;
+  pushSnapshot: (nodes: Node[], edges: Edge[]) => Promise<void>;
 } {
   const pushSnapshot = useCallback(
-    (currentNodes: Node[], currentEdges: Edge[]): void => {
+    async (currentNodes: Node[], currentEdges: Edge[]): Promise<void> => {
+      // Capture thumbnail before building the snapshot so it is included in the
+      // server-persisted payload. Returns null on failure — push still proceeds.
+      const thumbnail = await captureCanvasThumbnail();
+
       const positions: Record<string, { x: number; y: number }> = {};
       for (const node of currentNodes) {
         positions[node.id] = { x: node.position.x, y: node.position.y };
@@ -83,6 +96,7 @@ export function useStoryboardHistoryPush(draftId: string): {
           targetBlockId: e.target,
         })),
         positions,
+        ...(thumbnail !== null && { thumbnail }),
       });
     },
     [draftId],
