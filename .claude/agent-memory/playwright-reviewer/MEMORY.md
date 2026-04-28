@@ -37,3 +37,4 @@
 - [ST-BUG2c-1 SQL Extraction (2026-04-25)](stbug2c1-sql-extraction-verdict.md) — YES: Backend refactoring (SQL moved from service to repository per §5); 17/17 vitest pass; E2E blocker pre-existing
 - [ST-BUG2c-2 Status Advance Relocation (2026-04-25)](stbug2c2-verdict.md) — YES: Status advance moved from POST initializeStoryboard to GET loadStoryboard; both idempotent; backend-only; no E2E test opportunity; expected test failures in status.test.ts will be fixed in ST-BUG2c-3
 - [ST-SB-BUG5-2 Auto-Restore Fix (2026-04-25)](stsbbug5_2_verdict.md) — YES: Hook-only skipSave flag + useStoryboardHistorySeed; 16/16 unit tests pass; full suite 295/295 pass; hook-only pattern applied
+- [SB-UPLOAD-2 Prop Threading (2026-04-27)](sb-upload2-verdict.md) — APPROVED: uploadDraftId prop threading through SceneModal → AssetPickerModal; 3 new tests verify threading, AssetPickerModal.upload 4 tests verify button rendering

@@ -100,6 +100,7 @@ Organize violations and observations by category:
 - [ ] **Coding patterns** — Expected patterns followed? Anti-patterns avoided?
 - [ ] **Code structure** — Functions/components structured as required? No hardcoded values that should be config/constants?
 - [ ] **Tests** — Are test files present? Are they placed correctly? Do they follow naming conventions?
+- [ ] **E2E coverage** — If the entry touches any `.tsx` UI component files, verify that at least one Playwright spec in `e2e/` covers the changed behaviour. Check by searching `e2e/*.spec.ts` for references to the changed component names or feature flow. If no E2E spec exists → **❌ Violation** (UI changes without E2E coverage are not approved).
 - [ ] **Dead code** — No commented-out blocks or unused code?
 - [ ] **Error handling** — Edge cases and errors handled per architecture expectations?
 
@@ -219,7 +220,8 @@ If fully compliant, say:
 - **Only review one pending entry at a time.** Pick the oldest `checked by code-reviewer - NOT` entry. Do not review already-reviewed entries.
 - **Always update the log entry status** after review: `OK` if compliant, `COMMENTED` with inline notes if issues found.
 - **Be specific, not vague.** Every violation must cite the exact rule from `architecture-rules.md` and the exact line/pattern in the file.
-- **Don't invent rules.** Only flag things that are explicitly stated in `architecture-rules.md`. Do not apply personal preferences or general best practices unless they are in the rules file.
+- **Don't invent rules.** Only flag things that are explicitly stated in `architecture-rules.md` or this skill file. Do not apply personal preferences or general best practices unless they are in the rules file.
+- **UI changes require E2E coverage.** Any entry that modifies `.tsx` component files MUST have corresponding Playwright E2E spec coverage. If missing, the entry is ❌ NON-COMPLIANT — mark as `COMMENTED` regardless of all other checks passing.
 - **Missing files are noted but don't block the review** of files that do exist.
 - **If architecture-rules.md is ambiguous** on a point, note it as a warning with a suggestion to clarify the rules, not as a violation.
 - **Never touch `active_task.md`** — code-reviewer only writes to `development_logs.md`.

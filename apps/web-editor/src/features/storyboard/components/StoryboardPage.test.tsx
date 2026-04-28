@@ -104,15 +104,6 @@ vi.mock('@/features/storyboard/components/EffectsPanel', () => ({
   ),
 }));
 
-// Mock StoryboardAssetPanel — it depends on React Query (useQueryClient via
-// AssetBrowserPanel) which requires a QueryClientProvider. Stub it so
-// StoryboardPage shell tests remain isolated.
-vi.mock('./StoryboardAssetPanel', () => ({
-  StoryboardAssetPanel: ({ draftId }: { draftId: string }) => (
-    <div data-testid="storyboard-asset-panel-stub" data-draft-id={draftId} />
-  ),
-}));
-
 // Mock useStoryboardHistorySeed — it calls useStoryboardHistoryFetch (React Query)
 // which requires a QueryClientProvider. The seed logic is tested in its own unit
 // test file; here we only need the StoryboardPage shell to mount without errors.

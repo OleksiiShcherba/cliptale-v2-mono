@@ -118,3 +118,38 @@ export const audioListStyle: React.CSSProperties = {
   flexDirection: 'column',
   gap: '4px',
 };
+
+// ---------------------------------------------------------------------------
+// Upload affordance (opt-in via uploadTarget prop)
+// ---------------------------------------------------------------------------
+
+export const uploadButtonStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+  padding: '4px 8px',
+  marginBottom: '8px',
+  background: 'none',
+  border: `1px solid ${BORDER}`,
+  borderRadius: '4px',
+  cursor: 'pointer',
+  fontSize: '12px',
+  fontWeight: 500,
+  lineHeight: '16px',
+  color: TEXT_PRIMARY,
+  fontFamily: 'Inter, sans-serif',
+  transition: 'opacity 0.15s',
+};
+
+export const uploadProgressStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+  padding: '4px 8px',
+  marginBottom: '8px',
+  fontSize: '12px',
+  fontWeight: 500,
+  lineHeight: '16px',
+  color: TEXT_SECONDARY,
+  fontFamily: 'Inter, sans-serif',
+};

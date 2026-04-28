@@ -4,8 +4,7 @@
  * Split from StoryboardPage.test.tsx to comply with the 300-line cap (§9.7).
  *
  * §10 vi.mock hoisting: router, WizardStepper, ReactFlow, useStoryboardCanvas,
- * LibraryPanel, EffectsPanel, and StoryboardAssetPanel are mocked to isolate
- * StoryboardPage.
+ * LibraryPanel, and EffectsPanel are mocked to isolate StoryboardPage.
  */
 
 import React from 'react';
@@ -85,12 +84,6 @@ vi.mock('@/features/storyboard/components/LibraryPanel', () => ({
 vi.mock('@/features/storyboard/components/EffectsPanel', () => ({
   EffectsPanel: ({ selectedBlockId }: { selectedBlockId: string | null }) => (
     <div data-testid="effects-panel-mock" data-selected-block-id={selectedBlockId ?? ''} />
-  ),
-}));
-
-vi.mock('./StoryboardAssetPanel', () => ({
-  StoryboardAssetPanel: ({ draftId }: { draftId: string }) => (
-    <div data-testid="storyboard-asset-panel-stub" data-draft-id={draftId} />
   ),
 }));
 

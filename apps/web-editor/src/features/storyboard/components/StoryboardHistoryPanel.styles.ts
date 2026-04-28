@@ -97,11 +97,29 @@ export const errorTextStyle: React.CSSProperties = {
 export const entryRowStyle: React.CSSProperties = {
   flexShrink: 0,
   display: 'flex',
-  alignItems: 'center',
+  flexDirection: 'column',
   gap: '8px',
   padding: '12px',
   borderBottom: `1px solid ${BORDER}`,
   background: SURFACE_ELEVATED,
+};
+
+// ── Minimap ────────────────────────────────────────────────────────────────────
+
+/** Design tokens used by the minimap SVG rectangles. */
+export const MINIMAP_COLOR_START = '#10B981';
+export const MINIMAP_COLOR_END = '#F59E0B';
+export const MINIMAP_COLOR_SCENE = '#7C3AED';
+
+export const minimapContainerStyle: React.CSSProperties = {
+  width: '160px',
+  height: '90px',
+  background: '#0D0D14',
+  borderRadius: '4px',
+  border: `1px solid ${BORDER}`,
+  overflow: 'hidden',
+  flexShrink: 0,
+  alignSelf: 'center',
 };
 
 export const entryMetaStyle: React.CSSProperties = {
@@ -137,7 +155,7 @@ export const restoreButtonStyle: React.CSSProperties = {
   padding: '8px 12px',
   cursor: 'pointer',
   lineHeight: '16px',
-  height: '28px',
+  height: '32px',
   display: 'flex',
   alignItems: 'center',
 };

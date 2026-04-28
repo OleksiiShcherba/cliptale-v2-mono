@@ -109,12 +109,6 @@ vi.mock('@/features/storyboard/components/EffectsPanel', () => ({
   ),
 }));
 
-vi.mock('./StoryboardAssetPanel', () => ({
-  StoryboardAssetPanel: ({ draftId }: { draftId: string }) => (
-    <div data-testid="storyboard-asset-panel-stub" data-draft-id={draftId} />
-  ),
-}));
-
 // Mock useStoryboardHistorySeed — it calls useStoryboardHistoryFetch (React Query)
 // which requires a QueryClientProvider. Seed logic is tested in its own unit test.
 vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({

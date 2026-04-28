@@ -119,12 +119,6 @@ vi.mock('@/features/storyboard/components/EffectsPanel', () => ({
   ),
 }));
 
-vi.mock('./StoryboardAssetPanel', () => ({
-  StoryboardAssetPanel: ({ draftId }: { draftId: string }) => (
-    <div data-testid="storyboard-asset-panel-stub" data-draft-id={draftId} />
-  ),
-}));
-
 vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
   useStoryboardHistorySeed: vi.fn(),
 }));

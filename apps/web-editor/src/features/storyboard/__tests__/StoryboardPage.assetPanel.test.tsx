@@ -1,19 +1,14 @@
 /**
- * StoryboardPage — asset panel integration tests (ST-B6).
+ * StoryboardPage — asset panel removal tests (SB-CLEAN-1).
  *
- * Covers A2 + A3:
- * - A2: StoryboardAssetPanel is rendered on the STORYBOARD tab (default)
- * - A2: Clicking an asset card opens AssetDetailPanel with rename field present
+ * Covers:
  * - A3: TranscribeButton is NOT present anywhere on the Storyboard page
- * - A3: hideTranscribe is forwarded through to AssetDetailPanel
- *
- * Note: StoryboardAssetPanel is mocked here to focus on StoryboardPage
- * wiring. The StoryboardAssetPanel.test.tsx file covers the panel internals.
+ * - SB-CLEAN-1: StoryboardAssetPanel is NOT rendered on any tab (panel removed per product decision)
  */
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 // ---------------------------------------------------------------------------
@@ -66,27 +61,6 @@ vi.mock('@/features/storyboard/hooks/useStoryboardCanvas', () => ({
   })),
 }));
 
-// Mock StoryboardAssetPanel to verify it receives hideTranscribe and draftId,
-// and to check it renders without pulling in React Query providers.
-const mockStoryboardAssetPanel = vi.fn(
-  ({ draftId }: { draftId: string }) => (
-    <div
-      data-testid="storyboard-asset-panel-mock"
-      data-draft-id={draftId}
-    >
-      <div data-testid="inline-rename-field">Rename Field</div>
-    </div>
-  ),
-);
-
-vi.mock(
-  '@/features/storyboard/components/StoryboardAssetPanel',
-  () => ({
-    StoryboardAssetPanel: (props: { draftId: string }) =>
-      mockStoryboardAssetPanel(props),
-  }),
-);
-
 // Mock LibraryPanel to avoid pulling in useQueryClient (which requires
 // a QueryClientProvider that this test wrapper does not provide).
 vi.mock('@/features/storyboard/components/LibraryPanel');
@@ -132,7 +106,7 @@ function renderPage(draftId = 'test-draft-storyboard') {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('StoryboardPage — asset panel (ST-B6)', () => {
+describe('StoryboardPage — asset panel (SB-CLEAN-1)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useStoryboardCanvas).mockReturnValue({
@@ -146,45 +120,12 @@ describe('StoryboardPage — asset panel (ST-B6)', () => {
     });
   });
 
-  // ── A2: Asset panel presence ─────────────────────────────────────────────────
+  // ── SB-CLEAN-1: Asset panel absent ──────────────────────────────────────────
 
-  it('renders StoryboardAssetPanel when STORYBOARD tab is active (default)', () => {
+  it('does not render StoryboardAssetPanel on the default STORYBOARD tab', () => {
     renderPage('draft-001');
-    expect(screen.getByTestId('storyboard-asset-panel-mock')).toBeTruthy();
-  });
-
-  it('passes draftId to StoryboardAssetPanel', () => {
-    renderPage('my-draft-abc');
-    const panel = screen.getByTestId('storyboard-asset-panel-mock');
-    expect(panel.getAttribute('data-draft-id')).toBe('my-draft-abc');
-  });
-
-  it('renders InlineRenameField area within asset panel', () => {
-    renderPage('draft-001');
-    expect(screen.getByTestId('inline-rename-field')).toBeTruthy();
-  });
-
-  it('hides StoryboardAssetPanel when LIBRARY tab is selected', () => {
-    renderPage('draft-001');
-    // Switch to LIBRARY tab
-    fireEvent.click(screen.getByTestId('sidebar-tab-library'));
+    expect(screen.queryByTestId('storyboard-asset-panel')).toBeNull();
     expect(screen.queryByTestId('storyboard-asset-panel-mock')).toBeNull();
-  });
-
-  it('hides StoryboardAssetPanel when EFFECTS tab is selected', () => {
-    renderPage('draft-001');
-    // Switch to EFFECTS tab
-    fireEvent.click(screen.getByTestId('sidebar-tab-effects'));
-    expect(screen.queryByTestId('storyboard-asset-panel-mock')).toBeNull();
-  });
-
-  it('restores StoryboardAssetPanel when switching back to STORYBOARD tab', () => {
-    renderPage('draft-001');
-    fireEvent.click(screen.getByTestId('sidebar-tab-library'));
-    expect(screen.queryByTestId('storyboard-asset-panel-mock')).toBeNull();
-
-    fireEvent.click(screen.getByTestId('sidebar-tab-storyboard'));
-    expect(screen.getByTestId('storyboard-asset-panel-mock')).toBeTruthy();
   });
 
   // ── A3: TranscribeButton absent ──────────────────────────────────────────────

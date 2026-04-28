@@ -47,7 +47,6 @@ import { SceneBlockNode } from './SceneBlockNode';
 import { SceneModal } from './SceneModal';
 import { SidebarTab } from './SidebarTab';
 import { StartNode } from './StartNode';
-import { StoryboardAssetPanel } from './StoryboardAssetPanel';
 import { StoryboardCanvas } from './StoryboardCanvas';
 import { EffectsIcon, LibraryIcon, StoryboardIcon } from './storyboardIcons';
 import { StoryboardHistoryPanel } from './StoryboardHistoryPanel';
@@ -278,11 +277,6 @@ export function StoryboardPage(): React.ReactElement {
           <SidebarTab tab="effects" activeTab={activeTab} onSelect={setActiveTab} label="Effects" icon={<EffectsIcon />} />
         </nav>
 
-        {/* ── Asset panel — shown on STORYBOARD tab; provides asset browse + rename ── */}
-        {activeTab === 'storyboard' && (
-          <StoryboardAssetPanel draftId={safeDraftId} />
-        )}
-
         {/* ── Library panel + Effects panel ── */}
         {activeTab === 'library' && (
           <LibraryPanel
@@ -351,6 +345,7 @@ export function StoryboardPage(): React.ReactElement {
           onSave={handleSave}
           onDelete={handleDelete}
           onClose={handleClose}
+          uploadDraftId={safeDraftId}
         />
       )}
     </div>

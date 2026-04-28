@@ -1,4 +1,4 @@
-# Development Log (compacted — 2026-03-29 to 2026-04-25)
+# Development Log (compacted — 2026-03-29 to 2026-04-27)
 
 ## Monorepo + DB Migrations
 - added: root config, apps (api/web-editor/media-worker/render-worker), packages (project-schema, remotion-comps)
@@ -133,6 +133,35 @@
 - E2E-FIX-2: added `installCorsWorkaround` + `readBearerToken` in `beforeEach` to `e2e/app-shell.spec.ts`, `e2e/asset-manager.spec.ts`, `e2e/preview.spec.ts`; 19/19 previously-failing tests now pass
 - E2E-FIX-3: added 3 new tests to `e2e/storyboard-fixes.spec.ts` — Test 7 (PUT body: sentinel durationS ≥ 1 + UUID block IDs), Test 8 (Edit Scene modal Save triggers PUT ≤ 3s via saveNow), Test 9 (mediaItem round-trip via POST /files/upload-url for FK + GET assertion); 9/9 pass
 
+## Storyboard UI Bug Fixes (2026-04-27)
+- SB-UI-BUG-1: `LibraryPanel` calling `addBlockNode` (store-only) → canvas never re-rendered; fixed: lifted API call into `StoryboardPage.handleAddFromLibrary`; `setNodes` + deferred `saveNow` after API response; `LibraryPanel` accepts `onAddTemplate` prop; module-scope constants `NEW_BLOCK_X_OFFSET`/`FALLBACK_X`/`FALLBACK_Y`; 3 new tests
+- SB-UI-BUG-2: `handleNodesChange` applied all position events → original block moved during drag; fixed: filter `nonDraggingChanges` (strips `{ type:'position', dragging:true }` before `applyNodeChanges`); `StoryboardPage.drag-filter.test.tsx` (4 tests)
+checked by code-reviewer - YES
+> ✅ E2E coverage added: SB-UI-BUG-1 + SB-UI-BUG-2 covered by e2e/storyboard-fixes.spec.ts (2026-04-27 E2E batch, 15/15 pass)
+
+## Storyboard UI Cleanup (SB-UI-CLEANUP) (2026-04-27)
+- SB-CLEAN-1: removed `StoryboardAssetPanel` conditional render from `StoryboardPage.tsx`; deleted `StoryboardAssetPanel.tsx` + orphaned test; cleaned dead `vi.mock` blocks from 4 test files; updated `StoryboardPage.assetPanel.test.tsx` to assert absence; canvas now full-width on Storyboard tab; 2546 tests pass
+- SB-HIST-2: added `SnapshotMinimap` sub-component to `StoryboardHistoryPanel.tsx` — 160×90 inline SVG; START=green, END=orange, SCENE=purple rects; scales block positionX/Y to viewport; handles 0-block and same-position edge cases; `entryRowStyle` → column layout; `StoryboardHistoryPanel.minimap.test.tsx` (3 tests); rx=4 (radius-sm), button height=32px (4px grid); 2549 tests pass
+- SB-UPLOAD-1: added optional `uploadTarget?: UploadTarget` prop to `AssetPickerModal`; extracted `AssetPickerUploadAffordance.tsx` (hidden file input, useFileUpload, MIME accept map, progress toggle); `onUploadComplete(fileId, file)` constructs `AssetSummary` + calls `onPick`; `AssetPickerModal.upload.test.tsx` (4 tests); backward-compat (no prop → unchanged); spacing: gap=4px, padding=4px 8px, marginBottom=8px; 2553 tests pass
+- SB-UPLOAD-2: threaded optional `uploadDraftId?: string` through `SceneModalBlockProps` → `SceneModal.tsx` → `SceneModalMediaSection` → `AssetPickerModal` as `uploadTarget={{ kind:'draft', draftId }}`; `StoryboardPage.tsx` passes `uploadDraftId={safeDraftId}` (1-line change, 353L); `SceneModal.mediaSection.test.tsx` (3 tests); `SceneModalTemplateProps` unchanged; badgeStyle padding=4px 8px, addMediaButtonStyle gap=8px; 2556 tests pass
+checked by code-reviewer - YES
+> ✅ E2E coverage added: SB-CLEAN-1 + SB-HIST-2 + SB-UPLOAD-1 + SB-UPLOAD-2 covered by e2e/storyboard-fixes.spec.ts (2026-04-27 E2E batch, 15/15 pass)
+
+## E2E Coverage — SB-UI-BUG-1/2, SB-CLEAN-1, SB-HIST-2, SB-UPLOAD-1/2 (2026-04-27)
+- SB-UI-BUG-1 E2E: `SB-UI-BUG-1 — Library Add produces scene-block node on canvas` — seeds template via POST /scene-templates, switches to Library tab, clicks add-template-{id}, asserts scene-block-node count ≥ 1; cleans up template in finally block
+- SB-CLEAN-1 E2E: `SB-CLEAN-1 — canvas is full-width and storyboard-asset-panel is absent` — asserts storyboard-asset-panel count=0 and storyboard-canvas flex-grow=1
+- SB-UI-BUG-2 E2E: `SB-UI-BUG-2 — drag-end PUT body reflects updated position` — seeds scene block at known positionX/Y, registers waitForRequest before drag, performs mouse drag, awaits PUT, asserts block positionX or positionY differs from seed values
+- SB-HIST-2 E2E: `SB-HIST-2 — history panel shows SnapshotMinimap with correct block colors` — seeds history snapshot with START+SCENE+END blocks, opens history panel, asserts snapshot-minimap visible, minimap-block-rect count=3, fill colors include #10B981/#F59E0B/#7C3AED
+- SB-UPLOAD-2 E2E: `SB-UPLOAD-2 — upload-button is visible in AssetPickerModal opened from SceneModal` — seeds scene block, clicks node, opens SceneModal, clicks add-media-button, selects image type, asserts upload-button visible in picker-dialog
+- SB-UPLOAD-1 E2E: `SB-UPLOAD-1 — upload-button is absent in AssetPickerModal opened from Library new-scene` — navigates to Library tab, clicks new-scene-button, opens AssetPickerModal, asserts upload-button count=0
+- describe block title updated: 'ST-FIX-1 through ST-FIX-5 + SB-BUG-B' → 'ST-FIX-1 through SB-UPLOAD-2'
+- all 15 tests pass (9 existing + 6 new): `E2E_BASE_URL=https://15-236-162-140.nip.io npx playwright test e2e/storyboard-fixes.spec.ts` — 15 passed (27.7s)
+- e2e test user seeded in DB: INSERT IGNORE into users for e2e@cliptale.test
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+checked by playwright-reviewer - YES
+
 ## Architectural Decisions
 - §9.7 300-line cap: `*.fixtures.ts` + `.<topic>.test.ts` splits; approved exceptions: `fal-models.ts` (1093L), `file.repository.ts` (306L), `useProjectInit.test.ts` (318L), `StoryboardCard.tsx` (319L), `storyboard-store.ts` (307L); e2e/*.spec.ts exempt
 - Worker env: only `index.ts` reads config keys; handlers receive secrets via `deps`
@@ -153,6 +182,9 @@
 - Immediate save pattern: extract callback to `useHandle*.ts` hook; `setTimeout(() => void saveNow(), 0)` defers save until after React re-render
 - Sentinel init: `loadStoryboard` auto-initializes START/END atomically via `SELECT ... FOR UPDATE` + deadlock retry; client-side `dedupSentinels()` as safety net
 - Auto-restore skip-save: `handleRestore({ skipSave: true })` in seed path prevents DB overwrite before React re-render; manual restore always calls saveNow
+- React Flow two-state rule: canvas driven by `nodes` useState; external store alone does NOT update canvas — `setNodes` must always be called for visible changes
+- Drag position filter: `handleNodesChange` strips `{ type: 'position', dragging: true }` before `applyNodeChanges` — original node frozen during drag; drag-end `dragging: false` commits final position
+- AssetPickerModal upload: opt-in via `uploadTarget?: UploadTarget` prop; absent = unchanged behavior; upload handled by `AssetPickerUploadAffordance` sub-component
 
 ## Known Issues / TODOs
 - ACL middleware stub — real ownership check deferred (B3 it.todo 403 tests)
@@ -169,59 +201,4 @@
 - **Keyboard undo/redo broken**: `storyboard-history-store.applySnapshot` calls `storyboard-store.setNodes/setEdges` but React Flow renders from `useState` — Ctrl+Z/Y don't visually update canvas
 - `initializeStoryboard` service function orphaned (no callers) — remove or add deprecation warning
 - `StoryboardCard.tsx` (319L) exceeds §9.7 cap — formalize as approved exception in architecture-rules.md
-
-## SB-UI-BUG-1 — Fix Library Add immediate canvas render
-**Date:** 2026-04-27
-**Branch:** fix/storyboard-ui-bugs
-
-### What was done
-- Lifted the `addToStoryboard` + canvas-update logic from `LibraryPanel.tsx` into `StoryboardPage.tsx` as a `handleAddFromLibrary(templateId)` `useCallback`.
-- `handleAddFromLibrary` calls `addTemplateToStoryboard` (API), computes a sensible canvas position using `findInsertionPoint` + `nextSceneIndex` (same logic as `useAddBlock`), then calls `setNodes((prev) => [...prev, newNode])` so the React Flow canvas updates immediately.
-- `setTimeout(() => void saveNow(), 0)` defers autosave until after React re-renders so `nodesRef.current` reflects the new state.
-- `LibraryPanel` now accepts an `onAddTemplate: (templateId: string) => Promise<void>` prop; `handleAddToStoryboard` inside the panel delegates to it instead of calling `addBlockNode` from the store directly.
-- `addBlockNode` import removed from `LibraryPanel.tsx` — the canvas is now always driven via `setNodes`.
-- `LibraryPanel.test.tsx` updated: `addBlockNode` mock removed; `onAddTemplate` spy added to `defaultProps`; "add to storyboard" test asserts `onAddTemplate` called with correct templateId; new test asserts the Add button is disabled while the promise is in-flight.
-- `StoryboardPage.save-on-add.test.tsx` extended with two new test cases: (a) `onAddTemplate` prop is passed to LibraryPanel mock when library tab is active; (b) invoking `onAddTemplate` calls `addTemplateToStoryboard` with correct params and triggers `saveStoryboard` via the deferred timer.
-
-### Files created / modified
-- `apps/web-editor/src/features/storyboard/components/LibraryPanel.tsx` — remove `addBlockNode` import; add `onAddTemplate` prop; delegate `handleAddToStoryboard` to prop
-- `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — add `handleAddFromLibrary` callback; pass `onAddTemplate` prop to `<LibraryPanel>`; add `addTemplateToStoryboard` + `findInsertionPoint` + `nextSceneIndex` imports
-- `apps/web-editor/src/features/storyboard/__tests__/LibraryPanel.test.tsx` — remove `addBlockNode` mock; add `onAddTemplate` spy; update assertions
-- `apps/web-editor/src/features/storyboard/components/StoryboardPage.save-on-add.test.tsx` — add `capturedOnAddTemplate` hoisted ref; extend LibraryPanel mock to capture prop; add 2 new test cases for library-add flow
-
-checked by code-reviewer - YES
-checked by qa-reviewer - YES
-checked by design-reviewer - YES
-checked by playwright-reviewer: YES — 15 LibraryPanel tests + 5 StoryboardPage.save-on-add tests + 298 total storyboard tests pass; handleAddFromLibrary implementation verified (immediate canvas render via setNodes, deferred saveNow, correct positioning)
-
-design-reviewer notes: Reviewed on 2026-04-27. All checks passed. Block positioning uses same 4px-grid defaults as useAddBlock (NEW_BLOCK_X_OFFSET=280, FALLBACK_X=60, FALLBACK_Y=200). Immediate canvas rendering is a UX improvement with no design token violations. Deferred autosave `setTimeout(..., 0)` matches established pattern. All colors, typography, spacing use design-guide tokens. No violations found.
-
-Fix round 1: moved NEW_BLOCK_X_OFFSET, FALLBACK_X, FALLBACK_Y constants to module scope (§9 compliance).
-
-**Post-fix verification (2026-04-25)**: Re-ran LibraryPanel.test.tsx + StoryboardPage.save-on-add.test.tsx after constants moved to module scope in StoryboardPage.tsx. Result: 20/20 tests pass. ✅ REGRESSION CLEAR.
-
-**Re-verification (2026-04-27)**: Full storyboard test suite run after constants-to-module-scope fix. All 298 tests pass (LibraryPanel 15 + StoryboardPage.save-on-add 5 + other 278 storyboard tests). No regressions introduced by constant relocation. ✅ YES CONFIRMED.
-
-## SB-UI-BUG-2 — Fix drag ghost: suppress original node position during drag
-**Date:** 2026-04-27
-**Branch:** fix/storyboard-ui-bugs
-
-### What was done
-- In `handleNodesChange` inside `StoryboardPage.tsx`, added a filter that strips `{ type: 'position', dragging: true }` changes before passing to `applyNodeChanges`. Named the filtered array `nonDraggingChanges` for clarity.
-- `applyNodeChanges(nonDraggingChanges, prev)` is now called instead of `applyNodeChanges(changes, prev)` — so mid-drag mouse-move events no longer move the original node in React Flow state.
-- `hasMoved` check and `saveNow` / `pushSnapshot` calls remain based on the original `changes` array — `dragging: false` events are still captured correctly for history and autosave.
-- All other change types (select, remove, dimensions, reset) pass through unchanged because the filter is strictly `c.type === 'position' && c.dragging === true`.
-- Created split test file `StoryboardPage.drag-filter.test.tsx` with 4 test cases covering: (a) mid-drag changes not passed to applyNodeChanges; (b) drag-end changes passed through; (c) non-position changes pass through; (d) mixed batch filtering.
-
-### Files created / modified
-- `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` — added `nonDraggingChanges` filter in `handleNodesChange`; pass `nonDraggingChanges` to `applyNodeChanges`
-- `apps/web-editor/src/features/storyboard/components/StoryboardPage.drag-filter.test.tsx` — new split test file; 4 test cases for mid-drag suppression behaviour
-
-checked by code-reviewer - YES
-checked by qa-reviewer - YES
-checked by design-reviewer - YES
-checked by playwright-reviewer: YES — 4/4 unit tests pass (StoryboardPage.drag-filter.test.tsx); full storyboard E2E suite 9/9 pass (storyboard-fixes.spec.ts); handleNodesChange filter verified to suppress mid-drag position updates while preserving drag-end, select, and remove changes
-
-design-reviewer notes: Reviewed on 2026-04-27. No visual design changes — pure interaction logic (mid-drag position suppression via change filtering). No tokens, colors, spacing, or typography affected. Behavior aligns with established "Immediate save pattern" (§9.7 log line 153). No Figma/Stitch gaps. All checks passed.
-
-qa-reviewer notes: Reviewed 2026-04-27. All 4 unit tests pass (mid-drag suppression, drag-end pass-through, non-position pass-through, mixed batch filtering). Full storyboard test suite 302/302 pass — no regressions. Implementation correctly filters `{ type: 'position', dragging: true }` changes before `applyNodeChanges`, allowing drag-end (`dragging: false`) to pass through unchanged. Coverage complete: (a) mid-drag changes suppressed ✓, (b) drag-end changes applied ✓, (c) non-position changes pass through unchanged ✓.
+- `e2e/storyboard-canvas.spec.ts` + `e2e/storyboard-drag.spec.ts` — local CORS proxy still narrow (`/storyboards/**`); should import from `e2e/helpers/cors-workaround.ts`

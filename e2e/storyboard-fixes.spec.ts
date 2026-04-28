@@ -48,7 +48,7 @@ import {
 // UUID v4 pattern used to validate block IDs in the PUT payload.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-test.describe('Storyboard bug fixes — ST-FIX-1 through ST-FIX-5 + SB-BUG-B', () => {
+test.describe('Storyboard bug fixes — ST-FIX-1 through SB-UPLOAD-2', () => {
   test.setTimeout(90_000);
 
   // ── ST-FIX-1: Home button ────────────────────────────────────────────────────
@@ -913,6 +913,582 @@ test.describe('Storyboard bug fixes — ST-FIX-1 through ST-FIX-5 + SB-BUG-B', (
         persistedScene?.mediaItems?.[0]?.fileId,
         `mediaItems[0].fileId must equal the seeded fileId (${fileId})`,
       ).toBe(fileId);
+    } finally {
+      await cleanupDraft(page.request, token, draftId);
+    }
+  });
+
+  // ── SB-UI-BUG-1: Library Add → canvas render ─────────────────────────────────
+
+  /**
+   * Clicking "Add to Storyboard" on a LibraryPanel template card produces a
+   * new scene-block node on the canvas.
+   *
+   * Verifies SB-UI-BUG-1: `LibraryPanel` previously called a store-only action
+   * (`addBlockNode`) that never updated React Flow `nodes` state — the canvas did
+   * not re-render. Fixed by lifting the API call into `StoryboardPage.handleAddFromLibrary`
+   * which calls `setNodes` after the API response.
+   *
+   * Strategy:
+   *   1. Seed a scene template via POST /scene-templates.
+   *   2. Navigate to storyboard, switch to Library tab.
+   *   3. Click `[data-testid="add-template-{id}"]`.
+   *   4. Wait for canvas tab to be active (Library panel closes after add).
+   *   5. Assert `getByTestId('scene-block-node').count()` ≥ 1.
+   *   6. Clean up template in finally block.
+   */
+  test('SB-UI-BUG-1 — Library Add produces scene-block node on canvas', async ({ page }) => {
+    const token = await readBearerToken();
+    await installCorsWorkaround(page, token);
+
+    const draftId = await createTempDraft(page.request, token);
+    let templateId: string | null = null;
+
+    try {
+      await initializeDraft(page.request, token, draftId);
+
+      // Step 1: Seed a scene template.
+      const templateRes = await page.request.post(
+        `${E2E_API_URL}/scene-templates`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          data: {
+            name: 'E2E SB-UI-BUG-1 template',
+            prompt: 'A test scene template for E2E SB-UI-BUG-1',
+            durationS: 5,
+            mediaItems: [],
+          },
+        },
+      );
+      expect(
+        templateRes.ok(),
+        `POST /scene-templates must succeed (${templateRes.status()}: ${await templateRes.text().catch(() => '?')})`,
+      ).toBe(true);
+      const templateBody = (await templateRes.json()) as { id: string };
+      templateId = templateBody.id;
+
+      // Step 2: Navigate to storyboard and wait for canvas.
+      await page.goto(`/storyboard/${draftId}`);
+      await page.waitForLoadState('networkidle', { timeout: 30_000 });
+      await waitForCanvas(page);
+
+      // Switch to the Library tab (second button in the sidebar nav).
+      const libraryTab = page.locator('[data-testid="storyboard-sidebar"] button').nth(1);
+      await expect(libraryTab).toBeVisible({ timeout: 10_000 });
+      await libraryTab.click();
+
+      // Wait for LibraryPanel to appear.
+      await expect(page.getByTestId('library-panel')).toBeVisible({ timeout: 10_000 });
+
+      // Step 3: Click the "Add to Storyboard" button for the seeded template.
+      const addTemplateBtn = page.getByTestId(`add-template-${templateId}`);
+      await expect(addTemplateBtn).toBeVisible({ timeout: 15_000 });
+      await addTemplateBtn.click();
+
+      // Step 4: After the add, StoryboardPage calls onSwitchToStoryboard → Library tab closes.
+      // Wait for canvas to be visible (Storyboard tab re-activates).
+      await expect(page.getByTestId('storyboard-canvas')).toBeVisible({ timeout: 10_000 });
+
+      // Step 5: Assert canvas has at least one scene-block node.
+      await expect(page.getByTestId('scene-block-node').first()).toBeVisible({ timeout: 10_000 });
+      const nodeCount = await page.getByTestId('scene-block-node').count();
+      expect(nodeCount, `Canvas must show ≥ 1 scene-block node after Library Add (was: ${nodeCount})`).toBeGreaterThanOrEqual(1);
+    } finally {
+      // Clean up template if it was created.
+      if (templateId !== null) {
+        await page.request.delete(
+          `${E2E_API_URL}/scene-templates/${templateId}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        ).catch(() => { /* best-effort */ });
+      }
+      await cleanupDraft(page.request, token, draftId);
+    }
+  });
+
+  // ── SB-CLEAN-1: full-width canvas, storyboard-asset-panel absent ──────────────
+
+  /**
+   * The canvas fills available width and `storyboard-asset-panel` no longer exists.
+   *
+   * Verifies SB-CLEAN-1: `StoryboardAssetPanel` conditional render was removed from
+   * `StoryboardPage.tsx`; the canvas `div[data-testid="storyboard-canvas"]` now spans
+   * the full remaining width (flex: 1).
+   *
+   * Assertions:
+   *   a) `getByTestId('storyboard-asset-panel')` count === 0 (element absent from DOM).
+   *   b) `getByTestId('storyboard-canvas')` computed flex property includes "1" (flex-grow).
+   */
+  test('SB-CLEAN-1 — canvas is full-width and storyboard-asset-panel is absent', async ({ page }) => {
+    const token = await readBearerToken();
+    await installCorsWorkaround(page, token);
+
+    const draftId = await createTempDraft(page.request, token);
+
+    try {
+      await initializeDraft(page.request, token, draftId);
+
+      await page.goto(`/storyboard/${draftId}`);
+      await page.waitForLoadState('networkidle', { timeout: 30_000 });
+      await waitForCanvas(page);
+
+      // a) Asset panel must not exist.
+      const assetPanelCount = await page.getByTestId('storyboard-asset-panel').count();
+      expect(
+        assetPanelCount,
+        'storyboard-asset-panel must not be rendered (SB-CLEAN-1 removed it)',
+      ).toBe(0);
+
+      // b) Canvas flex-grow must be "1" — meaning it fills available space.
+      // The canvas div has style={{ flex: '1 1 0%' }} in storyboardPageStyles.ts (s.canvasArea).
+      const canvas = page.getByTestId('storyboard-canvas');
+      await expect(canvas).toBeVisible({ timeout: 10_000 });
+      // flex-grow computed value is "1" when flex shorthand is "1 1 0%".
+      await expect(canvas).toHaveCSS('flex-grow', '1');
+    } finally {
+      await cleanupDraft(page.request, token, draftId);
+    }
+  });
+
+  // ── SB-UI-BUG-2: drag-filter — PUT body position changes ─────────────────────
+
+  /**
+   * After a full drag interaction the PUT request body contains updated
+   * positionX/Y values for the dragged block (confirming drag-end commits
+   * final position).
+   *
+   * Verifies SB-UI-BUG-2: `handleNodesChange` previously applied ALL position
+   * events including mid-drag ones, freezing the original node at its start
+   * position during drag. The fix strips `{ type:'position', dragging:true }`
+   * events; only `dragging:false` (mouse-up) commits the final position.
+   *
+   * Strategy (Option B from active_task.md): assert PUT body's final positionX or
+   * positionY differs from the seeded starting value.
+   */
+  test('SB-UI-BUG-2 — drag-end PUT body reflects updated position', async ({ page }) => {
+    const token = await readBearerToken();
+    await installCorsWorkaround(page, token);
+
+    const draftId = await createTempDraft(page.request, token);
+
+    try {
+      await initializeDraft(page.request, token, draftId);
+
+      // Seed a scene block at a known starting position.
+      const seedX = 100;
+      const seedY = 100;
+
+      const getRes = await page.request.get(
+        `${E2E_API_URL}/storyboards/${draftId}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      expect(getRes.ok(), 'GET /storyboards/:draftId must succeed').toBe(true);
+      const currentState = (await getRes.json()) as {
+        blocks: Array<{
+          id: string;
+          draftId: string;
+          blockType: string;
+          name: string | null;
+          prompt: string | null;
+          durationS: number;
+          positionX: number;
+          positionY: number;
+          sortOrder: number;
+          style: string | null;
+        }>;
+        edges: Array<{
+          id: string;
+          draftId: string;
+          sourceBlockId: string;
+          targetBlockId: string;
+        }>;
+      };
+
+      const sceneBlock = {
+        id: crypto.randomUUID(),
+        draftId,
+        blockType: 'scene' as const,
+        name: 'Drag test scene',
+        prompt: null,
+        durationS: 5,
+        positionX: seedX,
+        positionY: seedY,
+        sortOrder: 1,
+        style: null,
+      };
+
+      const putSeedRes = await page.request.put(
+        `${E2E_API_URL}/storyboards/${draftId}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          data: {
+            blocks: [...currentState.blocks, sceneBlock],
+            edges: currentState.edges,
+          },
+        },
+      );
+      expect(putSeedRes.ok(), `Seed PUT must succeed (${putSeedRes.status()})`).toBe(true);
+
+      // Navigate to the storyboard page.
+      await page.goto(`/storyboard/${draftId}`);
+      await page.waitForLoadState('networkidle', { timeout: 30_000 });
+      await waitForCanvas(page);
+
+      // Ensure the scene-block node is rendered.
+      const sceneBlockNode = page.getByTestId('scene-block-node').first();
+      await expect(sceneBlockNode).toBeVisible({ timeout: 10_000 });
+
+      // Register PUT listener BEFORE drag so we don't race.
+      const putRequestPromise = page.waitForRequest(
+        (req) =>
+          req.method() === 'PUT' &&
+          (req.url().includes('/storyboards/') || req.url().includes(`storyboards/${draftId}`)),
+        { timeout: 10_000 },
+      );
+
+      // Perform a mouse drag — enough movement so position definitely changes.
+      const bb = await sceneBlockNode.boundingBox();
+      if (bb) {
+        const cx = bb.x + bb.width / 2;
+        const cy = bb.y + bb.height / 2;
+        await page.mouse.move(cx, cy);
+        await page.mouse.down();
+        await page.mouse.move(cx + 20, cy + 10, { steps: 5 });
+        await page.mouse.move(cx + 80, cy + 60, { steps: 5 });
+        await page.mouse.up();
+      }
+
+      // Await the PUT triggered by drag-end.
+      const putRequest = await putRequestPromise;
+      expect(putRequest.method(), 'Request must be PUT').toBe('PUT');
+
+      const body = putRequest.postDataJSON() as {
+        blocks: Array<{ id: string; blockType: string; positionX: number; positionY: number }>;
+      };
+      expect(body, 'PUT body must have blocks array').toHaveProperty('blocks');
+
+      const draggedBlock = body.blocks.find((b) => b.blockType === 'scene');
+      expect(
+        draggedBlock,
+        'PUT body must contain the dragged scene block',
+      ).toBeDefined();
+
+      const posChanged =
+        draggedBlock !== undefined &&
+        (draggedBlock.positionX !== seedX || draggedBlock.positionY !== seedY);
+      expect(
+        posChanged,
+        `Dragged block position must differ from seed (${seedX},${seedY}); got (${draggedBlock?.positionX},${draggedBlock?.positionY})`,
+      ).toBe(true);
+
+      // Storyboard page must still be mounted (no crash).
+      await expect(page.getByTestId('storyboard-page')).toBeVisible({ timeout: 5_000 });
+    } finally {
+      await cleanupDraft(page.request, token, draftId);
+    }
+  });
+
+  // ── SB-HIST-2: SnapshotMinimap in history panel ──────────────────────────────
+
+  /**
+   * History panel entry rows contain a `[data-testid="snapshot-minimap"]` SVG
+   * with correctly colored `[data-testid="minimap-block-rect"]` elements for
+   * START / SCENE / END blocks.
+   *
+   * Verifies SB-HIST-2: `SnapshotMinimap` sub-component (160×90 inline SVG with
+   * per-block-type color). Color coding: START=#10B981, END=#F59E0B, SCENE=#7C3AED.
+   */
+  test('SB-HIST-2 — history panel shows SnapshotMinimap with correct block colors', async ({ page }) => {
+    const token = await readBearerToken();
+    await installCorsWorkaround(page, token);
+
+    const draftId = await createTempDraft(page.request, token);
+
+    try {
+      await initializeDraft(page.request, token, draftId);
+
+      // Fetch current storyboard to get sentinel block UUIDs.
+      const stateRes = await page.request.get(
+        `${E2E_API_URL}/storyboards/${draftId}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      expect(stateRes.ok(), 'GET /storyboards/:draftId must succeed').toBe(true);
+      const initialState = (await stateRes.json()) as {
+        blocks: Array<{
+          id: string;
+          draftId: string;
+          blockType: string;
+          name: string | null;
+          prompt: string | null;
+          durationS: number;
+          positionX: number;
+          positionY: number;
+          sortOrder: number;
+          style: string | null;
+        }>;
+        edges: Array<{
+          id: string;
+          draftId: string;
+          sourceBlockId: string;
+          targetBlockId: string;
+        }>;
+      };
+
+      // Add one scene block to get START + SCENE + END = 3 blocks.
+      const sceneBlockId = crypto.randomUUID();
+      const sceneBlockForHistory = {
+        id: sceneBlockId,
+        draftId,
+        blockType: 'scene' as const,
+        name: 'History minimap scene',
+        prompt: null,
+        durationS: 5,
+        positionX: 300,
+        positionY: 200,
+        sortOrder: 1,
+        style: null,
+      };
+
+      const allBlocks = [...initialState.blocks, sceneBlockForHistory];
+
+      // Seed a history snapshot with START + SCENE + END blocks at distinct positions.
+      const seedRes = await page.request.post(
+        `${E2E_API_URL}/storyboards/${draftId}/history`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          data: {
+            snapshot: {
+              blocks: allBlocks,
+              edges: initialState.edges,
+            },
+          },
+        },
+      );
+      expect(
+        seedRes.status(),
+        'POST /storyboards/:draftId/history must return 201',
+      ).toBe(201);
+
+      // Navigate to storyboard and wait for canvas.
+      await page.goto(`/storyboard/${draftId}`);
+      await page.waitForLoadState('networkidle', { timeout: 30_000 });
+      await waitForCanvas(page);
+
+      // Open the history panel.
+      const historyToggle = page.getByTestId('history-toggle-button');
+      await expect(historyToggle).toBeVisible({ timeout: 10_000 });
+      await historyToggle.click();
+
+      // Wait for history panel to show at least one entry row.
+      const firstEntryRow = page.getByTestId('history-entry-row').first();
+      await expect(firstEntryRow).toBeVisible({ timeout: 15_000 });
+
+      // Assert the minimap container is visible inside the first entry row.
+      const minimap = firstEntryRow.getByTestId('snapshot-minimap');
+      await expect(minimap).toBeVisible({ timeout: 5_000 });
+
+      // Assert there are exactly 3 minimap-block-rect elements (START + SCENE + END).
+      const rects = firstEntryRow.getByTestId('minimap-block-rect');
+      await expect(rects).toHaveCount(3, { timeout: 5_000 });
+
+      // Assert colors: collect fill attributes from all 3 rects.
+      const allFills: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const fill = await rects.nth(i).getAttribute('fill');
+        if (fill) allFills.push(fill);
+      }
+      expect(
+        allFills,
+        'minimap-block-rect fills must include START (#10B981), END (#F59E0B), SCENE (#7C3AED) colors',
+      ).toEqual(
+        expect.arrayContaining(['#10B981', '#F59E0B', '#7C3AED']),
+      );
+    } finally {
+      await cleanupDraft(page.request, token, draftId);
+    }
+  });
+
+  // ── SB-UPLOAD-2 threading: upload-button visible from SceneModal ──────────────
+
+  /**
+   * Opening AssetPickerModal from a SceneModal block shows `[data-testid="upload-button"]`.
+   *
+   * Verifies SB-UPLOAD-2: `uploadDraftId` is threaded from `StoryboardPage` →
+   * `SceneModal` → `SceneModalMediaSection` → `AssetPickerModal` as
+   * `uploadTarget={{ kind:'draft', draftId }}`, causing `AssetPickerUploadAffordance`
+   * to render with the `upload-button` testid.
+   */
+  test('SB-UPLOAD-2 — upload-button is visible in AssetPickerModal opened from SceneModal', async ({ page }) => {
+    const token = await readBearerToken();
+    await installCorsWorkaround(page, token);
+
+    const draftId = await createTempDraft(page.request, token);
+
+    try {
+      await initializeDraft(page.request, token, draftId);
+
+      // Seed a scene block so there is a node to click.
+      const getRes = await page.request.get(
+        `${E2E_API_URL}/storyboards/${draftId}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      expect(getRes.ok(), 'GET /storyboards/:draftId must succeed').toBe(true);
+      const currentState = (await getRes.json()) as {
+        blocks: Array<{
+          id: string;
+          draftId: string;
+          blockType: string;
+          name: string | null;
+          prompt: string | null;
+          durationS: number;
+          positionX: number;
+          positionY: number;
+          sortOrder: number;
+          style: string | null;
+        }>;
+        edges: Array<{
+          id: string;
+          draftId: string;
+          sourceBlockId: string;
+          targetBlockId: string;
+        }>;
+      };
+
+      const sceneBlock = {
+        id: crypto.randomUUID(),
+        draftId,
+        blockType: 'scene' as const,
+        name: 'Upload test scene',
+        prompt: null,
+        durationS: 5,
+        positionX: 400,
+        positionY: 300,
+        sortOrder: 1,
+        style: null,
+      };
+
+      const putRes = await page.request.put(
+        `${E2E_API_URL}/storyboards/${draftId}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          data: {
+            blocks: [...currentState.blocks, sceneBlock],
+            edges: currentState.edges,
+          },
+        },
+      );
+      expect(putRes.ok(), `Seed PUT must succeed (${putRes.status()})`).toBe(true);
+
+      // Navigate and wait for canvas.
+      await page.goto(`/storyboard/${draftId}`);
+      await page.waitForLoadState('networkidle', { timeout: 30_000 });
+      await waitForCanvas(page);
+
+      // Click scene-block-node to open SceneModal.
+      const sceneBlockNode = page.getByTestId('scene-block-node').first();
+      await expect(sceneBlockNode).toBeVisible({ timeout: 10_000 });
+      await sceneBlockNode.click();
+
+      // Wait for SceneModal to appear.
+      const modal = page.getByTestId('scene-modal');
+      await expect(modal).toBeVisible({ timeout: 10_000 });
+
+      // Click "+ Add Media" to show type picker.
+      const addMediaBtn = modal.getByTestId('add-media-button');
+      await expect(addMediaBtn).toBeVisible({ timeout: 5_000 });
+      await addMediaBtn.click();
+
+      // Select "Image" type chip.
+      const imageChip = modal.getByTestId('type-chip-image');
+      await expect(imageChip).toBeVisible({ timeout: 5_000 });
+      await imageChip.click();
+
+      // Wait for AssetPickerModal to open.
+      const pickerDialog = page.getByTestId('picker-dialog');
+      await expect(pickerDialog).toBeVisible({ timeout: 10_000 });
+
+      // Assert upload-button is visible (SB-UPLOAD-2 threading present).
+      const uploadButton = pickerDialog.getByTestId('upload-button');
+      await expect(
+        uploadButton,
+        'upload-button must be visible in picker opened from SceneModal (uploadDraftId threaded)',
+      ).toBeVisible({ timeout: 5_000 });
+    } finally {
+      await cleanupDraft(page.request, token, draftId);
+    }
+  });
+
+  // ── SB-UPLOAD-1 backward-compat: upload-button absent from Library new-scene ──
+
+  /**
+   * Opening AssetPickerModal from LibraryPanel's "+ New Scene" (no uploadDraftId)
+   * does NOT show `upload-button`.
+   *
+   * Verifies SB-UPLOAD-1 backward-compat: when `uploadTarget` prop is omitted
+   * (LibraryPanel mode), `AssetPickerUploadAffordance` is not rendered.
+   */
+  test('SB-UPLOAD-1 — upload-button is absent in AssetPickerModal opened from Library new-scene', async ({ page }) => {
+    const token = await readBearerToken();
+    await installCorsWorkaround(page, token);
+
+    const draftId = await createTempDraft(page.request, token);
+
+    try {
+      await initializeDraft(page.request, token, draftId);
+
+      // Navigate to storyboard and wait for canvas.
+      await page.goto(`/storyboard/${draftId}`);
+      await page.waitForLoadState('networkidle', { timeout: 30_000 });
+      await waitForCanvas(page);
+
+      // Switch to Library tab.
+      const libraryTab = page.locator('[data-testid="storyboard-sidebar"] button').nth(1);
+      await expect(libraryTab).toBeVisible({ timeout: 10_000 });
+      await libraryTab.click();
+
+      // Wait for LibraryPanel.
+      await expect(page.getByTestId('library-panel')).toBeVisible({ timeout: 10_000 });
+
+      // Click "+ New Scene" button to open SceneModal in template mode.
+      const newSceneBtn = page.getByTestId('new-scene-button');
+      await expect(newSceneBtn).toBeVisible({ timeout: 5_000 });
+      await newSceneBtn.click();
+
+      // Wait for SceneModal to appear.
+      const modal = page.getByTestId('scene-modal');
+      await expect(modal).toBeVisible({ timeout: 10_000 });
+
+      // Click "+ Add Media".
+      const addMediaBtn = modal.getByTestId('add-media-button');
+      await expect(addMediaBtn).toBeVisible({ timeout: 5_000 });
+      await addMediaBtn.click();
+
+      // Select "Image" type chip.
+      const imageChip = modal.getByTestId('type-chip-image');
+      await expect(imageChip).toBeVisible({ timeout: 5_000 });
+      await imageChip.click();
+
+      // Wait for AssetPickerModal to open.
+      const pickerDialog = page.getByTestId('picker-dialog');
+      await expect(pickerDialog).toBeVisible({ timeout: 10_000 });
+
+      // Assert upload-button is NOT present (no uploadDraftId in Library mode).
+      const uploadButtonCount = await pickerDialog.getByTestId('upload-button').count();
+      expect(
+        uploadButtonCount,
+        'upload-button must NOT be rendered in picker opened from Library new-scene (no uploadTarget)',
+      ).toBe(0);
     } finally {
       await cleanupDraft(page.request, token, draftId);
     }

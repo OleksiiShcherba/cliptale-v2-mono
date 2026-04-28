@@ -29,6 +29,7 @@ import type { StoryboardHistorySnapshot } from '../api';
 import { useStoryboardHistoryFetch } from '../hooks/useStoryboardHistoryFetch';
 import { restoreFromSnapshot, getSnapshot } from '../store/storyboard-store';
 import type { CanvasSnapshot } from '../store/storyboard-history-store';
+import type { StoryboardBlock } from '../types';
 import {
   panelStyle,
   headerStyle,
@@ -41,6 +42,10 @@ import {
   entryMetaStyle,
   timestampStyle,
   restoreButtonStyle,
+  minimapContainerStyle,
+  MINIMAP_COLOR_START,
+  MINIMAP_COLOR_END,
+  MINIMAP_COLOR_SCENE,
 } from './StoryboardHistoryPanel.styles';
 
 // ── Props ──────────────────────────────────────────────────────────────────────
@@ -58,6 +63,99 @@ export interface StoryboardHistoryPanelProps {
   onRestore: (nodes: Node[], edges: Edge[]) => void;
 }
 
+// ── SnapshotMinimap ────────────────────────────────────────────────────────────
+
+const SVG_WIDTH = 160;
+const SVG_HEIGHT = 90;
+const MINIMAP_PADDING = 4;
+const RECT_SIZE = 8;
+
+interface SnapshotMinimapProps {
+  blocks: StoryboardBlock[];
+}
+
+/**
+ * Renders a 160×90 inline SVG showing each block as a colored rectangle
+ * scaled to fit within the viewport with 4 px padding.
+ *
+ * Color coding: START = green (#10B981), END = orange (#F59E0B), SCENE = purple (#7C3AED).
+ *
+ * Degenerate cases (0 blocks or all blocks at same position) render without
+ * crashing: 0 blocks → empty box; all-same-position → centered rectangles.
+ */
+export function SnapshotMinimap({ blocks }: SnapshotMinimapProps): React.ReactElement {
+  const rects = React.useMemo(() => {
+    if (blocks.length === 0) return [];
+
+    const xs = blocks.map((b) => b.positionX);
+    const ys = blocks.map((b) => b.positionY);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    // Available space after padding.
+    const availW = SVG_WIDTH - MINIMAP_PADDING * 2 - RECT_SIZE;
+    const availH = SVG_HEIGHT - MINIMAP_PADDING * 2 - RECT_SIZE;
+
+    // When all blocks share the same position, range is 0 — prevent division by zero
+    // by treating them as centered.
+    const rangeX = maxX - minX || 1;
+    const rangeY = maxY - minY || 1;
+
+    // When all blocks are at the same coordinates (rangeX===1 from fallback),
+    // normalizing produces values ~0 → center them explicitly.
+    const allSamePos = maxX === minX && maxY === minY;
+
+    return blocks.map((b) => {
+      let nx: number;
+      let ny: number;
+
+      if (allSamePos) {
+        // Center the overlapping rects.
+        nx = (SVG_WIDTH - RECT_SIZE) / 2;
+        ny = (SVG_HEIGHT - RECT_SIZE) / 2;
+      } else {
+        nx = MINIMAP_PADDING + ((b.positionX - minX) / rangeX) * availW;
+        ny = MINIMAP_PADDING + ((b.positionY - minY) / rangeY) * availH;
+      }
+
+      const fill =
+        b.blockType === 'start'
+          ? MINIMAP_COLOR_START
+          : b.blockType === 'end'
+            ? MINIMAP_COLOR_END
+            : MINIMAP_COLOR_SCENE;
+
+      return { id: b.id, x: nx, y: ny, fill };
+    });
+  }, [blocks]);
+
+  return (
+    <div style={minimapContainerStyle} data-testid="snapshot-minimap">
+      <svg
+        width={SVG_WIDTH}
+        height={SVG_HEIGHT}
+        viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
+        aria-hidden="true"
+      >
+        {rects.map((r) => (
+          <rect
+            key={r.id}
+            x={r.x}
+            y={r.y}
+            width={RECT_SIZE}
+            height={RECT_SIZE}
+            fill={r.fill}
+            rx={4}
+            data-testid="minimap-block-rect"
+          />
+        ))}
+      </svg>
+    </div>
+  );
+}
+
 // ── HistoryEntryRow ────────────────────────────────────────────────────────────
 
 interface HistoryEntryRowProps {
@@ -71,24 +169,27 @@ function HistoryEntryRow({ entry, onRestore }: HistoryEntryRowProps): React.Reac
 
   return (
     <div style={entryRowStyle} data-testid="history-entry-row">
-      <div style={entryMetaStyle}>
-        <span
-          style={timestampStyle}
-          title={absoluteTime}
-          data-testid="history-entry-timestamp"
+      <SnapshotMinimap blocks={entry.snapshot.blocks ?? []} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <div style={entryMetaStyle}>
+          <span
+            style={timestampStyle}
+            title={absoluteTime}
+            data-testid="history-entry-timestamp"
+          >
+            {relativeTime}
+          </span>
+        </div>
+        <button
+          type="button"
+          style={restoreButtonStyle}
+          onClick={() => onRestore(entry)}
+          aria-label={`Restore snapshot saved ${relativeTime}`}
+          data-testid="history-restore-button"
         >
-          {relativeTime}
-        </span>
+          Restore
+        </button>
       </div>
-      <button
-        type="button"
-        style={restoreButtonStyle}
-        onClick={() => onRestore(entry)}
-        aria-label={`Restore snapshot saved ${relativeTime}`}
-        data-testid="history-restore-button"
-      >
-        Restore
-      </button>
     </div>
   );
 }

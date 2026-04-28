@@ -11,6 +11,7 @@ import React, { useState, useRef } from 'react';
 
 import { AssetPickerModal } from '@/features/generate-wizard/components/AssetPickerModal';
 import type { AssetKind, AssetSummary } from '@/features/generate-wizard/types';
+import type { UploadTarget } from '@/shared/file-upload/types';
 
 import {
   BORDER,
@@ -70,7 +71,7 @@ const badgeStyle = (color: string): React.CSSProperties => ({
   color,
   border: `1px solid ${color}`,
   borderRadius: '4px',
-  padding: '2px 6px',
+  padding: '4px 8px',
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
   flexShrink: 0,
@@ -113,7 +114,7 @@ const addMediaButtonStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  gap: '6px',
+  gap: '8px',
 };
 
 const typePickerRowStyle: React.CSSProperties = {
@@ -150,6 +151,8 @@ interface SceneModalMediaSectionProps {
   items: ModalMediaItem[];
   onAdd: (item: ModalMediaItem) => void;
   onRemove: (index: number) => void;
+  /** When provided, the AssetPickerModal will render an upload affordance. */
+  uploadDraftId?: string;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -162,7 +165,11 @@ export function SceneModalMediaSection({
   items,
   onAdd,
   onRemove,
+  uploadDraftId,
 }: SceneModalMediaSectionProps): React.ReactElement {
+  const uploadTarget: UploadTarget | undefined = uploadDraftId
+    ? { kind: 'draft', draftId: uploadDraftId }
+    : undefined;
   const [pickerKind, setPickerKind] = useState<AssetKind | null>(null);
   const [showTypePicker, setShowTypePicker] = useState(false);
   const [showMaxWarning, setShowMaxWarning] = useState(false);
@@ -281,6 +288,7 @@ export function SceneModalMediaSection({
           onPick={handlePick}
           onClose={handlePickerClose}
           triggerRef={addButtonRef}
+          uploadTarget={uploadTarget}
         />
       )}
     </section>

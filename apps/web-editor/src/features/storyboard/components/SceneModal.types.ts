@@ -35,6 +35,13 @@ export interface SceneModalBlockProps {
   onSave: (blockId: string, patch: SceneModalSavePayload) => void;
   onDelete: (blockId: string) => void;
   onClose: () => void;
+  /**
+   * When provided, the asset picker modals inside SceneModal will show an
+   * "Upload new file" button that links the uploaded file to this draft.
+   * Optional — callers that do not have a draftId (e.g. tests, template mode)
+   * may omit this prop; upload affordance is simply hidden in that case.
+   */
+  uploadDraftId?: string;
 }
 
 /** Props for SceneModal when mode = 'template'. */

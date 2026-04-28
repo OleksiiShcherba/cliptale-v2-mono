@@ -3,9 +3,11 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import { useAssets } from '@/features/generate-wizard/hooks/useAssets';
 
 import type { AssetKind, AssetSummary } from '@/features/generate-wizard/types';
+import type { UploadTarget } from '@/shared/file-upload/types';
 
 import { AssetThumbCard } from './AssetThumbCard';
 import { AudioRowCard } from './AudioRowCard';
+import { AssetPickerUploadAffordance } from './AssetPickerUploadAffordance';
 import {
   backdropStyle,
   bodyStyle,
@@ -21,7 +23,7 @@ import {
 import { stateStyles } from './mediaGalleryStyles';
 
 // ---------------------------------------------------------------------------
-// Title helpers
+// Module-level constants
 // ---------------------------------------------------------------------------
 
 const MEDIA_TYPE_LABELS: Record<AssetKind, string> = {
@@ -100,6 +102,12 @@ export interface AssetPickerModalProps {
    * When provided, the modal moves focus back to the trigger after closing.
    */
   triggerRef?: React.RefObject<HTMLElement | null>;
+  /**
+   * When provided, an "Upload new file" button is rendered at the top of the
+   * scrollable body. Upload is opt-in — omitting this prop leaves the modal
+   * exactly as before (backward-compatible). See SB-UPLOAD-1 (2026-04-27).
+   */
+  uploadTarget?: UploadTarget;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,13 +124,15 @@ export interface AssetPickerModalProps {
  * - Pick: fires `onPick(asset)` then closes.
  * - Focus trap: moves focus to the dialog on open; returns focus to `triggerRef` on close.
  * - ARIA: role="dialog" + aria-modal="true" + aria-labelledby.
- * - Upload affordance: intentionally omitted per architecture decision (2026-04-16).
+ * - Upload affordance: opt-in via `uploadTarget` prop (added 2026-04-27, SB-UPLOAD-1).
+ *   Upload rendering is delegated to AssetPickerUploadAffordance.
  */
 export function AssetPickerModal({
   mediaType,
   onPick,
   onClose,
   triggerRef,
+  uploadTarget,
 }: AssetPickerModalProps): React.ReactElement {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const titleId = 'asset-picker-title';
@@ -173,6 +183,23 @@ export function AssetPickerModal({
       onClose();
     },
     [onPick, onClose],
+  );
+
+  // ── Upload complete callback ─────────────────────────────────────────────
+
+  const handleUploadComplete = useCallback(
+    (fileId: string, file: File) => {
+      const asset: AssetSummary = {
+        id: fileId,
+        type: mediaType,
+        label: file.name,
+        durationSeconds: null,
+        thumbnailUrl: null,
+        createdAt: new Date().toISOString(),
+      };
+      handlePick(asset);
+    },
+    [mediaType, handlePick],
   );
 
   // ── Body content ─────────────────────────────────────────────────────────
@@ -244,6 +271,15 @@ export function AssetPickerModal({
 
         {/* Scrollable body */}
         <div style={bodyStyle} data-testid="picker-body">
+          {/* Upload affordance — rendered only when uploadTarget is provided */}
+          {uploadTarget && (
+            <AssetPickerUploadAffordance
+              mediaType={mediaType}
+              uploadTarget={uploadTarget}
+              onUploadComplete={handleUploadComplete}
+            />
+          )}
+
           {bodyContent}
         </div>
       </div>

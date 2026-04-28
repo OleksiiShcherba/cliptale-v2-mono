@@ -29,3 +29,4 @@
 - [Project: Storyboard Bug 5 — Edit Scene save + canvas empty on open](project_storyboard_scene_restore.md) — ST-SB-BUG5; branch fix/storyboard-scene-restore; ALL COMPLETE (2026-04-25)
 - [Project: E2E Fix Batch (E2E-FIX-1 through E2E-FIX-3)](project_e2e_fix_batch.md) — branch fix/e2e-storyboard-coverage; ALL 3 SUBTASKS COMPLETE (2026-04-25); Test7/8/9 added
 - [Project: Storyboard UI Bugs (SB-UI-BUG-1 + SB-UI-BUG-2)](project_storyboard_ui_bugs.md) — Library Add canvas render + drag ghost; branch fix/storyboard-ui-bugs; BOTH COMPLETE (2026-04-27)
+- [Project: Storyboard UI Cleanup (SB-UI-CLEANUP)](project_sb_ui_cleanup.md) — Remove asset panel + minimap + upload affordance; ALL 4 SUBTASKS COMPLETE (2026-04-27)
