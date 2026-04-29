@@ -165,6 +165,8 @@ describe('ComponentName / functionName', () => {
 })
 ```
 
+**E2E spec for UI changes is mandatory.** If the subtask modifies, adds, or deletes any `.tsx` file (page, route, component, hook, anything visible in the UI), you MUST write a Playwright spec at `./e2e/<feature>.spec.ts` exercising the new behavior (click path, drag-drop, form submit, render assertion, etc.) — or update the existing spec for that feature if one already covers it. Unit tests do NOT substitute. The playwright-reviewer will mark this subtask COMMENTED if the spec is missing or broken. Use existing helpers under `./e2e/helpers/` where applicable.
+
 ---
 
 ## Step 6 — Self-Review
@@ -211,7 +213,7 @@ Append an entry to `./docs/development_logs.md` using this exact format:
 checked by code-reviewer - NOT
 checked by qa-reviewer - NOT
 checked by design-reviewer - NOT
-checked by playwright-reviewer: NOT
+checked by playwright-reviewer - NOT
 ```
 
 The four `checked by …` lines MUST be `NOT` when you write the entry. Reviewers will update them later.

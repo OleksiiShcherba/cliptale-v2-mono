@@ -251,7 +251,23 @@ Relay the guardian's report back to the user **verbatim in its report section**,
 
 If the guardian raises a blocking question (architecture or product-direction concern), **do not announce completion**. Surface the question to the user and wait for a decision.
 
-### 4.5 Announce completion
+### 4.5 Triage pending feedback
+
+After the guardian's report is relayed, check whether `docs/feedback.md` contains any un-triaged entries.
+
+**Detection:** the file has un-triaged entries if the "New client feedback" section contains at least one non-blank, non-comment bullet line (lines starting with `- ` after the section heading).
+
+**If un-triaged entries exist:** invoke the `feedback-triage` skill:
+
+```
+Skill(skill="feedback-triage")
+```
+
+Do NOT loop the orchestrator afterward — `feedback-triage` hands off to the user/planner. The orchestrator returns immediately after triage completes.
+
+**If no un-triaged entries:** skip this step and proceed to 4.6.
+
+### 4.6 Announce completion
 
 Only reach this step when the guardian returned HEALTHY or CONCERNS with no blocking questions.
 

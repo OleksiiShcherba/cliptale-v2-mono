@@ -32,37 +32,17 @@ cat ./docs/development_logs.md
 
 If `development_logs.md` is missing → **STOP** and tell the user to run the task-executor skill first to generate implementation logs.
 
-### 1b. Detect project type and dev server
+### 1b. Confirm Playwright is available
 
 ```bash
-# Check package.json for framework and scripts
-cat package.json 2>/dev/null | head -60
-
-# Check for common config files
-ls vite.config.* next.config.* nuxt.config.* astro.config.* 2>/dev/null
-```
-
-### 1c. Install Playwright if not present
-
-```bash
-# Check if playwright is installed
 npx playwright --version 2>/dev/null || echo "NOT_INSTALLED"
 ```
 
-If not installed:
-```bash
-npm install --save-dev @playwright/test
-npx playwright install chromium --with-deps
-```
+If not installed → STOP and tell the user.
 
-### 1d. Find or detect the app URL
+### 1c. Find the app URL
 
-Look for the dev server URL in:
-- `package.json` scripts (e.g., `"dev": "vite --port 3000"`)
-- `vite.config.*`, `next.config.*`, etc.
-- Ask the user if not determinable
-
-Default fallback: `http://localhost:3000`
+Check `package.json` scripts and `vite.config.*` / `next.config.*`. Ask the user if not determinable. Default fallback: `http://localhost:3000`.
 
 ---
 
@@ -70,7 +50,7 @@ Default fallback: `http://localhost:3000`
 
 Read `./docs/development_logs.md` and extract all entries where:
 ```
-checked by playwright-reviewer: NOT
+checked by playwright-reviewer - NOT
 ```
 
 For each unchecked entry, extract:
@@ -88,8 +68,8 @@ Build a test plan: one test scenario per unchecked log entry.
 For every unchecked entry, identify every UI change (new component, removed element, new button, new modal, changed interaction, visual difference). Then check `./e2e/` for an existing `.spec.ts` that covers each change:
 
 - If a covering spec exists → run it, capture screenshots, verify it passes.
-- If **no covering spec exists for a UI change** → **write one** in `./e2e/<feature-slug>.spec.ts` (or extend the nearest existing spec), run it, capture screenshots, verify it passes. Only then may you mark `YES`.
-- If you cannot write or run the spec (environment issue, auth blocker, etc.) → mark `COMMENTED` and list exactly which scenarios are missing.
+- If **no covering spec exists for a UI change** → mark `COMMENTED` and request the spec from senior-dev. If senior-dev shipped a UI subtask without a matching spec under `./e2e/`, mark COMMENTED and request the spec.
+- If you cannot run the spec (environment issue, auth blocker, etc.) → mark `COMMENTED` and list exactly which scenarios are missing.
 
 **Unit tests and integration tests do NOT count as E2E coverage for UI features.** A jsdom component mount that checks prop values does not confirm the feature works in a real browser. Only a Playwright scenario that navigates to the live app, performs the interaction, and captures a screenshot counts.
 
@@ -110,121 +90,20 @@ for i in $(seq 1 30); do
 done
 ```
 
-> **Note:** Use the correct port detected in Step 1d. If the server is already running, skip this step.
+> **Note:** Use the correct port detected in Step 1c. If the server is already running, skip this step.
 
 ---
 
 ## Step 4 — Write and Run Playwright Test Script
 
-For each unchecked feature, generate a Playwright test that:
+For each unchecked feature, write a Playwright spec that:
 1. Navigates to the relevant route/page
 2. Waits for the page to be stable
 3. Takes a **full-page screenshot**
 4. Takes **element-level screenshots** for specific components if relevant
 5. Performs basic interactions (click, type, hover) matching what was implemented
 
-### Script template: `./playwright-review-temp.js`
-
-```javascript
-const { chromium } = require('@playwright/test');
-const path = require('path');
-const fs = require('fs');
-
-const BASE_URL = process.env.APP_URL || 'http://localhost:3000';
-const SCREENSHOT_DIR = './playwright-screenshots';
-const PERSISTENT_DIR = './docs/test_screenshots';
-
-fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
-fs.mkdirSync(PERSISTENT_DIR, { recursive: true });
-
-function makeScreenshotName(testName, label) {
-  // Extract two words from the test name (e.g. "asset-upload", "clip-timeline")
-  const words = testName.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').trim().split(/\s+/).slice(0, 2).join('-');
-  const suffix = label ? `-${label}` : '';
-  const now = new Date();
-  const time = [now.getHours(), now.getMinutes(), now.getSeconds()]
-    .map(n => String(n).padStart(2, '0')).join('-');
-  return `${words}${suffix}_${time}.png`;
-}
-
-const tests = [
-  // GENERATED PER FEATURE — see Step 4a below
-];
-
-(async () => {
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    viewport: { width: 1440, height: 900 },
-  });
-
-  const results = [];
-
-  for (const test of tests) {
-    console.log(`\nRunning: ${test.name}`);
-    const page = await context.newPage();
-    try {
-      await page.goto(`${BASE_URL}${test.path}`, { waitUntil: 'networkidle', timeout: 15000 });
-      await page.waitForTimeout(1000); // settle animations
-
-      // Full page screenshot
-      const screenshotPath = path.join(SCREENSHOT_DIR, `${test.id}-full.png`);
-      const persistentPath = path.join(PERSISTENT_DIR, makeScreenshotName(test.name, 'full'));
-      await page.screenshot({ path: screenshotPath, fullPage: true });
-      fs.copyFileSync(screenshotPath, persistentPath);
-      console.log(`  Screenshot saved: ${screenshotPath}`);
-      console.log(`  Persistent copy: ${persistentPath}`);
-
-      // Run any interactions
-      if (test.actions) {
-        for (const action of test.actions) {
-          await performAction(page, action, SCREENSHOT_DIR, test.id, test.name);
-        }
-      }
-
-      results.push({ id: test.id, name: test.name, status: 'captured', screenshots: [screenshotPath] });
-    } catch (err) {
-      console.error(`  ERROR: ${err.message}`);
-      results.push({ id: test.id, name: test.name, status: 'error', error: err.message });
-    } finally {
-      await page.close();
-    }
-  }
-
-  await browser.close();
-  fs.writeFileSync('./playwright-results.json', JSON.stringify(results, null, 2));
-  console.log('\nDone. Results: ./playwright-results.json');
-})();
-
-async function performAction(page, action, dir, testId, testName) {
-  if (action.type === 'click') {
-    await page.locator(action.selector).click({ timeout: 5000 }).catch(() => {});
-    await page.waitForTimeout(500);
-  } else if (action.type === 'fill') {
-    await page.locator(action.selector).fill(action.value, { timeout: 5000 }).catch(() => {});
-  } else if (action.type === 'screenshot') {
-    const tmpPath = path.join(dir, `${testId}-${action.label}.png`);
-    await page.screenshot({ path: tmpPath, fullPage: false });
-    const persistentPath = path.join(PERSISTENT_DIR, makeScreenshotName(testName, action.label));
-    fs.copyFileSync(tmpPath, persistentPath);
-  }
-}
-```
-
-### Step 4a — Generate test cases from the log entries
-
-For each feature entry parsed in Step 2, produce a test object like:
-
-```javascript
-{
-  id: 'feature-slug-YYYYMMDD',
-  name: 'Feature name from log',
-  path: '/inferred-route',         // infer from files modified or feature name
-  actions: [
-    { type: 'screenshot', label: 'initial' },
-    // add interactions based on what was implemented
-  ]
-}
-```
+Use existing helpers under `./e2e/helpers/` and follow the pattern of existing specs at `./e2e/*.spec.ts`. Spec naming: `./e2e/<feature>.spec.ts`.
 
 **Route inference rules:**
 - If files modified include `pages/dashboard.*` → path = `/dashboard`
@@ -232,10 +111,10 @@ For each feature entry parsed in Step 2, produce a test object like:
 - If files modified include `components/` only → path = `/` (root, component likely mounted there)
 - If route is ambiguous → navigate to `/` and then attempt to locate the component
 
-Write the generated script to `./playwright-review-temp.js`, then run:
+Run the spec with:
 
 ```bash
-APP_URL=http://localhost:3000 node ./playwright-review-temp.js
+npx playwright test ./e2e/<feature>.spec.ts
 ```
 
 ---
@@ -279,30 +158,32 @@ For each tested feature, update the corresponding entry in `./docs/development_l
 Look for the log section matching the feature. The playwright field format to update is:
 
 ```markdown
-checked by playwright-reviewer: NOT
+checked by playwright-reviewer - NOT
 ```
 
 ### Update rules:
 
 **If feature works → replace with:**
 ```markdown
-checked by playwright-reviewer: YES
+checked by playwright-reviewer - YES
 ```
 
 **If feature is broken → replace with:**
 ```markdown
-checked by playwright-reviewer: COMMENTED — [one-line reason, e.g. "button not found on /dashboard", "page crashes on load", "modal does not open after click"]
+checked by playwright-reviewer - COMMENTED — [one-line reason, e.g. "button not found on /dashboard", "page crashes on load", "modal does not open after click"]
 ```
 
-Use `str_replace` for targeted, precise edits — **never rewrite the whole file**.
+Edit the existing `checked by playwright-reviewer - NOT` line in place — change only the trailing token. Never append a new status line; never leave the original `- NOT` line behind.
 
-### Example str_replace:
+Use the Edit tool for targeted, precise edits — **never rewrite the whole file**.
+
+### Example edit:
 ```
-old: "checked by playwright-reviewer: NOT"
-new: "checked by playwright-reviewer: YES"
+old: "checked by playwright-reviewer - NOT"
+new: "checked by playwright-reviewer - YES"
 ```
 
-> If multiple entries have `NOT`, process each one individually with its own str_replace.
+> If multiple entries have `NOT`, process each one individually with its own edit.
 
 ---
 
@@ -348,7 +229,8 @@ If any features were COMMENTED, suggest next steps:
 ## Important Rules
 
 - **Never skip screenshot capture.** Visual confirmation is mandatory — do not mark YES without a screenshot.
-- **Never rewrite `development_logs.md` wholesale.** Use `str_replace` for surgical edits only.
+- **Never rewrite `development_logs.md` wholesale.** Use the Edit tool for surgical edits only.
+- **Edit in place, never append.** The line format is `checked by playwright-reviewer - <STATUS>` where STATUS is one of NOT / YES / COMMENTED. Change only the trailing token — never insert a new status line.
 - **Never mark YES based on code inspection alone.** The browser must render it; the screenshot must confirm it.
 - **Always clean up temp files** after the review run.
 - **If the dev server fails to start** → STOP and tell the user to start it manually, then re-run the skill.
@@ -373,7 +255,7 @@ The skill expects log entries in the format produced by `task-executor`. The pla
 **Notes:**
 - ...
 
-checked by playwright-reviewer: NOT
+checked by playwright-reviewer - NOT
 ```
 
-> If entries don't have the `checked by playwright-reviewer:` field at all, add it as `NOT` at the end of each entry before processing.
+> If entries don't have the `checked by playwright-reviewer - NOT` field at all, add it at the end of each entry before processing.

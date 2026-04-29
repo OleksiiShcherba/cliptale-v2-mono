@@ -4,7 +4,7 @@ description: >
   Use this skill to perform design QA reviews on frontend code changes against the Figma design system.
   Triggers when the user says things like "review design", "check design", "design review", "run design QA",
   "check if frontend matches design", "design checker", or "design control". Also triggers automatically
-  when development_logs.md contains a line "checked by design-reviewer - NO", meaning a developer's changes
+  when development_logs.md contains a line "checked by design-reviewer - NOT", meaning a developer's changes
   have not yet been reviewed. Always use this skill when there are unreviewed entries in development_logs.md
   or when the user asks to validate that code matches the Figma design guide. When Figma itself is incomplete
   or outdated, this skill fixes it autonomously using design-guide.md and general_idea.md as authority —
@@ -47,7 +47,7 @@ Tell the user which file is missing and what it should contain. Do not proceed.
 Read `./docs/development_logs.md` in full. Search for any log entry containing the exact line:
 
 ```
-checked by design-reviewer - NO
+checked by design-reviewer - NOT
 ```
 
 - If **no such line exists** → inform the user there are no pending design reviews and stop.
@@ -162,7 +162,7 @@ Update `./docs/development_logs.md`:
 
 Find the exact line in the reviewed entry:
 ```
-checked by design-reviewer - NO
+checked by design-reviewer - NOT
 ```
 
 Replace it with:
@@ -188,7 +188,7 @@ For each issue found, prepare a structured comment block. Then update `./docs/de
 
 Find the exact line in the reviewed entry:
 ```
-checked by design-reviewer - NO
+checked by design-reviewer - NOT
 ```
 
 Replace it with:
@@ -292,7 +292,7 @@ Report to the user as part of the final summary:
 
 ---
 
-If more than one log entry had `checked by design-reviewer - NO`, only review the **most recent** one per run.
+If more than one log entry had `checked by design-reviewer - NOT`, only review the **most recent** one per run.
 
 After completing the review, inform the user:
 > There are [N] additional entries pending review. Run the design reviewer again to process the next one.
@@ -301,10 +301,11 @@ After completing the review, inform the user:
 
 ## Important Rules
 
-- **Never skip Step 2.** Always check development_logs.md for the `- NO` line before doing anything else.
+- **Never skip Step 2.** Always check development_logs.md for the `- NOT` line before doing anything else.
 - **Fix Figma issues autonomously.** Never flag a Figma-level issue and wait — always resolve it in Step 7C using design-guide.md and general_idea.md as authority.
 - **Never mark YES if any checklist item fails.** Partial passes are still COMMENTED.
 - **Be specific in comments.** Vague feedback like "fix the color" is not acceptable. Always include the exact expected value and where it comes from.
 - **Only comment on code-level issues.** Do not leave comments about product decisions, content, or business logic — only design token / component / layout violations.
 - **Preserve the rest of the log entry.** Only change the review status line and add the relevant comment/fix/note blocks. Do not rewrite or delete anything else.
+- **Edit in place, never append.** The line format is `checked by design-reviewer - <STATUS>` where STATUS is one of NOT / YES / COMMENTED. Change only the trailing token — never insert a new status line.
 - **Stay faithful to design-guide.md.** When fixing Figma, never invent new tokens, patterns, or styles not already defined in the design guide. Extend only what exists.

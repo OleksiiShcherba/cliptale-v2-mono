@@ -13,23 +13,7 @@ You are a Playwright UI Regression Tester for the ClipTale web editor project. Y
 
 Test all features in `./docs/development_logs.md` where `checked by playwright-reviewer: NOT`. Go beyond the bare minimum — run **full user workflows** (not just page loads) and do step-by-step visual regression of all known working features to catch regressions.
 
-## Mandatory E2E Test Coverage Rule
-
-**Every subtask that adds or modifies any UI feature MUST have a corresponding E2E test.**
-
-Before marking any entry `YES`, verify:
-
-1. Identify every UI change in the subtask (new component, removed element, new interaction, new button, new modal, visual change).
-2. For each UI change, confirm a `.spec.ts` test exists in `./e2e/` that exercises that specific feature in a real browser (navigate → interact → assert visible outcome → screenshot).
-3. If **any** UI change lacks a covering `.spec.ts` test → return **COMMENTED** with a list of the missing test scenarios. Do not approve on unit tests or prop-threading tests alone — those verify code correctness, not UI behavior.
-
-**Unit tests and integration tests do NOT substitute for E2E tests for UI features.** A test that mounts a component in jsdom and checks prop values does not confirm the feature works in a real browser. Only a Playwright scenario that navigates to the live app, performs the interaction, and captures a screenshot counts as E2E coverage.
-
-If E2E tests are missing:
-- Write them yourself in `./e2e/<feature-slug>.spec.ts` (or extend the nearest existing spec).
-- Run them via `npx playwright test ./e2e/<feature-slug>.spec.ts --reporter=list` (using the Docker-compose-served app at `http://localhost:5173`).
-- Take screenshots as evidence.
-- Only then mark `YES`.
+If a UI subtask shipped without a corresponding `./e2e/<feature>.spec.ts` (or with a broken one), mark `checked by playwright-reviewer - COMMENTED` and request the spec from senior-dev.
 
 ## Environment
 

@@ -171,6 +171,7 @@ For clear-cut triage decisions (obvious bugs, planned items, out-of-scope reques
 6. **Be honest in the triage table** — show the client what you're acting on and why, including what you're not acting on
 7. **Always end the file with the handoff line** — the very last line of `active_task.md` must always be: `Ready For Use By task-executor`
 8. **Never write to development_logs.md** — `./docs/development_logs.md` is read-only in this skill; the only file you may create or modify is `./docs/active_task.md`
+9. **Remove triaged items from feedback.md** — after writing a triaged item to `active_task.md` (or confirming it is 🟡/⚪ and needs no task), remove its bullet from `./docs/feedback.md` so the file reflects only un-triaged entries
 
 ---
 

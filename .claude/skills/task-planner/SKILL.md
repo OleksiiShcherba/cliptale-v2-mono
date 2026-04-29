@@ -193,6 +193,8 @@ Using the analysis from Step 3 and the source-of-truth documents from Step 1, de
 - [ ] **[Subtask title]**
   - What: [one sentence describing the goal]
   - Where: [file(s) or module(s) involved — prefer existing files from the reuse audit]
+
+**Source-file cap (hard rule):** Each subtask's `Where` field MUST reference at most 3 source files. Source files = `.ts`, `.tsx`, `.js`, `.jsx`, `.css`, `.scss`, `.html`, `.py`, `.go`, etc. (application code). Test files, `.spec.ts`, snapshots, migrations, fixtures, and config files do NOT count toward the cap. If a logical change genuinely spans more than 3 source files, split it into multiple subtasks (one per logical seam — data layer / hook / component, or per file). Multi-file subtasks routinely break neighboring code that the same batch later modifies; when in doubt, split.
   - Why: [how it contributes to the overall task]
   - Acceptance criteria: [observable, verifiable conditions for "done" — bullet list, no implementation detail]
   - Test approach: [which test file extends/exists, what cases to cover: happy path / edge / error]
@@ -213,6 +215,7 @@ Before moving to Step 5, verify every subtask:
 - [ ] Risk is justified, not blanket "low"
 - [ ] Total count is ≤8
 - [ ] Any ⚠️ flagged subtasks have a matching entry in `Open Questions / Blockers`
+- [ ] Every subtask's `Where` field references ≤ 3 source files (test/spec/migration/fixture/config files excluded). If not, split.
 
 If any check fails, fix it before writing the file. If you cannot fix it (e.g., missing info), stop and ask the user.
 

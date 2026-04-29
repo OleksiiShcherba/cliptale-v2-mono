@@ -157,12 +157,16 @@ Present a structured report to the user:
 
 After completing the review, append comments to `./docs/development_logs.md` for the entry you just reviewed. **Never modify any existing content — only add new lines after the marker.**
 
+The line format is `checked by code-reviewer - <STATUS>` where STATUS is one of NOT / YES / COMMENTED. Do not change the format, only the trailing token.
+
+Edit the existing `checked by code-reviewer - NOT` line in place — change only the `NOT` token to `YES` or `COMMENTED`. Never insert new lines for the status line itself.
+
 - **If the code is FULLY COMPLIANT** (no violations, no warnings):
-  - Add a new line immediately after `checked by code-reviewer - NO`: `checked by code-reviewer - OK`
+  - Change the existing `checked by code-reviewer - NOT` line to: `checked by code-reviewer - YES`
 
 - **If there are ANY issues** (❌ violations or ⚠️ warnings):
-  - Add a new line immediately after `checked by code-reviewer - NO`: `checked by code-reviewer - COMMENTED`
-  - Then add one line per issue, e.g.:
+  - Change the existing `checked by code-reviewer - NOT` line to: `checked by code-reviewer - COMMENTED`
+  - Then add one line per issue immediately after the status line, e.g.:
     ```
     checked by code-reviewer - COMMENTED
     > ❌ Import style violation in `src/auth/auth.service.ts`: uses relative imports, must use absolute (@/...)
@@ -184,10 +188,10 @@ grep -n "checked by code-reviewer - NOT" ./docs/development_logs.md
 
 - **If the grep returns no output** → the file is clean. Proceed to Step 9.
 - **If any lines are found** — regardless of whether they belong to the entry just reviewed or a different one — handle each:
-  - If it is the entry you just reviewed: you accidentally left the `- NOT` marker. Replace it immediately with `checked by code-reviewer - OK` or `checked by code-reviewer - COMMENTED` (whichever applies).
+  - If it is the entry you just reviewed: you accidentally left the `- NOT` marker. Replace it immediately with `checked by code-reviewer - YES` or `checked by code-reviewer - COMMENTED` (whichever applies).
   - If it is a **different pending entry**: do NOT skip it. Loop back to Step 3 and review that entry before issuing the final verdict.
 
-**Critical rule:** The skill must **never** issue the final verdict (Step 9) while any `checked by code-reviewer - NOT` line exists anywhere in `./docs/development_logs.md`. Leaving `- NOT` entries behind signals to developers that code is unreviewed — this blocks qa-reviewer and task-executor from proceeding. Every entry must be either `OK` or `COMMENTED` before this skill finishes.
+**Critical rule:** The skill must **never** issue the final verdict (Step 9) while any `checked by code-reviewer - NOT` line exists anywhere in `./docs/development_logs.md`. Leaving `- NOT` entries behind signals to developers that code is unreviewed — this blocks qa-reviewer and task-executor from proceeding. Every entry must be either `YES` or `COMMENTED` before this skill finishes.
 
 Re-run the grep after all fixes to confirm **zero** `- NOT` lines remain in the entire file before continuing.
 
@@ -218,11 +222,11 @@ If fully compliant, say:
 
 - **Stop if nothing to review.** If `development_logs.md` is missing or has no `checked by code-reviewer - NOT` entry, stop immediately and tell the user.
 - **Only review one pending entry at a time.** Pick the oldest `checked by code-reviewer - NOT` entry. Do not review already-reviewed entries.
-- **Always update the log entry status** after review: `OK` if compliant, `COMMENTED` with inline notes if issues found.
+- **Always update the log entry status** after review: `YES` if compliant, `COMMENTED` with inline notes if issues found.
 - **Be specific, not vague.** Every violation must cite the exact rule from `architecture-rules.md` and the exact line/pattern in the file.
 - **Don't invent rules.** Only flag things that are explicitly stated in `architecture-rules.md` or this skill file. Do not apply personal preferences or general best practices unless they are in the rules file.
 - **UI changes require E2E coverage.** Any entry that modifies `.tsx` component files MUST have corresponding Playwright E2E spec coverage. If missing, the entry is ❌ NON-COMPLIANT — mark as `COMMENTED` regardless of all other checks passing.
 - **Missing files are noted but don't block the review** of files that do exist.
 - **If architecture-rules.md is ambiguous** on a point, note it as a warning with a suggestion to clarify the rules, not as a violation.
 - **Never touch `active_task.md`** — code-reviewer only writes to `development_logs.md`.
-- **Never modify existing lines in `development_logs.md`** — only append the verdict and comment lines after the `checked by code-reviewer - NO` marker.
+- **Edit the `checked by code-reviewer - NOT` line in place** — change only the trailing token to `YES` or `COMMENTED`. Never insert a new status line; never leave the original `- NOT` line behind.
