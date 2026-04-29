@@ -286,7 +286,7 @@ Lane rules:
 After writing the file, tell the user:
 
 > "Epic **[name]** appended to `docs/general_tasks.md` with [N] tickets ([X] backend, [Y] frontend).
-> Next step: pick a ticket and run `/task-planner` to expand it into `docs/active_task.md`, then `/task-executor` to implement it.
+> Next step: pick a ticket and ask the main session to spawn the **task-planner agent** (Opus) to expand it into `docs/active_task.md`, then `/task-executor` to implement it.
 > Recommended starting ticket: **[title]** (no dependencies, unblocks the most others)."
 
 ---
