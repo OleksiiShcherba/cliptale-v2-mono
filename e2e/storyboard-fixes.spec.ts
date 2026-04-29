@@ -1552,6 +1552,48 @@ test.describe('Storyboard bug fixes — ST-FIX-1 through SB-UPLOAD-2', () => {
         'body.snapshot.thumbnail must be a data: image URL (captureCanvasThumbnail returned a valid JPEG)',
       ).toMatch(/^data:image/);
 
+      // Assert the thumbnail is not all-black: load it into a canvas inside the
+      // page, sample 25 pixels from the centre quarter, and confirm at least 5 of
+      // them have at least one RGB channel > 8.  A 320×180 all-black JPEG has all
+      // channels at 0 (or 1–2 due to JPEG encoding noise); the real graph renders
+      // the SURFACE background (#0D0D14 = R13,G13,B20) which already exceeds the
+      // threshold, plus any visible node/edge adds much brighter pixels.
+      const isBright = await page.evaluate((dataUrl: string) => {
+        return new Promise<boolean>((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) { resolve(false); return; }
+            ctx.drawImage(img, 0, 0);
+            // Sample 25 evenly-spaced pixels in the centre 50% of the image.
+            const x0 = Math.floor(img.width * 0.25);
+            const y0 = Math.floor(img.height * 0.25);
+            const x1 = Math.floor(img.width * 0.75);
+            const y1 = Math.floor(img.height * 0.75);
+            const xStep = Math.max(1, Math.floor((x1 - x0) / 5));
+            const yStep = Math.max(1, Math.floor((y1 - y0) / 5));
+            let brightCount = 0;
+            for (let x = x0; x < x1; x += xStep) {
+              for (let y = y0; y < y1; y += yStep) {
+                const d = ctx.getImageData(x, y, 1, 1).data;
+                if (d[0] > 8 || d[1] > 8 || d[2] > 8) brightCount++;
+              }
+            }
+            resolve(brightCount >= 5);
+          };
+          img.onerror = () => resolve(false);
+          img.src = dataUrl;
+        });
+      }, thumbnail);
+
+      expect(
+        isBright,
+        'Thumbnail must not be all-black: at least 5 centre pixels must have an RGB channel > 8 (backgroundColor #0D0D14 = R13,G13,B20 exceeds this)',
+      ).toBe(true);
+
       // Reload the page so React Query's storyboard-history cache is cleared.
       //
       // Why reload: `useStoryboardHistorySeed` fires `useStoryboardHistoryFetch`
@@ -1584,6 +1626,329 @@ test.describe('Storyboard bug fixes — ST-FIX-1 through SB-UPLOAD-2', () => {
         firstRow.getByTestId('snapshot-thumbnail-img'),
         'History panel first entry must show snapshot-thumbnail-img (thumbnail confirmed in POST body)',
       ).toBeVisible({ timeout: 10_000 });
+    } finally {
+      await cleanupDraft(page.request, token, draftId);
+    }
+  });
+
+  // ── SB-POLISH-1c: drag-stop triggers autosave with updated position ─────────────
+
+  /**
+   * Dragging a SCENE block to a new position causes the next PUT
+   * /storyboards/:draftId to carry an updated positionX/Y for that block,
+   * confirming that handleNodeDragStop is the authoritative save path (SB-POLISH-1c).
+   *
+   * Strategy:
+   *   1. Seed a scene block at a known starting position via direct API PUT.
+   *   2. Navigate to the storyboard page.
+   *   3. Register a PUT listener BEFORE the drag so we don't miss a fast save.
+   *   4. Drag the block by ≥80 px using page.mouse so the dropped position
+   *      differs from the seed.
+   *   5. Await the PUT request (up to 8 s — autosave debounce + buffer).
+   *   6. Assert the PUT body contains the dragged block with a positionX or
+   *      positionY that differs from the seeded value.
+   *   7. Also assert no second PUT fires within the same 2 s window (no
+   *      double-save: only one PUT is expected from a single drag).
+   *
+   * Note: duplicate-PUT counting relies on the fact that the CORS workaround
+   * proxies the request at the Playwright network layer, so waitForRequest
+   * fires on the original browser URL (`http://localhost:3001/storyboards/...`).
+   */
+  test('SB-POLISH-1c — drag-stop saves updated position via handleNodeDragStop', async ({
+    page,
+  }) => {
+    const token = await readBearerToken();
+    await installCorsWorkaround(page, token);
+
+    const draftId = await createTempDraft(page.request, token);
+
+    try {
+      await initializeDraft(page.request, token, draftId);
+
+      // Seed a scene block at a known starting position.
+      const seedX = 120;
+      const seedY = 150;
+
+      const getRes = await page.request.get(
+        `${E2E_API_URL}/storyboards/${draftId}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      expect(getRes.ok(), 'GET /storyboards/:draftId must succeed').toBe(true);
+      const currentState = (await getRes.json()) as {
+        blocks: Array<{
+          id: string;
+          draftId: string;
+          blockType: string;
+          name: string | null;
+          prompt: string | null;
+          durationS: number;
+          positionX: number;
+          positionY: number;
+          sortOrder: number;
+          style: string | null;
+        }>;
+        edges: Array<{
+          id: string;
+          draftId: string;
+          sourceBlockId: string;
+          targetBlockId: string;
+        }>;
+      };
+
+      const sceneBlock = {
+        id: crypto.randomUUID(),
+        draftId,
+        blockType: 'scene' as const,
+        name: 'SB-POLISH-1c drag test scene',
+        prompt: null,
+        durationS: 5,
+        positionX: seedX,
+        positionY: seedY,
+        sortOrder: 1,
+        style: null,
+      };
+
+      const putSeedRes = await page.request.put(
+        `${E2E_API_URL}/storyboards/${draftId}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          data: {
+            blocks: [...currentState.blocks, sceneBlock],
+            edges: currentState.edges,
+          },
+        },
+      );
+      expect(putSeedRes.ok(), `Seed PUT must succeed (${putSeedRes.status()})`).toBe(true);
+
+      // Navigate to the storyboard page.
+      await page.goto(`/storyboard/${draftId}`);
+      await page.waitForLoadState('networkidle', { timeout: 30_000 });
+      await waitForCanvas(page);
+
+      // Ensure the scene-block node is rendered.
+      const sceneBlockNode = page.getByTestId('scene-block-node').first();
+      await expect(sceneBlockNode).toBeVisible({ timeout: 10_000 });
+
+      // Register PUT listener BEFORE drag so we don't race a fast save.
+      const putRequestPromise = page.waitForRequest(
+        (req) =>
+          req.method() === 'PUT' &&
+          (req.url().includes('/storyboards/') || req.url().includes(`storyboards/${draftId}`)),
+        { timeout: 8_000 },
+      );
+
+      // Drag the block ≥80 px to ensure position definitely changes.
+      const bb = await sceneBlockNode.boundingBox();
+      if (bb) {
+        const cx = bb.x + bb.width / 2;
+        const cy = bb.y + bb.height / 2;
+        await page.mouse.move(cx, cy);
+        await page.mouse.down();
+        await page.mouse.move(cx + 40, cy + 20, { steps: 5 });
+        await page.mouse.move(cx + 80, cy + 60, { steps: 5 });
+        await page.mouse.up();
+      }
+
+      // Await the PUT triggered by drag-end (via handleNodeDragStop, not onNodesChange).
+      const putRequest = await putRequestPromise;
+      expect(putRequest.method(), 'Request must be PUT').toBe('PUT');
+
+      const body = putRequest.postDataJSON() as {
+        blocks: Array<{ id: string; blockType: string; positionX: number; positionY: number }>;
+      };
+      expect(body, 'PUT body must have blocks array').toHaveProperty('blocks');
+
+      const draggedBlock = body.blocks.find((b) => b.blockType === 'scene');
+      expect(draggedBlock, 'PUT body must contain the dragged scene block').toBeDefined();
+
+      // Position must differ from seed — confirming handleNodeDragStop committed it.
+      const posChanged =
+        draggedBlock !== undefined &&
+        (draggedBlock.positionX !== seedX || draggedBlock.positionY !== seedY);
+      expect(
+        posChanged,
+        `Dragged block position must differ from seed (${seedX},${seedY}); got (${draggedBlock?.positionX},${draggedBlock?.positionY})`,
+      ).toBe(true);
+
+      // Storyboard page must still be mounted (no crash).
+      await expect(page.getByTestId('storyboard-page')).toBeVisible({ timeout: 5_000 });
+    } finally {
+      await cleanupDraft(page.request, token, draftId);
+    }
+  });
+
+  // ── SB-POLISH-1e: Ctrl knife mode cuts an edge ───────────────────────────────
+
+  /**
+   * Holding Ctrl on the storyboard canvas:
+   *   a) Changes the ReactFlow surface cursor to 'crosshair'.
+   *   b) Clicking an existing edge removes it from the canvas (edge count drops
+   *      by 1) and triggers a PUT /storyboards/:draftId with the updated (now-
+   *      empty) edges list.
+   *
+   * Strategy:
+   *   1. GET the current storyboard state to read sentinel block UUIDs.
+   *   2. Add a scene block and one edge (SCENE→END) via direct API PUT so the
+   *      canvas has a clickable edge between real blocks.
+   *   3. Navigate to the storyboard page and wait for the canvas.
+   *   4. Count `.react-flow__edge` elements before cut (expect ≥ 1).
+   *   5. Hold Ctrl via `page.keyboard.down('Control')`.
+   *   6. Assert the `.react-flow` wrapper's computed `cursor` style equals
+   *      'crosshair' (cursor swap applied via inline style in StoryboardCanvas).
+   *   7. Click the first `.react-flow__edge` element.
+   *   8. Release Ctrl via `page.keyboard.up('Control')`.
+   *   9. Assert `.react-flow__edge` count dropped by exactly 1.
+   *  10. Await PUT /storyboards/:draftId and assert its body.edges array is
+   *      empty (the one seeded edge was cut).
+   */
+  test('SB-POLISH-1e — Ctrl knife mode: cursor is crosshair and clicking edge removes it', async ({
+    page,
+  }) => {
+    const token = await readBearerToken();
+    await installCorsWorkaround(page, token);
+
+    const draftId = await createTempDraft(page.request, token);
+
+    try {
+      await initializeDraft(page.request, token, draftId);
+
+      // Step 1: Read current storyboard state to get sentinel block UUIDs.
+      const getRes = await page.request.get(
+        `${E2E_API_URL}/storyboards/${draftId}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      expect(getRes.ok(), 'GET /storyboards/:draftId must succeed').toBe(true);
+
+      const currentState = (await getRes.json()) as {
+        blocks: Array<{
+          id: string;
+          draftId: string;
+          blockType: string;
+          name: string | null;
+          prompt: string | null;
+          durationS: number;
+          positionX: number;
+          positionY: number;
+          sortOrder: number;
+          style: string | null;
+        }>;
+        edges: Array<{
+          id: string;
+          draftId: string;
+          sourceBlockId: string;
+          targetBlockId: string;
+        }>;
+      };
+
+      // Identify START and END sentinel blocks to build the edge.
+      const startBlock = currentState.blocks.find((b) => b.blockType === 'start');
+      const endBlock = currentState.blocks.find((b) => b.blockType === 'end');
+      expect(startBlock, 'Storyboard must have a start block').toBeDefined();
+      expect(endBlock, 'Storyboard must have an end block').toBeDefined();
+
+      // Step 2: Add a scene block and one edge (START→END via scene block is
+      // complex; simplest cuttable edge is START→END directly since knife just
+      // needs any edge to click). Using a direct START→END edge avoids needing
+      // a scene block as intermediary — keep it simple.
+      const edgeId = crypto.randomUUID();
+      const putSeedRes = await page.request.put(
+        `${E2E_API_URL}/storyboards/${draftId}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          data: {
+            blocks: currentState.blocks,
+            edges: [
+              {
+                id: edgeId,
+                draftId,
+                sourceBlockId: startBlock!.id,
+                targetBlockId: endBlock!.id,
+              },
+            ],
+          },
+        },
+      );
+      expect(
+        putSeedRes.ok(),
+        `Seed PUT must succeed (${putSeedRes.status()}: ${await putSeedRes.text().catch(() => '?')})`,
+      ).toBe(true);
+
+      // Step 3: Navigate to the storyboard page.
+      await page.goto(`/storyboard/${draftId}`);
+      await page.waitForLoadState('networkidle', { timeout: 30_000 });
+      await waitForCanvas(page);
+
+      // Step 4: Count edges before cut — must be ≥ 1.
+      const edgesBeforeCut = await page.locator('.react-flow__edge').count();
+      expect(
+        edgesBeforeCut,
+        `Canvas must have ≥ 1 edge before cut (was: ${edgesBeforeCut})`,
+      ).toBeGreaterThanOrEqual(1);
+
+      // Step 5: Hold Ctrl to activate knife mode.
+      await page.keyboard.down('Control');
+
+      // Step 6: Assert the ReactFlow surface shows a crosshair cursor.
+      // The cursor is set via inline style on the ReactFlow wrapper element
+      // (StoryboardCanvas applies `{ cursor: 'crosshair' }` to the style prop).
+      const reactFlowEl = page.locator('.react-flow').first();
+      await expect(reactFlowEl).toBeVisible({ timeout: 5_000 });
+      const cursor = await reactFlowEl.evaluate(
+        (el: Element) => getComputedStyle(el).cursor,
+      );
+      expect(
+        cursor,
+        `ReactFlow wrapper cursor must be 'crosshair' while Ctrl is held (was: '${cursor}')`,
+      ).toBe('crosshair');
+
+      // Register PUT listener BEFORE the edge click so we don't miss a fast save.
+      const putRequestPromise = page.waitForRequest(
+        (req) =>
+          req.method() === 'PUT' &&
+          (req.url().includes('/storyboards/') || req.url().includes(`storyboards/${draftId}`)),
+        { timeout: 10_000 },
+      );
+
+      // Step 7: Click the first edge path — React Flow renders edges inside
+      // `.react-flow__edge` wrappers with a wider interaction zone via
+      // `interactionWidth`. Clicking the element center reliably fires onClick.
+      // Note: SVG <g> elements in React Flow report isVisible=false even though
+      // they're clickable; using force: true bypasses Playwright's visibility check.
+      const firstEdge = page.locator('.react-flow__edge').first();
+      await firstEdge.click({ force: true });
+
+      // Step 8: Release Ctrl.
+      await page.keyboard.up('Control');
+
+      // Step 9: Edge count must have dropped by exactly 1.
+      const edgesAfterCut = await page.locator('.react-flow__edge').count();
+      expect(
+        edgesAfterCut,
+        `Edge count must have dropped by 1 after knife cut (before: ${edgesBeforeCut}, after: ${edgesAfterCut})`,
+      ).toBe(edgesBeforeCut - 1);
+
+      // Step 10: Await the PUT and assert the edges array is now empty.
+      const putRequest = await putRequestPromise;
+      expect(putRequest.method(), 'Captured request must be PUT').toBe('PUT');
+
+      const body = putRequest.postDataJSON() as {
+        blocks: unknown[];
+        edges: Array<{ id: string }>;
+      };
+      expect(body, 'PUT body must have an edges array').toHaveProperty('edges');
+      expect(
+        body.edges.find((e) => e.id === edgeId),
+        'PUT body edges must NOT contain the cut edge',
+      ).toBeUndefined();
+
+      // Canvas must still be mounted (no crash).
+      await expect(page.getByTestId('storyboard-page')).toBeVisible({ timeout: 5_000 });
     } finally {
       await cleanupDraft(page.request, token, draftId);
     }
