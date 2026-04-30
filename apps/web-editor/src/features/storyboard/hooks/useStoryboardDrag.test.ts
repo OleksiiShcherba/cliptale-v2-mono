@@ -32,7 +32,9 @@ describe('useStoryboardDrag', () => {
     it('sets dragState when a scene-block node drag starts', () => {
       const setNodes = vi.fn();
       const setEdges = vi.fn();
-      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges }));
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }));
 
       const sceneNode = makeSceneNode('scene-1', 100);
 
@@ -47,7 +49,9 @@ describe('useStoryboardDrag', () => {
     it('does NOT set dragState for non-scene-block nodes', () => {
       const setNodes = vi.fn();
       const setEdges = vi.fn();
-      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges }));
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }));
 
       const startNode: Node = {
         id: 'start',
@@ -66,7 +70,9 @@ describe('useStoryboardDrag', () => {
     it('dims the original node opacity to GHOST_OPACITY (0.3)', () => {
       const setNodes = vi.fn();
       const setEdges = vi.fn();
-      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges }));
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }));
 
       const sceneNode = makeSceneNode('scene-1', 100);
 
@@ -92,7 +98,9 @@ describe('useStoryboardDrag', () => {
     it('updates dragState clientX and clientY for scene-block nodes', () => {
       const setNodes = vi.fn();
       const setEdges = vi.fn();
-      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges }));
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }));
 
       const sceneNode = makeSceneNode('scene-1', 100);
 
@@ -109,7 +117,9 @@ describe('useStoryboardDrag', () => {
     it('does NOT update dragState for non-scene-block nodes', () => {
       const setNodes = vi.fn();
       const setEdges = vi.fn();
-      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges }));
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }));
 
       const startNode: Node = {
         id: 'start',
@@ -133,7 +143,9 @@ describe('useStoryboardDrag', () => {
     it('clears dragState when drag ends', () => {
       const setNodes = vi.fn();
       const setEdges = vi.fn();
-      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges }));
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }));
 
       const sceneNode = makeSceneNode('scene-1', 100);
 
@@ -153,7 +165,9 @@ describe('useStoryboardDrag', () => {
     it('does NOT call setEdges when dropped node is far from all edge midpoints', () => {
       const setNodes = vi.fn();
       const setEdges = vi.fn();
-      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges }));
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }));
 
       // Two nodes with an edge between them — midpoint at (450, 200).
       const nodeA = makeSceneNode('a', 100, 200);

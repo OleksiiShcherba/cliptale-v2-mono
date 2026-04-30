@@ -29,7 +29,9 @@ describe('useStoryboardDrag — auto-insert (FOLLOW-2)', () => {
     it('auto-inserts two edges with UUID v4 ids when node drops near edge midpoint', () => {
       const setNodes = vi.fn();
       const setEdges = vi.fn();
-      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges }));
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }));
 
       // nodeA at (100, 200) with 220x120 → centre (210, 260)
       // nodeB at (700, 200) with 220x120 → centre (810, 260)
@@ -83,7 +85,9 @@ describe('useStoryboardDrag — auto-insert (FOLLOW-2)', () => {
     it('generates two distinct UUID v4 ids for the two new edges', () => {
       const setNodes = vi.fn();
       const setEdges = vi.fn();
-      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges }));
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }));
 
       const nodeA = makeSceneNode('a', 100, 200, 220, 120);
       const nodeB = makeSceneNode('b', 700, 200, 220, 120);
@@ -110,7 +114,9 @@ describe('useStoryboardDrag — auto-insert (FOLLOW-2)', () => {
     it('keeps refs up to date so dragStop uses the latest nodes/edges', () => {
       const setNodes = vi.fn();
       const setEdges = vi.fn();
-      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges }));
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }));
 
       const nodeA = makeSceneNode('a', 100, 200, 220, 120);
       const nodeB = makeSceneNode('b', 700, 200, 220, 120);

@@ -33,6 +33,7 @@ import { useStoryboardAutosave } from '../hooks/useStoryboardAutosave';
 import { useStoryboardDrag } from '../hooks/useStoryboardDrag';
 import { useStoryboardHistoryPush } from '../hooks/useStoryboardHistoryPush';
 import { useStoryboardKeyboard } from '../hooks/useStoryboardKeyboard';
+import { useStoryboardKnifeTool } from '../hooks/useStoryboardKnifeTool';
 import {
   storyboardHistoryStore,
   initHistoryStore,
@@ -117,16 +118,6 @@ export function StoryboardPage(): React.ReactElement {
     [openModal],
   );
 
-  // ── Drag hook ────────────────────────────────────────────────────────────────
-
-  const { dragState, syncRefs, handleNodeDragStart, handleNodeDrag, handleNodeDragStop } =
-    useStoryboardDrag({ setNodes, setEdges });
-
-  // Keep drag-hook refs in sync with latest nodes/edges.
-  useEffect(() => {
-    syncRefs(nodes, edges);
-  }, [nodes, edges, syncRefs]);
-
   // ── Keyboard shortcuts ───────────────────────────────────────────────────────
 
   useStoryboardKeyboard({
@@ -141,6 +132,18 @@ export function StoryboardPage(): React.ReactElement {
   const { handleAddBlock } = useHandleAddBlock({ addBlock, saveNow });
   const { handleRestore } = useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow });
   useStoryboardHistorySeed({ draftId: safeDraftId, handleRestore });
+
+  // ── Drag hook (handleNodeDragStop is the authoritative save path) ────────────
+  const { dragState, syncRefs, handleNodeDragStart, handleNodeDrag, handleNodeDragStop } =
+    useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow });
+
+  // Keep drag-hook refs in sync with latest nodes/edges.
+  useEffect(() => {
+    syncRefs(nodes, edges);
+  }, [nodes, edges, syncRefs]);
+
+  // ── Knife tool ────────────────────────────────────────────────────────────────
+  const { isKnifeActive, cutEdge } = useStoryboardKnifeTool({ nodes, setEdges, pushSnapshot, saveNow });
 
   // ── Edge connection callbacks ────────────────────────────────────────────────
 
@@ -220,22 +223,15 @@ export function StoryboardPage(): React.ReactElement {
 
   const handleNodesChange: OnNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      // Suppress mid-drag position updates so the original node stays frozen at
-      // its last committed position while the GhostDragPortal shows movement.
-      // React Flow emits `{ type: 'position', dragging: false }` on mouse-up to
-      // commit the final drop position — that event passes through unchanged.
-      const nonDraggingChanges = changes.filter(
-        (c) => !(c.type === 'position' && c.dragging === true),
-      );
-      const hasMoved = changes.some((c) => c.type === 'position' && c.dragging === false);
-      setNodes((prev) => {
-        const next = applyNodeChanges(nonDraggingChanges, prev);
-        if (hasMoved) void pushSnapshot(next, edges);
-        return next;
-      });
-      if (hasMoved) setTimeout(() => void saveNow(), 0);
+      // Suppress ALL position events (both dragging:true and dragging:false) from
+      // onNodesChange.  The original node is frozen as a ghost during drag; the
+      // authoritative position commit and save/snapshot trigger happen exclusively
+      // in handleNodeDragStop (useStoryboardDrag), which avoids a double-snapshot
+      // race between this path and the dragStop path.
+      const nonPositionChanges = changes.filter((c) => c.type !== 'position');
+      setNodes((prev) => applyNodeChanges(nonPositionChanges, prev));
     },
-    [setNodes, edges, pushSnapshot, saveNow],
+    [setNodes],
   );
 
   const handleEdgesChange: OnEdgesChange = useCallback(
@@ -312,6 +308,8 @@ export function StoryboardPage(): React.ReactElement {
               dragState={dragState}
               onAddBlock={handleAddBlock}
               onNodeClick={handleNodeClick}
+              cursorMode={isKnifeActive ? 'knife' : 'grab'}
+              onCutEdge={cutEdge}
             />
           )}
         </div>

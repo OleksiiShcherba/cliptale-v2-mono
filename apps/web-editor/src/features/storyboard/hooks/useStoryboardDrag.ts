@@ -22,7 +22,7 @@ import React, { useState, useCallback, useRef } from 'react';
 
 import type { Node, Edge, OnNodeDrag, XYPosition } from '@xyflow/react';
 
-import { BORDER } from '../components/storyboardPageStyles';
+import { BORDER } from '@/features/storyboard/components/storyboardPageStyles';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -53,6 +53,20 @@ export type GhostDragState = {
 type UseStoryboardDragArgs = {
   setNodes: React.Dispatch<React.SetStateAction<Node[]>>;
   setEdges: React.Dispatch<React.SetStateAction<Edge[]>>;
+  /**
+   * Called once after a node is dropped to push a history snapshot.
+   * Receives the updated nodes array (with opacity restored) and current edges.
+   * Providing this ensures drag-end is a first-class save trigger independent of
+   * whether React Flow's `dragging:false` onNodesChange event fires correctly
+   * under ghost-drag conditions.
+   */
+  pushSnapshot: (nodes: Node[], edges: Edge[]) => Promise<void>;
+  /**
+   * Called once after a node is dropped to trigger an immediate autosave.
+   * Uses the same `setTimeout(() => void saveNow(), 0)` pattern as other save
+   * triggers so the autosave hook reads from an up-to-date nodesRef.
+   */
+  saveNow: () => Promise<void>;
 };
 
 type UseStoryboardDragResult = {
@@ -101,6 +115,8 @@ function dist(a: XYPosition, b: XYPosition): number {
 export function useStoryboardDrag({
   setNodes,
   setEdges,
+  pushSnapshot,
+  saveNow,
 }: UseStoryboardDragArgs): UseStoryboardDragResult {
   const [dragState, setDragState] = useState<GhostDragState | null>(null);
 
@@ -185,15 +201,25 @@ export function useStoryboardDrag({
         return;
       }
 
-      // Restore full opacity on the dropped node.
-      setNodes((prev) =>
-        prev.map((n) => {
-          if (n.id !== node.id) return n;
-          // Remove the opacity override we added at drag start.
-          const { opacity: _removed, ...restStyle } = (n.style ?? {}) as Record<string, unknown>;
-          return { ...n, style: restStyle as React.CSSProperties };
-        }),
-      );
+      // Compute the post-drop nodes from the ref synchronously so we can pass
+      // the same array to both setNodes and pushSnapshot.  nodesRef.current is
+      // kept up-to-date by the syncRefs useEffect in StoryboardPage on every
+      // render, so it is current as of the last React commit cycle.
+      const droppedId = node.id;
+      const droppedPosition = node.position;
+      const updatedNodes: Node[] = nodesRef.current.map((n) => {
+        if (n.id !== droppedId) return n;
+        const { opacity: _removed, ...restStyle } = (n.style ?? {}) as Record<string, unknown>;
+        return {
+          ...n,
+          // Restore opacity and commit the final dropped position.
+          style: restStyle as React.CSSProperties,
+          position: droppedPosition,
+        };
+      });
+
+      // Commit the updated state to React Flow.
+      setNodes(() => updatedNodes);
 
       // Hit-test: dropped node centre vs. all edge midpoints.
       const droppedCentre: XYPosition = {
@@ -248,9 +274,17 @@ export function useStoryboardDrag({
         });
       }
 
+      // Defence-in-depth: trigger a history snapshot and autosave directly from
+      // drag-stop.  This is the authoritative save path for position changes —
+      // it runs regardless of whether React Flow's own `dragging:false`
+      // onNodesChange event fires (which can be unreliable under ghost-drag with
+      // the original node at 30% opacity).
+      void pushSnapshot(updatedNodes, currentEdges);
+      setTimeout(() => void saveNow(), 0);
+
       setDragState(null);
     },
-    [setNodes, setEdges],
+    [setNodes, setEdges, pushSnapshot, saveNow],
   );
 
   return {

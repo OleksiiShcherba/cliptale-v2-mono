@@ -1,15 +1,18 @@
 /**
- * Tests for StoryboardPage — SB-UI-BUG-2: mid-drag position suppression.
+ * Tests for StoryboardPage — SB-UI-BUG-2 + SB-POLISH-1c: position suppression.
  *
  * Verifies that `handleNodesChange` in StoryboardPage:
  *  (a) does NOT update node position for `{ type: 'position', dragging: true }` events
- *  (b) DOES update node position for `{ type: 'position', dragging: false }` events (drag-end)
+ *  (b) does NOT update node position for `{ type: 'position', dragging: false }` events
+ *      — drag-end position commits are now handled exclusively by
+ *        useStoryboardDrag#handleNodeDragStop (SB-POLISH-1c), which avoids
+ *        double-snapshot races between the two paths.
  *
  * Split from StoryboardPage.test.tsx to respect the 300-line cap (§9.7).
  *
  * Strategy: mock `applyNodeChanges` from @xyflow/react to record the `changes`
- * argument it receives, then assert that mid-drag changes are filtered out before
- * the call, while drag-end changes pass through.
+ * argument it receives, then assert that all position changes are filtered before
+ * the call; non-position changes pass through unchanged.
  */
 
 import React from 'react';
@@ -147,7 +150,7 @@ function renderPage(draftId = 'test-draft-drag') {
 // Tests — SB-UI-BUG-2: drag position suppression
 // ---------------------------------------------------------------------------
 
-describe('StoryboardPage / handleNodesChange drag-filter (SB-UI-BUG-2)', () => {
+describe('StoryboardPage / handleNodesChange drag-filter (SB-UI-BUG-2 + SB-POLISH-1c)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
@@ -186,7 +189,7 @@ describe('StoryboardPage / handleNodesChange drag-filter (SB-UI-BUG-2)', () => {
     );
   });
 
-  it('DOES pass drag-end position changes to applyNodeChanges', () => {
+  it('does NOT pass drag-end position changes to applyNodeChanges (SB-POLISH-1c: handled by handleNodeDragStop)', () => {
     renderPage();
 
     expect(capturedOnNodesChange.current).toBeTypeOf('function');
@@ -204,8 +207,8 @@ describe('StoryboardPage / handleNodesChange drag-filter (SB-UI-BUG-2)', () => {
 
     expect(mockApplyNodeChanges).toHaveBeenCalled();
     const passedChanges = mockApplyNodeChanges.mock.calls[0][0] as unknown[];
-    // The drag-end change MUST be in the array passed to applyNodeChanges.
-    expect(passedChanges).toContainEqual(
+    // drag-end position changes are now filtered — handleNodeDragStop owns this path.
+    expect(passedChanges).not.toContainEqual(
       expect.objectContaining({ type: 'position', dragging: false }),
     );
   });
@@ -228,7 +231,7 @@ describe('StoryboardPage / handleNodesChange drag-filter (SB-UI-BUG-2)', () => {
     expect(passedChanges).toContainEqual(expect.objectContaining({ type: 'remove' }));
   });
 
-  it('filters mid-drag changes but keeps drag-end changes in a mixed batch', () => {
+  it('filters all position changes (both dragging:true and dragging:false) in a mixed batch', () => {
     renderPage();
 
     expect(capturedOnNodesChange.current).toBeTypeOf('function');
@@ -252,11 +255,12 @@ describe('StoryboardPage / handleNodesChange drag-filter (SB-UI-BUG-2)', () => {
 
     expect(mockApplyNodeChanges).toHaveBeenCalled();
     const passedChanges = mockApplyNodeChanges.mock.calls[0][0] as unknown[];
-    // Mid-drag filtered out; drag-end retained.
+    // Both mid-drag and drag-end position changes are filtered.
+    // handleNodeDragStop in useStoryboardDrag is the authoritative path (SB-POLISH-1c).
     expect(passedChanges).not.toContainEqual(
       expect.objectContaining({ dragging: true }),
     );
-    expect(passedChanges).toContainEqual(
+    expect(passedChanges).not.toContainEqual(
       expect.objectContaining({ type: 'position', dragging: false }),
     );
   });

@@ -28,6 +28,7 @@ import type {
   Edge as FlowEdge,
   Viewport,
   NodeMouseHandler,
+  EdgeMouseHandler,
 } from '@xyflow/react';
 
 import { CanvasToolbar } from './CanvasToolbar';
@@ -58,6 +59,9 @@ const REACT_FLOW_STYLE: React.CSSProperties = {
   background: SURFACE,
 };
 
+/** Applied to the ReactFlow wrapper <div> when knife mode is active. */
+const KNIFE_CURSOR_STYLE: React.CSSProperties = { cursor: 'crosshair' };
+
 // ── Props ──────────────────────────────────────────────────────────────────────
 
 interface StoryboardCanvasProps {
@@ -75,6 +79,18 @@ interface StoryboardCanvasProps {
   onAddBlock: () => void;
   /** Optional click handler forwarded to ReactFlow's onNodeClick. */
   onNodeClick?: NodeMouseHandler<Node>;
+  /**
+   * Controls the active interaction mode.
+   * `'knife'` applies a crosshair cursor, disables pan-on-drag, and wires
+   * `onEdgeClick` to `onCutEdge` so clicking an edge removes it.
+   * Defaults to `'grab'` (normal pan/select behaviour).
+   */
+  cursorMode?: 'grab' | 'knife';
+  /**
+   * Called when an edge is clicked while `cursorMode === 'knife'`.
+   * Receives the edge ID to remove.
+   */
+  onCutEdge?: (edgeId: string) => void;
 }
 
 // ── Inner canvas (needs ReactFlow context for useReactFlow) ────────────────────
@@ -133,13 +149,22 @@ export function StoryboardCanvas({
   dragState,
   onAddBlock,
   onNodeClick,
+  cursorMode = 'grab',
+  onCutEdge,
 }: StoryboardCanvasProps): React.ReactElement {
   // Track zoom locally so ZoomToolbar percentage display stays in sync.
   const [zoom, setZoom] = useState<number>(DEFAULT_ZOOM);
 
+  const isKnifeActive = cursorMode === 'knife';
+
   const handleViewportChange = useCallback((viewport: Viewport): void => {
     setZoom(viewport.zoom);
   }, []);
+
+  // When knife mode is active, clicking an edge fires onCutEdge.
+  const handleEdgeClick: EdgeMouseHandler | undefined = isKnifeActive && onCutEdge
+    ? (_event, edge) => { onCutEdge(edge.id); }
+    : undefined;
 
   return (
     <div style={FLOW_CONTAINER_STYLE}>
@@ -154,12 +179,18 @@ export function StoryboardCanvas({
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
-        onNodeClick={onNodeClick}
-        style={REACT_FLOW_STYLE}
+        onNodeClick={isKnifeActive ? undefined : onNodeClick}
+        onEdgeClick={handleEdgeClick}
+        // Disable pan-on-drag in knife mode so a click-drag does not start a pan
+        // while the user is trying to click an edge.
+        panOnDrag={!isKnifeActive}
+        // Disable node dragging in knife mode to prevent accidental node moves
+        // when clicking near a node to reach an edge.
+        nodesDraggable={!isKnifeActive}
+        style={isKnifeActive ? { ...REACT_FLOW_STYLE, ...KNIFE_CURSOR_STYLE } : REACT_FLOW_STYLE}
         proOptions={{ hideAttribution: true }}
         fitView
         fitViewOptions={{ padding: 0.3 }}
-        panOnDrag
         zoomOnScroll
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}
