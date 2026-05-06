@@ -1,6 +1,6 @@
 ---
 name: task-executor
-description: Execute exactly one subtask from docs/active_task.md: implement code, add tests, log work to docs/development_logs.md, and remove the completed subtask.
+description: "Execute exactly one subtask from docs/active_task.md: implement code, add tests, log work to docs/development_logs.md, and remove the completed subtask."
 ---
 
 # Task Executor
@@ -22,4 +22,3 @@ Workflow:
 8. Remove only the completed subtask from `docs/active_task.md`.
 
 Escalate before architecture, product, user-facing behavior, or major dependency decisions.
-
