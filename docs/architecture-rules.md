@@ -989,6 +989,12 @@ docker compose up --build
 
 Docker Compose builds all three app images, starts `db` and `redis` first, then `api` and `media-worker` (waiting for Redis healthy), then `web-editor`. The database migration runs automatically on first boot.
 
+Do not put deployed URL overrides in `docker-compose.override.yml`: Docker Compose applies that file automatically, so local browser requests would be compiled against the deployed API. Use the opt-in deploy override instead:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.deploy.yml up --build
+```
+
 **Step 3 — Open the editor**
 
 | Service | URL |
