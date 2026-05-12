@@ -569,7 +569,7 @@ The following specific files exceed 300 lines by necessity and are approved exce
 
 | File | Lines | Justification |
 |---|---|---|
-| `apps/web-editor/src/features/storyboard/store/storyboard-store.ts` | 350 | Additive exports from a `useSyncExternalStore` store; further split would require cross-file store mutation coupling. All exports are tightly coupled to the single module-level `state` variable. |
+| `apps/web-editor/src/features/storyboard/store/storyboard-store.ts` | 374 | Additive exports from a `useSyncExternalStore` store; further split would require cross-file store mutation coupling. All exports are tightly coupled to the single module-level `state` variable. |
 
 #### E2E spec file exemption
 

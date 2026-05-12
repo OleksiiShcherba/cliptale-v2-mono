@@ -19,6 +19,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -127,12 +128,17 @@ import { useStoryboardCanvas } from '../hooks/useStoryboardCanvas';
  * The default draftId is 'test-draft-abc'.
  */
 function renderPage(draftId = 'test-draft-abc') {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   return render(
-    <MemoryRouter initialEntries={[`/storyboard/${draftId}`]}>
-      <Routes>
-        <Route path="/storyboard/:draftId" element={<StoryboardPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[`/storyboard/${draftId}`]}>
+        <Routes>
+          <Route path="/storyboard/:draftId" element={<StoryboardPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

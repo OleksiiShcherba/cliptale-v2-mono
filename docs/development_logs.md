@@ -119,6 +119,33 @@
 ### SB-POLISH-1f — Line-cap verification
 - verified: `StoryboardPage.tsx` = 351 lines (≤354 cap); 2610 tests pass across 239 files
 
+## Storyboard Add Block History — SB-HIST-ADD (2026-05-06)
+- fixed: toolbar Add Block now persists a Storyboard history snapshot for the computed node list that includes the newly-added scene block
+- fixed: library "Add to Storyboard" uses the same add/save/history path via `useHandleAddFromLibrary`
+- changed: `storyboard-history-store.push()` supports immediate persistence for user actions that must be visible in History without waiting for the 1s debounce
+- changed: StoryboardPage invalidates `['storyboard-history', draftId]` after immediate add-block history persistence so the History panel does not stay on a stale empty query
+- refactored: moved library-add block insertion logic out of `StoryboardPage.tsx`; verified `StoryboardPage.tsx` = 334 lines
+- tests: `docker compose exec -T -w /app/apps/web-editor web-editor npx vitest run src/features/storyboard` → 38 files / 355 tests passed
+- typecheck: `docker compose exec -T -w /app/apps/web-editor web-editor npm run typecheck` still fails on pre-existing workspace-wide TypeScript debt outside this change (App/timeline/AI-generation/storyboard legacy tests); no new errors in changed Storyboard files after local filtering
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Storyboard Keyboard Undo/Redo Canvas Sync (2026-05-12)
+- fixed: `storyboard-history-store.undo()` / `redo()` now return the applied React Flow nodes/edges while still syncing the external storyboard store.
+- fixed: `useStoryboardKeyboard` forwards applied undo/redo snapshots back to `StoryboardPage`, which commits them through the shared restore path.
+- changed: `useHandleRestore` supports `skipSnapshot` for undo/redo so applying an existing history entry does not push a new history entry, and `deferSave` so save runs after the restored graph is queued into React state.
+- covered: keyboard tests now assert `Ctrl+Z`, `Ctrl+Y`, and `Ctrl+Shift+Z` apply returned snapshots; restore tests assert `skipSnapshot` avoids `pushSnapshot`; history-store tests assert undo/redo return restored graph data.
+- tests: `docker compose exec -T -w /app/apps/web-editor web-editor npx vitest run src/features/storyboard/hooks/useStoryboardKeyboard.test.ts src/features/storyboard/hooks/useHandleRestore.test.ts src/features/storyboard/store/storyboard-history-store.test.ts src/features/storyboard/store/storyboard-history-store.snapshot-payload.test.ts` -> 4 files / 47 tests passed.
+- tests: `docker compose exec -T -w /app/apps/web-editor web-editor npx vitest run src/features/storyboard` -> 38 files / 361 tests passed; existing React act warnings remain in autosave tests.
+- typecheck: `docker compose exec -T -w /app/apps/web-editor web-editor npm run typecheck` still fails on pre-existing workspace-wide TypeScript debt; filtered output shows no errors in the changed undo/redo files.
+- playwright: seeded missing local E2E user with `apps/web-editor/e2e/seed-test-user.sql`, then ran `E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/storyboard-fixes.spec.ts e2e/storyboard-history-regression.spec.ts` -> 18 passed / 5 failed. First failure is existing `storyboard-fixes.spec.ts` history restore expectation selecting the newest add-block snapshot instead of the older sentinel-only seeded snapshot after SB-HIST-ADD; later failures are 429 rate-limit fallout from the same run.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - COMMENTED
+
 ---
 
 ## Architectural Decisions

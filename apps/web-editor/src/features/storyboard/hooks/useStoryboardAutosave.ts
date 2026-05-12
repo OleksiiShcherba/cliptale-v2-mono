@@ -61,6 +61,36 @@ function stateKey(nodes: StoryboardState['blocks'], edges: StoryboardState['edge
   return JSON.stringify({ nodes, edges });
 }
 
+function comparableBlocks(nodes: Node[], draftId: string): StoryboardState['blocks'] {
+  return nodes.map((node) => {
+    if (node.type === 'scene-block') {
+      const data = node.data as { block: StoryboardState['blocks'][number] };
+      return {
+        ...data.block,
+        draftId,
+        positionX: node.position.x,
+        positionY: node.position.y,
+      };
+    }
+
+    return {
+      id: node.id,
+      draftId,
+      blockType: (node.type === 'start' ? 'start' : 'end') as 'start' | 'end',
+      name: null,
+      prompt: null,
+      durationS: 5,
+      positionX: node.position.x,
+      positionY: node.position.y,
+      sortOrder: 0,
+      style: null,
+      createdAt: '',
+      updatedAt: '',
+      mediaItems: [],
+    };
+  });
+}
+
 /**
  * Converts elapsed seconds into a human-readable "X ago" string.
  */
@@ -95,6 +125,7 @@ export function useStoryboardAutosave(
 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSavingRef = useRef(false);
+  const pendingSaveRef = useRef(false);
   // Key of the last state successfully saved — used to detect changes.
   const savedStateKeyRef = useRef<string | null>(null);
   // Key of the state at last save — used to detect "unsaved changes" for beforeunload.
@@ -121,13 +152,17 @@ export function useStoryboardAutosave(
 
   const performSave = useCallback(async (): Promise<void> => {
     const currentDraftId = draftIdRef.current;
-    if (isSavingRef.current || !currentDraftId) return;
+    if (!currentDraftId) return;
+    if (isSavingRef.current) {
+      pendingSaveRef.current = true;
+      return;
+    }
 
     const currentNodes = nodesRef.current;
     const currentEdges = edgesRef.current;
 
     const currentKey = stateKey(
-      currentNodes.map((n) => ({ id: n.id, ...n.data })) as unknown as StoryboardState['blocks'],
+      comparableBlocks(currentNodes, currentDraftId),
       currentEdges.map((e) => ({
         id: e.id,
         sourceBlockId: e.source,
@@ -144,33 +179,7 @@ export function useStoryboardAutosave(
 
     // Build a StoryboardState from the current React Flow state.
     const stateToSave: StoryboardState = {
-      blocks: currentNodes.map((node) => {
-        if (node.type === 'scene-block') {
-          const data = node.data as { block: StoryboardState['blocks'][number] };
-          return {
-            ...data.block,
-            draftId: currentDraftId,
-            positionX: node.position.x,
-            positionY: node.position.y,
-          };
-        }
-        // START / END sentinel — minimal shape matching StoryboardBlock.
-        return {
-          id: node.id,
-          draftId: currentDraftId,
-          blockType: (node.type === 'start' ? 'start' : 'end') as 'start' | 'end',
-          name: null,
-          prompt: null,
-          durationS: 5,
-          positionX: node.position.x,
-          positionY: node.position.y,
-          sortOrder: 0,
-          style: null,
-          createdAt: '',
-          updatedAt: '',
-          mediaItems: [],
-        };
-      }),
+      blocks: comparableBlocks(currentNodes, currentDraftId),
       edges: currentEdges.map((e) => ({
         id: e.id,
         draftId: currentDraftId,
@@ -190,6 +199,10 @@ export function useStoryboardAutosave(
       setStatus('idle');
     } finally {
       isSavingRef.current = false;
+      if (pendingSaveRef.current) {
+        pendingSaveRef.current = false;
+        void performSave();
+      }
     }
   }, []);
 
@@ -246,7 +259,7 @@ export function useStoryboardAutosave(
       const currentDraftId = draftIdRef.current;
 
       const currentKey = stateKey(
-        currentNodes.map((n) => ({ id: n.id, ...n.data })) as unknown as StoryboardState['blocks'],
+        comparableBlocks(currentNodes, currentDraftId),
         currentEdges.map((e) => ({
           id: e.id,
           sourceBlockId: e.source,

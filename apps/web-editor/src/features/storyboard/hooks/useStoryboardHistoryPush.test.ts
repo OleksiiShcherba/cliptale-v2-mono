@@ -18,8 +18,17 @@ import type { Node, Edge } from '@xyflow/react';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────────
 
-const { mockCaptureCanvasThumbnail } = vi.hoisted(() => ({
-  mockCaptureCanvasThumbnail: vi.fn<[], Promise<string | null>>(),
+const { mockCaptureCanvasThumbnail, mockSetQueryData, mockQueryClient } = vi.hoisted(() => {
+  const setQueryData = vi.fn();
+  return {
+    mockCaptureCanvasThumbnail: vi.fn<[], Promise<string | null>>(),
+    mockSetQueryData: setQueryData,
+    mockQueryClient: { setQueryData },
+  };
+});
+
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => mockQueryClient,
 }));
 
 vi.mock('../utils/captureCanvasThumbnail', () => ({
@@ -162,6 +171,60 @@ describe('useStoryboardHistoryPush — thumbnail capture', () => {
         await result.current.pushSnapshot([], []);
       }),
     ).resolves.not.toThrow();
+  });
+
+  it('(3c) adds the pushed snapshot to the storyboard history query cache immediately', async () => {
+    mockCaptureCanvasThumbnail.mockResolvedValue('data:image/jpeg;base64,abc');
+    const sceneNode = makeSceneNode('scene-1');
+    const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
+
+    await act(async () => {
+      await result.current.pushSnapshot([sceneNode], []);
+    });
+
+    expect(mockSetQueryData).toHaveBeenCalledTimes(2);
+    const [queryKey, updater] = mockSetQueryData.mock.calls[0] as [
+      unknown[],
+      (entries?: unknown[]) => unknown[],
+    ];
+    expect(queryKey).toEqual(['storyboard-history', DRAFT_ID]);
+
+    const nextEntries = updater([]);
+    expect(nextEntries).toHaveLength(1);
+    expect(nextEntries[0]).toMatchObject({
+      snapshot: {
+        blocks: [expect.objectContaining({ id: 'scene-1', blockType: 'scene' })],
+      },
+    });
+    expect(nextEntries[0]).not.toMatchObject({
+      snapshot: { thumbnail: expect.any(String) },
+    });
+  });
+
+  it('(3d) updates the optimistic cache entry with the thumbnail after capture', async () => {
+    mockCaptureCanvasThumbnail.mockResolvedValue('data:image/jpeg;base64,abc');
+    const sceneNode = makeSceneNode('scene-1');
+    const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
+
+    await act(async () => {
+      await result.current.pushSnapshot([sceneNode], []);
+    });
+
+    expect(mockSetQueryData).toHaveBeenCalledTimes(2);
+    const firstUpdater = mockSetQueryData.mock.calls[0][1] as (entries?: unknown[]) => Array<{
+      createdAt: string;
+      snapshot: unknown;
+    }>;
+    const secondUpdater = mockSetQueryData.mock.calls[1][1] as (entries?: unknown[]) => unknown[];
+    const optimisticEntries = firstUpdater([]);
+    const updatedEntries = secondUpdater(optimisticEntries) as Array<{
+      createdAt: string;
+      snapshot: { thumbnail?: string };
+    }>;
+
+    expect(updatedEntries).toHaveLength(1);
+    expect(updatedEntries[0].createdAt).toBe(optimisticEntries[0].createdAt);
+    expect(updatedEntries[0].snapshot.thumbnail).toBe('data:image/jpeg;base64,abc');
   });
 });
 

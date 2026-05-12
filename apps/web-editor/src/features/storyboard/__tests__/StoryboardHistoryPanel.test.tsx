@@ -150,6 +150,22 @@ describe('StoryboardHistoryPanel', () => {
     });
   });
 
+  it('(4b) renders newest history entries first', () => {
+    mockUseStoryboardHistoryFetch.mockReturnValue({
+      entries: [makeEntry(1), makeEntry(3), makeEntry(2)],
+      isLoading: false,
+      isError: false,
+    });
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={mockOnClose} onRestore={mockOnRestore} />,
+    );
+
+    const rows = screen.getAllByTestId('history-entry-row');
+    expect(rows[0].querySelector('[title]')?.getAttribute('title')).toBe(makeEntry(3).createdAt);
+    expect(rows[1].querySelector('[title]')?.getAttribute('title')).toBe(makeEntry(2).createdAt);
+    expect(rows[2].querySelector('[title]')?.getAttribute('title')).toBe(makeEntry(1).createdAt);
+  });
+
   it('(5) Restore button is present for each entry', () => {
     mockUseStoryboardHistoryFetch.mockReturnValue({
       entries: [makeEntry(1), makeEntry(2)],

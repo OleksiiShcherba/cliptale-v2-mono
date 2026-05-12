@@ -11,6 +11,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Node } from '@xyflow/react';
 
 import { StoryboardPage } from './StoryboardPage';
@@ -18,7 +19,7 @@ import { StoryboardPage } from './StoryboardPage';
 // ── Hoisted mocks ──────────────────────────────────────────────────────────────
 
 const { mockUseStoryboardKnifeTool } = vi.hoisted(() => ({
-  mockUseStoryboardKnifeTool: vi.fn(() => ({
+  mockUseStoryboardKnifeTool: vi.fn((_args?: unknown) => ({
     isKnifeActive: false,
     cutEdge: vi.fn(),
   })),
@@ -198,12 +199,17 @@ describe('StoryboardPage — knife tool wiring (SB-POLISH-1e)', () => {
   });
 
   const renderPage = () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
     return render(
-      <MemoryRouter initialEntries={['/storyboard/test-draft-id']}>
-        <Routes>
-          <Route path="/storyboard/:draftId" element={<StoryboardPage />} />
-        </Routes>
-      </MemoryRouter>,
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/storyboard/test-draft-id']}>
+          <Routes>
+            <Route path="/storyboard/:draftId" element={<StoryboardPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
     );
   };
 

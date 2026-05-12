@@ -15,13 +15,15 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
 // ---------------------------------------------------------------------------
 
-const { mockSaveStoryboard, mockAddTemplateToStoryboard, capturedOnAddTemplate } = vi.hoisted(() => ({
+const { mockSaveStoryboard, mockPersistHistorySnapshot, mockAddTemplateToStoryboard, capturedOnAddTemplate } = vi.hoisted(() => ({
   mockSaveStoryboard: vi.fn().mockResolvedValue(undefined),
+  mockPersistHistorySnapshot: vi.fn().mockResolvedValue(undefined),
   mockAddTemplateToStoryboard: vi.fn(),
   // Allows tests to grab the onAddTemplate prop passed to the LibraryPanel mock.
   capturedOnAddTemplate: { current: null as ((templateId: string) => Promise<void>) | null },
@@ -32,7 +34,7 @@ vi.mock('@/features/storyboard/api', () => ({
   saveStoryboard: mockSaveStoryboard,
   initializeStoryboard: vi.fn().mockResolvedValue({ blocks: [], edges: [] }),
   fetchStoryboard: vi.fn().mockResolvedValue({ blocks: [], edges: [] }),
-  persistHistorySnapshot: vi.fn().mockResolvedValue(undefined),
+  persistHistorySnapshot: mockPersistHistorySnapshot,
   fetchHistorySnapshots: vi.fn().mockResolvedValue([]),
   addTemplateToStoryboard: mockAddTemplateToStoryboard,
 }));
@@ -79,11 +81,32 @@ vi.mock('@/features/storyboard/hooks/useStoryboardCanvas', () => ({
         position: { x: 60, y: 200 },
         data: { label: 'START' },
       },
+      {
+        id: 'end',
+        type: 'end',
+        position: { x: 900, y: 200 },
+        data: { label: 'END' },
+      },
     ],
     edges: [],
     isLoading: false,
     error: null,
-    setNodes: vi.fn(),
+    setNodes: vi.fn((updater: (prev: unknown[]) => unknown[]) => {
+      updater([
+        {
+          id: 'start',
+          type: 'start',
+          position: { x: 60, y: 200 },
+          data: { label: 'START' },
+        },
+        {
+          id: 'end',
+          type: 'end',
+          position: { x: 900, y: 200 },
+          data: { label: 'END' },
+        },
+      ]);
+    }),
     setEdges: vi.fn(),
     removeNode: vi.fn(),
   })),
@@ -115,24 +138,34 @@ vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
   useStoryboardHistorySeed: vi.fn(),
 }));
 
+vi.mock('@/features/storyboard/utils/captureCanvasThumbnail', () => ({
+  captureCanvasThumbnail: vi.fn().mockResolvedValue(null),
+}));
+
 // ---------------------------------------------------------------------------
 // Import after mocks
 // ---------------------------------------------------------------------------
 
 import { StoryboardPage } from './StoryboardPage';
-import { saveStoryboard, addTemplateToStoryboard } from '@/features/storyboard/api';
+import { saveStoryboard, persistHistorySnapshot, addTemplateToStoryboard } from '@/features/storyboard/api';
+import type { StoryboardBlock } from '@/features/storyboard/types';
 
 // ---------------------------------------------------------------------------
 // Render helper
 // ---------------------------------------------------------------------------
 
 function renderPage(draftId = 'test-draft-abc') {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   return render(
-    <MemoryRouter initialEntries={[`/storyboard/${draftId}`]}>
-      <Routes>
-        <Route path="/storyboard/:draftId" element={<StoryboardPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[`/storyboard/${draftId}`]}>
+        <Routes>
+          <Route path="/storyboard/:draftId" element={<StoryboardPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
@@ -157,19 +190,36 @@ describe('StoryboardPage / save-on-add (ST-FIX-4)', () => {
     expect(screen.getByTestId('storyboard-page')).toBeTruthy();
   });
 
-  it('calls saveStoryboard immediately when the "+" button is clicked (no debounce wait)', async () => {
+  it('calls saveStoryboard when the deferred add-block side effects run', async () => {
     renderPage();
 
     const addBtn = screen.getByTestId('add-block-button');
 
     await act(async () => {
       fireEvent.click(addBtn);
-      // Flush microtasks to let saveNow / performSave promises resolve.
+      vi.advanceTimersByTime(1);
       await Promise.resolve();
     });
 
-    // saveStoryboard should have been called without advancing any timer.
     expect(saveStoryboard).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists a history snapshot containing the new block when the "+" button is clicked', async () => {
+    renderPage();
+
+    const addBtn = screen.getByTestId('add-block-button');
+
+    await act(async () => {
+      fireEvent.click(addBtn);
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(persistHistorySnapshot).toHaveBeenCalledTimes(1);
+    const [draftId, payload] = vi.mocked(persistHistorySnapshot).mock.calls[0]!;
+    expect(draftId).toBe('test-draft-abc');
+    expect(payload.blocks.some((block) => block.blockType === 'scene')).toBe(true);
   });
 
   it('autosave-indicator shows "Saving…" then "Saved just now" after add', async () => {
@@ -187,6 +237,7 @@ describe('StoryboardPage / save-on-add (ST-FIX-4)', () => {
     // Click add — save starts but has not completed yet.
     await act(async () => {
       fireEvent.click(addBtn);
+      vi.advanceTimersByTime(1);
       await Promise.resolve();
     });
 
@@ -197,6 +248,7 @@ describe('StoryboardPage / save-on-add (ST-FIX-4)', () => {
     // Resolve the save promise.
     await act(async () => {
       resolvePromise();
+      await Promise.resolve();
       await Promise.resolve();
     });
 
@@ -233,7 +285,7 @@ describe('StoryboardPage / library-add (SB-UI-BUG-1)', () => {
   });
 
   it('calls addTemplateToStoryboard and saveStoryboard when onAddTemplate is invoked', async () => {
-    const fakeBlock = {
+    const fakeBlock: StoryboardBlock = {
       id: 'blk-lib-1',
       draftId: 'test-draft-abc',
       blockType: 'scene',

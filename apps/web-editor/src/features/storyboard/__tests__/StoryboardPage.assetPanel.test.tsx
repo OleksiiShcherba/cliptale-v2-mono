@@ -10,6 +10,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -61,8 +62,7 @@ vi.mock('@/features/storyboard/hooks/useStoryboardCanvas', () => ({
   })),
 }));
 
-// Mock LibraryPanel to avoid pulling in useQueryClient (which requires
-// a QueryClientProvider that this test wrapper does not provide).
+// Mock LibraryPanel to keep this test focused on StoryboardPage.
 vi.mock('@/features/storyboard/components/LibraryPanel');
 
 // Mock useStoryboardHistorySeed — it calls useStoryboardHistoryFetch (React Query)
@@ -93,12 +93,17 @@ import { useStoryboardCanvas } from '@/features/storyboard/hooks/useStoryboardCa
 // ---------------------------------------------------------------------------
 
 function renderPage(draftId = 'test-draft-storyboard') {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   return render(
-    <MemoryRouter initialEntries={[`/storyboard/${draftId}`]}>
-      <Routes>
-        <Route path="/storyboard/:draftId" element={<StoryboardPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[`/storyboard/${draftId}`]}>
+        <Routes>
+          <Route path="/storyboard/:draftId" element={<StoryboardPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

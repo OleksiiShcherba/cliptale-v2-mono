@@ -42,7 +42,6 @@ import {
 import type { CanvasSnapshot } from './storyboard-history-store';
 import type { StoryboardHistorySnapshot, StoryboardHistoryPayload } from '../api';
 import { persistHistorySnapshot } from '../api';
-import { setNodes } from './storyboard-store';
 
 // ── Fixture ────────────────────────────────────────────────────────────────────
 
@@ -160,17 +159,29 @@ describe('undo', () => {
     expect(getHistoryCursor()).toBe(0);
   });
 
+  it('returns the restored nodes and edges after moving back', () => {
+    push(makeSnapshot('s1'));
+    push(makeSnapshot('s2'));
+
+    const applied = undo();
+
+    expect(applied).not.toBeNull();
+    expect(applied?.nodes.map((node) => node.id)).toEqual(['s1']);
+    expect(applied?.edges).toEqual([]);
+  });
+
   it('is a no-op when cursor is at the bottom (index 0)', () => {
     push(makeSnapshot('s1'));
-    undo(); // cursor to -1 is not allowed; at index 0 — no-op
+    const applied = undo(); // cursor to -1 is not allowed; at index 0 — no-op
     expect(getHistoryCursor()).toBe(0);
-    undo(); // still at 0
+    expect(applied).toBeNull();
+    expect(undo()).toBeNull(); // still at 0
     expect(getHistoryCursor()).toBe(0);
   });
 
   it('is a no-op when the stack is empty (cursor = -1)', () => {
     // Stack is empty after initHistoryStore
-    undo();
+    expect(undo()).toBeNull();
     expect(getHistoryCursor()).toBe(-1);
     expect(getHistorySize()).toBe(0);
   });
@@ -184,19 +195,21 @@ describe('redo', () => {
     push(makeSnapshot('s2'));
     undo();
     expect(getHistoryCursor()).toBe(0);
-    redo();
+    const applied = redo();
     expect(getHistoryCursor()).toBe(1);
+    expect(applied).not.toBeNull();
+    expect(applied?.nodes.map((node) => node.id)).toEqual(['s2']);
   });
 
   it('is a no-op when cursor is already at the top', () => {
     push(makeSnapshot('s1'));
     push(makeSnapshot('s2'));
-    redo(); // already at top — no-op
+    expect(redo()).toBeNull(); // already at top — no-op
     expect(getHistoryCursor()).toBe(1);
   });
 
   it('is a no-op when the stack is empty', () => {
-    redo();
+    expect(redo()).toBeNull();
     expect(getHistoryCursor()).toBe(-1);
   });
 

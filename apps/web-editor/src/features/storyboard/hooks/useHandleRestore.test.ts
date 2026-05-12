@@ -10,12 +10,16 @@
  * 6. Returns a stable callback reference when deps do not change
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
 import type { Node, Edge } from '@xyflow/react';
 
 import { useHandleRestore } from './useHandleRestore';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
 
@@ -279,5 +283,54 @@ describe('useHandleRestore', () => {
     expect(setEdges).toHaveBeenCalledTimes(1);
     expect(pushSnapshot).toHaveBeenCalledTimes(1);
     expect(saveNow).not.toHaveBeenCalled();
+  });
+
+  it('(11) skips pushSnapshot when skipSnapshot is true', () => {
+    const removeNode = vi.fn();
+    const setNodes = vi.fn();
+    const setEdges = vi.fn();
+    const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+    const saveNow = vi.fn().mockResolvedValue(undefined);
+
+    const { result } = renderHook(() =>
+      useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow }),
+    );
+
+    act(() => {
+      result.current.handleRestore([makeSceneNode('scene-1')], [], { skipSnapshot: true });
+    });
+
+    expect(setNodes).toHaveBeenCalledTimes(1);
+    expect(setEdges).toHaveBeenCalledTimes(1);
+    expect(pushSnapshot).not.toHaveBeenCalled();
+    expect(saveNow).toHaveBeenCalledTimes(1);
+  });
+
+  it('(12) defers saveNow when deferSave is true', () => {
+    vi.useFakeTimers();
+
+    const removeNode = vi.fn();
+    const setNodes = vi.fn();
+    const setEdges = vi.fn();
+    const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+    const saveNow = vi.fn().mockResolvedValue(undefined);
+
+    const { result } = renderHook(() =>
+      useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow }),
+    );
+
+    act(() => {
+      result.current.handleRestore([makeSceneNode('scene-1')], [], { deferSave: true });
+    });
+
+    expect(setNodes).toHaveBeenCalledTimes(1);
+    expect(setEdges).toHaveBeenCalledTimes(1);
+    expect(saveNow).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.runOnlyPendingTimers();
+    });
+
+    expect(saveNow).toHaveBeenCalledTimes(1);
   });
 });

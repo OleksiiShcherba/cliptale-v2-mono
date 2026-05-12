@@ -104,7 +104,14 @@ describe('storyboard-store — restoreFromSnapshot', () => {
   });
 
   it('reconstructs edges with source/target from sourceBlockId/targetBlockId', () => {
-    const snapshot = makeSnapshot();
+    const snapshot: CanvasSnapshot = {
+      blocks: [
+        makeBlock({ id: 'block-start', blockType: 'start' }),
+        makeBlock({ id: 'block-1' }),
+      ],
+      edges: [makeEdge()],
+      positions: {},
+    };
 
     restoreFromSnapshot(snapshot);
 
@@ -211,5 +218,45 @@ describe('storyboard-store — restoreFromSnapshot', () => {
     expect(endNode?.draggable).toBe(true);
     // deletable must stay false — sentinel nodes must not be removable.
     expect(endNode?.deletable).toBe(false);
+  });
+
+  it('restores legacy nested snapshot payloads', () => {
+    const snapshot = {
+      snapshot: makeSnapshot(),
+    } as unknown as CanvasSnapshot;
+
+    restoreFromSnapshot(snapshot);
+
+    const { nodes } = getSnapshot();
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].id).toBe('block-1');
+  });
+
+  it('restores legacy React Flow edge field names', () => {
+    const startBlock = makeBlock({ id: 'block-start', blockType: 'start' });
+    const sceneBlock = makeBlock({ id: 'block-1', blockType: 'scene' });
+    const snapshot = {
+      blocks: [startBlock, sceneBlock],
+      edges: [{ id: 'edge-legacy', source: 'block-start', target: 'block-1' }],
+    } as unknown as CanvasSnapshot;
+
+    restoreFromSnapshot(snapshot);
+
+    expect(getSnapshot().edges).toEqual([
+      { id: 'edge-legacy', source: 'block-start', target: 'block-1' },
+    ]);
+  });
+
+  it('drops dangling edges that reference blocks missing from the snapshot', () => {
+    const snapshot: CanvasSnapshot = {
+      blocks: [makeBlock({ id: 'block-1' })],
+      edges: [makeEdge({ id: 'edge-dangling', sourceBlockId: 'missing', targetBlockId: 'block-1' })],
+      positions: {},
+    };
+
+    restoreFromSnapshot(snapshot);
+
+    expect(getSnapshot().nodes.map((node) => node.id)).toEqual(['block-1']);
+    expect(getSnapshot().edges).toEqual([]);
   });
 });

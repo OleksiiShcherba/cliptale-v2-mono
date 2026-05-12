@@ -4,8 +4,8 @@
  * Verifies that the hook:
  * 1. Does nothing while the history fetch is still loading.
  * 2. Does nothing when there are no history entries.
- * 3. Calls restoreFromSnapshot with the most recent (last) entry's snapshot.
- * 4. Calls handleRestore with { skipSave: true } — NOT calling saveNow.
+ * 3. Calls restoreFromSnapshot with the most recent entry only when it recovers missing scenes.
+ * 4. Calls handleRestore with { skipSave: true, skipSnapshot: true }.
  * 5. Fires at most once per mount (hasSeeded guard prevents repeated calls).
  */
 
@@ -86,6 +86,9 @@ const RESTORED_NODES: Node[] = [
   { id: 'scene-1', type: 'scene-block', position: { x: 200, y: 200 }, data: { block: SCENE_BLOCK, onRemove: () => undefined } },
 ];
 const RESTORED_EDGES: Edge[] = [];
+const SERVER_SENTINEL_NODES: Node[] = [
+  { id: 'start-1', type: 'start', position: { x: 0, y: 0 }, data: { label: 'START' } },
+];
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
@@ -99,7 +102,14 @@ describe('useStoryboardHistorySeed', () => {
     mockUseStoryboardHistoryFetch.mockReturnValue({ entries: [], isLoading: true, isError: false });
 
     const handleRestore = vi.fn();
-    renderHook(() => useStoryboardHistorySeed({ draftId: 'draft-1', handleRestore }));
+    renderHook(() =>
+      useStoryboardHistorySeed({
+        draftId: 'draft-1',
+        currentNodes: SERVER_SENTINEL_NODES,
+        canvasIsLoading: false,
+        handleRestore,
+      }),
+    );
 
     expect(mockRestoreFromSnapshot).not.toHaveBeenCalled();
     expect(handleRestore).not.toHaveBeenCalled();
@@ -109,7 +119,14 @@ describe('useStoryboardHistorySeed', () => {
     mockUseStoryboardHistoryFetch.mockReturnValue({ entries: [], isLoading: false, isError: false });
 
     const handleRestore = vi.fn();
-    renderHook(() => useStoryboardHistorySeed({ draftId: 'draft-1', handleRestore }));
+    renderHook(() =>
+      useStoryboardHistorySeed({
+        draftId: 'draft-1',
+        currentNodes: SERVER_SENTINEL_NODES,
+        canvasIsLoading: false,
+        handleRestore,
+      }),
+    );
 
     expect(mockRestoreFromSnapshot).not.toHaveBeenCalled();
     expect(handleRestore).not.toHaveBeenCalled();
@@ -123,14 +140,21 @@ describe('useStoryboardHistorySeed', () => {
     });
 
     const handleRestore = vi.fn();
-    renderHook(() => useStoryboardHistorySeed({ draftId: 'draft-1', handleRestore }));
+    renderHook(() =>
+      useStoryboardHistorySeed({
+        draftId: 'draft-1',
+        currentNodes: SERVER_SENTINEL_NODES,
+        canvasIsLoading: false,
+        handleRestore,
+      }),
+    );
 
     expect(mockRestoreFromSnapshot).toHaveBeenCalledTimes(1);
     // Should have used the latest snapshot, not the older one.
     expect(mockRestoreFromSnapshot).toHaveBeenCalledWith(LATEST_SNAPSHOT.snapshot);
   });
 
-  it('(4) calls handleRestore with { skipSave: true } — saveNow must NOT be called', () => {
+  it('(4) calls handleRestore with skipSave and skipSnapshot', () => {
     mockUseStoryboardHistoryFetch.mockReturnValue({
       entries: [LATEST_SNAPSHOT],
       isLoading: false,
@@ -138,11 +162,23 @@ describe('useStoryboardHistorySeed', () => {
     });
 
     const handleRestore = vi.fn();
-    renderHook(() => useStoryboardHistorySeed({ draftId: 'draft-1', handleRestore }));
+    renderHook(() =>
+      useStoryboardHistorySeed({
+        draftId: 'draft-1',
+        currentNodes: SERVER_SENTINEL_NODES,
+        canvasIsLoading: false,
+        handleRestore,
+      }),
+    );
 
     expect(handleRestore).toHaveBeenCalledTimes(1);
-    const [, , options] = handleRestore.mock.calls[0] as [Node[], Edge[], { skipSave?: boolean }];
+    const [, , options] = handleRestore.mock.calls[0] as [
+      Node[],
+      Edge[],
+      { skipSave?: boolean; skipSnapshot?: boolean },
+    ];
     expect(options?.skipSave).toBe(true);
+    expect(options?.skipSnapshot).toBe(true);
   });
 
   it('(4b) passes the nodes and edges from getSnapshot to handleRestore', () => {
@@ -153,7 +189,14 @@ describe('useStoryboardHistorySeed', () => {
     });
 
     const handleRestore = vi.fn();
-    renderHook(() => useStoryboardHistorySeed({ draftId: 'draft-1', handleRestore }));
+    renderHook(() =>
+      useStoryboardHistorySeed({
+        draftId: 'draft-1',
+        currentNodes: SERVER_SENTINEL_NODES,
+        canvasIsLoading: false,
+        handleRestore,
+      }),
+    );
 
     expect(handleRestore).toHaveBeenCalledTimes(1);
     const [nodes, edges] = handleRestore.mock.calls[0] as [Node[], Edge[]];
@@ -167,7 +210,12 @@ describe('useStoryboardHistorySeed', () => {
 
     const handleRestore = vi.fn();
     const { rerender } = renderHook(() =>
-      useStoryboardHistorySeed({ draftId: 'draft-1', handleRestore }),
+      useStoryboardHistorySeed({
+        draftId: 'draft-1',
+        currentNodes: SERVER_SENTINEL_NODES,
+        canvasIsLoading: false,
+        handleRestore,
+      }),
     );
 
     // Simulate entries becoming available (fetch resolves).
@@ -191,5 +239,52 @@ describe('useStoryboardHistorySeed', () => {
 
     // Still only called once.
     expect(handleRestore).toHaveBeenCalledTimes(1);
+  });
+
+  it('(6) waits for current storyboard canvas hydration before seeding', () => {
+    mockUseStoryboardHistoryFetch.mockReturnValue({
+      entries: [LATEST_SNAPSHOT],
+      isLoading: false,
+      isError: false,
+    });
+
+    const handleRestore = vi.fn();
+    const { rerender } = renderHook(
+      ({ canvasIsLoading }) =>
+        useStoryboardHistorySeed({
+          draftId: 'draft-1',
+          currentNodes: SERVER_SENTINEL_NODES,
+          canvasIsLoading,
+          handleRestore,
+        }),
+      { initialProps: { canvasIsLoading: true } },
+    );
+
+    expect(handleRestore).not.toHaveBeenCalled();
+
+    rerender({ canvasIsLoading: false });
+
+    expect(handleRestore).toHaveBeenCalledTimes(1);
+  });
+
+  it('(7) does not restore stale history over server state with the same scene count', () => {
+    mockUseStoryboardHistoryFetch.mockReturnValue({
+      entries: [LATEST_SNAPSHOT],
+      isLoading: false,
+      isError: false,
+    });
+
+    const handleRestore = vi.fn();
+    renderHook(() =>
+      useStoryboardHistorySeed({
+        draftId: 'draft-1',
+        currentNodes: RESTORED_NODES,
+        canvasIsLoading: false,
+        handleRestore,
+      }),
+    );
+
+    expect(mockRestoreFromSnapshot).not.toHaveBeenCalled();
+    expect(handleRestore).not.toHaveBeenCalled();
   });
 });

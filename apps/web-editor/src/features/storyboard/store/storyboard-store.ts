@@ -15,6 +15,7 @@ import { useSyncExternalStore } from 'react';
 import type { Node, Edge } from '@xyflow/react';
 
 import type { CanvasSnapshot } from './storyboard-history-store';
+import type { StoryboardBlock, StoryboardEdge } from '../types';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -52,6 +53,25 @@ function notify(): void {
   for (const listener of listeners) {
     listener();
   }
+}
+
+function getSnapshotPayload(snapshot: CanvasSnapshot): CanvasSnapshot {
+  const candidate = snapshot as CanvasSnapshot & { snapshot?: CanvasSnapshot };
+  return candidate.snapshot ?? snapshot;
+}
+
+function isRestorableBlock(block: StoryboardBlock): boolean {
+  return (
+    typeof block.id === 'string' &&
+    (block.blockType === 'start' || block.blockType === 'end' || block.blockType === 'scene')
+  );
+}
+
+function edgeEndpoints(edge: StoryboardEdge): { source: string | null; target: string | null } {
+  const legacyEdge = edge as StoryboardEdge & { source?: unknown; target?: unknown };
+  const source = edge.sourceBlockId ?? (typeof legacyEdge.source === 'string' ? legacyEdge.source : null);
+  const target = edge.targetBlockId ?? (typeof legacyEdge.target === 'string' ? legacyEdge.target : null);
+  return { source, target };
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────
@@ -95,11 +115,15 @@ export function setState(next: StoryboardCanvasState): void {
  * @param snapshot - The `CanvasSnapshot` from the server history entry.
  */
 export function restoreFromSnapshot(snapshot: CanvasSnapshot): void {
+  const payload = getSnapshotPayload(snapshot);
+  const restorableBlocks = (payload.blocks ?? []).filter(isRestorableBlock);
+  const blockIds = new Set(restorableBlocks.map((block) => block.id));
+
   // Reconstruct React Flow nodes from serialisable StoryboardBlock records.
   // Position is resolved from the snapshot map first; falls back to the
   // per-block coordinates stored in the DB when the map is absent (server path).
-  const nodes: Node[] = snapshot.blocks.map((block) => {
-    const position = snapshot.positions?.[block.id] ?? {
+  const nodes: Node[] = restorableBlocks.map((block) => {
+    const position = payload.positions?.[block.id] ?? {
       x: block.positionX ?? 0,
       y: block.positionY ?? 0,
     };
@@ -128,11 +152,11 @@ export function restoreFromSnapshot(snapshot: CanvasSnapshot): void {
 
   // Reconstruct React Flow edges from serialisable StoryboardEdge records.
   // sourceBlockId / targetBlockId → source / target (React Flow field names).
-  const edges: Edge[] = snapshot.edges.map((edge) => ({
-    id: edge.id,
-    source: edge.sourceBlockId,
-    target: edge.targetBlockId,
-  }));
+  const edges: Edge[] = (payload.edges ?? []).flatMap((edge) => {
+    const { source, target } = edgeEndpoints(edge);
+    if (!source || !target || !blockIds.has(source) || !blockIds.has(target)) return [];
+    return [{ id: edge.id, source, target }];
+  });
 
   // Rebuild the positions map from the reconstructed nodes so the store
   // remains consistent regardless of whether snapshot.positions was present.

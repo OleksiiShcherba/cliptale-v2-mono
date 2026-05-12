@@ -15,7 +15,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderHook } from '@testing-library/react';
 
-import type { Node } from '@xyflow/react';
+import type { Edge, Node } from '@xyflow/react';
 
 import { useStoryboardKeyboard } from './useStoryboardKeyboard';
 import type { StoryboardHistoryStore } from '../store/storyboard-history-store';
@@ -34,8 +34,15 @@ function makeNode(id: string, type: string, selected = false): Node {
 
 function makeHistoryStore(): StoryboardHistoryStore {
   return {
-    undo: vi.fn(),
-    redo: vi.fn(),
+    undo: vi.fn(() => null),
+    redo: vi.fn(() => null),
+  };
+}
+
+function makeAppliedSnapshot(id: string): { nodes: Node[]; edges: Edge[] } {
+  return {
+    nodes: [makeNode(id, 'scene-block', false)],
+    edges: [{ id: `edge-${id}`, source: 'start', target: id }],
   };
 }
 
@@ -177,6 +184,29 @@ describe('useStoryboardKeyboard', () => {
       fireKey('z', false, false);
       expect(historyStore.undo).not.toHaveBeenCalled();
     });
+
+    it('applies the undo snapshot when the history store returns one', () => {
+      const appliedSnapshot = makeAppliedSnapshot('scene-undo');
+      const historyStore: StoryboardHistoryStore = {
+        undo: vi.fn(() => appliedSnapshot),
+        redo: vi.fn(() => null),
+      };
+      const onApplyHistorySnapshot = vi.fn();
+
+      renderHook(() =>
+        useStoryboardKeyboard({
+          nodes: [],
+          onRemoveNode: vi.fn(),
+          historyStore,
+          onApplyHistorySnapshot,
+        }),
+      );
+
+      fireKey('z', true, false);
+
+      expect(onApplyHistorySnapshot).toHaveBeenCalledTimes(1);
+      expect(onApplyHistorySnapshot).toHaveBeenCalledWith(appliedSnapshot);
+    });
   });
 
   describe('Ctrl+Y — redo', () => {
@@ -195,6 +225,29 @@ describe('useStoryboardKeyboard', () => {
       expect(historyStore.redo).toHaveBeenCalledTimes(1);
       expect(historyStore.undo).not.toHaveBeenCalled();
     });
+
+    it('applies the redo snapshot when the history store returns one', () => {
+      const appliedSnapshot = makeAppliedSnapshot('scene-redo-y');
+      const historyStore: StoryboardHistoryStore = {
+        undo: vi.fn(() => null),
+        redo: vi.fn(() => appliedSnapshot),
+      };
+      const onApplyHistorySnapshot = vi.fn();
+
+      renderHook(() =>
+        useStoryboardKeyboard({
+          nodes: [],
+          onRemoveNode: vi.fn(),
+          historyStore,
+          onApplyHistorySnapshot,
+        }),
+      );
+
+      fireKey('y', true, false);
+
+      expect(onApplyHistorySnapshot).toHaveBeenCalledTimes(1);
+      expect(onApplyHistorySnapshot).toHaveBeenCalledWith(appliedSnapshot);
+    });
   });
 
   describe('Ctrl+Shift+Z — alternate redo', () => {
@@ -212,6 +265,29 @@ describe('useStoryboardKeyboard', () => {
       fireKey('Z', true, true);
       expect(historyStore.redo).toHaveBeenCalledTimes(1);
       expect(historyStore.undo).not.toHaveBeenCalled();
+    });
+
+    it('applies the redo snapshot when Ctrl+Shift+Z returns one', () => {
+      const appliedSnapshot = makeAppliedSnapshot('scene-redo-z');
+      const historyStore: StoryboardHistoryStore = {
+        undo: vi.fn(() => null),
+        redo: vi.fn(() => appliedSnapshot),
+      };
+      const onApplyHistorySnapshot = vi.fn();
+
+      renderHook(() =>
+        useStoryboardKeyboard({
+          nodes: [],
+          onRemoveNode: vi.fn(),
+          historyStore,
+          onApplyHistorySnapshot,
+        }),
+      );
+
+      fireKey('Z', true, true);
+
+      expect(onApplyHistorySnapshot).toHaveBeenCalledTimes(1);
+      expect(onApplyHistorySnapshot).toHaveBeenCalledWith(appliedSnapshot);
     });
   });
 

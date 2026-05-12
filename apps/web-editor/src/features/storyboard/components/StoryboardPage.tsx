@@ -8,6 +8,7 @@ import '@xyflow/react/dist/style.css';
 
 import React, { useState, useCallback, useEffect } from 'react';
 
+import { useQueryClient } from '@tanstack/react-query';
 import { addEdge, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
 import type {
   NodeTypes,
@@ -22,8 +23,8 @@ import type {
 } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { addTemplateToStoryboard } from '../api';
-import { findInsertionPoint, nextSceneIndex, useAddBlock } from '../hooks/useAddBlock';
+import { useAddBlock } from '../hooks/useAddBlock';
+import { useHandleAddFromLibrary } from '../hooks/useHandleAddFromLibrary';
 import { useStoryboardCanvas } from '../hooks/useStoryboardCanvas';
 import { useHandleAddBlock } from '../hooks/useHandleAddBlock';
 import { useHandleRestore } from '../hooks/useHandleRestore';
@@ -66,12 +67,6 @@ const NODE_TYPES: NodeTypes = {
   'scene-block': SceneBlockNode,
 };
 
-// ── Library-add positioning constants ─────────────────────────────────────────
-
-const NEW_BLOCK_X_OFFSET = 280;
-const FALLBACK_X = 60;
-const FALLBACK_Y = 200;
-
 // ── StoryboardPage ─────────────────────────────────────────────────────────────
 
 /**
@@ -79,6 +74,7 @@ const FALLBACK_Y = 200;
  */
 export function StoryboardPage(): React.ReactElement {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { draftId } = useParams<{ draftId: string }>();
 
   const [activeTab, setActiveTab] = useState<StoryboardSidebarTab>('storyboard');
@@ -118,20 +114,47 @@ export function StoryboardPage(): React.ReactElement {
     [openModal],
   );
 
+  // ── Add Block + History push + Restore ──────────────────────────────────────
+  const { pushSnapshot } = useStoryboardHistoryPush(safeDraftId);
+  const handlePersistAddHistory = useCallback(
+    async (nextNodes: Node[], nextEdges: FlowEdge[]): Promise<void> => {
+      try {
+        await pushSnapshot(nextNodes, nextEdges, { persistImmediately: true });
+        await queryClient.invalidateQueries({ queryKey: ['storyboard-history', safeDraftId] });
+      } catch (err: unknown) {
+        console.error('[StoryboardPage] Failed to persist add-block history:', err);
+      }
+    },
+    [pushSnapshot, queryClient, safeDraftId],
+  );
+  const { addBlock } = useAddBlock({
+    nodes,
+    edges,
+    setNodes,
+    draftId: safeDraftId,
+    onRemoveNode: removeNode,
+    saveNow,
+    onAfterAdd: handlePersistAddHistory,
+  });
+  const { handleAddBlock } = useHandleAddBlock({ addBlock });
+  const { handleRestore } = useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow });
+  useStoryboardHistorySeed({
+    draftId: safeDraftId,
+    currentNodes: nodes,
+    canvasIsLoading: isLoading,
+    handleRestore,
+  });
+
   // ── Keyboard shortcuts ───────────────────────────────────────────────────────
 
   useStoryboardKeyboard({
     nodes,
     onRemoveNode: removeNode,
     historyStore: storyboardHistoryStore,
+    onApplyHistorySnapshot: ({ nodes: restoredNodes, edges: restoredEdges }) => {
+      handleRestore(restoredNodes, restoredEdges, { skipSnapshot: true, deferSave: true });
+    },
   });
-
-  // ── Add Block + History push + Restore ──────────────────────────────────────
-  const { addBlock } = useAddBlock({ nodes, edges, setNodes, draftId: safeDraftId, onRemoveNode: removeNode, saveNow });
-  const { pushSnapshot } = useStoryboardHistoryPush(safeDraftId);
-  const { handleAddBlock } = useHandleAddBlock({ addBlock, saveNow });
-  const { handleRestore } = useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow });
-  useStoryboardHistorySeed({ draftId: safeDraftId, handleRestore });
 
   // ── Drag hook (handleNodeDragStop is the authoritative save path) ────────────
   const { dragState, syncRefs, handleNodeDragStart, handleNodeDrag, handleNodeDragStop } =
@@ -181,43 +204,15 @@ export function StoryboardPage(): React.ReactElement {
 
   // ── Library-add handler ──────────────────────────────────────────────────────
 
-  /**
-   * Handles "Add to Storyboard" from LibraryPanel.
-   * Calls the API to create the block, then adds it to React Flow `nodes` state
-   * immediately so the canvas renders without a page reload.
-   * Deferred saveNow ensures the autosave reads from an up-to-date nodesRef.
-   */
-  const handleAddFromLibrary = useCallback(
-    async (templateId: string): Promise<void> => {
-      const block = await addTemplateToStoryboard({ templateId, draftId: safeDraftId });
-
-      // Compute position using the same logic as useAddBlock so the new node
-      // lands next to the last block rather than at 0,0.
-      const insertAfter = findInsertionPoint(nodes, edges);
-      const newX = insertAfter
-        ? (insertAfter.position?.x ?? FALLBACK_X) + NEW_BLOCK_X_OFFSET
-        : FALLBACK_X;
-      const newY = insertAfter ? (insertAfter.position?.y ?? FALLBACK_Y) : FALLBACK_Y;
-      const sceneIndex = nextSceneIndex(nodes);
-
-      const newNode = {
-        id: block.id,
-        type: 'scene-block' as const,
-        position: { x: newX, y: newY },
-        data: {
-          block: { ...block, positionX: newX, positionY: newY, sortOrder: block.sortOrder ?? sceneIndex },
-          onRemove: removeNode,
-        },
-        draggable: true,
-        deletable: true,
-      };
-
-      setNodes((prev) => [...prev, newNode]);
-      // Defer save until after React re-renders so nodesRef.current is up-to-date.
-      setTimeout(() => void saveNow(), 0);
-    },
-    [safeDraftId, nodes, edges, removeNode, setNodes, saveNow],
-  );
+  const handleAddFromLibrary = useHandleAddFromLibrary({
+    draftId: safeDraftId,
+    nodes,
+    edges,
+    setNodes,
+    removeNode,
+    saveNow,
+    onAfterAdd: handlePersistAddHistory,
+  });
 
   // ── Node / edge change handlers ──────────────────────────────────────────────
 

@@ -12,8 +12,10 @@
 
 import { useCallback } from 'react';
 
+import { useQueryClient } from '@tanstack/react-query';
 import type { Node, Edge } from '@xyflow/react';
 
+import type { StoryboardHistorySnapshot } from '../api';
 import { push as pushHistory } from '../store/storyboard-history-store';
 import { captureCanvasThumbnail } from '../utils/captureCanvasThumbnail';
 
@@ -30,14 +32,20 @@ import { captureCanvasThumbnail } from '../utils/captureCanvasThumbnail';
  * @param draftId - The generation draft ID used to tag sentinel block shapes.
  */
 export function useStoryboardHistoryPush(draftId: string): {
-  pushSnapshot: (nodes: Node[], edges: Edge[]) => Promise<void>;
+  pushSnapshot: (
+    nodes: Node[],
+    edges: Edge[],
+    options?: { persistImmediately?: boolean },
+  ) => Promise<void>;
 } {
-  const pushSnapshot = useCallback(
-    async (currentNodes: Node[], currentEdges: Edge[]): Promise<void> => {
-      // Capture thumbnail before building the snapshot so it is included in the
-      // server-persisted payload. Returns null on failure — push still proceeds.
-      const thumbnail = await captureCanvasThumbnail();
+  const queryClient = useQueryClient();
 
+  const pushSnapshot = useCallback(
+    async (
+      currentNodes: Node[],
+      currentEdges: Edge[],
+      options: { persistImmediately?: boolean } = {},
+    ): Promise<void> => {
       const positions: Record<string, { x: number; y: number }> = {};
       for (const node of currentNodes) {
         positions[node.id] = { x: node.position.x, y: node.position.y };
@@ -87,7 +95,8 @@ export function useStoryboardHistoryPush(draftId: string): {
           mediaItems: [] as [],
         }));
 
-      pushHistory({
+      const createdAt = new Date().toISOString();
+      const snapshot = {
         blocks: [...sceneBlocks, ...sentinelBlocks],
         edges: currentEdges.map((e) => ({
           id: e.id,
@@ -96,10 +105,42 @@ export function useStoryboardHistoryPush(draftId: string): {
           targetBlockId: e.target,
         })),
         positions,
+      };
+
+      queryClient.setQueryData<StoryboardHistorySnapshot[]>(
+        ['storyboard-history', draftId],
+        (entries = []) => [
+          ...entries,
+          {
+            snapshot,
+            createdAt,
+          },
+        ],
+      );
+
+      // Capture thumbnail after the optimistic row exists. The history panel can
+      // show the minimap immediately, then upgrade the same row when capture ends.
+      const thumbnail = await captureCanvasThumbnail();
+      const snapshotWithThumbnail = {
+        ...snapshot,
         ...(thumbnail !== null && { thumbnail }),
-      });
+      };
+
+      if (thumbnail !== null) {
+        queryClient.setQueryData<StoryboardHistorySnapshot[]>(
+          ['storyboard-history', draftId],
+          (entries = []) =>
+            entries.map((entry) =>
+              entry.createdAt === createdAt
+                ? { ...entry, snapshot: snapshotWithThumbnail }
+                : entry,
+            ),
+        );
+      }
+
+      await pushHistory(snapshotWithThumbnail, options);
     },
-    [draftId],
+    [draftId, queryClient],
   );
 
   return { pushSnapshot };

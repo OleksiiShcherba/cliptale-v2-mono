@@ -4,7 +4,6 @@
  * Verifies that the hook:
  * - returns a stable `handleAddBlock` callback
  * - calls `addBlock()` when invoked
- * - calls `saveNow()` when invoked
  * - is stable across re-renders when deps do not change
  */
 
@@ -16,10 +15,9 @@ import { useHandleAddBlock } from './useHandleAddBlock';
 describe('useHandleAddBlock', () => {
   it('calls addBlock when handleAddBlock is invoked', () => {
     const addBlock = vi.fn();
-    const saveNow = vi.fn().mockResolvedValue(undefined);
 
     const { result } = renderHook(() =>
-      useHandleAddBlock({ addBlock, saveNow }),
+      useHandleAddBlock({ addBlock }),
     );
 
     act(() => {
@@ -29,43 +27,40 @@ describe('useHandleAddBlock', () => {
     expect(addBlock).toHaveBeenCalledTimes(1);
   });
 
-  it('calls saveNow when handleAddBlock is invoked', () => {
+  it('does not own persistence side effects', () => {
     const addBlock = vi.fn();
-    const saveNow = vi.fn().mockResolvedValue(undefined);
 
     const { result } = renderHook(() =>
-      useHandleAddBlock({ addBlock, saveNow }),
+      useHandleAddBlock({ addBlock }),
     );
 
     act(() => {
       result.current.handleAddBlock();
     });
 
-    expect(saveNow).toHaveBeenCalledTimes(1);
+    expect(addBlock).toHaveBeenCalledTimes(1);
   });
 
-  it('calls addBlock before saveNow', () => {
+  it('calls only addBlock', () => {
     const callOrder: string[] = [];
     const addBlock = vi.fn(() => { callOrder.push('addBlock'); });
-    const saveNow = vi.fn(() => { callOrder.push('saveNow'); return Promise.resolve(); });
 
     const { result } = renderHook(() =>
-      useHandleAddBlock({ addBlock, saveNow }),
+      useHandleAddBlock({ addBlock }),
     );
 
     act(() => {
       result.current.handleAddBlock();
     });
 
-    expect(callOrder).toEqual(['addBlock', 'saveNow']);
+    expect(callOrder).toEqual(['addBlock']);
   });
 
   it('returns a stable callback reference when deps do not change', () => {
     const addBlock = vi.fn();
-    const saveNow = vi.fn().mockResolvedValue(undefined);
 
     const { result, rerender } = renderHook(() =>
-      useHandleAddBlock({ addBlock, saveNow }),
+      useHandleAddBlock({ addBlock }),
     );
 
     const firstRef = result.current.handleAddBlock;

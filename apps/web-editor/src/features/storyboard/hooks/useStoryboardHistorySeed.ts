@@ -8,9 +8,10 @@
  * The user's actual scene blocks exist only in the history log.
  *
  * Solution: after the history entries are fetched, take the latest snapshot,
- * call `restoreFromSnapshot` (external store), then call `handleRestore` with
- * `{ skipSave: true }` so React Flow state is updated WITHOUT overwriting the DB.
- * The deferred autosave (30 s) will eventually write the correct restored state.
+ * and restore it only when it recovers scene blocks missing from the server
+ * canvas. History is not authoritative when the server state already contains
+ * the same or more scene blocks, because history persistence can lag behind
+ * `PUT /storyboards`.
  *
  * Guard: only fires once per mount (`hasSeeded` ref). Re-renders caused by
  * query state updates do not trigger repeated restores.
@@ -32,11 +33,19 @@ import type { CanvasSnapshot } from '../store/storyboard-history-store';
 type UseStoryboardHistorySeedArgs = {
   /** The generation draft ID used to fetch history snapshots. */
   draftId: string;
+  /** React Flow nodes hydrated from the current storyboard endpoint. */
+  currentNodes: Node[];
+  /** True while the current storyboard endpoint is still hydrating the canvas. */
+  canvasIsLoading: boolean;
   /**
-   * Callback returned by `useHandleRestore`. Called with `{ skipSave: true }`
-   * so that the auto-restore path does NOT write back to the DB immediately.
+   * Callback returned by `useHandleRestore`. The auto-restore path must not
+   * write back to the DB immediately or create a synthetic history entry.
    */
-  handleRestore: (nodes: Node[], edges: Edge[], options?: { skipSave?: boolean }) => void;
+  handleRestore: (
+    nodes: Node[],
+    edges: Edge[],
+    options?: { skipSave?: boolean; skipSnapshot?: boolean },
+  ) => void;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -53,19 +62,24 @@ type UseStoryboardHistorySeedArgs = {
  */
 export function useStoryboardHistorySeed({
   draftId,
+  currentNodes,
+  canvasIsLoading,
   handleRestore,
 }: UseStoryboardHistorySeedArgs): void {
   const { entries, isLoading } = useStoryboardHistoryFetch(draftId);
   const hasSeeded = useRef(false);
 
   useEffect(() => {
-    // Wait until the history fetch has resolved and we haven't already seeded.
-    if (isLoading || hasSeeded.current || entries.length === 0) return;
-
-    hasSeeded.current = true;
+    if (isLoading || canvasIsLoading || hasSeeded.current || entries.length === 0) return;
 
     // The entries array is oldest-first; the last entry is the most recent.
     const latest = entries[entries.length - 1];
+    const latestSceneCount = latest.snapshot.blocks.filter((block) => block.blockType === 'scene').length;
+    const currentSceneCount = currentNodes.filter((node) => node.type === 'scene-block').length;
+
+    hasSeeded.current = true;
+
+    if (currentSceneCount >= latestSceneCount) return;
 
     // Apply the snapshot to the external store. This reconstructs React Flow
     // Node[] and Edge[] from the serialisable StoryboardBlock[] / StoryboardEdge[].
@@ -76,10 +90,9 @@ export function useStoryboardHistorySeed({
     restoreFromSnapshot(snapshot);
 
     // Read back the reconstructed React Flow state and hand it to handleRestore.
-    // Pass { skipSave: true } so the DB is NOT overwritten at this point — the
-    // nodesRef in useStoryboardAutosave hasn't updated yet (setNodes not yet
-    // propagated), and saving now would persist the pre-restore sentinel-only state.
+    // The auto-seed path is recovery glue, not a user action: do not write back
+    // immediately and do not add another history entry.
     const { nodes: storeNodes, edges: storeEdges } = getSnapshot();
-    handleRestore(storeNodes, storeEdges, { skipSave: true });
-  }, [entries, isLoading, handleRestore]);
+    handleRestore(storeNodes, storeEdges, { skipSave: true, skipSnapshot: true });
+  }, [entries, isLoading, canvasIsLoading, currentNodes, handleRestore]);
 }

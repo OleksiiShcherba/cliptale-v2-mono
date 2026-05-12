@@ -216,6 +216,13 @@ export function StoryboardHistoryPanel({
   onRestore,
 }: StoryboardHistoryPanelProps): React.ReactElement {
   const { entries, isLoading, isError } = useStoryboardHistoryFetch(draftId);
+  const sortedEntries = React.useMemo(
+    () =>
+      [...entries].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      ),
+    [entries],
+  );
 
   const handleRestore = useCallback(
     (entry: StoryboardHistorySnapshot): void => {
@@ -275,7 +282,7 @@ export function StoryboardHistoryPanel({
           </p>
         )}
 
-        {!isLoading && !isError && entries.length === 0 && (
+        {!isLoading && !isError && sortedEntries.length === 0 && (
           <p style={statusTextStyle} data-testid="history-empty">
             No history yet.
           </p>
@@ -283,7 +290,7 @@ export function StoryboardHistoryPanel({
 
         {!isLoading &&
           !isError &&
-          entries.map((entry, index) => (
+          sortedEntries.map((entry, index) => (
             <HistoryEntryRow
               key={`${entry.createdAt}-${index}`}
               entry={entry}

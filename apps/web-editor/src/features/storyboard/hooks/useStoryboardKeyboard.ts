@@ -15,7 +15,7 @@ import { useEffect, useRef } from 'react';
 
 import type { Node } from '@xyflow/react';
 
-import type { StoryboardHistoryStore } from '../store/storyboard-history-store';
+import type { AppliedCanvasSnapshot, StoryboardHistoryStore } from '../store/storyboard-history-store';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -26,6 +26,8 @@ interface UseStoryboardKeyboardOptions {
   onRemoveNode: (nodeId: string) => void;
   /** History store providing undo/redo. Accepts the real store or the stub. */
   historyStore: StoryboardHistoryStore;
+  /** Commits an undo/redo snapshot into React Flow local state. */
+  onApplyHistorySnapshot?: (snapshot: AppliedCanvasSnapshot) => void;
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -38,16 +40,19 @@ export function useStoryboardKeyboard({
   nodes,
   onRemoveNode,
   historyStore,
+  onApplyHistorySnapshot,
 }: UseStoryboardKeyboardOptions): void {
   // Mutable refs prevent stale closures in the event listener.
   const nodesRef = useRef<Node[]>(nodes);
   const onRemoveNodeRef = useRef(onRemoveNode);
   const historyStoreRef = useRef<StoryboardHistoryStore>(historyStore);
+  const onApplyHistorySnapshotRef = useRef(onApplyHistorySnapshot);
 
   // Keep refs fresh on every render.
   nodesRef.current = nodes;
   onRemoveNodeRef.current = onRemoveNode;
   historyStoreRef.current = historyStore;
+  onApplyHistorySnapshotRef.current = onApplyHistorySnapshot;
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
@@ -69,21 +74,24 @@ export function useStoryboardKeyboard({
       // ── Ctrl+Shift+Z — redo (alternate binding) ──────────────────────────────
       if (ctrlKey && shiftKey && key === 'Z') {
         event.preventDefault();
-        historyStoreRef.current.redo();
+        const snapshot = historyStoreRef.current.redo();
+        if (snapshot) onApplyHistorySnapshotRef.current?.(snapshot);
         return;
       }
 
       // ── Ctrl+Z — undo ────────────────────────────────────────────────────────
       if (ctrlKey && !shiftKey && key === 'z') {
         event.preventDefault();
-        historyStoreRef.current.undo();
+        const snapshot = historyStoreRef.current.undo();
+        if (snapshot) onApplyHistorySnapshotRef.current?.(snapshot);
         return;
       }
 
       // ── Ctrl+Y — redo ────────────────────────────────────────────────────────
       if (ctrlKey && !shiftKey && key === 'y') {
         event.preventDefault();
-        historyStoreRef.current.redo();
+        const snapshot = historyStoreRef.current.redo();
+        if (snapshot) onApplyHistorySnapshotRef.current?.(snapshot);
       }
     }
 

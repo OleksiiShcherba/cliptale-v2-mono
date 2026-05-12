@@ -93,6 +93,8 @@ type UseAddBlockArgs = {
   onRemoveNode: (nodeId: string) => void;
   /** Triggers an immediate autosave after the React re-render cycle completes. */
   saveNow: () => Promise<void>;
+  /** Runs after the new block has been appended to the computed node list. */
+  onAfterAdd?: (nodes: Node[], edges: Edge[]) => void | Promise<void>;
 };
 
 type UseAddBlockResult = {
@@ -114,6 +116,7 @@ export function useAddBlock({
   draftId,
   onRemoveNode,
   saveNow,
+  onAfterAdd,
 }: UseAddBlockArgs): UseAddBlockResult {
   const addBlock = useCallback((): void => {
     const insertAfter = findInsertionPoint(nodes, edges);
@@ -157,10 +160,15 @@ export function useAddBlock({
       deletable: true,
     };
 
+    const nextNodes = [...nodes, newNode];
     setNodes((prev) => [...prev, newNode]);
-    // Defer save until after React re-renders so nodesRef.current is up-to-date.
-    setTimeout(() => void saveNow(), 0);
-  }, [nodes, edges, setNodes, onRemoveNode, saveNow]);
+    // Defer side effects until after React re-renders so autosave refs and
+    // thumbnail capture observe the updated canvas.
+    setTimeout(() => {
+      void onAfterAdd?.(nextNodes, edges);
+      void saveNow();
+    }, 0);
+  }, [nodes, edges, setNodes, onRemoveNode, saveNow, onAfterAdd]);
 
   return { addBlock };
 }

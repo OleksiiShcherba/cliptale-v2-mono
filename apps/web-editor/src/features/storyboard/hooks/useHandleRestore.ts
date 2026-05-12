@@ -56,6 +56,18 @@ type HandleRestoreOptions = {
    * default) so the restored state is immediately persisted to the server.
    */
   skipSave?: boolean;
+  /**
+   * When `true`, skips adding the restored graph as a new history entry.
+   *
+   * Use this for keyboard undo/redo: those actions move the existing history
+   * cursor and must not create a new snapshot head.
+   */
+  skipSnapshot?: boolean;
+  /**
+   * When `true`, defers `saveNow()` until after React has had a chance to commit
+   * the restored nodes/edges into local state.
+   */
+  deferSave?: boolean;
 };
 
 type UseHandleRestoreResult = {
@@ -100,14 +112,20 @@ export function useHandleRestore({
 
       setNodes(rewiredNodes);
       setEdges(edges);
-      void pushSnapshot(rewiredNodes, edges);
+      if (!options?.skipSnapshot) {
+        void pushSnapshot(rewiredNodes, edges);
+      }
 
       // Skip the immediate save on the auto-restore / seed path. At the point
       // saveNow would fire, nodesRef.current in useStoryboardAutosave still has
       // the pre-restore state (setNodes hasn't propagated yet), so calling it
       // would persist stale sentinel-only nodes to the DB.
       if (!options?.skipSave) {
-        void saveNow();
+        if (options?.deferSave) {
+          setTimeout(() => void saveNow(), 0);
+        } else {
+          void saveNow();
+        }
       }
     },
     [setNodes, setEdges, pushSnapshot, removeNode, saveNow],

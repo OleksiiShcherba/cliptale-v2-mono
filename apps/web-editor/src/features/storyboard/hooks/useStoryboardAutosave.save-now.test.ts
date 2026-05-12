@@ -32,6 +32,20 @@ import {
   makeSceneNode,
 } from './useStoryboardAutosave.fixtures';
 
+function deferred<T = void>(): {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 // ── Setup / teardown ───────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -48,12 +62,14 @@ afterEach(() => {
 
 describe('useStoryboardAutosave — saveNow', () => {
   it('triggers an immediate save bypassing the debounce timer', async () => {
-    const { result, rerender } = renderHook<
-      { nodes: Node[]; edges: Edge[] },
-      { saveLabel: string; saveNow: () => Promise<void> }
-    >(
+    const { result, rerender } = renderHook(
       ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
-      { initialProps: { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES } },
+      {
+        initialProps: {
+          nodes: DEFAULT_NODES,
+          edges: DEFAULT_EDGES,
+        },
+      },
     );
 
     // Simulate a canvas change (so state is different from last saved state).
@@ -68,12 +84,14 @@ describe('useStoryboardAutosave — saveNow', () => {
   });
 
   it('does not call saveStoryboard when nodes/edges state has not changed', async () => {
-    const { result, rerender } = renderHook<
-      { nodes: Node[]; edges: Edge[] },
-      { saveLabel: string; saveNow: () => Promise<void> }
-    >(
+    const { result, rerender } = renderHook(
       ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
-      { initialProps: { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES } },
+      {
+        initialProps: {
+          nodes: DEFAULT_NODES,
+          edges: DEFAULT_EDGES,
+        },
+      },
     );
 
     const changedNodes = [...DEFAULT_NODES, makeSceneNode()];
@@ -90,6 +108,99 @@ describe('useStoryboardAutosave — saveNow', () => {
       await result.current.saveNow();
     });
     expect(saveStoryboard).toHaveBeenCalledTimes(1);
+  });
+
+  it('saves again when only a scene node position changes', async () => {
+    const scene = makeSceneNode('scene-position');
+    const movedScene: Node = {
+      ...scene,
+      position: { x: scene.position.x + 120, y: scene.position.y + 40 },
+    };
+
+    const { result, rerender } = renderHook(
+      ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
+      {
+        initialProps: {
+          nodes: [makeStartNode(), scene],
+          edges: DEFAULT_EDGES,
+        },
+      },
+    );
+
+    await act(async () => {
+      await result.current.saveNow();
+    });
+    expect(saveStoryboard).toHaveBeenCalledTimes(1);
+
+    rerender({ nodes: [makeStartNode(), movedScene], edges: DEFAULT_EDGES });
+
+    await act(async () => {
+      await result.current.saveNow();
+    });
+
+    expect(saveStoryboard).toHaveBeenCalledTimes(2);
+    expect(saveStoryboard).toHaveBeenLastCalledWith(
+      DRAFT_ID,
+      expect.objectContaining({
+        blocks: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'scene-position',
+            positionX: 420,
+            positionY: 240,
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it('queues a second save when saveNow is called during an in-flight save', async () => {
+    const firstSave = deferred<void>();
+    vi.mocked(saveStoryboard)
+      .mockImplementationOnce(() => firstSave.promise)
+      .mockResolvedValue(undefined);
+
+    const { result, rerender } = renderHook(
+      ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
+      {
+        initialProps: {
+          nodes: DEFAULT_NODES,
+          edges: DEFAULT_EDGES,
+        },
+      },
+    );
+
+    const firstNodes = [...DEFAULT_NODES, makeSceneNode('scene-1')];
+    rerender({ nodes: firstNodes, edges: DEFAULT_EDGES });
+
+    void act(() => {
+      void result.current.saveNow();
+    });
+    expect(saveStoryboard).toHaveBeenCalledTimes(1);
+
+    const secondNodes = [...DEFAULT_NODES, makeSceneNode('scene-2')];
+    rerender({ nodes: secondNodes, edges: DEFAULT_EDGES });
+
+    await act(async () => {
+      await result.current.saveNow();
+    });
+    expect(saveStoryboard).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      firstSave.resolve();
+      await firstSave.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(saveStoryboard).toHaveBeenCalledTimes(2);
+    expect(saveStoryboard).toHaveBeenLastCalledWith(
+      DRAFT_ID,
+      expect.objectContaining({
+        blocks: expect.arrayContaining([
+          expect.objectContaining({ id: 'scene-2' }),
+        ]),
+      }),
+    );
   });
 });
 

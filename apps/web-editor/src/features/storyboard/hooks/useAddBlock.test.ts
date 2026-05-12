@@ -9,7 +9,7 @@
  * - nextSceneIndex: no scene nodes → 1
  * - nextSceneIndex: scene nodes present → max sortOrder + 1
  * - useAddBlock: addBlock appends a node with a valid UUID id (ST-FIX-4)
- * - useAddBlock hook: addBlock calls saveNow inside a setTimeout (not synchronously)
+ * - useAddBlock hook: addBlock calls saveNow and onAfterAdd inside a setTimeout
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -19,6 +19,8 @@ import type { Node, Edge } from '@xyflow/react';
 
 import { findInsertionPoint, nextSceneIndex, useAddBlock } from './useAddBlock';
 import type { SceneBlockNodeData } from '../types';
+
+const DRAFT_ID = 'draft-1';
 
 // ── Fixture helpers ────────────────────────────────────────────────────────────
 
@@ -212,7 +214,7 @@ describe('useAddBlock — hook', () => {
     const edges: Edge[] = [];
 
     const { result } = renderHook(() =>
-      useAddBlock({ nodes, edges, setNodes, onRemoveNode: removeNode, saveNow: vi.fn().mockResolvedValue(undefined) }),
+      useAddBlock({ nodes, edges, setNodes, draftId: DRAFT_ID, onRemoveNode: removeNode, saveNow: vi.fn().mockResolvedValue(undefined) }),
     );
 
     act(() => {
@@ -243,7 +245,7 @@ describe('useAddBlock — hook', () => {
     const edges: Edge[] = [];
 
     const { result } = renderHook(() =>
-      useAddBlock({ nodes, edges, setNodes, onRemoveNode: vi.fn(), saveNow: vi.fn().mockResolvedValue(undefined) }),
+      useAddBlock({ nodes, edges, setNodes, draftId: DRAFT_ID, onRemoveNode: vi.fn(), saveNow: vi.fn().mockResolvedValue(undefined) }),
     );
 
     act(() => {
@@ -266,7 +268,7 @@ describe('useAddBlock — hook', () => {
     const edges: Edge[] = [makeEdge('start', 's1')];
 
     const { result } = renderHook(() =>
-      useAddBlock({ nodes, edges, setNodes, onRemoveNode: vi.fn(), saveNow: vi.fn().mockResolvedValue(undefined) }),
+      useAddBlock({ nodes, edges, setNodes, draftId: DRAFT_ID, onRemoveNode: vi.fn(), saveNow: vi.fn().mockResolvedValue(undefined) }),
     );
 
     act(() => {
@@ -293,6 +295,7 @@ describe('useAddBlock — hook', () => {
         nodes: [makeStartNode(), makeEndNode()],
         edges: [],
         setNodes: mockSetNodes,
+        draftId: DRAFT_ID,
         onRemoveNode: vi.fn(),
         saveNow: mockSaveNow,
       }),
@@ -308,13 +311,16 @@ describe('useAddBlock — hook', () => {
 
   it('calls saveNow after the timer fires (setTimeout deferred)', () => {
     const mockSaveNow = vi.fn().mockResolvedValue(undefined);
-    const mockSetNodes = vi.fn();
+    const mockSetNodes = vi.fn((updater: (prev: Node[]) => Node[]) => {
+      updater([makeStartNode(), makeEndNode()]);
+    });
 
     const { result } = renderHook(() =>
       useAddBlock({
         nodes: [makeStartNode(), makeEndNode()],
         edges: [],
-        setNodes: mockSetNodes,
+        setNodes: mockSetNodes as React.Dispatch<React.SetStateAction<Node[]>>,
+        draftId: DRAFT_ID,
         onRemoveNode: vi.fn(),
         saveNow: mockSaveNow,
       }),
@@ -335,6 +341,40 @@ describe('useAddBlock — hook', () => {
     expect(mockSaveNow).toHaveBeenCalledTimes(1);
   });
 
+  it('calls onAfterAdd with the updated node list after the timer fires', () => {
+    const mockSaveNow = vi.fn().mockResolvedValue(undefined);
+    const mockOnAfterAdd = vi.fn().mockResolvedValue(undefined);
+    const start = makeStartNode();
+    const end = makeEndNode();
+    const edge = makeEdge('start', 'end');
+    const mockSetNodes = vi.fn((updater: (prev: Node[]) => Node[]) => {
+      updater([start, end]);
+    });
+
+    const { result } = renderHook(() =>
+      useAddBlock({
+        nodes: [start, end],
+        edges: [edge],
+        setNodes: mockSetNodes as React.Dispatch<React.SetStateAction<Node[]>>,
+        draftId: DRAFT_ID,
+        onRemoveNode: vi.fn(),
+        saveNow: mockSaveNow,
+        onAfterAdd: mockOnAfterAdd,
+      }),
+    );
+
+    act(() => {
+      result.current.addBlock();
+      vi.runAllTimers();
+    });
+
+    expect(mockOnAfterAdd).toHaveBeenCalledTimes(1);
+    const [nextNodes, nextEdges] = mockOnAfterAdd.mock.calls[0];
+    expect(nextNodes).toHaveLength(3);
+    expect(nextNodes.some((n: Node) => n.type === 'scene-block')).toBe(true);
+    expect(nextEdges).toEqual([edge]);
+  });
+
   it('adds a new scene-block node to the nodes list when addBlock is called', () => {
     const mockSaveNow = vi.fn().mockResolvedValue(undefined);
     const capturedNodes: Node[][] = [];
@@ -347,7 +387,8 @@ describe('useAddBlock — hook', () => {
       useAddBlock({
         nodes: [makeStartNode(), makeEndNode()],
         edges: [],
-        setNodes: mockSetNodes,
+        setNodes: mockSetNodes as React.Dispatch<React.SetStateAction<Node[]>>,
+        draftId: DRAFT_ID,
         onRemoveNode: vi.fn(),
         saveNow: mockSaveNow,
       }),

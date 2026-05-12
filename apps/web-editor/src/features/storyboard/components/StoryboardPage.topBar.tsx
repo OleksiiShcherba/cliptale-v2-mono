@@ -66,7 +66,7 @@ const historyButtonStyle: React.CSSProperties = {
 const historyButtonActiveStyle: React.CSSProperties = {
   ...historyButtonStyle,
   background: '#4C1D95',
-  borderColor: '#7C3AED',
+  border: '1px solid #7C3AED',
 };
 
 // ── Component ──────────────────────────────────────────────────────────────────

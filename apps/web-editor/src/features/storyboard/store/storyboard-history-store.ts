@@ -12,13 +12,11 @@
  *   undo works across browser sessions.
  *
  * Interface:
- * - `push(snapshot)` — add a new snapshot; drop oldest when cap exceeded.
+ * - `push(snapshot, options?)` — add a new snapshot; drop oldest when cap exceeded.
  * - `undo()` — revert canvas to the previous snapshot.
  * - `redo()` — re-apply the next snapshot after an undo.
  * - `loadServerHistory(snapshots)` — seeds the stack from server data on mount.
  *
- * The `StoryboardHistoryStore` type is compatible with the stub in
- * `storyboard-history-store.stub.ts` (undo/redo signatures match).
  */
 
 import type { Node, Edge } from '@xyflow/react';
@@ -29,12 +27,8 @@ import type { StoryboardState } from '../types';
 import { BORDER } from '../components/nodeStyles';
 import { setNodes, setEdges, getSnapshot } from './storyboard-store';
 
-// ── Constants ──────────────────────────────────────────────────────────────────
-
-/** Maximum number of snapshots kept in memory. Oldest is dropped when exceeded. */
 export const MAX_HISTORY_SIZE = 50;
 
-/** Debounce delay (ms) for sending a snapshot to the server. */
 const SERVER_PERSIST_DEBOUNCE_MS = 1000;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -67,31 +61,28 @@ export type CanvasSnapshot = {
   thumbnail?: string;
 };
 
+export type AppliedCanvasSnapshot = {
+  nodes: Node[];
+  edges: Edge[];
+};
+
 /** Public interface that `useStoryboardKeyboard` and other consumers depend on. */
 export type StoryboardHistoryStore = {
   /** Reverts the canvas to the previous snapshot. No-op if at the bottom of the stack. */
-  undo: () => void;
+  undo: () => AppliedCanvasSnapshot | null;
   /** Re-applies the next snapshot. No-op if at the top of the stack. */
-  redo: () => void;
+  redo: () => AppliedCanvasSnapshot | null;
 };
 
 // ── Store state ────────────────────────────────────────────────────────────────
 
 /** The undo/redo stack — index 0 is the oldest; top = stack.length - 1. */
 let stack: CanvasSnapshot[] = [];
-/**
- * Points to the snapshot that currently represents the canvas state.
- * After a push: cursor = stack.length - 1 (top).
- * After undo: cursor decrements.
- * After redo: cursor increments.
- * Invariant: -1 means the stack is empty (nothing to undo).
- */
+/** Points to the snapshot that currently represents the canvas state. */
 let cursor = -1;
 
-/** draftId used for server persistence — set when `initHistoryStore` is called. */
 let draftId = '';
 
-/** Pending server-persist debounce timer handle. */
 let persistTimerHandle: ReturnType<typeof setTimeout> | null = null;
 
 // ── Internal helpers ───────────────────────────────────────────────────────────
@@ -100,6 +91,16 @@ let persistTimerHandle: ReturnType<typeof setTimeout> | null = null;
  * Schedules a fire-and-forget POST to the server.
  * Debounced at SERVER_PERSIST_DEBOUNCE_MS to coalesce rapid mutations.
  */
+function persistSnapshot(id: string, snapshot: CanvasSnapshot): Promise<void> {
+  const payload: StoryboardHistoryPayload = {
+    blocks: snapshot.blocks,
+    edges: snapshot.edges,
+    ...(snapshot.thumbnail !== undefined && { thumbnail: snapshot.thumbnail }),
+  };
+
+  return persistHistorySnapshot(id, payload);
+}
+
 function schedulePersist(snapshot: CanvasSnapshot): void {
   if (!draftId) return;
 
@@ -108,14 +109,7 @@ function schedulePersist(snapshot: CanvasSnapshot): void {
   }
 
   persistTimerHandle = setTimeout(() => {
-    // Build history-specific payload — includes thumbnail when present.
-    const payload: StoryboardHistoryPayload = {
-      blocks: snapshot.blocks,
-      edges: snapshot.edges,
-      ...(snapshot.thumbnail !== undefined && { thumbnail: snapshot.thumbnail }),
-    };
-
-    persistHistorySnapshot(draftId, payload).catch((err: unknown) => {
+    persistSnapshot(draftId, snapshot).catch((err: unknown) => {
       console.error('[storyboard-history-store] Failed to persist snapshot:', err);
     });
     persistTimerHandle = null;
@@ -128,7 +122,7 @@ function schedulePersist(snapshot: CanvasSnapshot): void {
  * The storyboard-store holds the current React Flow nodes; we reconstruct minimal
  * Node objects from the snapshot positions and existing node metadata.
  */
-function applySnapshot(snapshot: CanvasSnapshot): void {
+function applySnapshot(snapshot: CanvasSnapshot): AppliedCanvasSnapshot {
   const { nodes: currentNodes } = getSnapshot();
 
   // Rebuild nodes: preserve all React Flow node metadata but override position.
@@ -167,6 +161,8 @@ function applySnapshot(snapshot: CanvasSnapshot): void {
 
   setNodes(restoredNodes);
   setEdges(restoredEdges);
+
+  return { nodes: restoredNodes, edges: restoredEdges };
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────
@@ -246,7 +242,10 @@ export function getHistoryCursor(): number {
  * - The stack is capped at MAX_HISTORY_SIZE; oldest is dropped when exceeded.
  * - Schedules a debounced server persistence call.
  */
-export function push(snapshot: CanvasSnapshot): void {
+export async function push(
+  snapshot: CanvasSnapshot,
+  options: { persistImmediately?: boolean } = {},
+): Promise<void> {
   // Discard redo history after a new mutation.
   if (cursor < stack.length - 1) {
     stack = stack.slice(0, cursor + 1);
@@ -261,6 +260,17 @@ export function push(snapshot: CanvasSnapshot): void {
 
   cursor = stack.length - 1;
 
+  if (options.persistImmediately) {
+    if (persistTimerHandle !== null) {
+      clearTimeout(persistTimerHandle);
+      persistTimerHandle = null;
+    }
+    if (draftId) {
+      await persistSnapshot(draftId, snapshot);
+    }
+    return;
+  }
+
   schedulePersist(snapshot);
 }
 
@@ -268,20 +278,20 @@ export function push(snapshot: CanvasSnapshot): void {
  * Reverts the canvas to the previous snapshot.
  * No-op if the cursor is already at the bottom of the stack (nothing to undo).
  */
-export function undo(): void {
-  if (cursor <= 0) return;
+export function undo(): AppliedCanvasSnapshot | null {
+  if (cursor <= 0) return null;
   cursor -= 1;
-  applySnapshot(stack[cursor]);
+  return applySnapshot(stack[cursor]);
 }
 
 /**
  * Re-applies the next snapshot after an undo.
  * No-op if the cursor is already at the top of the stack (nothing to redo).
  */
-export function redo(): void {
-  if (cursor >= stack.length - 1) return;
+export function redo(): AppliedCanvasSnapshot | null {
+  if (cursor >= stack.length - 1) return null;
   cursor += 1;
-  applySnapshot(stack[cursor]);
+  return applySnapshot(stack[cursor]);
 }
 
 /**

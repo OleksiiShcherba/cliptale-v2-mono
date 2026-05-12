@@ -19,6 +19,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -137,12 +138,17 @@ import { StoryboardPage } from './StoryboardPage';
 // ---------------------------------------------------------------------------
 
 function renderPage(draftId = 'test-draft-drag') {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   return render(
-    <MemoryRouter initialEntries={[`/storyboard/${draftId}`]}>
-      <Routes>
-        <Route path="/storyboard/:draftId" element={<StoryboardPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[`/storyboard/${draftId}`]}>
+        <Routes>
+          <Route path="/storyboard/:draftId" element={<StoryboardPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
