@@ -4,7 +4,7 @@
  * Covers:
  * - handleNodeDragStop: calls saveNow() exactly once when a scene-block is dropped
  * - handleNodeDragStop: calls pushSnapshot() exactly once when a scene-block is dropped
- * - handleNodeDragStop: does NOT call saveNow/pushSnapshot for non-scene-block nodes
+ * - handleNodeDragStop: calls saveNow/pushSnapshot for START/END nodes
  * - handleNodeDragStop: snapshot receives updated position (not the pre-drag position)
  * - handleNodeDragStop: snapshot receives node with opacity restored (not 0.3)
  */
@@ -75,7 +75,9 @@ describe('useStoryboardDrag — drag-stop save (SB-POLISH-1c)', () => {
       expect(pushSnapshot).toHaveBeenCalledTimes(1);
     });
 
-    it('does NOT call saveNow when a non-scene-block node is dropped', () => {
+    it('calls saveNow when a START node is dropped', () => {
+      vi.useFakeTimers();
+
       const setNodes = vi.fn();
       const setEdges = vi.fn();
       const pushSnapshot = vi.fn().mockResolvedValue(undefined);
@@ -94,18 +96,16 @@ describe('useStoryboardDrag — drag-stop save (SB-POLISH-1c)', () => {
 
       act(() => {
         result.current.syncRefs([startNode], []);
-        // Fire drag stop directly — no drag start needed for non-scene node
         fireDragStop(result.current.handleNodeDragStop, startNode);
+        vi.runAllTimers();
       });
 
-      vi.useFakeTimers();
-      act(() => { vi.runAllTimers(); });
       vi.useRealTimers();
 
-      expect(saveNow).not.toHaveBeenCalled();
+      expect(saveNow).toHaveBeenCalledTimes(1);
     });
 
-    it('does NOT call pushSnapshot when a non-scene-block node is dropped', () => {
+    it('calls pushSnapshot with the updated position when an END node is dropped', () => {
       const setNodes = vi.fn();
       const setEdges = vi.fn();
       const pushSnapshot = vi.fn().mockResolvedValue(undefined);
@@ -115,19 +115,29 @@ describe('useStoryboardDrag — drag-stop save (SB-POLISH-1c)', () => {
         useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }),
       );
 
-      const startNode: Node = {
-        id: 'start',
-        type: 'start',
-        position: { x: 60, y: 200 },
+      const endNode: Node = {
+        id: 'end',
+        type: 'end',
+        position: { x: 900, y: 200 },
+        data: {},
+      };
+      const droppedEndNode: Node = {
+        ...endNode,
+        position: { x: 980, y: 240 },
         data: {},
       };
 
       act(() => {
-        result.current.syncRefs([startNode], []);
-        fireDragStop(result.current.handleNodeDragStop, startNode);
+        result.current.syncRefs([endNode], []);
+        fireDragStop(result.current.handleNodeDragStop, droppedEndNode);
       });
 
-      expect(pushSnapshot).not.toHaveBeenCalled();
+      expect(pushSnapshot).toHaveBeenCalledTimes(1);
+      const [snapshotNodes] = pushSnapshot.mock.calls[0] as [Node[], Edge[]];
+
+      const snapshotNode = snapshotNodes.find((n) => n.id === 'end');
+      expect(snapshotNode?.position.x).toBe(980);
+      expect(snapshotNode?.position.y).toBe(240);
     });
 
     it('passes the updated (post-drop) position to pushSnapshot', () => {

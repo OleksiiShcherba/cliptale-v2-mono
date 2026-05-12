@@ -109,8 +109,8 @@ function dist(a: XYPosition, b: XYPosition): number {
 // ── Hook ───────────────────────────────────────────────────────────────────────
 
 /**
- * Provides node drag event handlers that implement ghost drag and edge
- * auto-insert for the storyboard canvas.
+ * Provides node drag event handlers that commit dropped positions for all nodes,
+ * with ghost drag and edge auto-insert for scene blocks.
  */
 export function useStoryboardDrag({
   setNodes,
@@ -196,7 +196,17 @@ export function useStoryboardDrag({
 
   const handleNodeDragStop: OnNodeDrag = useCallback(
     (_event, node) => {
-      if (node.type !== 'scene-block') {
+      const isSceneBlock = node.type === 'scene-block';
+      if (!isSceneBlock) {
+        const droppedId = node.id;
+        const droppedPosition = node.position;
+        const updatedNodes: Node[] = nodesRef.current.map((n) =>
+          n.id === droppedId ? { ...n, position: droppedPosition } : n,
+        );
+
+        setNodes(() => updatedNodes);
+        void pushSnapshot(updatedNodes, edgesRef.current);
+        setTimeout(() => void saveNow(), 0);
         setDragState(null);
         return;
       }
