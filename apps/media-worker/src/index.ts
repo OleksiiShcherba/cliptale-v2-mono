@@ -1,5 +1,10 @@
 import { Queue, Worker } from 'bullmq';
-import type { MediaIngestJobPayload, TranscriptionJobPayload, EnhancePromptJobPayload } from '@ai-video-editor/project-schema';
+import type {
+  MediaIngestJobPayload,
+  TranscriptionJobPayload,
+  EnhancePromptJobPayload,
+  StoryboardPlanJobPayload,
+} from '@ai-video-editor/project-schema';
 import OpenAI from 'openai';
 
 import { config } from '@/config.js';
@@ -16,11 +21,13 @@ import { processIngestJob } from '@/jobs/ingest.job.js';
 import { processTranscribeJob } from '@/jobs/transcribe.job.js';
 import { processAiGenerateJob, type AiGenerateJobPayload, type FilesRepo, type AiGenerationJobRepo, type CreateFileParams } from '@/jobs/ai-generate.job.js';
 import { processEnhancePromptJob } from '@/jobs/enhancePrompt.job.js';
+import { processStoryboardPlanJob } from '@/jobs/storyboardPlan.job.js';
 
 const QUEUE_MEDIA_INGEST = 'media-ingest';
 const QUEUE_TRANSCRIPTION = 'transcription';
 const QUEUE_AI_GENERATE = 'ai-generate';
 const QUEUE_AI_ENHANCE = 'ai-enhance';
+const QUEUE_STORYBOARD_PLAN = 'storyboard-plan';
 
 const connection = { url: config.redis.url };
 
@@ -193,6 +200,28 @@ aiEnhanceWorker.on('error', (err) => {
 
 console.log('[media-worker] Listening for jobs on queue:', QUEUE_AI_ENHANCE);
 
+// ── Storyboard planning worker (concurrency 1 — multimodal OpenAI planning) ─
+
+const storyboardPlanWorker = new Worker<StoryboardPlanJobPayload>(
+  QUEUE_STORYBOARD_PLAN,
+  (job) => processStoryboardPlanJob(job, { openai: openaiClient, pool }),
+  { connection, concurrency: 1 },
+);
+
+storyboardPlanWorker.on('completed', (job) => {
+  console.log(`[media-worker] storyboard-plan job ${job.id} completed`);
+});
+
+storyboardPlanWorker.on('failed', (job, err) => {
+  console.error(`[media-worker] storyboard-plan job ${job?.id} failed:`, err.message);
+});
+
+storyboardPlanWorker.on('error', (err) => {
+  console.error('[media-worker] storyboard-plan worker error:', err.message);
+});
+
+console.log('[media-worker] Listening for jobs on queue:', QUEUE_STORYBOARD_PLAN);
+
 // ── Graceful shutdown ─────────────────────────────────────────────────────────
 
 async function shutdown(signal: string): Promise<void> {
@@ -202,6 +231,7 @@ async function shutdown(signal: string): Promise<void> {
     transcriptionWorker.close(),
     aiGenerateWorker.close(),
     aiEnhanceWorker.close(),
+    storyboardPlanWorker.close(),
     mediaIngestQueue.close(),
   ]);
   console.log('[media-worker] Workers closed. Exiting.');

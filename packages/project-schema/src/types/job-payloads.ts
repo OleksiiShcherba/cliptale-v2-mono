@@ -92,3 +92,18 @@ export type EnhancePromptJobPayload = {
   /** The current prompt document to be rewritten. */
   promptDoc: PromptDoc;
 };
+
+/**
+ * Payload for a `storyboard-plan` BullMQ job.
+ *
+ * The worker fetches the current draft/media state from durable storage using
+ * these identifiers. The API persists the queued job row before enqueueing.
+ */
+export type StoryboardPlanJobPayload = {
+  /** Unique job identifier, matching storyboard_plan_jobs.job_id. */
+  jobId: string;
+  /** Generation draft being planned. */
+  draftId: string;
+  /** User who initiated planning. */
+  userId: string;
+};

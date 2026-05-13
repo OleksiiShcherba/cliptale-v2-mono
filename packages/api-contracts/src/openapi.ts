@@ -12,6 +12,8 @@
  *  - GET /assets                                 — global wizard-gallery listing
  *  - POST/GET/PUT/DELETE /generation-drafts      — video generation wizard drafts
  *  - GET /generation-drafts/cards                — storyboard card summaries (Home hub)
+ *  - POST /generation-drafts/{id}/storyboard-plan — enqueue async storyboard planning
+ *  - GET /generation-drafts/{id}/storyboard-plan/{jobId} — poll storyboard planning
  *  - POST /storyboards/{draftId}/initialize      — seed START/END sentinel blocks
  *  - GET /storyboards/{draftId}                  — fetch blocks + edges for a draft
  *  - PUT /storyboards/{draftId}                  — full-replace blocks + edges
@@ -502,6 +504,81 @@ export const openApiSpec = {
           401: { description: 'Missing or invalid session token.' },
           403: { description: 'Draft belongs to another user.' },
           404: { description: 'Draft not found, or job has expired / was never created.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/generation-drafts/{id}/storyboard-plan': {
+      post: {
+        summary: 'Start asynchronous storyboard planning for a generation draft',
+        description:
+          'Validates the current draft PromptDoc, persists a queued storyboard planning job, ' +
+          'and enqueues worker processing. The request returns immediately with HTTP 202; ' +
+          'clients should poll the returned job ID.',
+        operationId: 'startStoryboardPlan',
+        tags: ['generation-drafts'],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft to plan.',
+          },
+        ],
+        responses: {
+          202: {
+            description: 'Storyboard planning job queued.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StartStoryboardPlanResponse' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid session token.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found.' },
+          422: { description: 'PromptDoc is invalid or has no text/media input to plan.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/generation-drafts/{id}/storyboard-plan/{jobId}': {
+      get: {
+        summary: 'Poll a storyboard planning job',
+        description:
+          'Returns persisted storyboard planning status from MySQL. The completed response ' +
+          'includes the durable storyboard plan; failed responses include a sanitized error.',
+        operationId: 'getStoryboardPlanStatus',
+        tags: ['generation-drafts'],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft.',
+          },
+          {
+            name: 'jobId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'Storyboard planning job ID returned by POST /storyboard-plan.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Persisted storyboard planning job status.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StoryboardPlanJobStatusResponse' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid session token.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft or storyboard planning job not found.' },
         },
         security: [{ bearerAuth: [] }],
       },
@@ -1223,6 +1300,111 @@ export const openApiSpec = {
             type: 'string',
             description: 'Human-readable error message. Present only when status=failed.',
           },
+        },
+      },
+      StartStoryboardPlanResponse: {
+        type: 'object',
+        required: ['jobId', 'status'],
+        description: 'Returned by POST /generation-drafts/:id/storyboard-plan.',
+        properties: {
+          jobId: {
+            type: 'string',
+            format: 'uuid',
+            description: 'Persisted storyboard planning job ID.',
+          },
+          status: {
+            type: 'string',
+            enum: ['queued'],
+          },
+        },
+      },
+      StoryboardPlanJobStatusResponse: {
+        oneOf: [
+          {
+            type: 'object',
+            required: ['jobId', 'status'],
+            properties: {
+              jobId: { type: 'string', format: 'uuid' },
+              status: { type: 'string', enum: ['queued', 'running'] },
+              plan: { type: 'null' },
+              errorMessage: { type: 'null' },
+            },
+          },
+          {
+            type: 'object',
+            required: ['jobId', 'status', 'plan'],
+            properties: {
+              jobId: { type: 'string', format: 'uuid' },
+              status: { type: 'string', enum: ['completed'] },
+              plan: { $ref: '#/components/schemas/StoryboardPlan' },
+              errorMessage: { type: 'null' },
+            },
+          },
+          {
+            type: 'object',
+            required: ['jobId', 'status', 'errorMessage'],
+            properties: {
+              jobId: { type: 'string', format: 'uuid' },
+              status: { type: 'string', enum: ['failed'] },
+              plan: { type: 'null' },
+              errorMessage: { type: 'string' },
+            },
+          },
+        ],
+        discriminator: {
+          propertyName: 'status',
+        },
+      },
+      StoryboardPlan: {
+        type: 'object',
+        required: ['schemaVersion', 'videoLengthSeconds', 'sceneCount', 'scenes'],
+        description: 'Structured storyboard instruction array persisted after planning.',
+        properties: {
+          schemaVersion: { type: 'integer', enum: [1] },
+          videoLengthSeconds: { type: 'integer', minimum: 1, maximum: 600 },
+          sceneCount: { type: 'integer', minimum: 1, maximum: 100 },
+          scenes: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 100,
+            items: { $ref: '#/components/schemas/StoryboardPlanScene' },
+          },
+        },
+      },
+      StoryboardPlanScene: {
+        type: 'object',
+        required: [
+          'sceneNumber',
+          'prompt',
+          'visualPrompt',
+          'durationSeconds',
+          'referencedMedia',
+          'transitionNotes',
+          'style',
+        ],
+        properties: {
+          sceneNumber: { type: 'integer', minimum: 1 },
+          prompt: { type: 'string', minLength: 1 },
+          visualPrompt: { type: 'string', minLength: 1 },
+          durationSeconds: { type: 'number', exclusiveMinimum: 0 },
+          referencedMedia: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/StoryboardPlanReferencedMedia' },
+          },
+          transitionNotes: { type: 'string' },
+          style: {
+            type: 'string',
+            enum: ['cinematic', 'documentary', 'social', 'product', 'minimal'],
+          },
+        },
+      },
+      StoryboardPlanReferencedMedia: {
+        type: 'object',
+        required: ['fileId', 'mediaType', 'label'],
+        properties: {
+          fileId: { type: 'string', format: 'uuid' },
+          mediaType: { type: 'string', enum: ['video', 'image', 'audio'] },
+          label: { type: 'string', minLength: 1 },
         },
       },
       MediaPreview: {

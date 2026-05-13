@@ -5,6 +5,7 @@ import { aclMiddleware } from '@/middleware/acl.middleware.js';
 import { validateBody } from '@/middleware/validate.middleware.js';
 import { enhancePromptLimiter } from '@/middleware/enhance.rate-limiter.js';
 import * as generationDraftsController from '@/controllers/generationDrafts.controller.js';
+import * as storyboardPlanController from '@/controllers/generationDraftStoryboardPlan.controller.js';
 
 const router = Router();
 
@@ -35,6 +36,26 @@ router.get(
   authMiddleware,
   aclMiddleware('editor'),
   generationDraftsController.listCards,
+);
+
+// POST /generation-drafts/:id/storyboard-plan
+// Enqueues asynchronous storyboard planning for a draft.
+// Registered before /generation-drafts/:id so Express does not interpret the
+// suffix as part of the generic draft route.
+router.post(
+  '/generation-drafts/:id/storyboard-plan',
+  authMiddleware,
+  aclMiddleware('editor'),
+  storyboardPlanController.startStoryboardPlan,
+);
+
+// GET /generation-drafts/:id/storyboard-plan/:jobId
+// Polls persisted storyboard planning job status.
+router.get(
+  '/generation-drafts/:id/storyboard-plan/:jobId',
+  authMiddleware,
+  aclMiddleware('editor'),
+  storyboardPlanController.getStoryboardPlanStatus,
 );
 
 // GET /generation-drafts/:id

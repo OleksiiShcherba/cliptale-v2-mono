@@ -47,4 +47,55 @@ describe('openApiSpec generation draft schemas', () => {
     ]);
     expect(props.modelPreference?.type).toEqual(['string', 'null']);
   });
+
+  it('documents storyboard-plan enqueue and polling response schemas', () => {
+    const startResponse = schemas['StartStoryboardPlanResponse'] as Record<string, unknown>;
+    const startRequired = startResponse.required as string[];
+    const startProps = startResponse.properties as Record<string, Record<string, unknown>>;
+
+    expect(startRequired).toEqual(['jobId', 'status']);
+    expect(startProps.jobId?.format).toBe('uuid');
+    expect(startProps.status?.enum).toEqual(['queued']);
+
+    const statusResponse = schemas['StoryboardPlanJobStatusResponse'] as Record<string, unknown>;
+    const variants = statusResponse.oneOf as Array<Record<string, unknown>>;
+    expect(variants).toHaveLength(3);
+    expect(statusResponse.discriminator).toEqual({ propertyName: 'status' });
+
+    const completed = variants[1]!;
+    const completedProps = completed.properties as Record<string, Record<string, unknown>>;
+    expect(completedProps.status?.enum).toEqual(['completed']);
+    expect(completedProps.plan?.$ref).toBe('#/components/schemas/StoryboardPlan');
+  });
+
+  it('documents storyboard plan scene contract', () => {
+    const plan = schemas['StoryboardPlan'] as Record<string, unknown>;
+    const planProps = plan.properties as Record<string, Record<string, unknown>>;
+    expect(plan.required).toEqual([
+      'schemaVersion',
+      'videoLengthSeconds',
+      'sceneCount',
+      'scenes',
+    ]);
+    expect(planProps.schemaVersion?.enum).toEqual([1]);
+    expect(planProps.videoLengthSeconds?.minimum).toBe(1);
+    expect(planProps.videoLengthSeconds?.maximum).toBe(600);
+
+    const scene = schemas['StoryboardPlanScene'] as Record<string, unknown>;
+    const sceneProps = scene.properties as Record<string, Record<string, unknown>>;
+    expect(sceneProps.prompt?.minLength).toBe(1);
+    expect(sceneProps.visualPrompt?.minLength).toBe(1);
+    expect(sceneProps.style?.enum).toEqual([
+      'cinematic',
+      'documentary',
+      'social',
+      'product',
+      'minimal',
+    ]);
+
+    const media = schemas['StoryboardPlanReferencedMedia'] as Record<string, unknown>;
+    const mediaProps = media.properties as Record<string, Record<string, unknown>>;
+    expect(mediaProps.fileId?.format).toBe('uuid');
+    expect(mediaProps.mediaType?.enum).toEqual(['video', 'image', 'audio']);
+  });
 });

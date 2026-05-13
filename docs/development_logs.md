@@ -240,6 +240,94 @@
 - tests: `npm --workspace apps/web-editor test -- useGenerationDraft DraftSettingsControls WizardFooter` -> 42 tests passed.
 - e2e: `E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/generate-wizard-settings.spec.ts` -> 2 tests passed.
 
+## Stage 2 Storyboard Planning — STAGE2-PLAN-1 (2026-05-13)
+- added: shared storyboard plan schemas, inferred TypeScript types, job status/result schemas, deterministic scene-count helper, and exported safe default helpers for legacy draft settings.
+- covered: duplicate/non-sequential scene number rejection, empty prompt/visualPrompt rejection, positive duration validation, duration-sum tolerance, stable referenced media without signed URLs, and enforced 1-600 second scene-count derivation.
+- tests: `npm --workspace packages/project-schema test -- storyboardPlan` -> 1 file / 15 tests passed.
+- typecheck: `npm --workspace packages/project-schema run typecheck` -> passed.
+- build: `npm --workspace packages/project-schema run build` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Planning — STAGE2-PLAN-2 (2026-05-13)
+- added: `storyboard_plan_jobs` migration with job lifecycle columns, durable JSON snapshots, completion/failure timestamps, and `(draft_id, created_at)` / `(user_id, created_at)` indexes.
+- added: storyboard plan job repository for queued/running/completed/failed lifecycle updates, validated completed plan persistence, sanitized failure messages, job lookup, and latest completed draft plan lookup.
+- covered: mysql2 JSON string/object mapping, schema-invalid completed plan rejection, concise stack/secret/url-safe errors, and fetch SQL that does not shortcut draft soft-delete behavior.
+- build: `npm --workspace packages/project-schema run build` -> passed.
+- tests: `npm --workspace apps/api test -- storyboardPlanJob.repository` -> 1 file / 14 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Planning — STAGE2-PLAN-3 (2026-05-13)
+- added: authenticated `POST /generation-drafts/:id/storyboard-plan` and `GET /generation-drafts/:id/storyboard-plan/:jobId` routes before generic draft routes, with thin controller wiring.
+- added: storyboard-plan API service and queue enqueue helper; POST validates draft ownership, PromptDoc/settings shape, non-empty text/media input, persists a queued job row, enqueues BullMQ, and returns 202.
+- added: GET polling reads persisted `storyboard_plan_jobs` rows for queued/running/completed/failed states and returns durable completed plans without reading BullMQ return values.
+- added: OpenAPI path/schema contract and focused API service/integration/OpenAPI tests for ownership, missing/deleted drafts, repeat POST distinct jobs, validation, and persisted polling states.
+- build: `npm --workspace packages/project-schema run build` -> passed.
+- tests: `npm --workspace apps/api test -- generationDraft storyboardPlan` -> failed on pre-existing `generationDraft.restore.service.test.ts` hard-coded restore TTL fixture; storyboard-plan tests in the run passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi` -> 5 files / 98 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- typecheck: `npm --workspace packages/api-contracts run typecheck` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Planning — STAGE2-PLAN-4 (2026-05-13)
+- added: media-worker storyboard planning context resolver that loads the current `PromptDoc`, validates referenced `files` through active `draft_files`, includes stable metadata/transcript snippets, and fails dangling, deleted, unauthorized, unlinked, or kind-mismatched refs with explicit validation errors.
+- added: worker-local S3 read presign helper for short-lived OpenAI media inputs; ready images sign `storage_uri`, ready videos sign thumbnail previews only, and audio/video raw files are not signed for the normal planning path.
+- documented in code/tests: pending/processing refs are metadata-only, images use vision input, audio is transcript-first, and video uses metadata plus thumbnail/transcript context.
+- covered: signed URLs excluded from persistable media context, absent transcript-storage fallback, transcript null fallback, pending/processing metadata-only behavior, dangling/unauthorized failures, and no raw audio/video upload requirement.
+- tests: `npm --workspace apps/media-worker test -- storyboardPlan.context` -> 1 file / 11 tests passed; `npm --workspace apps/media-worker test -- s3` -> 1 file / 2 tests passed.
+- typecheck: `npm --workspace apps/media-worker run typecheck` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Planning — STAGE2-PLAN-5 (2026-05-13)
+- added: media-worker `storyboard-plan` BullMQ worker registration plus worker-local lifecycle persistence for running/completed/failed job states.
+- added: OpenAI storyboard planning handler that resolves current draft/media context, sends JSON-only multimodal text plus image/thumbnail URL input, allowlists `modelPreference`, validates shared storyboard plan schema, and persists stable media context without signed URLs.
+- covered: success, malformed JSON, schema-invalid plans, media context validation failures, model fallback, and retryable transient OpenAI failures.
+- tests: `npm --workspace apps/media-worker test -- storyboardPlan` -> 2 files / 21 tests passed.
+- typecheck: `npm --workspace apps/media-worker run typecheck` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Planning — STAGE2-PLAN-6 (2026-05-13)
+- added: worker integration-style coverage that resolves a text prompt plus image/video/audio refs from DB-like rows, uses mocked signed URLs and mocked OpenAI, and persists a 45-second storyboard plan through the real worker repository path.
+- covered: custom video length constraints, image vision input, video thumbnail/transcript context, audio transcript-first context, durable media context without signed URLs, and no storyboard block creation query in the planning path.
+- confirmed: existing API integration coverage exercises mocked queue POST lifecycle, persisted GET states, authenticated owner fetch, and cross-user rejection; existing context tests cover missing, unauthorized, deleted, unlinked, and kind-mismatched media refs.
+- tests: `npm --workspace packages/project-schema test` -> 7 files / 132 tests passed.
+- tests: `npm --workspace apps/api test -- generationDraft storyboardPlan` -> 9 files passed, 108/110 tests passed; only failures were the known date-sensitive `generationDraft.restore.service.test.ts` January 2026 restore TTL cases, unrelated to storyboard planning.
+- tests: `npm --workspace apps/api test -- storyboardPlan` -> 3 files / 24 tests passed.
+- tests: `npm --workspace apps/media-worker test -- storyboardPlan` -> 2 files / 22 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi` -> 5 files / 98 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- typecheck: `npm --workspace apps/media-worker run typecheck` -> passed.
+- active task: cleared `docs/active_task.md`; Stage 2 Block 3 storyboard planning implementation subtasks are complete.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Planning — Runtime Fixes (2026-05-13)
+- fixed: media-worker Docker build no longer fails on duplicate AWS/Smithy type instances by wrapping `getSignedUrl` behind a local typed adapter.
+- fixed: storyboard-plan worker payload validation now accepts the seeded local dev auth user id `dev-user-001` while still requiring UUID `jobId` and `draftId`.
+- changed: storyboard plan scene count clamp is 40 scenes max, so 600-second drafts produce a realistic 40-scene plan instead of requiring 100 scenes from one OpenAI response.
+- improved: schema validation errors now store compact `path: message` details instead of raw multiline Zod JSON that appears as only `[` in container logs.
+- verified: real API/worker flow for a 600-second draft completed with `sceneCount = 40`, `scenes = 40`, and `error_message = NULL`.
+- tests: `npm --workspace packages/project-schema test -- storyboardPlan` -> passed.
+- tests: `npm --workspace apps/media-worker test -- storyboardPlan` -> 2 files / 23 tests passed.
+- typecheck/build: `npm --workspace apps/media-worker run typecheck`, `npm run build --workspace=apps/media-worker`, and `docker compose build media-worker` -> passed.
+
 ---
 
 ## Architectural Decisions
