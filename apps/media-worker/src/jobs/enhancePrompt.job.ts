@@ -137,7 +137,11 @@ export async function processEnhancePromptJob(
   }
 
   // Step 4: splice media-ref blocks back into the rewritten text
-  const enhanced = spliceSentinels(rawOutput, media);
+  const spliced = spliceSentinels(rawOutput, media);
+  const enhanced: PromptDoc =
+    promptDoc.settings === undefined
+      ? spliced
+      : { ...spliced, settings: promptDoc.settings };
 
   // Step 5: validate the spliced result against the schema
   const parseResult = promptDocSchema.safeParse(enhanced);

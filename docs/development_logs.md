@@ -146,6 +146,100 @@
 - checked by design-reviewer - APPROVED
 - checked by playwright-reviewer - COMMENTED
 
+## Stage 2 Draft Settings — STAGE2-DRAFT-1 (2026-05-12)
+- added: shared `draftSettingsSchema` plus draft length/aspect/style enum schemas on `PromptDoc.settings`.
+- exported: `DraftSettings`, `DraftVideoLengthSeconds`, `DraftAspectRatio`, and `DraftStyleKey` from `@ai-video-editor/project-schema`.
+- covered: legacy PromptDoc documents without settings, valid settings parsing/type inference, and invalid setting values.
+- tests: `npm --workspace packages/project-schema test -- promptDoc.schema.test.ts` -> 1 file / 13 tests passed.
+- typecheck: `npm --workspace packages/project-schema run typecheck` -> passed. Documented command `npm --workspace packages/project-schema typecheck` is not accepted by this npm version.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Draft Settings — STAGE2-DRAFT-2 (2026-05-12)
+- covered: API create/update validation accepts valid draft settings, rejects invalid settings enum values through the existing 422 service path, and preserves settings through repository JSON mapping.
+- updated: OpenAPI now documents `PromptDoc`, `PromptBlock`, and `DraftSettings` components; generation draft request/response schemas reference `PromptDoc`.
+- noted: `packages/project-schema` must be rebuilt before API tests because `@ai-video-editor/project-schema` resolves to `dist`.
+- tests: `npm --workspace packages/project-schema run build` -> passed.
+- tests: `npm --workspace apps/api test -- generationDraft.service.test.ts generationDraft.repository.test.ts` -> 2 files / 31 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi` -> 4 files / 94 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- typecheck: `npm --workspace packages/api-contracts run typecheck` -> passed.
+- broader test caveat: `npm --workspace apps/api test -- generationDraft` still fails only in pre-existing date-sensitive `generationDraft.restore.service.test.ts` cases because fixed January 2026 deletion dates are now older than the 30-day restore TTL on 2026-05-12.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Draft Settings — STAGE2-DRAFT-3 (2026-05-12)
+- added: generate-wizard feature-local re-exports for draft settings types.
+- added: `DEFAULT_DRAFT_SETTINGS` and `getDraftSettings(promptDoc)` so legacy drafts expose UI defaults without mutating or immediately resaving the server document.
+- covered: settings-only changes autosave through `setDoc`, hydrated legacy drafts do not schedule saves, optional settings fields default for UI reads, and `flush()` persists pending settings-only changes after hydrate.
+- tests: `npm --workspace apps/web-editor test -- useGenerationDraft` -> 3 files / 18 tests passed.
+- typecheck: `npm --workspace apps/web-editor run typecheck` still fails on existing workspace-wide errors; filtered output for touched files shows no errors. Existing generate-wizard errors remain in `AssetPickerModal.test.tsx`, `EnhancePreviewModal.test.tsx`, `PromptEditor.drag.test.tsx`, and `useEnhancePrompt.ts`.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Draft Settings — STAGE2-DRAFT-4 (2026-05-12)
+- added: compact Step 1 `DraftSettingsControls` for video length, aspect ratio, and style.
+- wired: controls update `PromptDoc.settings` through `GenerateWizardPage`'s existing `setDoc` autosave path; `modelPreference` remains hidden and defaults to null.
+- styled: dark-theme tokens, 8px radius, responsive auto-fit grid, select controls for length/style, segmented buttons for aspect ratio.
+- covered: default legacy settings, hydrated settings, and settings update payloads in focused component tests.
+- tests: `npm --workspace apps/web-editor test -- GenerateWizardPage DraftSettingsControls` -> 4 files / 30 tests passed.
+- tests: `npm --workspace apps/web-editor test -- WizardFooter` -> 1 file / 17 tests passed.
+- typecheck: `npm --workspace apps/web-editor run typecheck` still fails on existing workspace-wide errors; filtered output for `DraftSettingsControls`, `GenerateWizardPage`, and draft settings symbols shows no local errors.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Draft Settings — STAGE2-DRAFT-5 (2026-05-12)
+- fixed: AI Enhance worker now preserves original `PromptDoc.settings` while rewriting prompt blocks.
+- guarded: `useEnhancePrompt` merges source settings back into enhance results that omit settings before exposing them to the preview modal.
+- covered: API enhance payload includes settings, worker preserves settings, modal accept passes proposed settings, and WizardFooter flushes a settings-bearing doc before navigating to storyboard.
+- tests: `npm --workspace apps/api test -- generationDraft.enhance` -> 1 file / 12 tests passed.
+- tests: `npm --workspace apps/media-worker test -- enhancePrompt.job` -> 1 file / 12 tests passed.
+- tests: `npm --workspace apps/web-editor test -- EnhancePreviewModal useEnhancePrompt WizardFooter` -> 4 files / 36 tests passed.
+- typecheck: `npm --workspace apps/media-worker run typecheck` -> passed.
+- typecheck: filtered `npm --workspace apps/web-editor run typecheck` output for changed enhance/footer files -> no local errors; full web-editor typecheck remains blocked by existing workspace-wide failures.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Draft Settings — STAGE2-DRAFT-6 (2026-05-12)
+- added: focused Playwright coverage for Step 1 draft settings persistence/resume and Next after a settings-only change.
+- fixed: `DraftSettingsControls` now keeps an optimistic local settings snapshot so rapid length/aspect/style changes compose into one complete `PromptDoc.settings` payload instead of overwriting from a stale render.
+- hardened: E2E waits for hydrated prompt content before interacting with resumed drafts and disables the Step 1 pro-tip overlay before app scripts run.
+- tests: `npm --workspace apps/web-editor test -- DraftSettingsControls GenerateWizardPage` -> 4 files / 30 tests passed.
+- e2e: reseeded local E2E user and restarted the local API container to clear the in-memory auth login limiter, then ran `E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/generate-wizard-settings.spec.ts` -> 2 tests passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Draft Settings — Final Validation (2026-05-12)
+- tests: `npm --workspace packages/project-schema test` -> 6 files / 117 tests passed.
+- tests: `npm --workspace packages/api-contracts test` -> 7 files / 134 tests passed.
+- tests: `npm --workspace apps/web-editor test -- generate-wizard` -> 29 files / 215 tests passed.
+- caveat: `npm --workspace apps/api test -- generationDraft` -> 6 files passed, 84/86 tests passed; the only failures are the known date-sensitive `generationDraft.restore.service.test.ts` happy-path cases now returning 410 because their fixed January 2026 `deletedAt` fixture is outside the 30-day restore TTL on 2026-05-12.
+- active task: cleared `docs/active_task.md`; Stage 2 draft settings work is complete.
+
+## Stage 2 Draft Settings — Custom Video Length (2026-05-12)
+- changed: `videoLengthSeconds` now accepts any integer from 1 to 600 instead of only preset enum values.
+- updated: Step 1 Length control is a numeric seconds input with quick preset buttons for 15/30/60/90/120 seconds.
+- covered: schema accepts custom values such as 75 seconds and rejects 0, 601, and fractional seconds; OpenAPI documents integer min/max; UI tests cover custom input, presets, and invalid ranges.
+- tests: `npm --workspace packages/project-schema test -- promptDoc.schema.test.ts` -> 13 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi.generation-drafts.schemas.test.ts` -> 3 tests passed.
+- tests: `npm --workspace apps/web-editor test -- DraftSettingsControls GenerateWizardPage` -> 32 tests passed.
+- tests: `npm --workspace packages/project-schema run build` -> passed.
+- tests: `npm --workspace apps/api test -- generationDraft.service.test.ts` -> 18 tests passed.
+- tests: `npm --workspace apps/web-editor test -- useGenerationDraft DraftSettingsControls WizardFooter` -> 42 tests passed.
+- e2e: `E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/generate-wizard-settings.spec.ts` -> 2 tests passed.
+
 ---
 
 ## Architectural Decisions

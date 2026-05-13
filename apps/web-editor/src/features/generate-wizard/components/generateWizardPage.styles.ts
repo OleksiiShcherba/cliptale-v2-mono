@@ -14,6 +14,9 @@ const SURFACE_ALT = '#16161F';
 const SURFACE_ELEVATED = '#1E1E2E';
 const BORDER = '#252535';
 const TEXT_PRIMARY = '#F0F0FA';
+const TEXT_SECONDARY = '#8A8AA0';
+const PRIMARY = '#7C3AED';
+const PRIMARY_LIGHT = '#4C1D95';
 
 export const wizardPageStyles = {
   page: {
@@ -79,5 +82,102 @@ export const wizardPageStyles = {
     background: SURFACE_ELEVATED,
     borderTop: `1px solid ${BORDER}`,
     gap: '12px',
+  } as React.CSSProperties,
+
+  settingsPanel: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(112px, 1fr))',
+    gap: '12px',
+    marginTop: '16px',
+    padding: '12px',
+    background: SURFACE_ALT,
+    border: `1px solid ${BORDER}`,
+    borderRadius: '8px',
+  } as React.CSSProperties,
+
+  settingsGroup: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: '6px',
+    minWidth: 0,
+  } as React.CSSProperties,
+
+  settingsLabel: {
+    color: TEXT_SECONDARY,
+    fontSize: '12px',
+    fontWeight: 500,
+    lineHeight: '16px',
+  } as React.CSSProperties,
+
+  settingsSelect: {
+    height: '32px',
+    width: '100%',
+    color: TEXT_PRIMARY,
+    background: SURFACE_ELEVATED,
+    border: `1px solid ${BORDER}`,
+    borderRadius: '8px',
+    padding: '0 8px',
+    fontFamily: 'Inter, sans-serif',
+    fontSize: '12px',
+    lineHeight: '16px',
+  } as React.CSSProperties,
+
+  settingsInput: {
+    height: '32px',
+    width: '100%',
+    color: TEXT_PRIMARY,
+    background: SURFACE_ELEVATED,
+    border: `1px solid ${BORDER}`,
+    borderRadius: '8px',
+    padding: '0 8px',
+    fontFamily: 'Inter, sans-serif',
+    fontSize: '12px',
+    lineHeight: '16px',
+    boxSizing: 'border-box' as const,
+  } as React.CSSProperties,
+
+  lengthPresetGroup: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+    gap: '4px',
+  } as React.CSSProperties,
+
+  lengthPresetButton: {
+    height: '28px',
+    color: TEXT_SECONDARY,
+    background: SURFACE_ELEVATED,
+    border: `1px solid ${BORDER}`,
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontFamily: 'Inter, sans-serif',
+    fontSize: '11px',
+    fontWeight: 500,
+    lineHeight: '16px',
+    padding: '0 4px',
+  } as React.CSSProperties,
+
+  segmentGroup: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: '4px',
+  } as React.CSSProperties,
+
+  segmentButton: {
+    height: '32px',
+    color: TEXT_SECONDARY,
+    background: SURFACE_ELEVATED,
+    border: `1px solid ${BORDER}`,
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontFamily: 'Inter, sans-serif',
+    fontSize: '12px',
+    fontWeight: 500,
+    lineHeight: '16px',
+  } as React.CSSProperties,
+
+  segmentButtonActive: {
+    color: TEXT_PRIMARY,
+    background: PRIMARY_LIGHT,
+    border: `1px solid ${PRIMARY}`,
   } as React.CSSProperties,
 } as const;

@@ -29,6 +29,7 @@ import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useGenerationDraft } from './useGenerationDraft';
 import { EMPTY_DOC, DOC_A, DRAFT_RESPONSE } from './useGenerationDraft.fixtures';
+import { DEFAULT_DRAFT_SETTINGS, getDraftSettings } from '../utils';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -146,5 +147,63 @@ describe('useGenerationDraft', () => {
     expect(mockCreateDraft).not.toHaveBeenCalled();
     expect(mockUpdateDraft).not.toHaveBeenCalled();
     expect(result.current.status).toBe('idle');
+  });
+
+  it('uses default draft settings for legacy docs without mutating the doc', () => {
+    const { result } = renderHook(() => useGenerationDraft({ initial: DOC_A }), {
+      wrapper: makeWrapper(),
+    });
+
+    expect(result.current.doc.settings).toBeUndefined();
+    expect(getDraftSettings(result.current.doc)).toEqual(DEFAULT_DRAFT_SETTINGS);
+  });
+
+  it('fills omitted optional settings fields with defaults', () => {
+    expect(
+      getDraftSettings({
+        ...DOC_A,
+        settings: {
+          videoLengthSeconds: 45,
+          aspectRatio: '1:1',
+          styleKey: 'minimal',
+        },
+      }),
+    ).toEqual({
+      ...DEFAULT_DRAFT_SETTINGS,
+      videoLengthSeconds: 45,
+      aspectRatio: '1:1',
+      styleKey: 'minimal',
+    });
+  });
+
+  it('autosaves settings-only changes through the same setDoc path', async () => {
+    mockCreateDraft.mockResolvedValue({
+      ...DRAFT_RESPONSE,
+      promptDoc: {
+        ...DOC_A,
+        settings: {
+          ...DEFAULT_DRAFT_SETTINGS,
+          videoLengthSeconds: 60,
+        },
+      },
+    });
+
+    const { result } = renderHook(() => useGenerationDraft({ initial: DOC_A }), {
+      wrapper: makeWrapper(),
+    });
+
+    const nextDoc = {
+      ...DOC_A,
+      settings: {
+        ...DEFAULT_DRAFT_SETTINGS,
+        videoLengthSeconds: 60 as const,
+      },
+    };
+
+    act(() => { result.current.setDoc(nextDoc); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+
+    expect(mockCreateDraft).toHaveBeenCalledOnce();
+    expect(mockCreateDraft).toHaveBeenCalledWith(nextDoc);
   });
 });

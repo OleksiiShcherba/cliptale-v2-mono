@@ -79,11 +79,13 @@ describe('EnhancePreviewModal', () => {
 
     // Before panel contains original text
     const beforeText = screen.getByTestId('enhance-before-text');
-    expect(beforeText.textContent).toBe(TEXT_ONLY_ORIGINAL.blocks[0].value);
+    expect(beforeText.textContent).toBe('Create a video about space exploration.');
 
     // After panel contains proposed text
     const afterText = screen.getByTestId('enhance-after-text');
-    expect(afterText.textContent).toBe(TEXT_ONLY_PROPOSED.blocks[0].value);
+    expect(afterText.textContent).toBe(
+      'Create a cinematic video showcasing the wonders of space exploration, from rocket launches to distant galaxies.',
+    );
 
     // Header is accessible
     expect(screen.getByRole('dialog')).toBeTruthy();
@@ -101,6 +103,24 @@ describe('EnhancePreviewModal', () => {
 
     expect(onAccept).toHaveBeenCalledOnce();
     expect(onAccept).toHaveBeenCalledWith(TEXT_ONLY_PROPOSED);
+  });
+
+  it('should pass proposed settings through when Accept is clicked', () => {
+    const onAccept = vi.fn();
+    const proposed = {
+      ...TEXT_ONLY_PROPOSED,
+      settings: {
+        videoLengthSeconds: 60 as const,
+        aspectRatio: '9:16' as const,
+        styleKey: 'social' as const,
+        modelPreference: null,
+      },
+    };
+    renderModal({ status: 'done', proposed, onAccept });
+
+    fireEvent.click(screen.getByTestId('enhance-accept-button'));
+
+    expect(onAccept).toHaveBeenCalledWith(proposed);
   });
 
   // Case 4 ─────────────────────────────────────────────────────────────────

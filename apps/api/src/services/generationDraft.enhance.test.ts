@@ -5,6 +5,7 @@ import { ForbiddenError, NotFoundError } from '@/lib/errors.js';
 import { startEnhance, getEnhanceStatus } from './generationDraft.service.js';
 import {
   VALID_PROMPT_DOC,
+  VALID_PROMPT_DOC_WITH_SETTINGS,
   USER_ID,
   OTHER_USER_ID,
   DRAFT_ID,
@@ -64,6 +65,20 @@ describe('generationDraft.service — enhance', () => {
         promptDoc: draft.promptDoc,
       });
       expect(result).toEqual({ jobId: 'job-uuid-1' });
+    });
+
+    it('should include draft settings in the enhance job payload', async () => {
+      const draft = makeDraft({ promptDoc: VALID_PROMPT_DOC_WITH_SETTINGS });
+      vi.mocked(generationDraftRepository.findDraftById).mockResolvedValue(draft);
+      mockEnqueueEnhancePrompt.mockResolvedValue('job-uuid-1');
+
+      await startEnhance(USER_ID, DRAFT_ID);
+
+      expect(mockEnqueueEnhancePrompt).toHaveBeenCalledWith({
+        draftId: DRAFT_ID,
+        userId: USER_ID,
+        promptDoc: VALID_PROMPT_DOC_WITH_SETTINGS,
+      });
     });
 
     it('should throw NotFoundError (404) when draft does not exist', async () => {

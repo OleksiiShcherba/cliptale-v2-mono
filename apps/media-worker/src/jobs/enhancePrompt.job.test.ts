@@ -40,6 +40,13 @@ function makeDoc(blocks: PromptDoc['blocks']): PromptDoc {
   return { schemaVersion: 1, blocks };
 }
 
+const DRAFT_SETTINGS = {
+  videoLengthSeconds: 60 as const,
+  aspectRatio: '9:16' as const,
+  styleKey: 'social' as const,
+  modelPreference: null,
+};
+
 function makeJob(promptDoc: PromptDoc): Job<EnhancePromptJobPayload> {
   return {
     data: {
@@ -120,6 +127,24 @@ describe('processEnhancePromptJob', () => {
       expect(callArg.messages[0]?.content).toBe(ENHANCE_SYSTEM_PROMPT);
       expect(callArg.messages[1]?.role).toBe('user');
       expect((callArg.messages[1]?.content as string)).toContain('{{MEDIA_1}}');
+    });
+
+    it('should preserve draft settings while rewriting prompt blocks', async () => {
+      const inputDoc: PromptDoc = {
+        ...makeDoc([
+          { type: 'text', value: 'Hello ' },
+          MEDIA_VIDEO,
+        ]),
+        settings: DRAFT_SETTINGS,
+      };
+
+      const openai = makeOpenAIMock('Greetings {{MEDIA_1}}');
+      const deps: EnhancePromptJobDeps = { openai, pool: mockPool };
+
+      const result = await processEnhancePromptJob(makeJob(inputDoc), deps);
+
+      expect(result.settings).toEqual(DRAFT_SETTINGS);
+      expect(result.blocks).not.toEqual(inputDoc.blocks);
     });
   });
 

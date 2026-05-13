@@ -1101,8 +1101,7 @@ export const openApiSpec = {
           id: { type: 'string', format: 'uuid', description: 'UUID of the draft.' },
           userId: { type: 'string', description: 'UUID of the owning user.' },
           promptDoc: {
-            type: 'object',
-            description: 'The PromptDoc block document (schemaVersion + blocks array).',
+            $ref: '#/components/schemas/PromptDoc',
           },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
@@ -1113,8 +1112,77 @@ export const openApiSpec = {
         required: ['promptDoc'],
         properties: {
           promptDoc: {
+            $ref: '#/components/schemas/PromptDoc',
+          },
+        },
+      },
+      PromptDoc: {
+        type: 'object',
+        required: ['schemaVersion', 'blocks'],
+        description:
+          'PromptDoc block document persisted on generation drafts. Existing documents may omit settings.',
+        properties: {
+          schemaVersion: {
+            type: 'integer',
+            enum: [1],
+            description: 'PromptDoc schema version. Must remain 1 for legacy compatibility.',
+          },
+          blocks: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/PromptBlock' },
+          },
+          settings: {
+            $ref: '#/components/schemas/DraftSettings',
+          },
+        },
+      },
+      PromptBlock: {
+        oneOf: [
+          {
             type: 'object',
-            description: 'PromptDoc to persist. Must conform to the promptDocSchema (schemaVersion:1, blocks array).',
+            required: ['type', 'value'],
+            properties: {
+              type: { type: 'string', enum: ['text'] },
+              value: { type: 'string' },
+            },
+          },
+          {
+            type: 'object',
+            required: ['type', 'mediaType', 'fileId', 'label'],
+            properties: {
+              type: { type: 'string', enum: ['media-ref'] },
+              mediaType: { type: 'string', enum: ['video', 'image', 'audio'] },
+              fileId: { type: 'string', format: 'uuid' },
+              label: { type: 'string' },
+            },
+          },
+        ],
+        discriminator: {
+          propertyName: 'type',
+        },
+      },
+      DraftSettings: {
+        type: 'object',
+        required: ['videoLengthSeconds', 'aspectRatio', 'styleKey'],
+        description:
+          'Optional draft-level generation settings. Clients should use defaults when omitted: 30 seconds, 16:9, cinematic, modelPreference null.',
+        properties: {
+          videoLengthSeconds: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 600,
+          },
+          aspectRatio: {
+            type: 'string',
+            enum: ['16:9', '9:16', '1:1'],
+          },
+          styleKey: {
+            type: 'string',
+            enum: ['cinematic', 'documentary', 'social', 'product', 'minimal'],
+          },
+          modelPreference: {
+            type: ['string', 'null'],
+            description: 'Optional model preference for future storyboard planning. Defaults to null.',
           },
         },
       },
@@ -1146,10 +1214,10 @@ export const openApiSpec = {
               '`failed` = errored or timed out.',
           },
           result: {
-            type: 'object',
+            $ref: '#/components/schemas/PromptDoc',
             description:
               'Proposed PromptDoc produced by the LLM. Present only when status=done. ' +
-              'Conforms to promptDocSchema (schemaVersion:1, blocks array).',
+              'Conforms to promptDocSchema.',
           },
           error: {
             type: 'string',

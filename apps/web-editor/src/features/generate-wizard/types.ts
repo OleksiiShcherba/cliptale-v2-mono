@@ -5,9 +5,27 @@
  * wizard components depend on a single feature-local entry point.
  */
 
-import type { PromptDoc, PromptBlock, TextBlock, MediaRefBlock } from '@ai-video-editor/project-schema';
+import type {
+  DraftAspectRatio,
+  DraftSettings,
+  DraftStyleKey,
+  DraftVideoLengthSeconds,
+  MediaRefBlock,
+  PromptBlock,
+  PromptDoc,
+  TextBlock,
+} from '@ai-video-editor/project-schema';
 
-export type { PromptDoc, PromptBlock, TextBlock, MediaRefBlock };
+export type {
+  DraftAspectRatio,
+  DraftSettings,
+  DraftStyleKey,
+  DraftVideoLengthSeconds,
+  MediaRefBlock,
+  PromptBlock,
+  PromptDoc,
+  TextBlock,
+};
 
 /** The three steps of the video generation wizard. */
 export type WizardStep = 1 | 2 | 3;

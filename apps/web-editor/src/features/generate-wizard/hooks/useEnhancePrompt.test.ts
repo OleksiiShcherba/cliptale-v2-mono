@@ -51,6 +51,16 @@ const PROPOSED_DOC: PromptDoc = {
   blocks: [{ type: 'text', value: 'Create a dynamic, eye-catching introduction video' }],
 };
 
+const PROMPT_DOC_WITH_SETTINGS: PromptDoc = {
+  ...PROMPT_DOC,
+  settings: {
+    videoLengthSeconds: 60,
+    aspectRatio: '9:16',
+    styleKey: 'social',
+    modelPreference: null,
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Helper — flush all pending microtasks (Promise chains) using fake timers
 // ---------------------------------------------------------------------------
@@ -127,6 +137,25 @@ describe('useEnhancePrompt', () => {
     // getEnhanceStatus called exactly 3 times: two running + one done
     expect(mockGetEnhanceStatus).toHaveBeenCalledTimes(callCountAtDone);
     expect(callCountAtDone).toBe(3);
+  });
+
+  it('merges original settings back when the enhance result omits settings', async () => {
+    mockStartEnhance.mockResolvedValue({ jobId: JOB_ID });
+    mockGetEnhanceStatus.mockResolvedValueOnce({ status: 'done', result: PROPOSED_DOC });
+
+    const { result } = renderHook(() => useEnhancePrompt(DRAFT_ID));
+
+    act(() => { result.current.start(PROMPT_DOC_WITH_SETTINGS); });
+    await flushMicrotasks();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    await flushMicrotasks();
+
+    expect(result.current.status).toBe('done');
+    expect(result.current.proposedDoc).toEqual({
+      ...PROPOSED_DOC,
+      settings: PROMPT_DOC_WITH_SETTINGS.settings,
+    });
   });
 
   // -------------------------------------------------------------------------

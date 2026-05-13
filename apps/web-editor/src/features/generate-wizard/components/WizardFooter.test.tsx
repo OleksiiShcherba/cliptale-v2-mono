@@ -199,6 +199,30 @@ describe('WizardFooter', () => {
     });
   });
 
+  it('clicking Next flushes a content doc with settings before navigating', async () => {
+    const flush = vi.fn().mockResolvedValue(undefined);
+    renderFooter({
+      flush,
+      draftId: 'draft-1',
+      doc: {
+        ...DOC_WITH_TEXT,
+        settings: {
+          videoLengthSeconds: 90,
+          aspectRatio: '1:1',
+          styleKey: 'product',
+          modelPreference: null,
+        },
+      },
+    });
+
+    fireEvent.click(screen.getByTestId('next-button'));
+
+    await waitFor(() => {
+      expect(flush).toHaveBeenCalledOnce();
+      expect(mockNavigate).toHaveBeenCalledWith('/storyboard/draft-1');
+    });
+  });
+
   // 7b. Clicking Next falls back to /generate/road-map when draftId is null
   it('clicking Next falls back to /generate/road-map when draftId is null', async () => {
     const flush = vi.fn().mockResolvedValue(undefined);

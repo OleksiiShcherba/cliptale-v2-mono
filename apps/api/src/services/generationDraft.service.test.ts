@@ -5,6 +5,7 @@ import { ForbiddenError, NotFoundError, UnprocessableEntityError } from '@/lib/e
 import { create, getById, listMine, update, remove } from './generationDraft.service.js';
 import {
   VALID_PROMPT_DOC,
+  VALID_PROMPT_DOC_WITH_SETTINGS,
   USER_ID,
   OTHER_USER_ID,
   DRAFT_ID,
@@ -50,6 +51,18 @@ describe('generationDraft.service', () => {
       expect(result).toEqual(draft);
     });
 
+    it('should accept and persist a valid PromptDoc with draft settings', async () => {
+      const draft = makeDraft({ promptDoc: VALID_PROMPT_DOC_WITH_SETTINGS });
+      vi.mocked(generationDraftRepository.insertDraft).mockResolvedValue(draft);
+
+      const result = await create(USER_ID, VALID_PROMPT_DOC_WITH_SETTINGS);
+
+      expect(generationDraftRepository.insertDraft).toHaveBeenCalledOnce();
+      const [, , promptDoc] = vi.mocked(generationDraftRepository.insertDraft).mock.calls[0]!;
+      expect(promptDoc).toEqual(VALID_PROMPT_DOC_WITH_SETTINGS);
+      expect(result.promptDoc.settings).toEqual(VALID_PROMPT_DOC_WITH_SETTINGS.settings);
+    });
+
     it('should throw UnprocessableEntityError (422) when promptDoc fails schema validation', async () => {
       const invalid = { schemaVersion: 99, blocks: 'not-an-array' };
 
@@ -59,6 +72,19 @@ describe('generationDraft.service', () => {
 
     it('should throw UnprocessableEntityError when promptDoc is completely missing fields', async () => {
       await expect(create(USER_ID, {})).rejects.toThrow(UnprocessableEntityError);
+    });
+
+    it('should throw UnprocessableEntityError for invalid draft settings values', async () => {
+      const invalid = {
+        ...VALID_PROMPT_DOC,
+        settings: {
+          ...VALID_PROMPT_DOC_WITH_SETTINGS.settings,
+          videoLengthSeconds: 0,
+        },
+      };
+
+      await expect(create(USER_ID, invalid)).rejects.toThrow(UnprocessableEntityError);
+      expect(generationDraftRepository.insertDraft).not.toHaveBeenCalled();
     });
   });
 
@@ -132,6 +158,32 @@ describe('generationDraft.service', () => {
         updatedDoc,
       );
       expect(result).toEqual(updated);
+    });
+
+    it('should persist changed draft settings on update', async () => {
+      const existing = makeDraft();
+      const updatedDoc = {
+        ...VALID_PROMPT_DOC_WITH_SETTINGS,
+        settings: {
+          ...VALID_PROMPT_DOC_WITH_SETTINGS.settings,
+          videoLengthSeconds: 60 as const,
+          aspectRatio: '9:16' as const,
+          styleKey: 'social' as const,
+        },
+      };
+      const updated = makeDraft({ promptDoc: updatedDoc });
+
+      vi.mocked(generationDraftRepository.findDraftById).mockResolvedValue(existing);
+      vi.mocked(generationDraftRepository.updateDraftPromptDoc).mockResolvedValue(updated);
+
+      const result = await update(USER_ID, DRAFT_ID, updatedDoc);
+
+      expect(generationDraftRepository.updateDraftPromptDoc).toHaveBeenCalledWith(
+        DRAFT_ID,
+        USER_ID,
+        updatedDoc,
+      );
+      expect(result.promptDoc.settings).toEqual(updatedDoc.settings);
     });
 
     it('should throw NotFoundError (404) when the draft does not exist', async () => {

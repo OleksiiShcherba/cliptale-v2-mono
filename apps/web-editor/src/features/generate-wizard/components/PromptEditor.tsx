@@ -71,8 +71,10 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(
 
     // Stable refs to the latest props so effect/handler closures stay correct
     // without needing to tear down and re-subscribe on every render.
-    const onChangeRef = useRef(onChange);
-    onChangeRef.current = onChange;
+    const valueRef = useRef(value);
+    valueRef.current = value;
+    const parentOnChangeRef = useRef(onChange);
+    parentOnChangeRef.current = onChange;
     const maxCharsRef = useRef(maxChars);
     maxCharsRef.current = maxChars;
 
@@ -92,6 +94,22 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(
         pendingCaretRef.current = null;
       }
     }, [value]);
+
+    const emitChange = useCallback((next: PromptDoc): PromptDoc => {
+      const currentSettings = valueRef.current.settings;
+      const emitted =
+        currentSettings === undefined
+          ? next
+          : {
+              ...next,
+              settings: currentSettings,
+            };
+      parentOnChangeRef.current(emitted);
+      return emitted;
+    }, []);
+
+    const emitChangeRef = useRef(emitChange);
+    emitChangeRef.current = emitChange;
 
     // Native beforeinput listener — enforces the text-only character limit.
     // Using the DOM API (not React's synthetic onBeforeInput) gives us typed
@@ -129,15 +147,15 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(
       const root = editorRef.current;
       if (!root) return;
       const doc = serializeDOMToDoc(root);
-      lastSerializedRef.current = JSON.stringify(doc);
-      onChangeRef.current(doc);
-    }, []);
+      const emitted = emitChange(doc);
+      lastSerializedRef.current = JSON.stringify(emitted);
+    }, [emitChange]);
 
     const emitFromDOM = useCallback((root: HTMLElement) => {
       const doc = serializeDOMToDoc(root);
-      lastSerializedRef.current = JSON.stringify(doc);
-      onChangeRef.current(doc);
-    }, []);
+      const emitted = emitChange(doc);
+      lastSerializedRef.current = JSON.stringify(emitted);
+    }, [emitChange]);
 
     // DOM event handlers extracted to a dedicated hook to keep this file under
     // the §9.7 300-line cap.
@@ -145,7 +163,7 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(
       usePromptEditorHandlers({
         editorRef,
         pendingCaretRef,
-        onChangeRef,
+        onChangeRef: emitChangeRef,
         emitFromDOM,
         onFileLinked,
       });
@@ -166,13 +184,13 @@ export const PromptEditor = forwardRef<PromptEditorHandle, PromptEditorProps>(
           };
           const nextDoc = insertMediaRefAtOffset(currentDoc, caretOffset, chip);
           pendingCaretRef.current = caretOffset + 1;
-          onChangeRef.current(nextDoc);
+          emitChange(nextDoc);
         },
         focus() {
           editorRef.current?.focus();
         },
       }),
-      [],
+      [emitChange],
     );
 
     const textLen = useMemo(() => countTextChars(value), [value]);

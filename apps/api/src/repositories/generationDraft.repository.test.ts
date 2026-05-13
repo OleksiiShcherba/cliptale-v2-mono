@@ -28,6 +28,16 @@ const VALID_PROMPT_DOC: PromptDoc = {
   blocks: [{ type: 'text', value: 'Hello world' }],
 };
 
+const VALID_PROMPT_DOC_WITH_SETTINGS: PromptDoc = {
+  ...VALID_PROMPT_DOC,
+  settings: {
+    videoLengthSeconds: 30,
+    aspectRatio: '16:9',
+    styleKey: 'cinematic',
+    modelPreference: null,
+  },
+};
+
 const BASE_ROW = {
   id: 'draft-uuid-001',
   user_id: 'user-uuid-001',
@@ -64,6 +74,26 @@ describe('generationDraft.repository — mapRowToDraft JSON column handling', ()
 
     expect(draft).not.toBeNull();
     expect(draft!.promptDoc).toEqual(VALID_PROMPT_DOC);
+  });
+
+  it('preserves draft settings when prompt_doc is returned as a JSON string', async () => {
+    const row = { ...BASE_ROW, prompt_doc: JSON.stringify(VALID_PROMPT_DOC_WITH_SETTINGS) };
+    mockQuery.mockResolvedValueOnce([[row]]);
+
+    const draft = await findDraftById('draft-uuid-001');
+
+    expect(draft).not.toBeNull();
+    expect(draft!.promptDoc.settings).toEqual(VALID_PROMPT_DOC_WITH_SETTINGS.settings);
+  });
+
+  it('preserves draft settings when prompt_doc is returned as an object', async () => {
+    const row = { ...BASE_ROW, prompt_doc: VALID_PROMPT_DOC_WITH_SETTINGS };
+    mockQuery.mockResolvedValueOnce([[row]]);
+
+    const draft = await findDraftById('draft-uuid-001');
+
+    expect(draft).not.toBeNull();
+    expect(draft!.promptDoc.settings).toEqual(VALID_PROMPT_DOC_WITH_SETTINGS.settings);
   });
 
   it('maps id and userId correctly regardless of prompt_doc format', async () => {

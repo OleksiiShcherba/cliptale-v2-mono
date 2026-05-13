@@ -10,6 +10,13 @@ function emptyDoc(): PromptDoc {
   return { schemaVersion: 1, blocks: [{ type: 'text', value: '' }] };
 }
 
+const DOC_SETTINGS = {
+  videoLengthSeconds: 75,
+  aspectRatio: '9:16',
+  styleKey: 'social',
+  modelPreference: null,
+} as const;
+
 function getEditor(): HTMLDivElement {
   return screen.getByTestId('prompt-editor') as HTMLDivElement;
 }
@@ -98,11 +105,34 @@ describe('PromptEditor', () => {
     expect(last.blocks).toEqual([{ type: 'text', value: 'hello' }]);
   });
 
+  it('preserves draft settings when the user edits prompt text', () => {
+    const onChange = vi.fn();
+    render(
+      <ControlledEditor
+        initial={{
+          ...emptyDoc(),
+          settings: DOC_SETTINGS,
+        }}
+        onDocChange={onChange}
+      />,
+    );
+    const editor = getEditor();
+
+    while (editor.firstChild) editor.removeChild(editor.firstChild);
+    editor.appendChild(document.createTextNode('new prompt'));
+    fireEvent.input(editor);
+
+    const last = onChange.mock.calls[onChange.mock.calls.length - 1][0] as PromptDoc;
+    expect(last.blocks).toEqual([{ type: 'text', value: 'new prompt' }]);
+    expect(last.settings).toEqual(DOC_SETTINGS);
+  });
+
   it('injects a media-ref chip at the caret via insertMediaRef and splits the text', () => {
     const onChange = vi.fn();
     const ref = React.createRef<PromptEditorHandle>();
     const initial: PromptDoc = {
       schemaVersion: 1,
+      settings: DOC_SETTINGS,
       blocks: [{ type: 'text', value: 'hello world' }],
     };
     render(<ControlledEditor initial={initial} onDocChange={onChange} editorRef={ref} />);
@@ -122,6 +152,7 @@ describe('PromptEditor', () => {
       { type: 'media-ref', mediaType: 'video', fileId: 'asset-1', label: 'clip.mp4' },
       { type: 'text', value: ' world' },
     ]);
+    expect(last.settings).toEqual(DOC_SETTINGS);
 
     // Chip span exists in the DOM with the expected data attributes.
     const chip = editor.querySelector('[data-media-ref-id="asset-1"]') as HTMLElement;

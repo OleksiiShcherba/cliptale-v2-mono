@@ -10,7 +10,7 @@
  * Primary state / initial-state tests live in useGenerationDraft.test.ts.
  */
 
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ---------------------------------------------------------------------------
@@ -35,6 +35,7 @@ import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useGenerationDraft } from './useGenerationDraft';
 import { DOC_A, DOC_B, DRAFT_RESPONSE, EMPTY_DOC } from './useGenerationDraft.fixtures';
+import { DEFAULT_DRAFT_SETTINGS, getDraftSettings } from '../utils';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -94,6 +95,33 @@ describe('useGenerationDraft — hydrate branch', () => {
     expect(result.current.doc).toEqual(DRAFT_RESPONSE.promptDoc);
   });
 
+  it('exposes default settings for a hydrated legacy draft without scheduling a save', async () => {
+    let resolveFetch!: (v: typeof DRAFT_RESPONSE) => void;
+    const fetchPromise = new Promise<typeof DRAFT_RESPONSE>((res) => {
+      resolveFetch = res;
+    });
+    mockFetchDraft.mockReturnValue(fetchPromise);
+
+    const { result } = renderHook(
+      () => useGenerationDraft({ initialDraftId: 'draft-abc-123' }),
+      { wrapper: makeWrapper() },
+    );
+
+    await act(async () => {
+      resolveFetch(DRAFT_RESPONSE);
+      await fetchPromise;
+    });
+
+    expect(result.current.draftId).toBe('draft-abc-123');
+    expect(result.current.doc.settings).toBeUndefined();
+    expect(getDraftSettings(result.current.doc)).toEqual(DEFAULT_DRAFT_SETTINGS);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+
+    expect(mockUpdateDraft).not.toHaveBeenCalled();
+    expect(mockCreateDraft).not.toHaveBeenCalled();
+  });
+
   // -------------------------------------------------------------------------
   // Test 2 — first autosave after hydrate PUTs, never POSTs
   // -------------------------------------------------------------------------
@@ -129,6 +157,44 @@ describe('useGenerationDraft — hydrate branch', () => {
     expect(mockUpdateDraft).toHaveBeenCalledOnce();
     expect(mockUpdateDraft).toHaveBeenCalledWith('draft-abc-123', DOC_B);
     expect(mockCreateDraft).not.toHaveBeenCalled();
+  });
+
+  it('flushes pending settings-only changes after hydrate', async () => {
+    let resolveFetch!: (v: typeof DRAFT_RESPONSE) => void;
+    const fetchPromise = new Promise<typeof DRAFT_RESPONSE>((res) => {
+      resolveFetch = res;
+    });
+    mockFetchDraft.mockReturnValue(fetchPromise);
+    mockUpdateDraft.mockResolvedValue({
+      ...DRAFT_RESPONSE,
+      promptDoc: {
+        ...DOC_A,
+        settings: { ...DEFAULT_DRAFT_SETTINGS, aspectRatio: '9:16' },
+      },
+    });
+
+    const { result } = renderHook(
+      () => useGenerationDraft({ initialDraftId: 'draft-abc-123' }),
+      { wrapper: makeWrapper() },
+    );
+
+    await act(async () => {
+      resolveFetch(DRAFT_RESPONSE);
+      await fetchPromise;
+    });
+
+    expect(result.current.draftId).toBe('draft-abc-123');
+
+    const nextDoc = {
+      ...result.current.doc,
+      settings: { ...DEFAULT_DRAFT_SETTINGS, aspectRatio: '9:16' as const },
+    };
+
+    act(() => { result.current.setDoc(nextDoc); });
+    await act(async () => { await result.current.flush(); });
+
+    expect(mockUpdateDraft).toHaveBeenCalledOnce();
+    expect(mockUpdateDraft).toHaveBeenCalledWith('draft-abc-123', nextDoc);
   });
 
   // -------------------------------------------------------------------------

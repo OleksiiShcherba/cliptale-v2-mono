@@ -64,8 +64,9 @@ export function useEnhancePrompt(draftId: string | null): UseEnhancePromptResult
   // Stable refs so interval callbacks always see current values without
   // closures capturing stale state.
   const isMountedRef = useRef(true);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const intervalRef = useRef<number | null>(null);
   const startedAtRef = useRef<number | null>(null);
+  const sourcePromptDocRef = useRef<PromptDoc | null>(null);
 
   // Track mount state to avoid setState-after-unmount.
   useEffect(() => {
@@ -102,6 +103,7 @@ export function useEnhancePrompt(draftId: string | null): UseEnhancePromptResult
       setProposedDoc(null);
       setError(null);
     }
+    sourcePromptDocRef.current = null;
   }, [stopPolling]);
 
   // ---------------------------------------------------------------------------
@@ -130,7 +132,13 @@ export function useEnhancePrompt(draftId: string | null): UseEnhancePromptResult
 
             if (data.status === 'done') {
               stopPolling();
-              setProposedDoc(data.result ?? null);
+              const result = data.result ?? null;
+              const sourceSettings = sourcePromptDocRef.current?.settings;
+              const proposed =
+                result !== null && result.settings === undefined && sourceSettings !== undefined
+                  ? { ...result, settings: sourceSettings }
+                  : result;
+              setProposedDoc(proposed);
               setStatus('done');
             } else if (data.status === 'failed') {
               stopPolling();
@@ -154,10 +162,11 @@ export function useEnhancePrompt(draftId: string | null): UseEnhancePromptResult
   // ---------------------------------------------------------------------------
 
   const start = useCallback(
-    (_promptDoc: PromptDoc): void => {
+    (promptDoc: PromptDoc): void => {
       // Guard: only start from idle; draftId must be available.
       if (status !== 'idle' || draftId === null) return;
 
+      sourcePromptDocRef.current = promptDoc;
       setStatus('queued');
       setProposedDoc(null);
       setError(null);

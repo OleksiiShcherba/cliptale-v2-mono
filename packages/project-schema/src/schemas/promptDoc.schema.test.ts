@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
-import { promptDocSchema } from './promptDoc.schema.js';
+import type { DraftSettings } from './promptDoc.schema.js';
+import { draftSettingsSchema, promptDocSchema } from './promptDoc.schema.js';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -18,11 +19,35 @@ const validDoc = {
   blocks: [validTextBlock, validMediaRef],
 };
 
+const validSettings = {
+  videoLengthSeconds: 30,
+  aspectRatio: '16:9',
+  styleKey: 'cinematic',
+  modelPreference: null,
+};
+
 // ── promptDocSchema ───────────────────────────────────────────────────────────
 
 describe('promptDocSchema', () => {
   it('accepts a valid PromptDoc with mixed text and media-ref blocks', () => {
     expect(promptDocSchema.safeParse(validDoc).success).toBe(true);
+  });
+
+  it('accepts a valid PromptDoc with draft settings', () => {
+    const result = promptDocSchema.safeParse({
+      ...validDoc,
+      settings: validSettings,
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('Unexpected parse failure');
+
+    if (result.data.settings === undefined) throw new Error('Expected parsed settings');
+    const settings: DraftSettings = result.data.settings;
+    expect(settings.videoLengthSeconds).toBe(30);
+    expect(settings.aspectRatio).toBe('16:9');
+    expect(settings.styleKey).toBe('cinematic');
+    expect(settings.modelPreference).toBeNull();
   });
 
   it('accepts a PromptDoc with no blocks (empty editor)', () => {
@@ -37,6 +62,20 @@ describe('promptDocSchema', () => {
         blocks: [{ ...validMediaRef, mediaType }],
       };
       expect(promptDocSchema.safeParse(doc).success, `mediaType=${mediaType}`).toBe(true);
+    }
+  });
+
+  it('accepts preset and custom draft settings values', () => {
+    for (const videoLengthSeconds of [1, 15, 30, 45, 60, 75, 90, 120, 600] as const) {
+      expect(draftSettingsSchema.safeParse({ ...validSettings, videoLengthSeconds }).success).toBe(true);
+    }
+
+    for (const aspectRatio of ['16:9', '9:16', '1:1'] as const) {
+      expect(draftSettingsSchema.safeParse({ ...validSettings, aspectRatio }).success).toBe(true);
+    }
+
+    for (const styleKey of ['cinematic', 'documentary', 'social', 'product', 'minimal'] as const) {
+      expect(draftSettingsSchema.safeParse({ ...validSettings, styleKey }).success).toBe(true);
     }
   });
 
@@ -87,6 +126,43 @@ describe('promptDocSchema', () => {
   it('rejects a PromptDoc missing the blocks field', () => {
     const result = promptDocSchema.safeParse({ schemaVersion: 1 });
     expect(result.success).toBe(false);
+  });
+
+  it('rejects invalid draft settings values', () => {
+    expect(
+      promptDocSchema.safeParse({
+        ...validDoc,
+        settings: { ...validSettings, videoLengthSeconds: 0 },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      promptDocSchema.safeParse({
+        ...validDoc,
+        settings: { ...validSettings, videoLengthSeconds: 601 },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      promptDocSchema.safeParse({
+        ...validDoc,
+        settings: { ...validSettings, videoLengthSeconds: 12.5 },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      promptDocSchema.safeParse({
+        ...validDoc,
+        settings: { ...validSettings, aspectRatio: '4:3' },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      promptDocSchema.safeParse({
+        ...validDoc,
+        settings: { ...validSettings, styleKey: 'retro' },
+      }).success,
+    ).toBe(false);
   });
 
   it('infers correct TS types — data.blocks[0] has type property', () => {

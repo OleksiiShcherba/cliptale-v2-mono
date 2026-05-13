@@ -8,6 +8,16 @@ export const VALID_PROMPT_DOC = {
   blocks: [{ type: 'text' as const, value: 'Hello world' }],
 };
 
+export const VALID_PROMPT_DOC_WITH_SETTINGS = {
+  ...VALID_PROMPT_DOC,
+  settings: {
+    videoLengthSeconds: 30 as const,
+    aspectRatio: '16:9' as const,
+    styleKey: 'cinematic' as const,
+    modelPreference: null,
+  },
+};
+
 export const USER_ID = 'user-abc-123';
 export const OTHER_USER_ID = 'user-xyz-999';
 export const DRAFT_ID = '11111111-1111-4111-8111-111111111111';

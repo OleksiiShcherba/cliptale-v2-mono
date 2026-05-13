@@ -15,6 +15,7 @@ import type { Asset } from '@/features/asset-manager/types';
 
 import type { PromptEditorHandle } from './PromptEditor';
 import { BackToStoryboardButton } from './BackToStoryboardButton';
+import { DraftSettingsControls } from './DraftSettingsControls';
 import { EnhancePreviewModal } from './EnhancePreviewModal';
 import { MediaGalleryPanel } from './MediaGalleryPanel';
 import { ProTipCard } from './ProTipCard';
@@ -214,6 +215,7 @@ export function GenerateWizardPage(): React.ReactElement {
             onChange={setDoc}
             onFileLinked={handleFileLinked}
           />
+          <DraftSettingsControls doc={doc} onChange={setDoc} />
           <PromptToolbar
             promptEditorRef={promptEditorRef}
             draftId={draftId}
