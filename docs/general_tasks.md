@@ -35,8 +35,10 @@ Required work:
 
 3. Add AI storyboard planning.
    - Add backend endpoint/job, e.g. `POST /generation-drafts/:id/storyboard-plan`.
-   - Resolve prompt media refs into useful context: metadata, thumbnails, transcripts where available, and signed URLs where needed.
-   - Call OpenAI with multimodal context.
+   - Treat planning as an async operation: POST returns a queued job quickly, and a polling endpoint exposes queued/running/completed/failed states so the frontend can show a loader between Step 1 and Step 2.
+   - Resolve prompt media refs into useful context: metadata, thumbnails/keyframes, transcripts where available, and signed URLs where needed.
+   - Normalize media by capability before calling OpenAI: images can be vision inputs, audio should be transcript-first plus metadata, and video should use metadata + thumbnails/keyframes + transcript rather than assuming raw full-video understanding.
+   - Call OpenAI with compact multimodal context.
    - Return and persist a structured instruction array with scene number, prompt, visual prompt, duration seconds, referenced media, transition notes, and style.
    - Derive scene count from selected video length.
 
@@ -45,7 +47,7 @@ Required work:
    - Create scene blocks with `name`, `prompt`, `duration_s`, `sort_order`, `style`, and media refs.
    - Auto-connect graph as `START -> scene 1 -> scene 2 -> ... -> END`.
    - Push a storyboard history snapshot after generation.
-   - Surface progress/errors in the Step 2 UI.
+   - Surface progress/errors in the Step 2 UI, consuming the async storyboard-plan job states from Block 3.
 
 5. Generate scene illustrations.
    - For each scene block, enqueue an AI image generation job using the scene visual prompt.
