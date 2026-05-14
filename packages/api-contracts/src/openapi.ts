@@ -15,6 +15,7 @@
  *  - POST /generation-drafts/{id}/storyboard-plan — enqueue async storyboard planning
  *  - GET /generation-drafts/{id}/storyboard-plan/{jobId} — poll storyboard planning
  *  - POST /storyboards/{draftId}/initialize      — seed START/END sentinel blocks
+ *  - POST /storyboards/{draftId}/apply-latest-plan — apply latest completed plan
  *  - GET /storyboards/{draftId}                  — fetch blocks + edges for a draft
  *  - PUT /storyboards/{draftId}                  — full-replace blocks + edges
  *  - GET /storyboards/{draftId}/history          — list last 50 history snapshots
@@ -752,6 +753,41 @@ export const openApiSpec = {
           401: { description: 'Missing or invalid JWT.' },
           403: { description: 'Draft belongs to another user.' },
           404: { description: 'Draft not found.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/storyboards/{draftId}/apply-latest-plan': {
+      post: {
+        summary: 'Apply the latest completed storyboard plan',
+        description:
+          'Finds the latest completed storyboard planning job for the draft, replaces the ' +
+          'storyboard with ordered START -> scene blocks -> END content, preserves referenced ' +
+          'media on scene blocks, writes a history snapshot, and returns the authoritative state.',
+        operationId: 'applyLatestStoryboardPlan',
+        tags: ['storyboard'],
+        parameters: [
+          {
+            name: 'draftId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Storyboard plan applied. Returns the generated storyboard state.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StoryboardState' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found.' },
+          422: { description: 'No completed storyboard plan exists for this draft.' },
         },
         security: [{ bearerAuth: [] }],
       },

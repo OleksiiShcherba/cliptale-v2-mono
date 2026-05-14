@@ -30,6 +30,15 @@ router.post(
   storyboardController.postHistory,
 );
 
+// POST /storyboards/:draftId/apply-latest-plan
+// Replaces storyboard blocks/edges from the latest completed storyboard plan.
+router.post(
+  '/storyboards/:draftId/apply-latest-plan',
+  authMiddleware,
+  aclMiddleware('editor'),
+  storyboardController.applyLatestPlan,
+);
+
 // GET /storyboards/:draftId
 // Returns { blocks, edges } for the authenticated user's draft.
 router.get(

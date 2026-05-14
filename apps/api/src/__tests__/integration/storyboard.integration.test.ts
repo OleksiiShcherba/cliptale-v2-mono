@@ -14,6 +14,9 @@
  *     - returns ≤ 50 entries sorted newest-first
  *   POST /storyboards/:draftId/history
  *     - 201 on success; inserts a snapshot row
+ *   POST /storyboards/:draftId/apply-latest-plan
+ *     - applies latest completed plan for an owner
+ *     - rejects cross-owner and missing completed plan requests
  *
  * Requires a live MySQL instance (docker compose up db).
  * BullMQ and S3 are mocked to avoid network dependencies.
@@ -39,6 +42,7 @@ vi.mock('@/queues/bullmq.js', () => ({
   mediaIngestQueue: { add: vi.fn(), getJob: vi.fn(), on: vi.fn() },
   renderQueue: { add: vi.fn(), getJob: vi.fn(), on: vi.fn() },
   transcriptionQueue: { add: vi.fn(), getJob: vi.fn(), on: vi.fn() },
+  storyboardPlanQueue: { add: vi.fn(), getJob: vi.fn(), on: vi.fn() },
 }));
 
 vi.mock('@aws-sdk/s3-request-presigner', () => ({
@@ -87,6 +91,8 @@ const TOKEN_B = `tok-sbb-${randomUUID()}`;
 
 let draftAId: string;
 let draftBId: string;
+let planMediaImageId: string;
+let planMediaVideoId: string;
 
 function authA(): string {
   return `Bearer ${TOKEN_A}`;
@@ -145,18 +151,106 @@ beforeAll(async () => {
     'INSERT INTO generation_drafts (id, user_id, prompt_doc) VALUES (?, ?, ?)',
     [draftBId, USER_B_ID, JSON.stringify({ schemaVersion: 1, blocks: [] })],
   );
+
+  planMediaImageId = randomUUID();
+  planMediaVideoId = randomUUID();
+  await conn.execute(
+    `INSERT INTO files
+       (file_id, user_id, kind, storage_uri, mime_type, display_name, status)
+     VALUES
+       (?, ?, 'image', ?, 'image/png', 'storyboard-plan-image.png', 'ready'),
+       (?, ?, 'video', ?, 'video/mp4', 'storyboard-plan-video.mp4', 'ready')`,
+    [
+      planMediaImageId,
+      USER_A_ID,
+      `s3://test-bucket/${planMediaImageId}.png`,
+      planMediaVideoId,
+      USER_A_ID,
+      `s3://test-bucket/${planMediaVideoId}.mp4`,
+    ],
+  );
 });
 
 afterAll(async () => {
+  if (!conn) return;
+
   // Remove in FK-safe order.
   await conn.execute('DELETE FROM storyboard_history WHERE draft_id IN (?, ?)', [draftAId, draftBId]);
   await conn.execute('DELETE FROM storyboard_edges WHERE draft_id IN (?, ?)', [draftAId, draftBId]);
   await conn.execute('DELETE FROM storyboard_blocks WHERE draft_id IN (?, ?)', [draftAId, draftBId]);
+  await conn.execute('DELETE FROM storyboard_plan_jobs WHERE draft_id IN (?, ?)', [draftAId, draftBId]);
+  await conn.execute('DELETE FROM files WHERE file_id IN (?, ?)', [planMediaImageId, planMediaVideoId]);
   await conn.execute('DELETE FROM generation_drafts WHERE id IN (?, ?)', [draftAId, draftBId]);
   await conn.execute('DELETE FROM sessions WHERE session_id IN (?, ?)', [SESSION_A_ID, SESSION_B_ID]);
   await conn.execute('DELETE FROM users WHERE user_id IN (?, ?)', [USER_A_ID, USER_B_ID]);
   await conn.end();
 });
+
+function makeCompletedStoryboardPlan() {
+  return {
+    schemaVersion: 1,
+    videoLengthSeconds: 12,
+    sceneCount: 2,
+    scenes: [
+      {
+        sceneNumber: 1,
+        prompt: 'Introduce the workflow problem.',
+        visualPrompt: 'Wide shot of a cluttered creator desk.',
+        durationSeconds: 6,
+        referencedMedia: [
+          {
+            fileId: planMediaImageId,
+            mediaType: 'image',
+            label: 'storyboard-plan-image.png',
+          },
+          {
+            fileId: planMediaVideoId,
+            mediaType: 'video',
+            label: 'storyboard-plan-video.mp4',
+          },
+        ],
+        transitionNotes: '',
+        style: 'cinematic',
+      },
+      {
+        sceneNumber: 2,
+        prompt: 'Show the finished video.',
+        visualPrompt: 'Clean product hero frame with exported video preview.',
+        durationSeconds: 6,
+        referencedMedia: [],
+        transitionNotes: '',
+        style: 'minimal',
+      },
+    ],
+  };
+}
+
+async function seedStoryboardPlanJob(params: {
+  draftId: string;
+  userId: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  plan?: unknown | null;
+}): Promise<string> {
+  const jobId = randomUUID();
+  await conn.execute(
+    `INSERT INTO storyboard_plan_jobs
+       (job_id, draft_id, user_id, status, model, prompt_snapshot_json, media_context_json,
+        plan_json, error_message, completed_at, failed_at)
+     VALUES (?, ?, ?, ?, 'gpt-storyboard-test', ?, NULL, ?, ?, ?, ?)`,
+    [
+      jobId,
+      params.draftId,
+      params.userId,
+      params.status,
+      JSON.stringify({ schemaVersion: 1, blocks: [{ type: 'text', value: 'Test prompt' }] }),
+      params.plan === undefined || params.plan === null ? null : JSON.stringify(params.plan),
+      params.status === 'failed' ? 'Plan failed' : null,
+      params.status === 'completed' ? new Date() : null,
+      params.status === 'failed' ? new Date() : null,
+    ],
+  );
+  return jobId;
+}
 
 // ── GET /storyboards/:draftId ─────────────────────────────────────────────────
 
@@ -332,6 +426,125 @@ describe('GET /storyboards/:draftId (concurrent sentinel initialization)', () =>
     } finally {
       // Clean up the fresh draft.
       await conn.execute('DELETE FROM storyboard_blocks WHERE draft_id = ?', [freshDraftId]);
+      await conn.execute('DELETE FROM generation_drafts WHERE id = ?', [freshDraftId]);
+    }
+  });
+});
+
+// ── POST /storyboards/:draftId/apply-latest-plan ─────────────────────────────
+
+describe('POST /storyboards/:draftId/apply-latest-plan', () => {
+  it('applies a completed plan and persists blocks, edges, media, and history', async () => {
+    await conn.execute('DELETE FROM storyboard_history WHERE draft_id = ?', [draftAId]);
+    await conn.execute('DELETE FROM storyboard_edges WHERE draft_id = ?', [draftAId]);
+    await conn.execute('DELETE FROM storyboard_blocks WHERE draft_id = ?', [draftAId]);
+    await seedStoryboardPlanJob({
+      draftId: draftAId,
+      userId: USER_A_ID,
+      status: 'completed',
+      plan: makeCompletedStoryboardPlan(),
+    });
+
+    const res = await request(app)
+      .post(`/storyboards/${draftAId}/apply-latest-plan`)
+      .set('Authorization', authA());
+
+    expect(res.status).toBe(200);
+    expect(res.body.blocks).toHaveLength(4);
+    expect(res.body.edges).toHaveLength(3);
+    expect(res.body.blocks.map((block: { blockType: string }) => block.blockType)).toEqual([
+      'start',
+      'scene',
+      'scene',
+      'end',
+    ]);
+
+    const firstScene = res.body.blocks[1] as {
+      name: string;
+      prompt: string;
+      sortOrder: number;
+      mediaItems: Array<{ fileId: string; mediaType: string; sortOrder: number }>;
+    };
+    expect(firstScene).toMatchObject({
+      name: 'Scene 01',
+      prompt: 'Wide shot of a cluttered creator desk.',
+      sortOrder: 1,
+    });
+    expect(firstScene.mediaItems).toEqual([
+      { id: expect.any(String), fileId: planMediaImageId, mediaType: 'image', sortOrder: 0 },
+      { id: expect.any(String), fileId: planMediaVideoId, mediaType: 'video', sortOrder: 1 },
+    ]);
+
+    const [blockRows] = await conn.execute<import('mysql2/promise').RowDataPacket[]>(
+      `SELECT block_type, name, prompt, sort_order
+       FROM storyboard_blocks
+       WHERE draft_id = ?
+       ORDER BY sort_order ASC`,
+      [draftAId],
+    );
+    expect(blockRows).toHaveLength(4);
+    expect(blockRows.map((row) => row['block_type'])).toEqual(['start', 'scene', 'scene', 'end']);
+
+    const [edgeRows] = await conn.execute<import('mysql2/promise').RowDataPacket[]>(
+      'SELECT COUNT(*) AS cnt FROM storyboard_edges WHERE draft_id = ?',
+      [draftAId],
+    );
+    expect(Number((edgeRows[0] as { cnt: number }).cnt)).toBe(3);
+
+    const [mediaRows] = await conn.execute<import('mysql2/promise').RowDataPacket[]>(
+      `SELECT sbm.file_id, sbm.media_type, sbm.sort_order
+       FROM storyboard_block_media sbm
+       INNER JOIN storyboard_blocks sb ON sb.id = sbm.block_id
+       WHERE sb.draft_id = ?
+       ORDER BY sbm.sort_order ASC`,
+      [draftAId],
+    );
+    expect(mediaRows.map((row) => row['file_id'])).toEqual([planMediaImageId, planMediaVideoId]);
+
+    const [historyRows] = await conn.execute<import('mysql2/promise').RowDataPacket[]>(
+      'SELECT COUNT(*) AS cnt FROM storyboard_history WHERE draft_id = ?',
+      [draftAId],
+    );
+    expect(Number((historyRows[0] as { cnt: number }).cnt)).toBe(1);
+  });
+
+  it('returns 403 when applying another user-owned draft', async () => {
+    await seedStoryboardPlanJob({
+      draftId: draftBId,
+      userId: USER_B_ID,
+      status: 'completed',
+      plan: makeCompletedStoryboardPlan(),
+    });
+
+    const res = await request(app)
+      .post(`/storyboards/${draftBId}/apply-latest-plan`)
+      .set('Authorization', authA());
+
+    expect(res.status).toBe(403);
+  });
+
+  it('returns 422 when no completed plan exists', async () => {
+    const freshDraftId = randomUUID();
+    await conn.execute(
+      'INSERT INTO generation_drafts (id, user_id, prompt_doc) VALUES (?, ?, ?)',
+      [freshDraftId, USER_A_ID, JSON.stringify({ schemaVersion: 1, blocks: [] })],
+    );
+    await seedStoryboardPlanJob({
+      draftId: freshDraftId,
+      userId: USER_A_ID,
+      status: 'queued',
+      plan: null,
+    });
+
+    try {
+      const res = await request(app)
+        .post(`/storyboards/${freshDraftId}/apply-latest-plan`)
+        .set('Authorization', authA());
+
+      expect(res.status).toBe(422);
+      expect(res.body.error).toContain('No completed storyboard plan exists');
+    } finally {
+      await conn.execute('DELETE FROM storyboard_plan_jobs WHERE draft_id = ?', [freshDraftId]);
       await conn.execute('DELETE FROM generation_drafts WHERE id = ?', [freshDraftId]);
     }
   });

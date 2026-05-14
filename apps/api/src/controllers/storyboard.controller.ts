@@ -56,6 +56,27 @@ export async function putStoryboard(
 }
 
 /**
+ * POST /storyboards/:draftId/apply-latest-plan
+ * Applies the latest completed storyboard planning job to the draft.
+ * Returns 200 with the authoritative storyboard state.
+ */
+export async function applyLatestPlan(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const state = await storyboardService.applyLatestCompletedPlan(
+      req.user!.userId,
+      req.params['draftId']!,
+    );
+    res.json(state);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * GET /storyboards/:draftId/history
  * Returns the last 50 snapshots ordered newest-first.
  */

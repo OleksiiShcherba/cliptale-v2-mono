@@ -57,6 +57,52 @@ describe('openApiSpec storyboard paths', () => {
     });
   });
 
+  describe('POST /storyboards/{draftId}/apply-latest-plan', () => {
+    const op = paths['/storyboards/{draftId}/apply-latest-plan']?.['post'] as Record<string, unknown>;
+
+    it('exists in the spec', () => {
+      expect(op).toBeDefined();
+    });
+
+    it('has operationId applyLatestStoryboardPlan', () => {
+      expect(op.operationId).toBe('applyLatestStoryboardPlan');
+    });
+
+    it('is tagged storyboard', () => {
+      expect(op.tags).toContain('storyboard');
+    });
+
+    it('requires bearerAuth security', () => {
+      const security = op.security as Array<Record<string, unknown>>;
+      expect(security).toEqual(expect.arrayContaining([{ bearerAuth: [] }]));
+    });
+
+    it('has a draftId path parameter', () => {
+      const params = op.parameters as Array<Record<string, unknown>>;
+      const draftId = params?.find((p) => p.name === 'draftId');
+      expect(draftId).toBeDefined();
+      expect(draftId?.in).toBe('path');
+      expect(draftId?.required).toBe(true);
+    });
+
+    it('responds 200 with StoryboardState schema ref', () => {
+      const responses = op.responses as Record<string, unknown>;
+      const ok = responses[200] as Record<string, unknown>;
+      const schema = (
+        (ok?.content as Record<string, unknown>)?.['application/json'] as Record<string, unknown>
+      )?.schema as Record<string, unknown>;
+      expect(schema?.$ref).toBe('#/components/schemas/StoryboardState');
+    });
+
+    it('responds 401, 403, 404, and 422', () => {
+      const responses = op.responses as Record<string, unknown>;
+      expect(responses[401]).toBeDefined();
+      expect(responses[403]).toBeDefined();
+      expect(responses[404]).toBeDefined();
+      expect(responses[422]).toBeDefined();
+    });
+  });
+
   describe('GET /storyboards/{draftId}', () => {
     const op = paths['/storyboards/{draftId}']?.['get'] as Record<string, unknown>;
 

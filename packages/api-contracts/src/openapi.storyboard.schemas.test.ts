@@ -96,6 +96,7 @@ describe('openApiSpec storyboard component schemas', () => {
 describe('openApiSpec storyboard security coverage', () => {
   const storyboardPaths = [
     ['/storyboards/{draftId}/initialize', 'post'],
+    ['/storyboards/{draftId}/apply-latest-plan', 'post'],
     ['/storyboards/{draftId}', 'get'],
     ['/storyboards/{draftId}', 'put'],
     ['/storyboards/{draftId}/history', 'get'],

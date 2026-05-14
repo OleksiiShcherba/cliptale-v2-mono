@@ -54,6 +54,15 @@ export type StoryboardState = {
   edges: StoryboardEdge[];
 };
 
+/** Frontend-owned lifecycle for generating and applying a storyboard plan. */
+export type StoryboardPlanGenerationStatus =
+  | 'idle'
+  | 'queued'
+  | 'running'
+  | 'applying'
+  | 'completed'
+  | 'failed';
+
 /** React Flow node data for a SCENE block. */
 export type SceneBlockNodeData = {
   block: StoryboardBlock;

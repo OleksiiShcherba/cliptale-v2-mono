@@ -328,6 +328,87 @@
 - tests: `npm --workspace apps/media-worker test -- storyboardPlan` -> 2 files / 23 tests passed.
 - typecheck/build: `npm --workspace apps/media-worker run typecheck`, `npm run build --workspace=apps/media-worker`, and `docker compose build media-worker` -> passed.
 
+## Stage 2 Storyboard Scenes — STAGE2-SCENES-1 (2026-05-14)
+- added: exported `applyLatestCompletedPlan(userId, draftId)` backend service for applying the latest completed storyboard plan to a draft.
+- implemented: ownership enforcement, latest completed plan lookup, deterministic START -> scenes -> END graph generation, `visualPrompt` to scene `prompt`, rounded scene durations, referenced media preservation, sentinel reuse/creation without duplicate multiplication, transaction-scoped storyboard replacement, transaction-scoped history snapshot/pruning, and canonical DB reload before returning state.
+- added: focused split service tests covering two-scene apply, referenced media rows, replacement of ad hoc blocks/edges, sentinel creation/reuse, missing completed plan, cross-user rejection, rollback, and canonical return path.
+- tests: `npm --workspace apps/api test -- storyboard.service.plan-apply` -> 1 file / 5 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- active task: removed only `STAGE2-SCENES-1` from `docs/active_task.md`; route/OpenAPI/frontend/E2E subtasks remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Scenes — STAGE2-SCENES-2 (2026-05-14)
+- added: `POST /storyboards/:draftId/apply-latest-plan` route and thin storyboard controller method that calls `applyLatestCompletedPlan` for the authenticated user and returns `StoryboardState`.
+- documented: OpenAPI path with bearer auth, `StoryboardState` 200 response, and 401/403/404/422 error cases; storyboard OpenAPI path/security tests now cover the operation.
+- added: storyboard integration coverage that seeds a completed `storyboard_plan_jobs` row, applies it through HTTP, and asserts persisted storyboard blocks, edges, media rows, and history; also covers cross-owner 403 and missing completed plan 422.
+- tests: `npm --workspace packages/api-contracts test -- openapi` -> 5 files / 107 tests passed.
+- tests: `npm --workspace packages/api-contracts run typecheck` -> passed.
+- tests: `npm --workspace apps/api run typecheck` -> passed.
+- tests: `npm --workspace apps/api test -- storyboard.service.plan-apply` -> 1 file / 5 tests passed.
+- tests: `npm --workspace apps/api test -- storyboard.integration storyboardPlan` -> failed because the local MySQL server rejected configured `cliptale` credentials (`ER_ACCESS_DENIED_ERROR`); non-live-db storyboardPlan unit/repository tests in that command passed.
+- caveat: an accidental first attempt `npm --workspace packages/api-contracts test -- openapi.storyboard --runInBand` failed because Vitest does not support `--runInBand`; rerun without the Jest flag passed.
+- active task: removed only `STAGE2-SCENES-2` from `docs/active_task.md`; frontend hook/UI/E2E subtasks remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Scenes — STAGE2-SCENES-3 (2026-05-14)
+- added: frontend storyboard plan API helpers for `POST /generation-drafts/:draftId/storyboard-plan`, `GET /generation-drafts/:draftId/storyboard-plan/:jobId`, and `POST /storyboards/:draftId/apply-latest-plan`.
+- added: `useStoryboardPlanGeneration` hook with `idle | queued | running | applying | completed | failed` lifecycle, explicit start/retry behavior, terminal/unmount polling cleanup, completed-only apply, React Flow-shaped canvas conversion, history query invalidation, and surfaced start/poll/apply errors.
+- tests: `npm --workspace apps/web-editor test -- useStoryboardPlanGeneration storyboard-api.test.ts` -> 2 files / 33 tests passed.
+- tests: `npm --workspace apps/web-editor test -- useStoryboardPlanGeneration storyboard api` -> failed because this local install cannot resolve existing storyboard dependencies `@xyflow/react`, `@xyflow/react/dist/style.css`, and `html-to-image` in pre-existing matched tests; direct hook/API tests passed after fixes.
+- typecheck: `npm --workspace apps/web-editor run typecheck` -> failed on pre-existing workspace-wide errors outside touched storyboard files; filtered `rg 'src/features/storyboard/(api|types|hooks/useStoryboardPlanGeneration|__tests__/storyboard-api)'` output was empty after rerun.
+- review fix: added draft-change polling invalidation/stale async guards, switched hook imports to `@/features/storyboard/*`, and normalized all start/poll/apply/job-failed errors to concise retry copy for the Step 2 UI.
+- active task: removed only `STAGE2-SCENES-3` from `docs/active_task.md`; UI/E2E subtasks remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Scenes — STAGE2-SCENES-4 (2026-05-14)
+- added: compact Step 2 generation controls and queued/running/applying workspace blocker for applying AI storyboard plans, with failure retry and completed-state copy.
+- wired: `StoryboardPage` now uses `useStoryboardPlanGeneration`, auto-starts when opened with `?generateScenes=1`, hydrates local React Flow nodes/edges from the hook's applied canvas state, disables Step 3 during blocking generation, closes covered modals, and leaves Back/Home available.
+- guarded: manual add/connect/node/edge changes, library adds, node edit clicks, and keyboard undo/redo/delete are no-ops while the plan blocker is active; UI was extracted into `StoryboardPlanControls`, `StoryboardPageWorkspace`, and `StoryboardPageFooter`, keeping `StoryboardPage.tsx` at 290 lines.
+- tests: `npm --workspace apps/web-editor test -- StoryboardPage StoryboardPlan` -> 8 files / 53 tests passed.
+- tests: `npm --workspace apps/web-editor test -- storyboard` -> 44 files / 436 tests passed; existing React act warnings appeared in `useStoryboardAutosave.save-now.test.ts`.
+- typecheck: `npm --workspace apps/web-editor run typecheck` -> failed on pre-existing workspace-wide errors outside touched storyboard files; filtered `rg 'src/features/storyboard/(components/(StoryboardPage|StoryboardPlan|storyboardPageStyles)|hooks/useStoryboardKeyboard)'` output was empty.
+- review fix: moved plan control styles into `StoryboardPlanControls.styles.ts`, converted new component prop shapes to interfaces, and switched StoryboardPage/workspace cross-directory imports to `@/features/storyboard/*`.
+- caveat: the first focused test run failed because local dependencies were missing `@xyflow/react`; `npm install` restored node_modules, and the accidental lockfile diff was removed before final status.
+- active task: removed only `STAGE2-SCENES-4` from `docs/active_task.md`; E2E subtask remains.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Scenes — STAGE2-SCENES-5 (2026-05-14)
+- added: focused Playwright coverage in `e2e/storyboard-plan-scenes.spec.ts` for applying generated Step 2 scenes through the UI without calling OpenAI.
+- added: storyboard E2E helpers for reading the authenticated user, opening a local MySQL connection, seeding a completed `storyboard_plan_jobs` row, deleting seeded jobs, and reading the persisted storyboard graph for edge-order assertions.
+- covered: mocked planning start/poll lifecycle reaches queued, running, and completed; real `POST /storyboards/:draftId/apply-latest-plan` is delayed/proxied so the applying overlay is asserted; overlay blocks covered Add Block clicks and Step 3 while Back/Home remain enabled; final canvas scene count/names, persisted START -> scene 1 -> scene 2 -> scene 3 -> END graph, edge count/order, API history snapshot, and visible history row are asserted.
+- tests: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/helpers/storyboard.ts e2e/storyboard-plan-scenes.spec.ts` -> passed.
+- tests: `E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/storyboard-plan-scenes.spec.ts` -> failed in Playwright global setup because `POST http://localhost:3001/auth/login` reset the connection (`fetch failed`, `ECONNRESET`); local API was not usable for the requested E2E run.
+- typecheck: `npm run typecheck -w apps/web-editor -- --noEmit` -> failed on pre-existing workspace-wide errors outside touched E2E files; focused E2E compile above passed.
+- active task: removed only `STAGE2-SCENES-5` from `docs/active_task.md`; remaining final-validation notes were left intact.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Scenes — Final Validation (2026-05-14)
+- tests: `npm --workspace packages/project-schema test -- storyboardPlan` -> 1 file / 15 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi` -> 5 files / 107 tests passed.
+- tests: `npm --workspace apps/api test -- storyboard.service.plan-apply generationDraft.storyboardPlan.service storyboardPlanJob.repository` -> 3 files / 24 tests passed.
+- tests: `npm --workspace apps/web-editor test -- useStoryboardPlanGeneration storyboard-api.test.ts StoryboardPage StoryboardPlan` -> 9 files / 79 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- typecheck: `npm --workspace packages/api-contracts run typecheck` -> passed.
+- typecheck: focused E2E compile `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/helpers/storyboard.ts e2e/storyboard-plan-scenes.spec.ts` -> passed.
+- typecheck caveat: `npm --workspace apps/web-editor run typecheck` still fails on pre-existing storyboard test type errors; exact touched-file filter for the new/changed storyboard files produced no output.
+- e2e caveat: `E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/storyboard-plan-scenes.spec.ts` remains blocked in global setup because local API login resets the connection (`ECONNRESET`), so the spec body could not execute in this environment.
+- active task: cleared `docs/active_task.md`; Stage 2 Block 4 storyboard scenes implementation subtasks are complete.
+
 ---
 
 ## Architectural Decisions

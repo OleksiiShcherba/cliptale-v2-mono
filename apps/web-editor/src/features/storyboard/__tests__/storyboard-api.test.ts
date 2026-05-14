@@ -37,6 +37,9 @@ import {
   updateSceneTemplate,
   deleteSceneTemplate,
   addTemplateToStoryboard,
+  startStoryboardPlan,
+  getStoryboardPlanStatus,
+  applyLatestStoryboardPlan,
 } from '../api';
 
 import type { SceneTemplate, CreateSceneTemplatePayload, UpdateSceneTemplatePayload } from '../types';
@@ -330,6 +333,69 @@ describe('addTemplateToStoryboard', () => {
       addTemplateToStoryboard({ templateId: 'tpl-001', draftId: 'other-draft' }),
     ).rejects.toThrow(
       'POST /scene-templates/tpl-001/add-to-storyboard failed: 403',
+    );
+  });
+});
+
+describe('storyboard plan API helpers', () => {
+  it('starts a storyboard plan job for a draft', async () => {
+    mockApiClient.post.mockResolvedValue(mockOkResponse({ jobId: 'job-123', status: 'queued' }));
+
+    const result = await startStoryboardPlan('draft-abc');
+
+    expect(mockApiClient.post).toHaveBeenCalledWith(
+      '/generation-drafts/draft-abc/storyboard-plan',
+      {},
+    );
+    expect(result).toEqual({ jobId: 'job-123', status: 'queued' });
+  });
+
+  it('throws when starting a storyboard plan job fails', async () => {
+    mockApiClient.post.mockResolvedValue(mockErrorResponse(422));
+
+    await expect(startStoryboardPlan('draft-abc')).rejects.toThrow(
+      'POST /generation-drafts/draft-abc/storyboard-plan failed: 422',
+    );
+  });
+
+  it('polls a storyboard plan job by draft and job id', async () => {
+    const response = { jobId: 'job-123', status: 'running', plan: null, errorMessage: null };
+    mockApiClient.get.mockResolvedValue(mockOkResponse(response));
+
+    const result = await getStoryboardPlanStatus('draft-abc', 'job-123');
+
+    expect(mockApiClient.get).toHaveBeenCalledWith(
+      '/generation-drafts/draft-abc/storyboard-plan/job-123',
+    );
+    expect(result).toEqual(response);
+  });
+
+  it('throws when polling a storyboard plan job fails', async () => {
+    mockApiClient.get.mockResolvedValue(mockErrorResponse(404));
+
+    await expect(getStoryboardPlanStatus('draft-abc', 'missing-job')).rejects.toThrow(
+      'GET /generation-drafts/draft-abc/storyboard-plan/missing-job failed: 404',
+    );
+  });
+
+  it('applies the latest completed storyboard plan', async () => {
+    const state = { blocks: [], edges: [] };
+    mockApiClient.post.mockResolvedValue(mockOkResponse(state));
+
+    const result = await applyLatestStoryboardPlan('draft-abc');
+
+    expect(mockApiClient.post).toHaveBeenCalledWith(
+      '/storyboards/draft-abc/apply-latest-plan',
+      {},
+    );
+    expect(result).toEqual(state);
+  });
+
+  it('throws when applying the latest completed storyboard plan fails', async () => {
+    mockApiClient.post.mockResolvedValue(mockErrorResponse(422));
+
+    await expect(applyLatestStoryboardPlan('draft-abc')).rejects.toThrow(
+      'POST /storyboards/draft-abc/apply-latest-plan failed: 422',
     );
   });
 });

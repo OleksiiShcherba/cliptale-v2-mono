@@ -28,6 +28,8 @@ interface UseStoryboardKeyboardOptions {
   historyStore: StoryboardHistoryStore;
   /** Commits an undo/redo snapshot into React Flow local state. */
   onApplyHistorySnapshot?: (snapshot: AppliedCanvasSnapshot) => void;
+  /** False disables global storyboard shortcuts while a blocking workflow runs. */
+  enabled?: boolean;
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -41,21 +43,26 @@ export function useStoryboardKeyboard({
   onRemoveNode,
   historyStore,
   onApplyHistorySnapshot,
+  enabled = true,
 }: UseStoryboardKeyboardOptions): void {
   // Mutable refs prevent stale closures in the event listener.
   const nodesRef = useRef<Node[]>(nodes);
   const onRemoveNodeRef = useRef(onRemoveNode);
   const historyStoreRef = useRef<StoryboardHistoryStore>(historyStore);
   const onApplyHistorySnapshotRef = useRef(onApplyHistorySnapshot);
+  const enabledRef = useRef(enabled);
 
   // Keep refs fresh on every render.
   nodesRef.current = nodes;
   onRemoveNodeRef.current = onRemoveNode;
   historyStoreRef.current = historyStore;
   onApplyHistorySnapshotRef.current = onApplyHistorySnapshot;
+  enabledRef.current = enabled;
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
+      if (!enabledRef.current) return;
+
       const { key, ctrlKey, shiftKey } = event;
 
       // ── Delete — remove selected SCENE block ─────────────────────────────────

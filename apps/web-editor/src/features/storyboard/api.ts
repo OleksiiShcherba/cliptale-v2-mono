@@ -5,6 +5,7 @@
  */
 
 import { apiClient } from '@/lib/api-client';
+import type { StoryboardPlanJobResult } from '@ai-video-editor/project-schema';
 
 import type {
   StoryboardBlock,
@@ -15,6 +16,13 @@ import type {
 } from './types';
 
 export type { StoryboardState, SceneTemplate, CreateSceneTemplatePayload, UpdateSceneTemplatePayload };
+
+export type StartStoryboardPlanResponse = {
+  jobId: string;
+  status: 'queued';
+};
+
+export type StoryboardPlanJobStatusResponse = StoryboardPlanJobResult;
 
 /**
  * Fetches the current storyboard state (blocks + edges) for a generation draft.
@@ -97,6 +105,56 @@ export async function fetchHistorySnapshots(
     throw new Error(`GET /storyboards/${draftId}/history failed: ${res.status}`);
   }
   return res.json() as Promise<StoryboardHistorySnapshot[]>;
+}
+
+/**
+ * Starts an async storyboard planning job for a generation draft.
+ *
+ * Maps to POST /generation-drafts/:draftId/storyboard-plan.
+ * Returns the persisted job ID immediately so callers can move the user to
+ * Step 2 while polling continues.
+ */
+export async function startStoryboardPlan(
+  draftId: string,
+): Promise<StartStoryboardPlanResponse> {
+  const res = await apiClient.post(`/generation-drafts/${draftId}/storyboard-plan`, {});
+  if (!res.ok) {
+    throw new Error(`POST /generation-drafts/${draftId}/storyboard-plan failed: ${res.status}`);
+  }
+  return res.json() as Promise<StartStoryboardPlanResponse>;
+}
+
+/**
+ * Polls an existing storyboard planning job.
+ *
+ * Maps to GET /generation-drafts/:draftId/storyboard-plan/:jobId.
+ */
+export async function getStoryboardPlanStatus(
+  draftId: string,
+  jobId: string,
+): Promise<StoryboardPlanJobStatusResponse> {
+  const res = await apiClient.get(`/generation-drafts/${draftId}/storyboard-plan/${jobId}`);
+  if (!res.ok) {
+    throw new Error(
+      `GET /generation-drafts/${draftId}/storyboard-plan/${jobId} failed: ${res.status}`,
+    );
+  }
+  return res.json() as Promise<StoryboardPlanJobStatusResponse>;
+}
+
+/**
+ * Applies the latest completed storyboard plan for a draft.
+ *
+ * Maps to POST /storyboards/:draftId/apply-latest-plan.
+ * The server performs the authoritative replace + history snapshot write and
+ * returns the hydrated storyboard canvas state.
+ */
+export async function applyLatestStoryboardPlan(draftId: string): Promise<StoryboardState> {
+  const res = await apiClient.post(`/storyboards/${draftId}/apply-latest-plan`, {});
+  if (!res.ok) {
+    throw new Error(`POST /storyboards/${draftId}/apply-latest-plan failed: ${res.status}`);
+  }
+  return res.json() as Promise<StoryboardState>;
 }
 
 // ── Scene Template API functions ───────────────────────────────────────────────

@@ -25,6 +25,8 @@ export type StoryboardState = {
   edges: StoryboardEdge[];
 };
 
+export { applyLatestCompletedPlan } from './storyboardPlanApply.service.js';
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 /**

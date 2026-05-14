@@ -15,10 +15,12 @@ const BORDER = '#252535';
 const TEXT_PRIMARY = '#F0F0FA';
 const TEXT_SECONDARY = '#8A8AA0';
 const PRIMARY = '#7C3AED';
+const PRIMARY_DARK = '#5B21B6';
 const PRIMARY_LIGHT = '#4C1D95';
 const ERROR = '#EF4444';
+const SUCCESS = '#10B981';
 
-export { SURFACE, SURFACE_ALT, SURFACE_ELEVATED, BORDER, TEXT_PRIMARY, TEXT_SECONDARY, PRIMARY, PRIMARY_LIGHT, ERROR };
+export { SURFACE, SURFACE_ALT, SURFACE_ELEVATED, BORDER, TEXT_PRIMARY, TEXT_SECONDARY, PRIMARY, PRIMARY_DARK, PRIMARY_LIGHT, ERROR, SUCCESS };
 
 export const storyboardPageStyles = {
   // ── Root page shell ────────────────────────────────────────────────────────
@@ -102,6 +104,7 @@ export const storyboardPageStyles = {
   body: {
     flex: 1,
     display: 'flex',
+    position: 'relative' as const,
     overflow: 'hidden',
   } as React.CSSProperties,
 
@@ -218,6 +221,23 @@ export const storyboardPageStyles = {
     display: 'flex',
     alignItems: 'center',
     gap: '4px',
+  } as React.CSSProperties,
+
+  nextButtonDisabled: {
+    background: PRIMARY,
+    border: 'none',
+    padding: '0 16px',
+    height: '36px',
+    fontSize: '12px',
+    fontWeight: 500,
+    color: '#FFFFFF',
+    cursor: 'not-allowed',
+    borderRadius: '8px',
+    fontFamily: 'Inter, sans-serif',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    opacity: 0.5,
   } as React.CSSProperties,
 
   // ── Canvas toolbar (floating above canvas, bottom-right) ───────────────────

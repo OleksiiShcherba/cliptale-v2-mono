@@ -127,6 +127,18 @@ vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
   useStoryboardHistorySeed: vi.fn(),
 }));
 
+vi.mock('@/features/storyboard/hooks/useStoryboardPlanGeneration', () => ({
+  useStoryboardPlanGeneration: vi.fn(() => ({
+    status: 'idle',
+    jobId: null,
+    error: null,
+    canvasState: null,
+    start: vi.fn(),
+    retry: vi.fn(),
+    reset: vi.fn(),
+  })),
+}));
+
 // ---------------------------------------------------------------------------
 // Import after mocks
 // ---------------------------------------------------------------------------
