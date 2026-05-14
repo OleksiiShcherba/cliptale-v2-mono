@@ -23,10 +23,12 @@ import { StoryboardCanvas } from './StoryboardCanvas';
 import { EffectsIcon, LibraryIcon, StoryboardIcon } from './storyboardIcons';
 import { StoryboardHistoryPanel } from './StoryboardHistoryPanel';
 import {
+  StoryboardIllustrationControls,
   StoryboardPlanBlockingOverlay,
   StoryboardPlanControls,
 } from './StoryboardPlanControls';
 import { storyboardPageStyles as s, ERROR } from './storyboardPageStyles';
+import type { UseStoryboardIllustrationsResult } from '@/features/storyboard/hooks/useStoryboardIllustrations';
 
 interface StoryboardPageWorkspaceProps {
   activeTab: StoryboardSidebarTab;
@@ -55,6 +57,7 @@ interface StoryboardPageWorkspaceProps {
   onCloseHistory: () => void;
   onRestore: (nodes: Node[], edges: Edge[], options?: { skipSave?: boolean; skipSnapshot?: boolean; deferSave?: boolean }) => void;
   planGeneration: UseStoryboardPlanGenerationResult;
+  illustrationGeneration: UseStoryboardIllustrationsResult;
   isPlanBlocking: boolean;
 }
 
@@ -85,6 +88,7 @@ export function StoryboardPageWorkspace({
   onCloseHistory,
   onRestore,
   planGeneration,
+  illustrationGeneration,
   isPlanBlocking,
 }: StoryboardPageWorkspaceProps): React.ReactElement {
   return (
@@ -111,6 +115,12 @@ export function StoryboardPageWorkspace({
           isBlocking={isPlanBlocking}
           onStart={() => { void planGeneration.start(); }}
           onRetry={() => { void planGeneration.retry(); }}
+        />
+        <StoryboardIllustrationControls
+          status={illustrationGeneration.status}
+          error={illustrationGeneration.error}
+          isBlocking={illustrationGeneration.isBlocking || isPlanBlocking}
+          onStart={() => { void illustrationGeneration.start(); }}
         />
         {isLoading ? (
           <div style={s.canvasPlaceholder} data-testid="canvas-loading">Loading storyboard…</div>

@@ -1055,7 +1055,82 @@ export const FAL_MODELS: readonly FalModel[] = [
     },
   },
 
-  // 9. fal-ai/gpt-image-1.5
+  // 9. openai/gpt-image-2
+  {
+    id: 'openai/gpt-image-2',
+    provider: 'fal',
+    capability: 'text_to_image',
+    group: 'images',
+    label: 'GPT Image 2 — Text to Image',
+    description:
+      'OpenAI GPT Image 2 through fal.ai. Default storyboard illustration model.',
+    inputSchema: {
+      fields: [
+        {
+          name: 'prompt',
+          type: 'text',
+          label: 'Prompt',
+          required: true,
+          description: 'Text prompt.',
+        },
+        {
+          name: 'image_size',
+          type: 'enum',
+          label: 'Image Size',
+          required: false,
+          default: 'landscape_4_3',
+          enum: [
+            'square_hd',
+            'square',
+            'portrait_4_3',
+            'portrait_16_9',
+            'landscape_4_3',
+            'landscape_16_9',
+            'auto',
+          ],
+          description: 'Size/aspect.',
+        },
+        {
+          name: 'quality',
+          type: 'enum',
+          label: 'Quality',
+          required: false,
+          default: 'high',
+          enum: ['auto', 'low', 'medium', 'high'],
+          description: 'Quality.',
+        },
+        {
+          name: 'num_images',
+          type: 'number',
+          label: 'Number of Images',
+          required: false,
+          default: 1,
+          min: 1,
+          max: 4,
+          description: 'Number of images.',
+        },
+        {
+          name: 'output_format',
+          type: 'enum',
+          label: 'Output Format',
+          required: false,
+          default: 'png',
+          enum: ['jpeg', 'png', 'webp'],
+          description: 'Output format.',
+        },
+        {
+          name: 'sync_mode',
+          type: 'boolean',
+          label: 'Sync Mode',
+          required: false,
+          default: false,
+          description: 'Return as data URI.',
+        },
+      ],
+    },
+  },
+
+  // 10. fal-ai/gpt-image-1.5
   {
     id: 'fal-ai/gpt-image-1.5',
     provider: 'fal',

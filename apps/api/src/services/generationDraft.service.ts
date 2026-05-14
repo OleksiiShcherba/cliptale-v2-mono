@@ -8,7 +8,6 @@ import type {
   GenerationDraft,
   StoryboardCard,
 } from '@/repositories/generationDraft.repository.js';
-import * as aiGenerationJobRepository from '@/repositories/aiGenerationJob.repository.js';
 import type { MediaRefBlock } from '@ai-video-editor/project-schema';
 import {
   ForbiddenError,
@@ -133,9 +132,10 @@ export async function startEnhance(
  * 1. Verifies draft ownership (throws NotFoundError / ForbiddenError as appropriate).
  * 2. Delegates to aiGeneration.service.submitGeneration — applies the same
  *    model-catalog validation, kling-o3 XOR, and presigned-URL resolver.
- * 3. Records the draft association on the job row via aiGenerationJobRepository.setDraftId.
- *    When the worker later calls setOutputFile, the repository auto-links the
- *    generated file into draft_files so it appears in the wizard's gallery.
+ * 3. Passes draftId into submitGeneration so the job row is draft-scoped before
+ *    the worker can pick it up. When the worker later calls setOutputFile, the
+ *    repository auto-links the generated file into draft_files so it appears in
+ *    the wizard's gallery.
  *
  * Returns 202 { jobId, status: 'queued' } on success.
  * Throws ValidationError (400) for invalid model/options, ForbiddenError (403) for
@@ -149,10 +149,7 @@ export async function submitDraftAiGeneration(
   // Ownership check — throws NotFoundError / ForbiddenError on failure.
   await resolveDraft(userId, draftId);
 
-  const result = await submitGeneration(userId, params);
-
-  // Record the draft association so setOutputFile can auto-link the output file.
-  await aiGenerationJobRepository.setDraftId(result.jobId, draftId);
+  const result = await submitGeneration(userId, { ...params, draftId });
 
   return result;
 }

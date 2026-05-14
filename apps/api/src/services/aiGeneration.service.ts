@@ -14,6 +14,7 @@ import {
   type AiCapability,
   type AiModel,
 } from '@ai-video-editor/api-contracts';
+import { randomUUID } from 'node:crypto';
 
 import {
   ValidationError,
@@ -37,6 +38,8 @@ export type SubmitGenerationParams = {
   modelId: string;
   prompt?: string;
   options: Record<string, unknown>;
+  draftId?: string;
+  beforeEnqueue?: (jobId: string) => Promise<void>;
 };
 
 /** Result returned by {@link submitGeneration}. */
@@ -160,14 +163,7 @@ export async function submitGeneration(
 
   const dbPrompt = deriveDbPrompt(prompt, resolvedOptions);
 
-  const jobId = await enqueueAiGenerateJob({
-    userId,
-    modelId: model.id,
-    capability: model.capability,
-    provider: model.provider,
-    prompt: dbPrompt,
-    options: resolvedOptions,
-  });
+  const jobId = randomUUID();
 
   await aiGenerationJobRepository.createJob({
     jobId,
@@ -177,6 +173,30 @@ export async function submitGeneration(
     prompt: dbPrompt,
     options: resolvedOptions,
   });
+
+  if (params.draftId) {
+    await aiGenerationJobRepository.setDraftId(jobId, params.draftId);
+  }
+
+  try {
+    if (params.beforeEnqueue) {
+      await params.beforeEnqueue(jobId);
+    }
+
+    await enqueueAiGenerateJob({
+      jobId,
+      userId,
+      modelId: model.id,
+      capability: model.capability,
+      provider: model.provider,
+      prompt: dbPrompt,
+      options: resolvedOptions,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to enqueue generation job';
+    await aiGenerationJobRepository.updateJobStatus(jobId, 'failed', message);
+    throw error;
+  }
 
   return { jobId, status: 'queued' };
 }

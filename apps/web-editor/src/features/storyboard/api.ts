@@ -10,6 +10,7 @@ import type { StoryboardPlanJobResult } from '@ai-video-editor/project-schema';
 import type {
   StoryboardBlock,
   StoryboardState,
+  StoryboardIllustrationStatusResponse,
   SceneTemplate,
   CreateSceneTemplatePayload,
   UpdateSceneTemplatePayload,
@@ -155,6 +156,39 @@ export async function applyLatestStoryboardPlan(draftId: string): Promise<Storyb
     throw new Error(`POST /storyboards/${draftId}/apply-latest-plan failed: ${res.status}`);
   }
   return res.json() as Promise<StoryboardState>;
+}
+
+export async function fetchStoryboardIllustrations(
+  draftId: string,
+): Promise<StoryboardIllustrationStatusResponse> {
+  const res = await apiClient.get(`/storyboards/${draftId}/illustrations`);
+  if (!res.ok) {
+    throw new Error(`GET /storyboards/${draftId}/illustrations failed: ${res.status}`);
+  }
+  return res.json() as Promise<StoryboardIllustrationStatusResponse>;
+}
+
+export async function startStoryboardIllustrations(
+  draftId: string,
+): Promise<StoryboardIllustrationStatusResponse> {
+  const res = await apiClient.post(`/storyboards/${draftId}/illustrations`, {});
+  if (!res.ok) {
+    throw new Error(`POST /storyboards/${draftId}/illustrations failed: ${res.status}`);
+  }
+  return res.json() as Promise<StoryboardIllustrationStatusResponse>;
+}
+
+export async function startStoryboardBlockIllustration(
+  draftId: string,
+  blockId: string,
+): Promise<StoryboardIllustrationStatusResponse> {
+  const res = await apiClient.post(`/storyboards/${draftId}/blocks/${blockId}/illustration`, {});
+  if (!res.ok) {
+    throw new Error(
+      `POST /storyboards/${draftId}/blocks/${blockId}/illustration failed: ${res.status}`,
+    );
+  }
+  return res.json() as Promise<StoryboardIllustrationStatusResponse>;
 }
 
 // ── Scene Template API functions ───────────────────────────────────────────────

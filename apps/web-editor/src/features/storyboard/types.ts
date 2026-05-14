@@ -63,10 +63,37 @@ export type StoryboardPlanGenerationStatus =
   | 'completed'
   | 'failed';
 
+export type StoryboardIllustrationStatus =
+  | 'queued'
+  | 'running'
+  | 'ready'
+  | 'failed';
+
+export type StoryboardIllustrationStatusItem = {
+  blockId: string;
+  status: StoryboardIllustrationStatus;
+  jobId: string | null;
+  outputFileId: string | null;
+  errorMessage: string | null;
+};
+
+export type StoryboardIllustrationStatusResponse = {
+  items: StoryboardIllustrationStatusItem[];
+};
+
+export type StoryboardIllustrationLifecycleStatus =
+  | 'idle'
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed';
+
 /** React Flow node data for a SCENE block. */
 export type SceneBlockNodeData = {
   block: StoryboardBlock;
   onRemove: (nodeId: string) => void;
+  illustration?: StoryboardIllustrationStatusItem;
+  onRetryIllustration?: (blockId: string) => void;
   /** Optional callback fired when the user clicks the block to open SceneModal. */
   onEdit?: (nodeId: string) => void;
 };

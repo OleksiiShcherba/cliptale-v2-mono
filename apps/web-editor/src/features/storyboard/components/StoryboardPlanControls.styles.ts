@@ -28,6 +28,10 @@ export const storyboardPlanControlStyles = {
     boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)',
   } as React.CSSProperties,
 
+  illustrationControl: {
+    top: '78px',
+  } as React.CSSProperties,
+
   controlText: {
     display: 'flex',
     flexDirection: 'column' as const,

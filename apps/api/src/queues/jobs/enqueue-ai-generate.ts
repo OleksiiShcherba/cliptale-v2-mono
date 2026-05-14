@@ -32,9 +32,9 @@ export type AiGenerateJobPayload = {
  * (unlike media ingest which is idempotent per asset).
  */
 export async function enqueueAiGenerateJob(
-  payload: Omit<AiGenerateJobPayload, 'jobId'>,
+  payload: Omit<AiGenerateJobPayload, 'jobId'> & { jobId?: string },
 ): Promise<string> {
-  const jobId = randomUUID();
+  const jobId = payload.jobId ?? randomUUID();
   await aiGenerateQueue.add('ai-generate', { ...payload, jobId }, {
     jobId,
     attempts: 1,

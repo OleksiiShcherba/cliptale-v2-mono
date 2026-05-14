@@ -29,6 +29,7 @@ import { useStoryboardDrag } from '@/features/storyboard/hooks/useStoryboardDrag
 import { useStoryboardHistoryPush } from '@/features/storyboard/hooks/useStoryboardHistoryPush';
 import { useStoryboardKeyboard } from '@/features/storyboard/hooks/useStoryboardKeyboard';
 import { useStoryboardKnifeTool } from '@/features/storyboard/hooks/useStoryboardKnifeTool';
+import { useStoryboardIllustrations } from '@/features/storyboard/hooks/useStoryboardIllustrations';
 import { useStoryboardPlanGeneration } from '@/features/storyboard/hooks/useStoryboardPlanGeneration';
 import {
   storyboardHistoryStore,
@@ -63,8 +64,11 @@ export function StoryboardPage(): React.ReactElement {
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
 
   const safeDraftId = draftId ?? '';
-  const { nodes, edges, isLoading, error, setNodes, setEdges, removeNode } =
+  const { nodes, edges, isLoading, error, setNodes, setEdges, removeNode, reload } =
     useStoryboardCanvas(safeDraftId);
+  const reloadStoryboard = useCallback(async (): Promise<void> => {
+    await reload?.();
+  }, [reload]);
 
   const { selectedBlockId } = useStoryboardStore();
   const planGeneration = useStoryboardPlanGeneration(safeDraftId, { onRemoveNode: removeNode });
@@ -73,6 +77,10 @@ export function StoryboardPage(): React.ReactElement {
     || planGeneration.status === 'running'
     || planGeneration.status === 'applying'
   );
+  const illustrationGeneration = useStoryboardIllustrations(safeDraftId, {
+    onStoryboardUpdated: reloadStoryboard,
+  });
+  const isGenerationBlocking = isPlanBlocking || illustrationGeneration.isBlocking;
 
   useEffect(() => {
     initHistoryStore(safeDraftId);
@@ -90,6 +98,38 @@ export function StoryboardPage(): React.ReactElement {
   }, [planGeneration.canvasState, planGeneration.status, setEdges, setNodes]);
 
   useEffect(() => {
+    if (planGeneration.status !== 'completed') return;
+    void illustrationGeneration.start();
+  }, [illustrationGeneration.start, planGeneration.status]);
+
+  useEffect(() => {
+    setNodes((prev) => {
+      let changed = false;
+      const next = prev.map((node) => {
+        if (node.type !== 'scene-block') return node;
+        const data = node.data as SceneBlockNodeData;
+        const illustration = illustrationGeneration.byBlockId.get(node.id);
+        if (
+          data.illustration === illustration
+          && data.onRetryIllustration === illustrationGeneration.retryBlock
+        ) {
+          return node;
+        }
+        changed = true;
+        return {
+          ...node,
+          data: {
+            ...data,
+            illustration,
+            onRetryIllustration: illustrationGeneration.retryBlock,
+          } satisfies SceneBlockNodeData,
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, [illustrationGeneration.byBlockId, illustrationGeneration.retryBlock, nodes, setNodes]);
+
+  useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const shouldAutoStart = (
       searchParams.get('generateScenes') === '1'
@@ -105,18 +145,18 @@ export function StoryboardPage(): React.ReactElement {
   const { editingBlock, openModal, handleSave, handleDelete, handleClose } = useSceneModal(setNodes, saveNow);
 
   useEffect(() => {
-    if (isPlanBlocking && editingBlock !== null) handleClose();
-  }, [editingBlock, handleClose, isPlanBlocking]);
+    if (isGenerationBlocking && editingBlock !== null) handleClose();
+  }, [editingBlock, handleClose, isGenerationBlocking]);
 
   const handleNodeClick: NodeMouseHandler<Node> = useCallback(
     (_event, node) => {
-      if (isPlanBlocking) return;
+      if (isGenerationBlocking) return;
       if (node.type !== 'scene-block') return;
       const blockData = node.data as SceneBlockNodeData;
       setSelectedBlock(node.id);
       openModal(blockData.block);
     },
-    [isPlanBlocking, openModal],
+    [isGenerationBlocking, openModal],
   );
 
   const { pushSnapshot } = useStoryboardHistoryPush(safeDraftId);
@@ -142,9 +182,9 @@ export function StoryboardPage(): React.ReactElement {
   });
   const { handleAddBlock: handleManualAddBlock } = useHandleAddBlock({ addBlock });
   const handleAddBlock = useCallback((): void => {
-    if (isPlanBlocking) return;
+    if (isGenerationBlocking) return;
     handleManualAddBlock();
-  }, [handleManualAddBlock, isPlanBlocking]);
+  }, [handleManualAddBlock, isGenerationBlocking]);
   const { handleRestore } = useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow });
   useStoryboardHistorySeed({
     draftId: safeDraftId,
@@ -157,7 +197,7 @@ export function StoryboardPage(): React.ReactElement {
     nodes,
     onRemoveNode: removeNode,
     historyStore: storyboardHistoryStore,
-    enabled: !isPlanBlocking,
+    enabled: !isGenerationBlocking,
     onApplyHistorySnapshot: ({ nodes: restoredNodes, edges: restoredEdges }) => {
       handleRestore(restoredNodes, restoredEdges, { skipSnapshot: true, deferSave: true });
     },
@@ -185,7 +225,7 @@ export function StoryboardPage(): React.ReactElement {
 
   const handleConnect = useCallback(
     (connection: Connection) => {
-      if (isPlanBlocking) return;
+      if (isGenerationBlocking) return;
       setEdges((prev) => {
         const next = addEdge(
           {
@@ -202,7 +242,7 @@ export function StoryboardPage(): React.ReactElement {
       });
       setTimeout(() => void saveNow(), 0);
     },
-    [isPlanBlocking, setEdges, nodes, pushSnapshot, saveNow],
+    [isGenerationBlocking, setEdges, nodes, pushSnapshot, saveNow],
   );
 
   const handleAddFromLibraryInternal = useHandleAddFromLibrary({
@@ -216,24 +256,24 @@ export function StoryboardPage(): React.ReactElement {
   });
   const handleAddFromLibrary = useCallback(
     async (templateId: string): Promise<void> => {
-      if (isPlanBlocking) return;
+      if (isGenerationBlocking) return;
       await handleAddFromLibraryInternal(templateId);
     },
-    [handleAddFromLibraryInternal, isPlanBlocking],
+    [handleAddFromLibraryInternal, isGenerationBlocking],
   );
 
   const handleNodesChange: OnNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      if (isPlanBlocking) return;
+      if (isGenerationBlocking) return;
       const nonPositionChanges = changes.filter((c) => c.type !== 'position');
       setNodes((prev) => applyNodeChanges(nonPositionChanges, prev));
     },
-    [isPlanBlocking, setNodes],
+    [isGenerationBlocking, setNodes],
   );
 
   const handleEdgesChange: OnEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
-      if (isPlanBlocking) return;
+      if (isGenerationBlocking) return;
       const hasStructuralChange = changes.some((c) => c.type === 'add' || c.type === 'remove');
       setEdges((prev) => {
         const next = applyEdgeChanges(changes, prev);
@@ -242,12 +282,12 @@ export function StoryboardPage(): React.ReactElement {
       });
       if (hasStructuralChange) setTimeout(() => void saveNow(), 0);
     },
-    [isPlanBlocking, setEdges, nodes, pushSnapshot, saveNow],
+    [isGenerationBlocking, setEdges, nodes, pushSnapshot, saveNow],
   );
 
   const handleBack = (): void => { navigate(draftId ? `/generate?draftId=${draftId}` : '/generate'); };
   const handleNext = (): void => {
-    if (isPlanBlocking) return;
+    if (isGenerationBlocking) return;
     navigate('/generate/road-map');
   };
 
@@ -270,10 +310,11 @@ export function StoryboardPage(): React.ReactElement {
         dragState={dragState} onAddBlock={handleAddBlock} onNodeClick={handleNodeClick}
         isKnifeActive={isKnifeActive} onCutEdge={cutEdge} isHistoryOpen={isHistoryOpen}
         onCloseHistory={() => setIsHistoryOpen(false)} onRestore={handleRestore}
-        planGeneration={planGeneration} isPlanBlocking={isPlanBlocking}
+        planGeneration={planGeneration} illustrationGeneration={illustrationGeneration}
+        isPlanBlocking={isPlanBlocking}
       />
 
-      <StoryboardPageFooter isPlanBlocking={isPlanBlocking} onBack={handleBack} onNext={handleNext} />
+      <StoryboardPageFooter isNextDisabled={isGenerationBlocking} onBack={handleBack} onNext={handleNext} />
 
       {editingBlock !== null && (
         <SceneModal

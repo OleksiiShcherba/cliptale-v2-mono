@@ -3,8 +3,8 @@ import { describe, it, expect } from 'vitest';
 import { FAL_MODELS, type FalFieldType } from './fal-models.js';
 
 describe('fal-models catalog', () => {
-  it('has exactly 9 models', () => {
-    expect(FAL_MODELS).toHaveLength(9);
+  it('has exactly 10 models', () => {
+    expect(FAL_MODELS).toHaveLength(10);
   });
 
   it('every model has provider: "fal"', () => {
@@ -86,6 +86,34 @@ describe('fal-models catalog', () => {
     expect(ltx).toBeDefined();
     const fieldNames = ltx!.inputSchema.fields.map((f) => f.name);
     expect(fieldNames).not.toContain('video_size');
+  });
+
+  it('includes openai/gpt-image-2 with storyboard illustration fields', () => {
+    const model = FAL_MODELS.find((m) => m.id === 'openai/gpt-image-2');
+    expect(model).toMatchObject({
+      provider: 'fal',
+      capability: 'text_to_image',
+      group: 'images',
+    });
+    const fields = new Map(model!.inputSchema.fields.map((field) => [field.name, field]));
+    expect([...fields.keys()]).toEqual([
+      'prompt',
+      'image_size',
+      'quality',
+      'num_images',
+      'output_format',
+      'sync_mode',
+    ]);
+    expect(fields.get('quality')?.enum).toEqual(['auto', 'low', 'medium', 'high']);
+    expect(fields.get('image_size')?.enum).toEqual([
+      'square_hd',
+      'square',
+      'portrait_4_3',
+      'portrait_16_9',
+      'landscape_4_3',
+      'landscape_16_9',
+      'auto',
+    ]);
   });
 
   it('no fal model uses the voice_picker field type (voice_picker is ElevenLabs-only)', () => {

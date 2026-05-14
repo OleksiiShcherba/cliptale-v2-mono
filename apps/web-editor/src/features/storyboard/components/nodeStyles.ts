@@ -16,6 +16,8 @@ export const BORDER = '#252535';
 export const TEXT_PRIMARY = '#F0F0FA';
 export const TEXT_SECONDARY = '#8A8AA0';
 export const ERROR = '#EF4444';
+export const SUCCESS = '#10B981';
+export const WARNING = '#F59E0B';
 
 // ── StartNode / EndNode styles ─────────────────────────────────────────────────
 
@@ -152,6 +154,45 @@ export const sceneBlockNodeStyles = {
     color: TEXT_SECONDARY,
     letterSpacing: '0.04em',
     alignSelf: 'flex-start',
+  } as React.CSSProperties,
+
+  illustrationStatusRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '6px',
+    minHeight: '24px',
+  } as React.CSSProperties,
+
+  illustrationStatusBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    minWidth: 0,
+    maxWidth: '128px',
+    background: SURFACE,
+    border: `1px solid ${BORDER}`,
+    borderRadius: '4px',
+    padding: '4px 8px',
+    fontSize: '10px',
+    fontWeight: 600,
+    color: TEXT_SECONDARY,
+    lineHeight: '14px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  } as React.CSSProperties,
+
+  illustrationRetryButton: {
+    flexShrink: 0,
+    border: `1px solid ${BORDER}`,
+    borderRadius: '4px',
+    background: SURFACE,
+    color: TEXT_PRIMARY,
+    cursor: 'pointer',
+    fontSize: '10px',
+    fontWeight: 600,
+    lineHeight: '14px',
+    padding: '4px 8px',
   } as React.CSSProperties,
 
   thumbnailRow: {

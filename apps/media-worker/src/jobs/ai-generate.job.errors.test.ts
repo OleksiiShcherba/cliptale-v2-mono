@@ -38,6 +38,7 @@ describe('processAiGenerateJob — failure paths', () => {
     expect(m.filesRepoCreateFile).not.toHaveBeenCalled();
     expect(m.ingestAdd).not.toHaveBeenCalled();
     expect(m.aiGenerationJobRepoSetOutputFile).not.toHaveBeenCalled();
+    expect(m.storyboardIllustrationMarkFailed).toHaveBeenCalledWith('job-1', 'fal submit boom');
   });
 
   it('marks job failed when getFalJobStatus throws during polling', async () => {

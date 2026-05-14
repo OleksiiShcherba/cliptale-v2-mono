@@ -119,7 +119,21 @@ describe('SceneBlockNode thumbnails', () => {
     const img = screen.getByTestId('thumbnail-img') as HTMLImageElement;
     expect(img).toBeTruthy();
     // URL contains fileId and token
-    expect(img.src).toContain('img-1/thumbnail');
+    expect(img.src).toContain('img-1/stream');
+    expect(img.src).toContain('token=mock');
+  });
+
+  it('uses the thumbnail endpoint for video media items', () => {
+    const media = [makeMedia({ fileId: 'vid-1', mediaType: 'video' })];
+    render(
+      <SceneBlockNode
+        id="node-1"
+        data={{ block: makeBlock(media), onRemove: mockOnRemove }}
+      />,
+    );
+
+    const img = screen.getByTestId('thumbnail-img') as HTMLImageElement;
+    expect(img.src).toContain('vid-1/thumbnail');
     expect(img.src).toContain('token=mock');
   });
 

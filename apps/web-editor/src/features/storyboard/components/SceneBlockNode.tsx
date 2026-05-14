@@ -20,7 +20,15 @@ import { buildAuthenticatedUrl } from '@/lib/api-client';
 import { config } from '@/lib/config';
 
 import type { BlockMediaItem, SceneBlockNodeData } from '../types';
-import { PRIMARY_LIGHT, SURFACE_ELEVATED, sceneBlockNodeStyles as s } from './nodeStyles';
+import {
+  ERROR,
+  PRIMARY,
+  PRIMARY_LIGHT,
+  SUCCESS,
+  SURFACE_ELEVATED,
+  WARNING,
+  sceneBlockNodeStyles as s,
+} from './nodeStyles';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -35,6 +43,20 @@ const MEDIA_TYPE_BADGE_LABELS: Record<string, string> = {
   video: 'VIDEO CLIP',
   audio: 'AUDIO CLIP',
 };
+
+const ILLUSTRATION_STATUS_LABELS = {
+  queued: 'Image queued',
+  running: 'Image running',
+  ready: 'Image ready',
+  failed: 'Image failed',
+} as const;
+
+const ILLUSTRATION_STATUS_COLORS = {
+  queued: WARNING,
+  running: PRIMARY,
+  ready: SUCCESS,
+  failed: ERROR,
+} as const;
 
 // ── Handle styles ──────────────────────────────────────────────────────────────
 
@@ -82,13 +104,14 @@ function PlaceholderThumbnail(): React.ReactElement {
 
 /** Thumbnail image loaded via authenticated URL. Falls back to placeholder on error. */
 function MediaThumbnail({ item }: { item: BlockMediaItem }): React.ReactElement {
-  const thumbnailUrl = buildAuthenticatedUrl(
-    `${config.apiBaseUrl}/assets/${item.fileId}/thumbnail`,
-  );
-
   if (!VISUAL_MEDIA_TYPES.has(item.mediaType)) {
     return <PlaceholderThumbnail />;
   }
+
+  const previewPath = item.mediaType === 'image' ? 'stream' : 'thumbnail';
+  const thumbnailUrl = buildAuthenticatedUrl(
+    `${config.apiBaseUrl}/assets/${item.fileId}/${previewPath}`,
+  );
 
   return (
     <img
@@ -150,7 +173,7 @@ interface SceneBlockNodeProps {
  * The red × button removes the node from canvas state via `onRemove` callback.
  */
 export function SceneBlockNode({ id, data }: SceneBlockNodeProps): React.ReactElement {
-  const { block, onRemove, onEdit } = data;
+  const { block, illustration, onRemove, onEdit, onRetryIllustration } = data;
 
   // Derive display name: auto-generate "SCENE 01" style if blank.
   const displayName: string = block.name
@@ -182,6 +205,14 @@ export function SceneBlockNode({ id, data }: SceneBlockNodeProps): React.ReactEl
   const handleEdit = useCallback((): void => {
     if (onEdit) onEdit(id);
   }, [id, onEdit]);
+
+  const handleRetryIllustration = useCallback(
+    (e: React.MouseEvent): void => {
+      e.stopPropagation();
+      onRetryIllustration?.(id);
+    },
+    [id, onRetryIllustration],
+  );
 
   return (
     <div
@@ -221,6 +252,32 @@ export function SceneBlockNode({ id, data }: SceneBlockNodeProps): React.ReactEl
         <span style={s.durationBadge} data-testid="duration-badge">
           {block.durationS}s
         </span>
+
+        {illustration?.jobId ? (
+          <div style={s.illustrationStatusRow} data-testid="illustration-status-row">
+            <span
+              style={{
+                ...s.illustrationStatusBadge,
+                color: ILLUSTRATION_STATUS_COLORS[illustration.status],
+                borderColor: ILLUSTRATION_STATUS_COLORS[illustration.status],
+              }}
+              title={illustration.errorMessage ?? ILLUSTRATION_STATUS_LABELS[illustration.status]}
+              data-testid="illustration-status-badge"
+            >
+              {ILLUSTRATION_STATUS_LABELS[illustration.status]}
+            </span>
+            {illustration.status === 'failed' ? (
+              <button
+                type="button"
+                style={s.illustrationRetryButton}
+                onClick={handleRetryIllustration}
+                data-testid="illustration-retry-button"
+              >
+                Retry
+              </button>
+            ) : null}
+          </div>
+        ) : null}
 
         {/* Thumbnail row — up to 3 slots */}
         <div style={s.thumbnailRow} data-testid="thumbnail-row">

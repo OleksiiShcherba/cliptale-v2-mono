@@ -4,6 +4,7 @@ import { authMiddleware } from '@/middleware/auth.middleware.js';
 import { aclMiddleware } from '@/middleware/acl.middleware.js';
 import { validateBody } from '@/middleware/validate.middleware.js';
 import * as storyboardController from '@/controllers/storyboard.controller.js';
+import * as storyboardIllustrationController from '@/controllers/storyboardIllustration.controller.js';
 
 const router = Router();
 
@@ -37,6 +38,33 @@ router.post(
   authMiddleware,
   aclMiddleware('editor'),
   storyboardController.applyLatestPlan,
+);
+
+// GET /storyboards/:draftId/illustrations
+// Returns scene illustration status for all scene blocks in storyboard order.
+router.get(
+  '/storyboards/:draftId/illustrations',
+  authMiddleware,
+  aclMiddleware('editor'),
+  storyboardIllustrationController.listStoryboardIllustrations,
+);
+
+// POST /storyboards/:draftId/illustrations
+// Enqueues missing/failed scene illustration jobs without duplicating active jobs.
+router.post(
+  '/storyboards/:draftId/illustrations',
+  authMiddleware,
+  aclMiddleware('editor'),
+  storyboardIllustrationController.startStoryboardIllustrations,
+);
+
+// POST /storyboards/:draftId/blocks/:blockId/illustration
+// Retries or starts one scene illustration job.
+router.post(
+  '/storyboards/:draftId/blocks/:blockId/illustration',
+  authMiddleware,
+  aclMiddleware('editor'),
+  storyboardIllustrationController.startStoryboardBlockIllustration,
 );
 
 // GET /storyboards/:draftId

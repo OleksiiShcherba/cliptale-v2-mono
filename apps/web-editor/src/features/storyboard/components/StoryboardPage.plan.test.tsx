@@ -7,17 +7,23 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 const {
   mockNavigate,
   mockUseStoryboardCanvas,
+  mockUseStoryboardIllustrations,
   mockUseStoryboardPlanGeneration,
   mockStart,
   mockRetry,
+  mockStartIllustrations,
+  mockRetryIllustrationBlock,
   mockSetNodes,
   mockSetEdges,
 } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
   mockUseStoryboardCanvas: vi.fn(),
+  mockUseStoryboardIllustrations: vi.fn(),
   mockUseStoryboardPlanGeneration: vi.fn(),
   mockStart: vi.fn(),
   mockRetry: vi.fn(),
+  mockStartIllustrations: vi.fn(),
+  mockRetryIllustrationBlock: vi.fn(),
   mockSetNodes: vi.fn(),
   mockSetEdges: vi.fn(),
 }));
@@ -56,6 +62,10 @@ vi.mock('@/features/storyboard/hooks/useStoryboardCanvas', () => ({
 
 vi.mock('@/features/storyboard/hooks/useStoryboardPlanGeneration', () => ({
   useStoryboardPlanGeneration: mockUseStoryboardPlanGeneration,
+}));
+
+vi.mock('@/features/storyboard/hooks/useStoryboardIllustrations', () => ({
+  useStoryboardIllustrations: mockUseStoryboardIllustrations,
 }));
 
 vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
@@ -101,6 +111,7 @@ function setCanvasMock() {
     setNodes: mockSetNodes,
     setEdges: mockSetEdges,
     removeNode: vi.fn(),
+    reload: vi.fn(),
   });
 }
 
@@ -117,13 +128,30 @@ function setPlanMock(overrides: Record<string, unknown> = {}) {
   });
 }
 
+function setIllustrationMock(overrides: Record<string, unknown> = {}) {
+  mockUseStoryboardIllustrations.mockReturnValue({
+    status: 'idle',
+    error: null,
+    items: [],
+    byBlockId: new Map(),
+    isBlocking: false,
+    start: mockStartIllustrations,
+    retryBlock: mockRetryIllustrationBlock,
+    refresh: vi.fn(),
+    ...overrides,
+  });
+}
+
 describe('StoryboardPage / storyboard plan generation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStart.mockResolvedValue('job-1');
     mockRetry.mockResolvedValue('job-2');
+    mockStartIllustrations.mockResolvedValue(undefined);
+    mockRetryIllustrationBlock.mockResolvedValue(undefined);
     setCanvasMock();
     setPlanMock();
+    setIllustrationMock();
   });
 
   it('starts plan generation from the compact Step 2 control', () => {
@@ -141,6 +169,20 @@ describe('StoryboardPage / storyboard plan generation', () => {
 
     fireEvent.click(screen.getByTestId('next-step3-button'));
     expect(mockNavigate).not.toHaveBeenCalledWith('/generate/road-map');
+  });
+
+  it('disables Step 3 while scene illustrations are running without blocking Back or Home', () => {
+    setIllustrationMock({ status: 'running', isBlocking: true });
+    renderPage();
+
+    expect(screen.queryByTestId('storyboard-plan-overlay')).toBeNull();
+    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByTestId('back-button'));
+    fireEvent.click(screen.getByTestId('home-button'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/generate?draftId=test-draft-abc');
+    expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
   it('keeps Back and Home available while generation is running', () => {
@@ -179,6 +221,62 @@ describe('StoryboardPage / storyboard plan generation', () => {
       expect(mockSetNodes).toHaveBeenCalledWith(generatedNodes);
       expect(mockSetEdges).toHaveBeenCalledWith(generatedEdges);
     });
+  });
+
+  it('starts scene illustrations after generated scenes are applied', async () => {
+    setPlanMock({ status: 'completed', canvasState: { nodes: [], edges: [] } });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(mockStartIllustrations).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('injects illustration status and retry callback into scene node data', async () => {
+    const retryBlock = vi.fn();
+    setCanvasMock();
+    setIllustrationMock({
+      byBlockId: new Map([
+        ['scene-1', {
+          blockId: 'scene-1',
+          status: 'failed',
+          jobId: 'job-1',
+          outputFileId: null,
+          errorMessage: 'Provider failed',
+        }],
+      ]),
+      retryBlock,
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(mockSetNodes).toHaveBeenCalledWith(expect.any(Function));
+    });
+
+    const updater = mockSetNodes.mock.calls.find(([arg]) => typeof arg === 'function')?.[0] as
+      | ((nodes: Array<{ id: string; type: string; data: Record<string, unknown> }>) => Array<{ id: string; type: string; data: Record<string, unknown> }>)
+      | undefined;
+    expect(updater).toBeDefined();
+
+    const [updatedNode] = updater!([
+      {
+        id: 'scene-1',
+        type: 'scene-block',
+        data: {
+          block: { id: 'scene-1' },
+          onRemove: vi.fn(),
+        },
+      },
+    ]);
+
+    expect(updatedNode.data.illustration).toMatchObject({
+      blockId: 'scene-1',
+      status: 'failed',
+      errorMessage: 'Provider failed',
+    });
+    expect(updatedNode.data.onRetryIllustration).toBe(retryBlock);
   });
 
   it('auto-starts when Step 2 is opened with the generateScenes flag', () => {

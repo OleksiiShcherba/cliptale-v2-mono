@@ -9,20 +9,21 @@
  * `projectId` parameter. The enqueue/createJob payloads no longer carry
  * `projectId`.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { ValidationError } from '@/lib/errors.js';
 
 import {
   createJobMock,
   enqueueMock,
-  FIXED_JOB_ID,
   FIXED_PRESIGNED_URL,
   findByIdForUserMock,
   makeFileRow,
   resetMocks,
+  setDraftIdMock,
   TEST_FILE_ID,
   TEST_USER,
+  updateJobStatusMock,
 } from './aiGeneration.service.fixtures.js';
 
 // Import after fixtures so the service binds to the mocked modules.
@@ -42,12 +43,16 @@ describe('aiGeneration.service / submitGeneration', () => {
       options: {},
     });
 
-    expect(result).toEqual({ jobId: FIXED_JOB_ID, status: 'queued' });
+    expect(result).toMatchObject({ status: 'queued' });
+    expect(result.jobId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
 
     expect(enqueueMock).toHaveBeenCalledTimes(1);
     expect(enqueueMock).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: TEST_USER,
+        jobId: result.jobId,
         modelId: 'fal-ai/nano-banana-2',
         capability: 'text_to_image',
         prompt: 'a serene beach at dawn',
@@ -60,7 +65,7 @@ describe('aiGeneration.service / submitGeneration', () => {
     expect(createJobMock).toHaveBeenCalledTimes(1);
     expect(createJobMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        jobId: FIXED_JOB_ID,
+        jobId: result.jobId,
         userId: TEST_USER,
         modelId: 'fal-ai/nano-banana-2',
         capability: 'text_to_image',
@@ -69,6 +74,50 @@ describe('aiGeneration.service / submitGeneration', () => {
     );
     // Ensure projectId is NOT in the createJob payload.
     expect(createJobMock.mock.calls[0]![0]).not.toHaveProperty('projectId');
+  });
+
+  it('persists draft metadata and beforeEnqueue work before enqueueing', async () => {
+    const beforeEnqueue = vi.fn().mockResolvedValue(undefined);
+
+    const result = await submitGeneration(TEST_USER, {
+      modelId: 'fal-ai/nano-banana-2',
+      prompt: 'draft-scoped image',
+      options: {},
+      draftId: 'draft-1',
+      beforeEnqueue,
+    });
+
+    expect(setDraftIdMock).toHaveBeenCalledWith(result.jobId, 'draft-1');
+    expect(beforeEnqueue).toHaveBeenCalledWith(result.jobId);
+    expect(createJobMock.mock.invocationCallOrder[0]).toBeLessThan(
+      setDraftIdMock.mock.invocationCallOrder[0]!,
+    );
+    expect(setDraftIdMock.mock.invocationCallOrder[0]).toBeLessThan(
+      beforeEnqueue.mock.invocationCallOrder[0]!,
+    );
+    expect(beforeEnqueue.mock.invocationCallOrder[0]).toBeLessThan(
+      enqueueMock.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('marks the DB job failed when enqueueing fails after pre-enqueue work', async () => {
+    const beforeEnqueue = vi.fn().mockResolvedValue(undefined);
+    const enqueueError = new Error('queue unavailable');
+    enqueueMock.mockRejectedValueOnce(enqueueError);
+
+    await expect(
+      submitGeneration(TEST_USER, {
+        modelId: 'fal-ai/nano-banana-2',
+        prompt: 'draft-scoped image',
+        options: {},
+        draftId: 'draft-1',
+        beforeEnqueue,
+      }),
+    ).rejects.toThrow('queue unavailable');
+
+    const jobId = createJobMock.mock.calls[0]![0].jobId;
+    expect(beforeEnqueue).toHaveBeenCalledWith(jobId);
+    expect(updateJobStatusMock).toHaveBeenCalledWith(jobId, 'failed', 'queue unavailable');
   });
 
   it('throws ValidationError for an unknown modelId', async () => {

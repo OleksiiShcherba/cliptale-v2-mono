@@ -5,7 +5,10 @@
 
 import React from 'react';
 
-import type { StoryboardPlanGenerationStatus } from '@/features/storyboard/types';
+import type {
+  StoryboardIllustrationLifecycleStatus,
+  StoryboardPlanGenerationStatus,
+} from '@/features/storyboard/types';
 
 import { storyboardPlanControlStyles as s } from './StoryboardPlanControls.styles';
 import { SUCCESS } from './storyboardPageStyles';
@@ -117,6 +120,75 @@ export function StoryboardPlanBlockingOverlay({
         <span style={s.overlayTitle}>{copy.title}</span>
         <span style={s.overlayText}>{copy.meta}</span>
       </div>
+    </div>
+  );
+}
+
+const STORYBOARD_ILLUSTRATION_STATUS_COPY: Record<StoryboardIllustrationLifecycleStatus, { title: string; meta: string }> = {
+  idle: {
+    title: 'Generate illustrations',
+    meta: 'Create AI image drafts for each scene.',
+  },
+  queued: {
+    title: 'Illustrations queued',
+    meta: 'Waiting for image generation to start.',
+  },
+  running: {
+    title: 'Generating illustrations',
+    meta: 'Scene images are being created.',
+  },
+  completed: {
+    title: 'Illustrations ready',
+    meta: 'Generated images are attached to the scene blocks.',
+  },
+  failed: {
+    title: 'Illustration failed',
+    meta: 'Retry failed scenes from their block.',
+  },
+};
+
+interface StoryboardIllustrationControlsProps {
+  status: StoryboardIllustrationLifecycleStatus;
+  error: string | null;
+  isBlocking: boolean;
+  onStart: () => void;
+}
+
+export function StoryboardIllustrationControls({
+  status,
+  error,
+  isBlocking,
+  onStart,
+}: StoryboardIllustrationControlsProps): React.ReactElement {
+  const copy = STORYBOARD_ILLUSTRATION_STATUS_COPY[status];
+  const isDisabled = isBlocking || status === 'completed';
+
+  return (
+    <div style={{ ...s.control, ...s.illustrationControl }} data-testid="storyboard-illustration-controls">
+      <div style={s.controlText}>
+        <span style={s.controlTitle}>{copy.title}</span>
+        <span
+          style={status === 'failed' ? s.controlError : s.controlMeta}
+          role={status === 'failed' ? 'alert' : undefined}
+        >
+          {status === 'failed' ? (error ?? copy.meta) : copy.meta}
+        </span>
+      </div>
+      {status === 'completed' && (
+        <span aria-label="Illustrations complete" style={{ color: SUCCESS, fontSize: '12px', fontWeight: 600 }}>
+          Ready
+        </span>
+      )}
+      <button
+        type="button"
+        style={isDisabled ? s.buttonDisabled : s.button}
+        disabled={isDisabled}
+        aria-disabled={isDisabled}
+        onClick={onStart}
+        data-testid="storyboard-illustration-generate-button"
+      >
+        {status === 'completed' ? 'Ready' : 'Generate'}
+      </button>
     </div>
   );
 }

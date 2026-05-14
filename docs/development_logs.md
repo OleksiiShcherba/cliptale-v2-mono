@@ -221,6 +221,116 @@
 - checked by design-reviewer - APPROVED
 - checked by playwright-reviewer - APPROVED
 
+## Stage 2 Storyboard Illustrations — STAGE2-ILLUSTRATIONS-1 (2026-05-14)
+- added: migration `038_storyboard_scene_illustration_jobs` with draft/block/job/file FKs, cascade cleanup for draft/block/job deletion, nullable output-file cleanup, latest-attempt indexes, and UI-facing statuses `queued | running | ready | failed`.
+- added: `storyboardSceneIllustration.repository.ts` for mapping creation, draft listing, lookup by id/job, latest-by-block selection, status/error updates, output linkage, and AI job status projection.
+- covered: repository tests for insertion scoping to scene blocks, latest attempt ordering, job lookup, output linkage, failure status, and status translation.
+- covered: migration test for idempotency, required columns, status enum vocabulary, FK delete rules, and latest-attempt index shape.
+- tests: `npm --workspace apps/api test -- storyboardSceneIllustration` -> 1 file / 9 tests passed.
+- tests: `npm --workspace apps/api test -- migration-038` -> 1 file / 5 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- active task: removed only `STAGE2-ILLUSTRATIONS-1` from `docs/active_task.md`; remaining illustration subtasks stay queued.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Illustrations — STAGE2-ILLUSTRATIONS-2 (2026-05-14)
+- added: storyboard illustration service/controller/routes for `GET /storyboards/:draftId/illustrations`, `POST /storyboards/:draftId/illustrations`, and `POST /storyboards/:draftId/blocks/:blockId/illustration`.
+- wired: scene image generation reuses `submitGeneration`, sets `ai_generation_jobs.draft_id`, creates storyboard illustration mappings, skips active queued/running/ready jobs, and lets failed attempts be retried.
+- added: centralized storyboard illustration defaults using `openai/gpt-image-2`, low quality, one PNG, async mode, and aspect-ratio-derived `image_size`; scene style is appended to the generation prompt.
+- added: `openai/gpt-image-2` to the fal model catalog with `prompt`, `image_size`, `quality`, `num_images`, `output_format`, and `sync_mode` fields.
+- updated: OpenAPI paths/schemas for storyboard illustration status responses and start/retry endpoints.
+- covered: service tests for ownership/missing resources, no-prompt 422, duplicate active-job prevention, failed/ready retry behavior, status listing order, AI status projection, draft linking, and option builder defaults.
+- covered: Supertest integration coverage for the three storyboard illustration endpoints, including auth, wrong-owner/missing resources, all-scene start, single-scene start, duplicate active-job prevention, all-scene no-partial-enqueue 422, and missing prompt 422.
+- review fix: `submitGeneration` now creates the AI job row, sets optional `draft_id`, and runs a `beforeEnqueue` hook before adding the BullMQ job, so storyboard mappings are durable before a fast worker can complete.
+- review fix: all-scene illustration start prevalidates target prompts before enqueuing any jobs, preventing partial queued work followed by a 422.
+- review fix: worker storage keys no longer depend on removed `projectId`; generated fal/ElevenLabs outputs are stored under the user id path.
+- review fix: `openai/gpt-image-2` catalog now matches fal.ai documented enum values for `image_size` and `quality`, while storyboard defaults remain centralized at low quality.
+- build: `npm --workspace packages/api-contracts run build` -> passed; required so API tests resolve the updated workspace package dist.
+- tests: `npm --workspace packages/api-contracts test -- openapi` -> 5 files / 117 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi fal-models elevenlabs-models` -> 7 files / 151 tests passed.
+- tests: `npm --workspace apps/api test -- storyboardIllustration storyboard-illustration-endpoints generation-draft-ai-generate` -> 3 files / 21 tests passed.
+- tests: `npm --workspace apps/api test -- generation-draft-ai-generate` -> 1 file / 8 tests passed.
+- tests: `npm --workspace apps/media-worker test -- ai-generate` -> 5 files / 37 tests passed.
+- typecheck: `npm --workspace packages/api-contracts run typecheck` -> passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- typecheck: `npm --workspace apps/media-worker run typecheck` -> passed.
+- active task: removed only `STAGE2-ILLUSTRATIONS-2` from `docs/active_task.md`; remaining illustration subtasks stay queued.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Illustrations — STAGE2-ILLUSTRATIONS-3 (2026-05-14)
+- added: storyboard illustration output reconciliation that marks mapped jobs `ready`, stores `output_file_id`, and inserts one `storyboard_block_media` image row after existing block media.
+- hardened: block-media insertion is idempotent through a `NOT EXISTS` check on block/file/image, so repeated status polling or worker reconciliation does not duplicate generated thumbnails.
+- wired: `listStoryboardIllustrations` reconciles completed AI jobs during polling so hydrated `GET /storyboards/:draftId` includes completed generated images even if the worker-side attachment needs a follow-up read.
+- wired: `ai-generate` worker accepts an injected storyboard illustration repository; fal completion attaches mapped outputs to scene blocks, and failure marks mapped illustration jobs failed with the provider error.
+- fixed: `ai-generate` and ElevenLabs worker storage keys use `ai-generations/{userId}/...` instead of the removed `projectId` payload field.
+- review fix: migration `038` now adds an `active_lock` column plus unique `(draft_id, block_id, active_lock)` guard, backfills older/failed attempts to `NULL` before index creation, and prevents concurrent duplicate queued/running/ready mappings.
+- review fix: `submitGeneration` marks the created AI job failed if pre-enqueue mapping work or BullMQ enqueue fails, avoiding stranded queued storyboard illustration mappings.
+- review fix: storyboard illustration starts now treat ready as active in both all-scene and per-block paths; OpenAPI copy was updated to document that only failed scenes retry.
+- covered: repository attach SQL, service ready reconciliation, endpoint completion -> storyboard media hydration/idempotency, worker success attachment, and worker failure mapping.
+- tests: `npm --workspace apps/api test -- aiGeneration storyboardIllustration storyboard.service storyboard-illustration-endpoints` -> 10 files / 87 tests passed.
+- tests: `npm --workspace apps/api test -- aiGeneration storyboardIllustration migration-038 storyboard-illustration-endpoints` -> 8 files / 72 tests passed.
+- tests: `npm --workspace apps/media-worker test -- ai-generate` -> 5 files / 37 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi.storyboard fal-models elevenlabs-models` -> 4 files / 102 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- typecheck: `npm --workspace apps/media-worker run typecheck` -> passed.
+- typecheck: `npm --workspace packages/api-contracts run typecheck` -> passed.
+- active task: removed only `STAGE2-ILLUSTRATIONS-3` from `docs/active_task.md`; remaining UI/E2E illustration subtasks stay queued.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Illustrations — STAGE2-ILLUSTRATIONS-4 (2026-05-14)
+- added: typed frontend storyboard illustration API helpers for listing status, starting all missing scene illustrations, and retrying one scene block.
+- added: `useStoryboardIllustrations` hook with start/retry/status refresh, queued/running blocking lifecycle, polling to ready/failed, storyboard reload on newly attached output files, stale draft/request guards, and explicit polling/start/retry error handling.
+- wired: Step 2 now has distinct illustration controls below scene-planning controls; completed illustrations show a disabled `Ready` action instead of advertising a no-op regenerate.
+- wired: `SceneBlockNode` receives per-block illustration status and retry callback, renders compact queued/running/ready/failed badges, and exposes failed-scene retry without disturbing existing thumbnail rendering.
+- guarded: Step 3 is disabled while scene illustrations are queued/running, while Back/Home remain available; manual add/connect/edit/library/keyboard changes remain disabled during plan or illustration blocking states.
+- fixed: `useStoryboardCanvas.reload` now ignores stale/overlapping fetches through request-token and active-draft guards.
+- covered: illustration hook start/poll/ready refresh/failure/retry/stale-draft behavior, SceneBlockNode all status labels and retry, page-level Step 3 gating, auto-start after plan apply, and node-data status injection.
+- tests: `npm --workspace apps/web-editor test -- useStoryboardIllustrations StoryboardPage.plan SceneBlockNode` -> 4 files / 47 tests passed.
+- typecheck: `npm --workspace apps/web-editor run typecheck` -> failed on pre-existing workspace-wide errors outside touched Stage 4 files; touched-file filter for `api|types|useStoryboardIllustrations|useStoryboardCanvas|StoryboardPage|StoryboardPageWorkspace|StoryboardPageFooter|StoryboardPlanControls|SceneBlockNode|nodeStyles` produced no output.
+- active task: removed only `STAGE2-ILLUSTRATIONS-4` from `docs/active_task.md`; E2E illustration subtask remains queued.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Illustrations — STAGE2-ILLUSTRATIONS-5 (2026-05-14)
+- added: Playwright coverage in `e2e/storyboard-illustrations.spec.ts` for the Step 2 scene illustration lifecycle without live provider calls.
+- covered: mocked storyboard plan/apply flow into scene blocks, mocked all-scene illustration start, running status and Step 3 gating, Back/Home availability, failed-scene retry, final ready statuses, and three generated thumbnails via mocked authenticated asset thumbnails.
+- fixed: E2E run exposed that storyboard reloads after ready outputs could drop per-node illustration status; `StoryboardPage` now reinjects illustration data on node changes while returning previous state when unchanged to avoid render loops.
+- fixed: migration `038` was restored to its original applied checksum shape; active-lock duplicate prevention moved into new migration `039_storyboard_scene_illustration_active_lock` with direct migration coverage.
+- tests: `npm --workspace apps/api test -- migration-038 migration-039 storyboardIllustration storyboard-illustration-endpoints` -> 4 files / 23 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi` -> 5 files / 117 tests passed.
+- tests: `npm --workspace apps/api test -- storyboardIllustration` -> 1 file / 8 tests passed.
+- tests: `npm --workspace apps/web-editor test -- useStoryboardIllustrations StoryboardPage.plan SceneBlockNode` -> 4 files / 47 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- typecheck: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/helpers/storyboard.ts e2e/storyboard-illustrations.spec.ts` -> passed.
+- playwright: `E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/storyboard-illustrations.spec.ts` -> failed in global setup because the existing local `localhost:3001` listener reset `POST /auth/login`.
+- playwright: started a clean API on port 3002 with local test env, seeded `apps/web-editor/e2e/seed-test-user.sql`, and reran `E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3002 npx playwright test e2e/storyboard-illustrations.spec.ts` -> 1 passed.
+- active task: cleared `docs/active_task.md`; Stage 2 storyboard illustrations subtasks are complete.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Stage 2 Storyboard Illustrations — Final Validation (2026-05-14)
+- tests: `npm --workspace packages/api-contracts test -- openapi` -> 5 files / 117 tests passed.
+- tests: `npm --workspace apps/api test -- migration-038 migration-039 storyboardIllustration storyboard-illustration-endpoints` -> 4 files / 23 tests passed.
+- tests: `npm --workspace apps/web-editor test -- useStoryboardIllustrations StoryboardPage.plan SceneBlockNode` -> 4 files / 47 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- typecheck: focused E2E compile `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/helpers/storyboard.ts e2e/storyboard-illustrations.spec.ts` -> passed.
+- playwright: `E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3002 npx playwright test e2e/storyboard-illustrations.spec.ts` -> 1 passed.
+- typecheck caveat: `npm --workspace apps/web-editor run typecheck` remains blocked by pre-existing workspace-wide test/type errors outside touched Stage 4 files; the touched-file filter for the storyboard illustration files produced no output.
+- environment note: local port 3001 had an existing listener that reset API connections, so the passing Playwright run used the clean API instance on port 3002 and the spec proxies app-origin `localhost:3001` requests to `E2E_API_URL`.
+- active task: `docs/active_task.md` now records no active tasks.
+
 ## Stage 2 Draft Settings — Final Validation (2026-05-12)
 - tests: `npm --workspace packages/project-schema test` -> 6 files / 117 tests passed.
 - tests: `npm --workspace packages/api-contracts test` -> 7 files / 134 tests passed.
@@ -408,6 +518,12 @@
 - typecheck caveat: `npm --workspace apps/web-editor run typecheck` still fails on pre-existing storyboard test type errors; exact touched-file filter for the new/changed storyboard files produced no output.
 - e2e caveat: `E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/storyboard-plan-scenes.spec.ts` remains blocked in global setup because local API login resets the connection (`ECONNRESET`), so the spec body could not execute in this environment.
 - active task: cleared `docs/active_task.md`; Stage 2 Block 4 storyboard scenes implementation subtasks are complete.
+
+## Stage 2 Storyboard Illustrations — Autosave Mapping Fix (2026-05-14)
+- fixed: `PUT /storyboards/:draftId` now preserves `storyboard_scene_illustration_jobs` rows for retained blocks while full-replacing the storyboard graph, preventing autosave from cascading away active image-generation mappings before later jobs attach their output.
+- added: integration coverage that seeds an in-flight scene illustration mapping, saves the same block graph, and verifies the mapping still exists afterward.
+- tests: `npm --workspace apps/api test -- storyboard.integration storyboardIllustration storyboard-illustration-endpoints` -> 3 files / 30 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
 
 ---
 

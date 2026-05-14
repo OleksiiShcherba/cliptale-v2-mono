@@ -13,7 +13,6 @@ import type { CreateFileParams } from './ai-generate.job.js';
 export const BUCKET = 'test-bucket';
 export const JOB_ID = 'job-1';
 export const USER_ID = 'user-1';
-export const PROJECT_ID = 'proj-1';
 export const AUDIO_BYTES = Buffer.from([0x49, 0x44, 0x33]); // fake mp3 bytes
 
 export function makeMocks() {
@@ -86,7 +85,6 @@ export function makeData(overrides: Partial<AudioJobData> = {}): AudioJobData {
   return {
     jobId: JOB_ID,
     userId: USER_ID,
-    projectId: PROJECT_ID,
     capability: 'text_to_speech',
     options: { text: 'Hello world' },
     ...overrides,

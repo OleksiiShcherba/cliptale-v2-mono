@@ -22,6 +22,8 @@ import type { FileRow } from '@/repositories/file.repository.js';
 vi.mock('@/repositories/aiGenerationJob.repository.js', () => ({
   createJob: vi.fn(),
   getJobById: vi.fn(),
+  setDraftId: vi.fn(),
+  updateJobStatus: vi.fn(),
 }));
 
 vi.mock('@/queues/jobs/enqueue-ai-generate.js', () => ({
@@ -51,6 +53,9 @@ vi.mock('@/lib/s3.js', () => ({
 
 export const createJobMock = aiGenerationJobRepository.createJob as unknown as Mock;
 export const getJobByIdMock = aiGenerationJobRepository.getJobById as unknown as Mock;
+export const setDraftIdMock = aiGenerationJobRepository.setDraftId as unknown as Mock;
+export const updateJobStatusMock =
+  aiGenerationJobRepository.updateJobStatus as unknown as Mock;
 export const enqueueMock =
   enqueueAiGenerateModule.enqueueAiGenerateJob as unknown as Mock;
 export const findByIdForUserMock =
@@ -91,11 +96,15 @@ export function makeFileRow(overrides: Partial<FileRow> = {}): FileRow {
 export function resetMocks(): void {
   createJobMock.mockReset();
   getJobByIdMock.mockReset();
+  setDraftIdMock.mockReset();
+  updateJobStatusMock.mockReset();
   enqueueMock.mockReset();
   findByIdForUserMock.mockReset();
   getVoicesByUserIdMock.mockReset();
   getSignedUrlMock.mockReset();
   createJobMock.mockResolvedValue(undefined);
+  setDraftIdMock.mockResolvedValue(undefined);
+  updateJobStatusMock.mockResolvedValue(undefined);
   enqueueMock.mockResolvedValue(FIXED_JOB_ID);
   // Default: no file row; tests that exercise the resolver must arrange a
   // row via `findByIdForUserMock.mockResolvedValue(makeFileRow({ ... }))`.

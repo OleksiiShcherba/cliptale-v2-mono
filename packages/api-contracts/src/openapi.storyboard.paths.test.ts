@@ -103,6 +103,42 @@ describe('openApiSpec storyboard paths', () => {
     });
   });
 
+  describe('storyboard illustration paths', () => {
+    it('defines GET /storyboards/{draftId}/illustrations', () => {
+      const op = paths['/storyboards/{draftId}/illustrations']?.['get'] as Record<string, unknown>;
+      expect(op.operationId).toBe('listStoryboardIllustrations');
+      const responses = op.responses as Record<string, unknown>;
+      const ok = responses[200] as Record<string, unknown>;
+      const schema = (
+        (ok.content as Record<string, unknown>)['application/json'] as Record<string, unknown>
+      ).schema as Record<string, unknown>;
+      expect(schema.$ref).toBe('#/components/schemas/StoryboardIllustrationStatusResponse');
+    });
+
+    it('defines POST /storyboards/{draftId}/illustrations', () => {
+      const op = paths['/storyboards/{draftId}/illustrations']?.['post'] as Record<string, unknown>;
+      expect(op.operationId).toBe('startStoryboardIllustrations');
+      const responses = op.responses as Record<string, unknown>;
+      const accepted = responses[202] as Record<string, unknown>;
+      const schema = (
+        (accepted.content as Record<string, unknown>)['application/json'] as Record<string, unknown>
+      ).schema as Record<string, unknown>;
+      expect(schema.$ref).toBe('#/components/schemas/StoryboardIllustrationStatusResponse');
+      expect(responses[422]).toBeDefined();
+    });
+
+    it('defines POST /storyboards/{draftId}/blocks/{blockId}/illustration', () => {
+      const op = paths['/storyboards/{draftId}/blocks/{blockId}/illustration']?.['post'] as Record<
+        string,
+        unknown
+      >;
+      expect(op.operationId).toBe('startStoryboardBlockIllustration');
+      const params = op.parameters as Array<Record<string, unknown>>;
+      expect(params.find((param) => param.name === 'draftId')).toBeDefined();
+      expect(params.find((param) => param.name === 'blockId')).toBeDefined();
+    });
+  });
+
   describe('GET /storyboards/{draftId}', () => {
     const op = paths['/storyboards/{draftId}']?.['get'] as Record<string, unknown>;
 

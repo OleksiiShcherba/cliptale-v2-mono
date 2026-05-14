@@ -19,7 +19,7 @@ import {
 } from '@/lib/elevenlabs-client.js';
 import { processIngestJob } from '@/jobs/ingest.job.js';
 import { processTranscribeJob } from '@/jobs/transcribe.job.js';
-import { processAiGenerateJob, type AiGenerateJobPayload, type FilesRepo, type AiGenerationJobRepo, type CreateFileParams } from '@/jobs/ai-generate.job.js';
+import { processAiGenerateJob, type AiGenerateJobPayload, type FilesRepo, type AiGenerationJobRepo, type CreateFileParams, type StoryboardIllustrationRepo } from '@/jobs/ai-generate.job.js';
 import { processEnhancePromptJob } from '@/jobs/enhancePrompt.job.js';
 import { processStoryboardPlanJob } from '@/jobs/storyboardPlan.job.js';
 
@@ -94,6 +94,54 @@ const aiGenerationJobRepo: AiGenerationJobRepo = {
   },
 };
 
+const storyboardIllustrationRepo: StoryboardIllustrationRepo = {
+  async attachOutputToBlock(params): Promise<void> {
+    await pool.execute(
+      `UPDATE storyboard_scene_illustration_jobs
+          SET status = 'ready',
+              output_file_id = ?,
+              error_message = NULL
+        WHERE ai_job_id = ?`,
+      [params.outputFileId, params.aiJobId],
+    );
+
+    await pool.execute(
+      `INSERT INTO storyboard_block_media (id, block_id, file_id, media_type, sort_order)
+       SELECT ?, sj.block_id, ?, 'image', COALESCE(MAX(existing.sort_order) + 1, 0)
+         FROM storyboard_scene_illustration_jobs sj
+         LEFT JOIN storyboard_block_media existing
+           ON existing.block_id = sj.block_id
+        WHERE sj.ai_job_id = ?
+          AND sj.output_file_id = ?
+          AND NOT EXISTS (
+            SELECT 1
+              FROM storyboard_block_media duplicate
+             WHERE duplicate.block_id = sj.block_id
+               AND duplicate.file_id = ?
+               AND duplicate.media_type = 'image'
+          )
+        GROUP BY sj.block_id`,
+      [
+        params.id,
+        params.outputFileId,
+        params.aiJobId,
+        params.outputFileId,
+        params.outputFileId,
+      ],
+    );
+  },
+
+  async markFailed(aiJobId: string, errorMessage: string): Promise<void> {
+    await pool.execute(
+      `UPDATE storyboard_scene_illustration_jobs
+          SET status = 'failed',
+              error_message = ?
+        WHERE ai_job_id = ?`,
+      [errorMessage, aiJobId],
+    );
+  },
+};
+
 // Worker-side producer for media-ingest — used by the ai-generate handler to
 // hand off newly written assets to FFprobe so they get duration/fps/thumbnail.
 const mediaIngestQueue = new Queue<MediaIngestJobPayload>(QUEUE_MEDIA_INGEST, { connection });
@@ -160,6 +208,7 @@ const aiGenerateWorker = new Worker<AiGenerateJobPayload>(
     ingestQueue: mediaIngestQueue,
     filesRepo,
     aiGenerationJobRepo,
+    storyboardIllustrationRepo,
   }),
   { connection, concurrency: 2 },
 );

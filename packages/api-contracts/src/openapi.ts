@@ -792,6 +792,111 @@ export const openApiSpec = {
         security: [{ bearerAuth: [] }],
       },
     },
+    '/storyboards/{draftId}/illustrations': {
+      get: {
+        summary: 'List storyboard illustration statuses',
+        description:
+          'Returns one illustration status item for every scene block in storyboard order.',
+        operationId: 'listStoryboardIllustrations',
+        tags: ['storyboard'],
+        parameters: [
+          {
+            name: 'draftId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Scene illustration statuses.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StoryboardIllustrationStatusResponse' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+      post: {
+        summary: 'Start storyboard scene illustrations',
+        description:
+          'Enqueues missing or failed text-to-image jobs for scene blocks without duplicating ' +
+          'queued/running jobs. Returns quickly with current queued/running/ready/failed states.',
+        operationId: 'startStoryboardIllustrations',
+        tags: ['storyboard'],
+        parameters: [
+          {
+            name: 'draftId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft.',
+          },
+        ],
+        responses: {
+          202: {
+            description: 'Scene illustration jobs queued where needed.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StoryboardIllustrationStatusResponse' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found.' },
+          422: { description: 'One or more selected scene blocks has no prompt.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/storyboards/{draftId}/blocks/{blockId}/illustration': {
+      post: {
+        summary: 'Start or retry one storyboard scene illustration',
+        description:
+          'Enqueues a text-to-image job for one scene block unless its latest attempt is still ' +
+          'queued, running, or ready. Failed scenes can be retried through this endpoint.',
+        operationId: 'startStoryboardBlockIllustration',
+        tags: ['storyboard'],
+        parameters: [
+          {
+            name: 'draftId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft.',
+          },
+          {
+            name: 'blockId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the storyboard scene block.',
+          },
+        ],
+        responses: {
+          202: {
+            description: 'Scene illustration job queued or active job returned.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StoryboardIllustrationStatusResponse' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft or scene block not found.' },
+          422: { description: 'The selected scene block has no prompt.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
     '/storyboards/{draftId}': {
       get: {
         summary: 'Get storyboard state',
@@ -1682,6 +1787,44 @@ export const openApiSpec = {
             type: 'array',
             items: { $ref: '#/components/schemas/StoryboardEdge' },
             description: 'All directed edges for the draft.',
+          },
+        },
+      },
+      StoryboardIllustrationStatusItem: {
+        type: 'object',
+        required: ['blockId', 'status', 'jobId', 'outputFileId', 'errorMessage'],
+        description: 'Latest AI illustration generation status for one scene block.',
+        properties: {
+          blockId: { type: 'string', format: 'uuid', description: 'UUID of the scene block.' },
+          status: {
+            type: 'string',
+            enum: ['queued', 'running', 'ready', 'failed'],
+            description: 'UI-facing scene illustration state.',
+          },
+          jobId: {
+            type: ['string', 'null'],
+            format: 'uuid',
+            description: 'Latest AI generation job id, or null before one has been created.',
+          },
+          outputFileId: {
+            type: ['string', 'null'],
+            format: 'uuid',
+            description: 'Generated output file id when ready.',
+          },
+          errorMessage: {
+            type: ['string', 'null'],
+            description: 'Provider or validation error when failed.',
+          },
+        },
+      },
+      StoryboardIllustrationStatusResponse: {
+        type: 'object',
+        required: ['items'],
+        description: 'Per-scene illustration statuses ordered by storyboard sort order.',
+        properties: {
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/StoryboardIllustrationStatusItem' },
           },
         },
       },

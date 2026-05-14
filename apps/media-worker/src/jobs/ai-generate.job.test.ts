@@ -53,7 +53,7 @@ describe('processAiGenerateJob — happy paths by capability', () => {
     expect(fileParams.kind).toBe('image');
     expect(fileParams.mimeType).toBe('image/png');
     expect(fileParams.storageUri).toMatch(
-      new RegExp(`^s3://${BUCKET}/ai-generations/proj-1/[0-9a-f-]+\\.png$`),
+      new RegExp(`^s3://${BUCKET}/ai-generations/user-1/[0-9a-f-]+\\.png$`),
     );
     expect(fileParams.bytes).toBe(4);
     expect(fileParams.width).toBe(1024);
@@ -78,6 +78,11 @@ describe('processAiGenerateJob — happy paths by capability', () => {
     const [calledJobId, calledFileId] = m.aiGenerationJobRepoSetOutputFile.mock.calls[0]!;
     expect(calledJobId).toBe('job-1');
     expect(calledFileId).toBe(payload.fileId);
+    expect(m.storyboardIllustrationAttachOutputToBlock).toHaveBeenCalledWith({
+      id: expect.stringMatching(/^[0-9a-f-]+$/),
+      aiJobId: 'job-1',
+      outputFileId: payload.fileId,
+    });
   });
 
   it('image_edit: creates files row with kind=image and mime=image/png', async () => {
@@ -114,7 +119,7 @@ describe('processAiGenerateJob — happy paths by capability', () => {
     expect(fileParams.mimeType).toBe('video/mp4');
     expect(fileParams.displayName).toMatch(/^ai-text_to_video-\d+\.mp4$/);
     expect(fileParams.storageUri).toMatch(
-      new RegExp(`^s3://${BUCKET}/ai-generations/proj-1/[0-9a-f-]+\\.mp4$`),
+      new RegExp(`^s3://${BUCKET}/ai-generations/user-1/[0-9a-f-]+\\.mp4$`),
     );
     expect(fileParams.width).toBeNull();
     expect(fileParams.height).toBeNull();

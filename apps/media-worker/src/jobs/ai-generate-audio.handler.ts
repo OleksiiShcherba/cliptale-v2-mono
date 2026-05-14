@@ -56,7 +56,6 @@ export type AudioHandlerDeps = {
 export type AudioJobData = {
   jobId: string;
   userId: string;
-  projectId: string;
   capability: AudioCapability;
   options: Record<string, unknown>;
 };
@@ -95,7 +94,7 @@ export async function processElevenLabsCapability(
 // ── Capability handlers ───────────────────────────────────────────────────────
 
 async function handleTextToSpeech(
-  { jobId, userId, projectId, capability, options }: AudioJobData,
+  { jobId, userId, capability, options }: AudioJobData,
   deps: AudioHandlerDeps,
 ): Promise<void> {
   await setProgress(deps.pool, jobId, 30);
@@ -108,7 +107,7 @@ async function handleTextToSpeech(
     similarityBoost: options.similarity_boost as number | undefined,
   });
 
-  await saveAudioFile({ audioBytes, capability, jobId, userId, projectId }, deps);
+  await saveAudioFile({ audioBytes, capability, jobId, userId }, deps);
 }
 
 async function handleVoiceCloning(
@@ -148,7 +147,7 @@ async function handleVoiceCloning(
 }
 
 async function handleSpeechToSpeech(
-  { jobId, userId, projectId, capability, options }: AudioJobData,
+  { jobId, userId, capability, options }: AudioJobData,
   deps: AudioHandlerDeps,
 ): Promise<void> {
   await setProgress(deps.pool, jobId, 30);
@@ -165,11 +164,11 @@ async function handleSpeechToSpeech(
     stability: options.stability as number | undefined,
   });
 
-  await saveAudioFile({ audioBytes, capability, jobId, userId, projectId }, deps);
+  await saveAudioFile({ audioBytes, capability, jobId, userId }, deps);
 }
 
 async function handleMusicGeneration(
-  { jobId, userId, projectId, capability, options }: AudioJobData,
+  { jobId, userId, capability, options }: AudioJobData,
   deps: AudioHandlerDeps,
 ): Promise<void> {
   await setProgress(deps.pool, jobId, 30);
@@ -180,7 +179,7 @@ async function handleMusicGeneration(
     durationSeconds: options.duration as number | undefined,
   });
 
-  await saveAudioFile({ audioBytes, capability, jobId, userId, projectId }, deps);
+  await saveAudioFile({ audioBytes, capability, jobId, userId }, deps);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -190,16 +189,15 @@ type SaveAudioParams = {
   capability: AudioCapability;
   jobId: string;
   userId: string;
-  projectId: string;
 };
 
 async function saveAudioFile(
-  { audioBytes, capability, jobId, userId, projectId }: SaveAudioParams,
+  { audioBytes, capability, jobId, userId }: SaveAudioParams,
   deps: AudioHandlerDeps,
 ): Promise<void> {
   const { s3, bucket, ingestQueue } = deps;
   const fileId = randomUUID();
-  const storageKey = `ai-generations/${projectId}/${fileId}.mp3`;
+  const storageKey = `ai-generations/${userId}/${fileId}.mp3`;
   const storageUri = `s3://${bucket}/${storageKey}`;
   const mimeType = 'audio/mpeg';
   const displayName = `ai-${capability}-${Date.now()}.mp3`;

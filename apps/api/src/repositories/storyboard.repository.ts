@@ -8,6 +8,10 @@ import {
   mapEdgeRow,
   mapHistoryRow,
 } from '@/repositories/storyboard.repository.types.js';
+import {
+  restoreIllustrationJobsForRetainedBlocks,
+  snapshotIllustrationJobsForDraft,
+} from '@/repositories/storyboardIllustrationMapping.repository.js';
 import type {
   BlockRow,
   BlockMediaRow,
@@ -151,6 +155,9 @@ export async function replaceStoryboard(
   blocks: BlockInsert[],
   edges: EdgeInsert[],
 ): Promise<void> {
+  const illustrationJobs = await snapshotIllustrationJobsForDraft(conn, draftId);
+  const retainedBlockIds = new Set(blocks.map((block) => block.id));
+
   // Delete edges first (FK: storyboard_edges → storyboard_blocks).
   await conn.execute<ResultSetHeader>(
     'DELETE FROM storyboard_edges WHERE draft_id = ?',
@@ -180,6 +187,11 @@ export async function replaceStoryboard(
       );
     }
   }
+
+  // Deleting blocks cascades active illustration-job mappings. Restore mappings
+  // for blocks that survived the replace so in-flight image jobs can still
+  // attach their output after an autosave.
+  await restoreIllustrationJobsForRetainedBlocks(conn, illustrationJobs, retainedBlockIds);
 
   // Insert edges.
   for (const e of edges) {

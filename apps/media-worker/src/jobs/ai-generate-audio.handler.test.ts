@@ -5,7 +5,6 @@ import {
   BUCKET,
   JOB_ID,
   AUDIO_BYTES,
-  PROJECT_ID,
   USER_ID,
   makeMocks,
   makeDeps,
@@ -56,7 +55,7 @@ describe('processElevenLabsCapability / text_to_speech', () => {
     expect(ttsParams.apiKey).toBe('el-test-key');
   });
 
-  it('uploads audio to S3 with correct key format (ai-generations/{projectId}/{fileId}.mp3)', async () => {
+  it('uploads audio to S3 with correct key format (ai-generations/{userId}/{fileId}.mp3)', async () => {
     const m = makeMocks();
     await processElevenLabsCapability(makeData({ capability: 'text_to_speech', options: { text: 'hi' } }), makeDeps(m));
 
@@ -64,8 +63,8 @@ describe('processElevenLabsCapability / text_to_speech', () => {
     const s3Cmd = m.s3Send.mock.calls[0]![0] as { input: { Bucket: string; Key: string; ContentType: string } };
     expect(s3Cmd.input.Bucket).toBe(BUCKET);
     expect(s3Cmd.input.ContentType).toBe('audio/mpeg');
-    // Key format: ai-generations/{projectId}/{fileId}.mp3
-    expect(s3Cmd.input.Key).toMatch(new RegExp(`^ai-generations/${PROJECT_ID}/[a-f0-9-]+\\.mp3$`));
+    // Key format: ai-generations/{userId}/{fileId}.mp3
+    expect(s3Cmd.input.Key).toMatch(new RegExp(`^ai-generations/${USER_ID}/[a-f0-9-]+\\.mp3$`));
   });
 
   it('calls filesRepo.createFile with kind=audio, mimeType=audio/mpeg, and correct storageUri', async () => {
@@ -82,7 +81,7 @@ describe('processElevenLabsCapability / text_to_speech', () => {
     expect(typeof params['bytes']).toBe('number');
     expect((params['bytes'] as number)).toBeGreaterThan(0);
     expect(params['storageUri']).toMatch(
-      new RegExp(`^s3://${BUCKET}/ai-generations/${PROJECT_ID}/[a-f0-9-]+\\.mp3$`),
+      new RegExp(`^s3://${BUCKET}/ai-generations/${USER_ID}/[a-f0-9-]+\\.mp3$`),
     );
     expect((params['displayName'] as string)).toMatch(/^ai-text_to_speech-\d+\.mp3$/);
   });
@@ -161,7 +160,7 @@ describe('processElevenLabsCapability / music_generation', () => {
     const s3Cmd = m.s3Send.mock.calls[0]![0] as { input: { Key: string; Bucket: string; ContentType: string } };
     expect(s3Cmd.input.Bucket).toBe(BUCKET);
     expect(s3Cmd.input.ContentType).toBe('audio/mpeg');
-    expect(s3Cmd.input.Key).toMatch(new RegExp(`^ai-generations/${PROJECT_ID}/[a-f0-9-]+\\.mp3$`));
+    expect(s3Cmd.input.Key).toMatch(new RegExp(`^ai-generations/${USER_ID}/[a-f0-9-]+\\.mp3$`));
 
     expect(m.filesRepoCreateFile).toHaveBeenCalledOnce();
     const [fileParams] = m.filesRepoCreateFile.mock.calls[0]!;

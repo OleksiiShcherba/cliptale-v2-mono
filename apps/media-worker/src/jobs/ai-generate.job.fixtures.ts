@@ -36,7 +36,6 @@ export function makeJob(
     data: {
       jobId: 'job-1',
       userId: 'user-1',
-      projectId: 'proj-1',
       modelId: 'fal-ai/nano-banana-2',
       capability: 'text_to_image',
       provider: 'fal',
@@ -64,6 +63,8 @@ export type Mocks = {
   ingestAdd: ReturnType<typeof vi.fn>;
   filesRepoCreateFile: ReturnType<typeof vi.fn>;
   aiGenerationJobRepoSetOutputFile: ReturnType<typeof vi.fn>;
+  storyboardIllustrationAttachOutputToBlock: ReturnType<typeof vi.fn>;
+  storyboardIllustrationMarkFailed: ReturnType<typeof vi.fn>;
 };
 
 /** Constructs a fresh set of mocks wired to resolve with the given fal output. */
@@ -102,6 +103,8 @@ export function makeMocks(output: unknown): Mocks {
     async (params: CreateFileParams) => params.fileId,
   );
   const aiGenerationJobRepoSetOutputFile = vi.fn().mockResolvedValue(undefined);
+  const storyboardIllustrationAttachOutputToBlock = vi.fn().mockResolvedValue(undefined);
+  const storyboardIllustrationMarkFailed = vi.fn().mockResolvedValue(undefined);
 
   return {
     pool,
@@ -119,6 +122,8 @@ export function makeMocks(output: unknown): Mocks {
     ingestAdd,
     filesRepoCreateFile,
     aiGenerationJobRepoSetOutputFile,
+    storyboardIllustrationAttachOutputToBlock,
+    storyboardIllustrationMarkFailed,
   };
 }
 
@@ -146,6 +151,10 @@ export function makeDeps(m: Mocks): AiGenerateJobDeps {
     },
     aiGenerationJobRepo: {
       setOutputFile: m.aiGenerationJobRepoSetOutputFile as unknown as AiGenerateJobDeps['aiGenerationJobRepo']['setOutputFile'],
+    },
+    storyboardIllustrationRepo: {
+      attachOutputToBlock: m.storyboardIllustrationAttachOutputToBlock as unknown as NonNullable<AiGenerateJobDeps['storyboardIllustrationRepo']>['attachOutputToBlock'],
+      markFailed: m.storyboardIllustrationMarkFailed as unknown as NonNullable<AiGenerateJobDeps['storyboardIllustrationRepo']>['markFailed'],
     },
   };
 }

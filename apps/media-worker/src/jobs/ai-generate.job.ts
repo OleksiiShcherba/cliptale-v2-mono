@@ -45,7 +45,6 @@ export type { FileKind };
 export type AiGenerateJobPayload = {
   jobId: string;
   userId: string;
-  projectId: string;
   modelId: string;
   capability: AiCapability;
   provider: 'fal' | 'elevenlabs';
@@ -85,6 +84,15 @@ export type AiGenerationJobRepo = {
   setOutputFile: (jobId: string, fileId: string) => Promise<void>;
 };
 
+export type StoryboardIllustrationRepo = {
+  attachOutputToBlock: (params: {
+    id: string;
+    aiJobId: string;
+    outputFileId: string;
+  }) => Promise<void>;
+  markFailed: (aiJobId: string, errorMessage: string) => Promise<void>;
+};
+
 /**
  * Injected dependencies for the ai-generate job handler.
  *
@@ -106,6 +114,7 @@ export type AiGenerateJobDeps = {
   ingestQueue: Queue<MediaIngestJobPayload>;
   filesRepo: FilesRepo;
   aiGenerationJobRepo: AiGenerationJobRepo;
+  storyboardIllustrationRepo?: StoryboardIllustrationRepo;
 };
 
 /** Progress stored once fal.ai has accepted the submit. */
@@ -136,7 +145,7 @@ export async function processAiGenerateJob(
   job: Job<AiGenerateJobPayload>,
   deps: AiGenerateJobDeps,
 ): Promise<void> {
-  const { jobId, userId, projectId, modelId, capability, options } = job.data;
+  const { jobId, userId, modelId, capability, options } = job.data;
   const { s3, pool, bucket, falKey, fal, elevenlabsKey, elevenlabs, ingestQueue } = deps;
 
   await setJobStatus(pool, jobId, 'processing');
@@ -145,7 +154,7 @@ export async function processAiGenerateJob(
     // Dispatch ElevenLabs audio capabilities to the dedicated audio handler.
     if (AUDIO_CAPABILITIES.has(capability)) {
       await processElevenLabsCapability(
-        { jobId, userId, projectId, capability: capability as AudioCapability, options },
+        { jobId, userId, capability: capability as AudioCapability, options },
         {
           s3, pool, bucket, elevenlabsKey, elevenlabs, ingestQueue,
           filesRepo: deps.filesRepo,
@@ -176,7 +185,7 @@ export async function processAiGenerateJob(
     const parsed = parseFalOutput(capability as FalCapability, output);
     const body = await downloadArtifact(parsed.remoteUrl);
 
-    const storageKey = `ai-generations/${projectId}/${randomUUID()}.${parsed.extension}`;
+    const storageKey = `ai-generations/${userId}/${randomUUID()}.${parsed.extension}`;
     await s3.send(
       new PutObjectCommand({
         Bucket: bucket,
@@ -215,9 +224,15 @@ export async function processAiGenerateJob(
     // into draft_files when the job has a draft_id, completing the
     // Files-as-Root generation-draft linkage.
     await deps.aiGenerationJobRepo.setOutputFile(jobId, fileId);
+    await deps.storyboardIllustrationRepo?.attachOutputToBlock({
+      id: randomUUID(),
+      aiJobId: jobId,
+      outputFileId: fileId,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown generation error';
     await setJobStatus(pool, jobId, 'failed', message);
+    await deps.storyboardIllustrationRepo?.markFailed(jobId, message);
     throw err;
   }
 }

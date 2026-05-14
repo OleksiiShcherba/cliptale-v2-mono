@@ -381,6 +381,79 @@ describe('PUT /storyboards/:draftId', () => {
     expect(putRes.body.blocks).toHaveLength(1);
     expect(putRes.body.edges).toHaveLength(0);
   });
+
+  it('preserves in-flight scene illustration mappings for retained blocks during PUT', async () => {
+    const freshDraftId = randomUUID();
+    const sceneBlockId = randomUUID();
+    const aiJobId = randomUUID();
+    const mappingId = randomUUID();
+
+    await conn.execute(
+      'INSERT INTO generation_drafts (id, user_id, prompt_doc) VALUES (?, ?, ?)',
+      [freshDraftId, USER_A_ID, JSON.stringify({ schemaVersion: 1, blocks: [] })],
+    );
+    await conn.execute(
+      `INSERT INTO storyboard_blocks
+         (id, draft_id, block_type, name, prompt, duration_s, position_x, position_y, sort_order, style)
+       VALUES (?, ?, 'scene', 'Scene 01', 'Draw a car.', 6, 100, 200, 1, NULL)`,
+      [sceneBlockId, freshDraftId],
+    );
+    await conn.execute(
+      `INSERT INTO ai_generation_jobs
+         (job_id, user_id, model_id, capability, prompt, options, draft_id)
+       VALUES (?, ?, 'openai/gpt-image-2', 'text_to_image', 'Draw a car.', '{}', ?)`,
+      [aiJobId, USER_A_ID, freshDraftId],
+    );
+    await conn.execute(
+      `INSERT INTO storyboard_scene_illustration_jobs
+         (id, draft_id, block_id, ai_job_id, status, active_lock)
+       VALUES (?, ?, ?, ?, 'queued', 1)`,
+      [mappingId, freshDraftId, sceneBlockId, aiJobId],
+    );
+
+    try {
+      const putRes = await request(app)
+        .put(`/storyboards/${freshDraftId}`)
+        .set('Authorization', authA())
+        .send({
+          blocks: [{
+            id: sceneBlockId,
+            draftId: freshDraftId,
+            blockType: 'scene',
+            name: 'Scene 01',
+            prompt: 'Draw a car.',
+            durationS: 6,
+            positionX: 120,
+            positionY: 220,
+            sortOrder: 1,
+            style: null,
+            mediaItems: [],
+          }],
+          edges: [],
+        });
+
+      expect(putRes.status).toBe(200);
+
+      const [rows] = await conn.execute<import('mysql2/promise').RowDataPacket[]>(
+        `SELECT id, block_id, ai_job_id, status
+           FROM storyboard_scene_illustration_jobs
+          WHERE ai_job_id = ?`,
+        [aiJobId],
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        id: mappingId,
+        block_id: sceneBlockId,
+        ai_job_id: aiJobId,
+        status: 'queued',
+      });
+    } finally {
+      await conn.execute('DELETE FROM storyboard_scene_illustration_jobs WHERE ai_job_id = ?', [aiJobId]);
+      await conn.execute('DELETE FROM storyboard_blocks WHERE draft_id = ?', [freshDraftId]);
+      await conn.execute('DELETE FROM ai_generation_jobs WHERE job_id = ?', [aiJobId]);
+      await conn.execute('DELETE FROM generation_drafts WHERE id = ?', [freshDraftId]);
+    }
+  });
 });
 
 // ── Concurrent GET /storyboards/:draftId — sentinel dedup race ───────────────

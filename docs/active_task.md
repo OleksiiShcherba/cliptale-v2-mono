@@ -1,3 +1,3 @@
 # Active Task
 
-No active task.
+No active tasks.

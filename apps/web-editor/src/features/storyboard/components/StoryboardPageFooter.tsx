@@ -3,13 +3,13 @@ import React from 'react';
 import { storyboardPageStyles as s } from './storyboardPageStyles';
 
 interface StoryboardPageFooterProps {
-  isPlanBlocking: boolean;
+  isNextDisabled: boolean;
   onBack: () => void;
   onNext: () => void;
 }
 
 export function StoryboardPageFooter({
-  isPlanBlocking,
+  isNextDisabled,
   onBack,
   onNext,
 }: StoryboardPageFooterProps): React.ReactElement {
@@ -21,10 +21,10 @@ export function StoryboardPageFooter({
       <span style={s.bottomBarLabel} data-testid="step-label">STEP 2: STORYBOARD</span>
       <button
         type="button"
-        style={isPlanBlocking ? s.nextButtonDisabled : s.nextButton}
+        style={isNextDisabled ? s.nextButtonDisabled : s.nextButton}
         onClick={onNext}
-        disabled={isPlanBlocking}
-        aria-disabled={isPlanBlocking}
+        disabled={isNextDisabled}
+        aria-disabled={isNextDisabled}
         aria-label="Next: Step 3"
         data-testid="next-step3-button"
       >

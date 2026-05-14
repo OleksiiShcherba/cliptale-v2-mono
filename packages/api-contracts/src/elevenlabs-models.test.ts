@@ -141,8 +141,8 @@ describe('AUDIO_CAPABILITY_TO_GROUP', () => {
 });
 
 describe('AI_MODELS unified catalog', () => {
-  it('contains all fal + elevenlabs models (13 total)', () => {
-    expect(AI_MODELS).toHaveLength(13);
+  it('contains all fal + elevenlabs models (14 total)', () => {
+    expect(AI_MODELS).toHaveLength(14);
   });
 
   it('all model IDs are unique across providers', () => {
@@ -153,7 +153,7 @@ describe('AI_MODELS unified catalog', () => {
   it('can discriminate models by provider', () => {
     const falModels = AI_MODELS.filter((m) => m.provider === 'fal');
     const elevenLabsModels = AI_MODELS.filter((m) => m.provider === 'elevenlabs');
-    expect(falModels).toHaveLength(9);
+    expect(falModels).toHaveLength(10);
     expect(elevenLabsModels).toHaveLength(4);
   });
 });

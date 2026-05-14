@@ -4,7 +4,6 @@ import { processElevenLabsCapability } from './ai-generate-audio.handler.js';
 import {
   JOB_ID,
   USER_ID,
-  PROJECT_ID,
   AUDIO_BYTES,
   makeMocks,
   makeDeps,
@@ -173,7 +172,7 @@ describe('processElevenLabsCapability / speech_to_speech', () => {
 
     expect(m.s3Send).toHaveBeenCalledOnce();
     const s3Cmd = m.s3Send.mock.calls[0]![0] as { input: { Key: string } };
-    expect(s3Cmd.input.Key).toMatch(new RegExp(`^ai-generations/${PROJECT_ID}/[a-f0-9-]+\\.mp3$`));
+    expect(s3Cmd.input.Key).toMatch(new RegExp(`^ai-generations/${USER_ID}/[a-f0-9-]+\\.mp3$`));
   });
 
   it('calls filesRepo.createFile and enqueues ingest after upload', async () => {

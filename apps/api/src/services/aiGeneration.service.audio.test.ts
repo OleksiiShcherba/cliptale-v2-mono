@@ -16,7 +16,6 @@ import { ValidationError } from '@/lib/errors.js';
 import {
   createJobMock,
   enqueueMock,
-  FIXED_JOB_ID,
   resetMocks,
   TEST_USER,
 } from './aiGeneration.service.fixtures.js';
@@ -39,10 +38,14 @@ describe('aiGeneration.service / ElevenLabs text_to_speech', () => {
       options: { text: 'Hello world' },
     });
 
-    expect(result).toEqual({ jobId: FIXED_JOB_ID, status: 'queued' });
+    expect(result).toMatchObject({ status: 'queued' });
+    expect(result.jobId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
 
     expect(enqueueMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        jobId: result.jobId,
         modelId: MODEL,
         capability: 'text_to_speech',
         provider: 'elevenlabs',

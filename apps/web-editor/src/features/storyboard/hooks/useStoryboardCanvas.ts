@@ -12,7 +12,7 @@
  * Returns the React Flow nodes, edges, and a removeNode callback.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 import type { Node, Edge } from '@xyflow/react';
 
@@ -155,6 +155,7 @@ type UseStoryboardCanvasResult = CanvasState & {
   setNodes: React.Dispatch<React.SetStateAction<Node[]>>;
   setEdges: React.Dispatch<React.SetStateAction<Edge[]>>;
   removeNode: (nodeId: string) => void;
+  reload?: () => Promise<void>;
 };
 
 /**
@@ -168,6 +169,16 @@ export function useStoryboardCanvas(draftId: string): UseStoryboardCanvasResult 
   const [edges, setEdges] = useState<Edge[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isMountedRef = useRef(true);
+  const activeDraftIdRef = useRef(draftId);
+  const requestTokenRef = useRef(0);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Stable removeNode callback — updates nodes state locally (no API call yet).
   const removeNode = useCallback((nodeId: string): void => {
@@ -178,51 +189,58 @@ export function useStoryboardCanvas(draftId: string): UseStoryboardCanvasResult 
     );
   }, []);
 
+  const reload = useCallback(async (): Promise<void> => {
+    if (!draftId) return;
+
+    const token = requestTokenRef.current + 1;
+    requestTokenRef.current = token;
+    activeDraftIdRef.current = draftId;
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Fetch canvas state — the GET endpoint seeds sentinels atomically.
+      const state = await fetchStoryboard(draftId);
+
+      // Dedup: keep only first START + first END (safety net for legacy duplicates).
+      const dedupedBlocks = dedupSentinels(state.blocks);
+
+      // Apply default positions on first visit, then convert to React Flow.
+      const positionedBlocks = applyDefaultPositions(dedupedBlocks);
+
+      const flowNodes = positionedBlocks.map((block) =>
+        blockToNode(block, removeNode),
+      );
+      const flowEdges = state.edges.map(edgeToFlowEdge);
+
+      if (
+        !isMountedRef.current
+        || requestTokenRef.current !== token
+        || activeDraftIdRef.current !== draftId
+      ) return;
+      setNodes(flowNodes);
+      setEdges(flowEdges);
+    } catch (err) {
+      if (
+        !isMountedRef.current
+        || requestTokenRef.current !== token
+        || activeDraftIdRef.current !== draftId
+      ) return;
+      setError(err instanceof Error ? err.message : 'Failed to load storyboard');
+    } finally {
+      if (
+        isMountedRef.current
+        && requestTokenRef.current === token
+        && activeDraftIdRef.current === draftId
+      ) setIsLoading(false);
+    }
+  }, [draftId, removeNode]);
+
   useEffect(() => {
     if (!draftId) return;
 
-    let cancelled = false;
+    void reload();
+  }, [draftId, reload]);
 
-    async function load(): Promise<void> {
-      try {
-        setIsLoading(true);
-        setError(null);
-
-        // Fetch canvas state — the GET endpoint seeds sentinels atomically.
-        const state = await fetchStoryboard(draftId);
-
-        if (cancelled) return;
-
-        // Dedup: keep only first START + first END (safety net for legacy duplicates).
-        const dedupedBlocks = dedupSentinels(state.blocks);
-
-        // Apply default positions on first visit, then convert to React Flow.
-        const positionedBlocks = applyDefaultPositions(dedupedBlocks);
-
-        const flowNodes = positionedBlocks.map((block) =>
-          blockToNode(block, removeNode),
-        );
-        const flowEdges = state.edges.map(edgeToFlowEdge);
-
-        setNodes(flowNodes);
-        setEdges(flowEdges);
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load storyboard');
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [draftId, removeNode]);
-
-  return { nodes, edges, isLoading, error, setNodes, setEdges, removeNode };
+  return { nodes, edges, isLoading, error, setNodes, setEdges, removeNode, reload };
 }

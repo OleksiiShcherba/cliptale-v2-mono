@@ -62,6 +62,21 @@ describe('openApiSpec storyboard component schemas', () => {
     expect(props.edges?.type).toBe('array');
   });
 
+  it('defines StoryboardIllustrationStatusResponse schema', () => {
+    const item = schemas['StoryboardIllustrationStatusItem'] as Record<string, unknown>;
+    expect(item).toBeDefined();
+    const itemRequired = item.required as string[];
+    expect(itemRequired).toEqual(['blockId', 'status', 'jobId', 'outputFileId', 'errorMessage']);
+    const itemProps = item.properties as Record<string, Record<string, unknown>>;
+    expect(itemProps.status?.enum).toEqual(['queued', 'running', 'ready', 'failed']);
+
+    const response = schemas['StoryboardIllustrationStatusResponse'] as Record<string, unknown>;
+    expect(response).toBeDefined();
+    const props = response.properties as Record<string, Record<string, unknown>>;
+    const items = props.items?.items as Record<string, unknown>;
+    expect(items.$ref).toBe('#/components/schemas/StoryboardIllustrationStatusItem');
+  });
+
   it('defines SaveStoryboardBody schema with blocks and edges', () => {
     const schema = schemas['SaveStoryboardBody'] as Record<string, unknown>;
     expect(schema).toBeDefined();
@@ -97,6 +112,9 @@ describe('openApiSpec storyboard security coverage', () => {
   const storyboardPaths = [
     ['/storyboards/{draftId}/initialize', 'post'],
     ['/storyboards/{draftId}/apply-latest-plan', 'post'],
+    ['/storyboards/{draftId}/illustrations', 'get'],
+    ['/storyboards/{draftId}/illustrations', 'post'],
+    ['/storyboards/{draftId}/blocks/{blockId}/illustration', 'post'],
     ['/storyboards/{draftId}', 'get'],
     ['/storyboards/{draftId}', 'put'],
     ['/storyboards/{draftId}/history', 'get'],

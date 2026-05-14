@@ -16,7 +16,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
-import type { StoryboardBlock, BlockMediaItem } from '../types';
+import type { StoryboardBlock, BlockMediaItem, SceneBlockNodeData } from '../types';
 
 // ---------------------------------------------------------------------------
 // Mock @xyflow/react — Handle requires a ReactFlow context not available in jsdom.
@@ -83,11 +83,12 @@ function renderNode(
   block: StoryboardBlock,
   onRemove: (id: string) => void = vi.fn(),
   id = 'block-1',
+  dataOverrides: Partial<SceneBlockNodeData> = {},
 ) {
   return render(
     <SceneBlockNode
       id={id}
-      data={{ block, onRemove }}
+      data={{ block, onRemove, ...dataOverrides }}
     />,
   );
 }
@@ -209,6 +210,43 @@ describe('SceneBlockNode', () => {
     fireEvent.click(screen.getByTestId('remove-block-button'));
     expect(onRemove).toHaveBeenCalledTimes(1);
     expect(onRemove).toHaveBeenCalledWith('block-xyz');
+  });
+
+  it('renders illustration status and retries failed scene images', () => {
+    const onRetryIllustration = vi.fn();
+    renderNode(makeBlock(), vi.fn(), 'block-xyz', {
+      illustration: {
+        blockId: 'block-xyz',
+        status: 'failed',
+        jobId: 'job-1',
+        outputFileId: null,
+        errorMessage: 'Provider failed',
+      },
+      onRetryIllustration,
+    });
+
+    expect(screen.getByTestId('illustration-status-badge').textContent).toBe('Image failed');
+    fireEvent.click(screen.getByTestId('illustration-retry-button'));
+    expect(onRetryIllustration).toHaveBeenCalledWith('block-xyz');
+  });
+
+  it.each([
+    ['queued', 'Image queued'],
+    ['running', 'Image running'],
+    ['ready', 'Image ready'],
+  ] as const)('renders %s illustration status without retry action', (status, label) => {
+    renderNode(makeBlock(), vi.fn(), 'block-xyz', {
+      illustration: {
+        blockId: 'block-xyz',
+        status,
+        jobId: 'job-1',
+        outputFileId: status === 'ready' ? 'file-1' : null,
+        errorMessage: null,
+      },
+    });
+
+    expect(screen.getByTestId('illustration-status-badge').textContent).toBe(label);
+    expect(screen.queryByTestId('illustration-retry-button')).toBeNull();
   });
 
   // ── Port handles ───────────────────────────────────────────────────────────
