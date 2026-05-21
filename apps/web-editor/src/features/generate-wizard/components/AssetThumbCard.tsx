@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 
 import { buildAuthenticatedUrl } from '@/lib/api-client';
+import { config } from '@/lib/config';
 
 import type { AssetSummary } from '../types';
 
@@ -40,7 +41,9 @@ export function AssetThumbCard({
 
   const thumbSrc = asset.thumbnailUrl
     ? buildAuthenticatedUrl(asset.thumbnailUrl)
-    : null;
+    : asset.type === 'image'
+      ? buildAuthenticatedUrl(`${config.apiBaseUrl}/assets/${asset.id}/stream`)
+      : null;
 
   function handleDragStart(e: React.DragEvent<HTMLButtonElement>): void {
     const payload = JSON.stringify({

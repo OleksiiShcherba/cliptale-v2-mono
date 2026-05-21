@@ -119,6 +119,8 @@ export const storyboardReferenceRepo: StoryboardReferenceRepo = {
           SET status = 'ready',
               output_file_id = ?,
               error_message = NULL,
+              approval_status = 'pending',
+              approved_at = NULL,
               active_lock = 1
         WHERE ai_job_id = ?`,
       [params.outputFileId, params.aiJobId],
@@ -130,6 +132,8 @@ export const storyboardReferenceRepo: StoryboardReferenceRepo = {
       `UPDATE storyboard_illustration_references
           SET status = 'failed',
               error_message = ?,
+              approval_status = 'pending',
+              approved_at = NULL,
               active_lock = NULL
         WHERE ai_job_id = ?`,
       [errorMessage, aiJobId],

@@ -207,16 +207,11 @@ test.describe("Storyboard Step 2 generated scenes", () => {
       await page.waitForLoadState("networkidle", { timeout: 30_000 });
       await waitForCanvas(page);
 
-      const generateButton = page.getByTestId(
-        "storyboard-plan-generate-button",
-      );
-      await expect(generateButton).toBeEnabled();
-      await generateButton.click();
+      await expect(page.getByTestId("storyboard-plan-generate-button")).toHaveCount(0);
 
       const overlay = page.getByTestId("storyboard-plan-overlay");
       await expect(overlay).toBeVisible({ timeout: 10_000 });
       await expect(overlay).toHaveAttribute("aria-label", "Generation queued");
-      await expect(generateButton).toBeDisabled();
 
       const nextButton = page.getByTestId("next-step3-button");
       await expect(nextButton).toBeDisabled();

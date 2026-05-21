@@ -108,6 +108,10 @@ export interface AssetPickerModalProps {
    * exactly as before (backward-compatible). See SB-UPLOAD-1 (2026-04-27).
    */
   uploadTarget?: UploadTarget;
+  /** Optional draft id for draft-scoped asset listing. */
+  draftId?: string;
+  /** Asset scope used when draftId is provided. Defaults to draft. */
+  scope?: 'draft' | 'all';
 }
 
 // ---------------------------------------------------------------------------
@@ -133,11 +137,13 @@ export function AssetPickerModal({
   onClose,
   triggerRef,
   uploadTarget,
+  draftId,
+  scope = 'draft',
 }: AssetPickerModalProps): React.ReactElement {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const titleId = 'asset-picker-title';
 
-  const { data, isLoading, isError } = useAssets({ type: mediaType });
+  const { data, isLoading, isError } = useAssets({ type: mediaType, draftId, scope });
 
   // ── Focus management ─────────────────────────────────────────────────────
 

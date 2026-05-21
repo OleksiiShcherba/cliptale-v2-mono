@@ -16,6 +16,8 @@ export type StoryboardIllustrationReference = {
   status: StoryboardIllustrationReferenceStatus;
   outputFileId: string | null;
   sourceReferenceFileIds: string[];
+  approvalStatus: 'pending' | 'approved';
+  approvedAt: Date | null;
   errorMessage: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -28,6 +30,8 @@ type StoryboardIllustrationReferenceRow = RowDataPacket & {
   status: StoryboardIllustrationReferenceStatus;
   output_file_id: string | null;
   source_reference_file_ids: unknown;
+  approval_status?: 'pending' | 'approved';
+  approved_at?: Date | null;
   error_message: string | null;
   created_at: Date;
   updated_at: Date;
@@ -49,6 +53,8 @@ function mapRow(row: StoryboardIllustrationReferenceRow): StoryboardIllustration
     status: row.status,
     outputFileId: row.output_file_id,
     sourceReferenceFileIds: parseSourceReferenceFileIds(row.source_reference_file_ids),
+    approvalStatus: row.approval_status ?? 'pending',
+    approvedAt: row.approved_at ?? null,
     errorMessage: row.error_message,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -99,7 +105,8 @@ export async function findReferenceById(
 ): Promise<StoryboardIllustrationReference | null> {
   const [rows] = await pool.execute<StoryboardIllustrationReferenceRow[]>(
     `SELECT id, draft_id, ai_job_id, status, output_file_id,
-            source_reference_file_ids, error_message, created_at, updated_at
+            source_reference_file_ids, approval_status, approved_at,
+            error_message, created_at, updated_at
        FROM storyboard_illustration_references
       WHERE id = ?`,
     [id],
@@ -112,7 +119,8 @@ export async function findReferenceByAiJobId(
 ): Promise<StoryboardIllustrationReference | null> {
   const [rows] = await pool.execute<StoryboardIllustrationReferenceRow[]>(
     `SELECT id, draft_id, ai_job_id, status, output_file_id,
-            source_reference_file_ids, error_message, created_at, updated_at
+            source_reference_file_ids, approval_status, approved_at,
+            error_message, created_at, updated_at
        FROM storyboard_illustration_references
       WHERE ai_job_id = ?`,
     [aiJobId],
@@ -125,7 +133,8 @@ export async function findLatestReferenceByDraftId(
 ): Promise<StoryboardIllustrationReference | null> {
   const [rows] = await pool.execute<StoryboardIllustrationReferenceRow[]>(
     `SELECT id, draft_id, ai_job_id, status, output_file_id,
-            source_reference_file_ids, error_message, created_at, updated_at
+            source_reference_file_ids, approval_status, approved_at,
+            error_message, created_at, updated_at
        FROM storyboard_illustration_references
       WHERE draft_id = ?
       ORDER BY created_at DESC, id DESC
@@ -140,7 +149,8 @@ export async function findActiveReferenceByDraftId(
 ): Promise<StoryboardIllustrationReference | null> {
   const [rows] = await pool.execute<StoryboardIllustrationReferenceRow[]>(
     `SELECT id, draft_id, ai_job_id, status, output_file_id,
-            source_reference_file_ids, error_message, created_at, updated_at
+            source_reference_file_ids, approval_status, approved_at,
+            error_message, created_at, updated_at
        FROM storyboard_illustration_references
       WHERE draft_id = ?
         AND active_lock = 1
@@ -160,12 +170,20 @@ export async function updateReferenceStatus(params: {
     `UPDATE storyboard_illustration_references
         SET status = ?,
             error_message = ?,
+            approval_status = CASE
+              WHEN ? = 'failed' THEN 'pending'
+              ELSE approval_status
+            END,
+            approved_at = CASE
+              WHEN ? = 'failed' THEN NULL
+              ELSE approved_at
+            END,
             active_lock = CASE
               WHEN ? = 'failed' THEN NULL
               ELSE 1
             END
       WHERE ai_job_id = ?`,
-    [params.status, params.errorMessage ?? null, params.status, params.aiJobId],
+    [params.status, params.errorMessage ?? null, params.status, params.status, params.status, params.aiJobId],
   );
 }
 
@@ -178,8 +196,58 @@ export async function setReferenceOutput(params: {
         SET status = 'ready',
             output_file_id = ?,
             error_message = NULL,
+            approval_status = 'pending',
+            approved_at = NULL,
             active_lock = 1
       WHERE ai_job_id = ?`,
     [params.outputFileId, params.aiJobId],
   );
+}
+
+export async function approveReference(params: {
+  draftId: string;
+  referenceId: string;
+}): Promise<boolean> {
+  const [result] = await pool.execute<ResultSetHeader>(
+    `UPDATE storyboard_illustration_references
+        SET approval_status = 'approved',
+            approved_at = NOW(3)
+      WHERE id = ?
+        AND draft_id = ?
+        AND status = 'ready'
+        AND output_file_id IS NOT NULL
+        AND active_lock = 1`,
+    [params.referenceId, params.draftId],
+  );
+  return result.affectedRows === 1;
+}
+
+export async function deactivateActiveReference(draftId: string): Promise<void> {
+  await pool.execute(
+    `UPDATE storyboard_illustration_references
+        SET active_lock = NULL,
+            approval_status = 'pending',
+            approved_at = NULL
+      WHERE draft_id = ?
+        AND active_lock = 1`,
+    [draftId],
+  );
+}
+
+export async function updateSourceReferenceFileIds(params: {
+  draftId: string;
+  referenceId: string;
+  sourceReferenceFileIds: string[];
+}): Promise<boolean> {
+  const [result] = await pool.execute<ResultSetHeader>(
+    `UPDATE storyboard_illustration_references
+        SET source_reference_file_ids = ?,
+            approval_status = 'pending',
+            approved_at = NULL
+      WHERE id = ?
+        AND draft_id = ?
+        AND active_lock = 1`,
+    [JSON.stringify(params.sourceReferenceFileIds), params.referenceId, params.draftId],
+  );
+  return result.affectedRows === 1;
 }

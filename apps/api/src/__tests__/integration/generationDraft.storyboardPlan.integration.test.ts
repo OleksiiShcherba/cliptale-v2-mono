@@ -176,7 +176,7 @@ async function insertPlanJob(status: 'queued' | 'running' | 'completed' | 'faile
 }
 
 describe('POST /generation-drafts/:id/storyboard-plan', () => {
-  it('returns 202 and creates distinct persisted jobs on repeat POST', async () => {
+  it('returns 202 and reuses an active persisted job on repeat POST', async () => {
     const first = await request(app)
       .post(`/generation-drafts/${draftA}/storyboard-plan`)
       .set('Authorization', `Bearer ${tokenA}`)
@@ -190,16 +190,45 @@ describe('POST /generation-drafts/:id/storyboard-plan', () => {
     expect(second.status).toBe(202);
     expect(first.body.status).toBe('queued');
     expect(second.body.status).toBe('queued');
-    expect(first.body.jobId).not.toBe(second.body.jobId);
-    cleanupJobs.push(first.body.jobId, second.body.jobId);
+    expect(second.body.jobId).toBe(first.body.jobId);
+    cleanupJobs.push(first.body.jobId);
 
     const [rows] = await conn.query<mysql.RowDataPacket[]>(
-      'SELECT job_id, status, model FROM storyboard_plan_jobs WHERE job_id IN (?, ?)',
-      [first.body.jobId, second.body.jobId],
+      'SELECT job_id, status, model FROM storyboard_plan_jobs WHERE job_id = ?',
+      [first.body.jobId],
     );
-    expect(rows).toHaveLength(2);
-    expect(rows.map((row) => row['status'])).toEqual(['queued', 'queued']);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!['status']).toBe('queued');
     expect(rows.every((row) => row['model'] === 'gpt-storyboard-test')).toBe(true);
+  });
+
+  it('creates a fresh job when the latest planning jobs are terminal', async () => {
+    await conn.execute(
+      `UPDATE storyboard_plan_jobs
+          SET status = 'failed', error_message = 'test terminal cleanup', failed_at = NOW(3)
+        WHERE draft_id = ? AND status IN ('queued', 'running')`,
+      [draftA],
+    );
+    const completedJobId = await insertPlanJob('completed');
+    const failedJobId = await insertPlanJob('failed');
+
+    const res = await request(app)
+      .post(`/generation-drafts/${draftA}/storyboard-plan`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({});
+
+    expect(res.status).toBe(202);
+    expect(res.body.status).toBe('queued');
+    expect(res.body.jobId).not.toBe(completedJobId);
+    expect(res.body.jobId).not.toBe(failedJobId);
+    cleanupJobs.push(res.body.jobId);
+
+    const [rows] = await conn.query<mysql.RowDataPacket[]>(
+      'SELECT job_id, status FROM storyboard_plan_jobs WHERE job_id = ?',
+      [res.body.jobId],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!['status']).toBe('queued');
   });
 
   it('preserves auth and draft lookup semantics', async () => {

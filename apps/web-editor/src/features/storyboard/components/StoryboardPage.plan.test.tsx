@@ -15,6 +15,10 @@ const {
   mockRetryIllustrationBlock,
   mockSetNodes,
   mockSetEdges,
+  mockApprovePrincipalImage,
+  mockEditPrincipalImage,
+  mockReplacePrincipalImage,
+  mockSetPrincipalImageReferences,
 } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
   mockUseStoryboardCanvas: vi.fn(),
@@ -26,6 +30,10 @@ const {
   mockRetryIllustrationBlock: vi.fn(),
   mockSetNodes: vi.fn(),
   mockSetEdges: vi.fn(),
+  mockApprovePrincipalImage: vi.fn(),
+  mockEditPrincipalImage: vi.fn(),
+  mockReplacePrincipalImage: vi.fn(),
+  mockSetPrincipalImageReferences: vi.fn(),
 }));
 
 vi.mock('react-router-dom', async (importOriginal) => {
@@ -68,11 +76,19 @@ vi.mock('@/features/storyboard/hooks/useStoryboardIllustrations', () => ({
   useStoryboardIllustrations: mockUseStoryboardIllustrations,
 }));
 
+vi.mock('@/features/storyboard/api', () => ({
+  approveStoryboardPrincipalImage: mockApprovePrincipalImage,
+  editStoryboardPrincipalImage: mockEditPrincipalImage,
+  replaceStoryboardPrincipalImage: mockReplacePrincipalImage,
+  setStoryboardPrincipalImageReferences: mockSetPrincipalImageReferences,
+}));
+
 vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
   useStoryboardHistorySeed: vi.fn(),
 }));
 
 vi.mock('@/lib/api-client', () => ({
+  apiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
   buildAuthenticatedUrl: (url: string) => `${url}?token=test`,
 }));
 
@@ -110,7 +126,18 @@ function renderPage(initialEntry = '/storyboard/test-draft-abc') {
   );
 }
 
-function setCanvasMock() {
+const sentinelNodes = [
+  { id: 'start-1', type: 'start', position: { x: 0, y: 0 }, data: { label: 'START' } },
+  { id: 'end-1', type: 'end', position: { x: 400, y: 0 }, data: { label: 'END' } },
+];
+
+const customStoryboardNodes = [
+  sentinelNodes[0],
+  { id: 'scene-1', type: 'scene-block', position: { x: 200, y: 0 }, data: { block: { id: 'scene-1' } } },
+  sentinelNodes[1],
+];
+
+function setCanvasMock(overrides: Record<string, unknown> = {}) {
   mockUseStoryboardCanvas.mockReturnValue({
     nodes: [],
     edges: [],
@@ -120,6 +147,7 @@ function setCanvasMock() {
     setEdges: mockSetEdges,
     removeNode: vi.fn(),
     reload: vi.fn(),
+    ...overrides,
   });
 }
 
@@ -159,15 +187,27 @@ describe('StoryboardPage / storyboard plan generation', () => {
     mockRetry.mockResolvedValue('job-2');
     mockStartIllustrations.mockResolvedValue(undefined);
     mockRetryIllustrationBlock.mockResolvedValue(undefined);
+    mockApprovePrincipalImage.mockResolvedValue(undefined);
+    mockEditPrincipalImage.mockResolvedValue(undefined);
+    mockReplacePrincipalImage.mockResolvedValue(undefined);
+    mockSetPrincipalImageReferences.mockResolvedValue(undefined);
     setCanvasMock();
     setPlanMock();
     setIllustrationMock();
   });
 
-  it('starts plan generation from the compact Step 2 control', () => {
+  it('auto-starts plan generation for a START and END only storyboard', () => {
+    setCanvasMock({ nodes: sentinelNodes });
     renderPage();
-    fireEvent.click(screen.getByTestId('storyboard-plan-generate-button'));
     expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not auto-start plan generation for an existing custom storyboard', () => {
+    setCanvasMock({ nodes: customStoryboardNodes });
+    renderPage();
+
+    expect(mockStart).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('storyboard-plan-generate-button')).toBeNull();
   });
 
   it('shows a blocking overlay and disables Step 3 navigation while generation is running', () => {
@@ -205,6 +245,7 @@ describe('StoryboardPage / storyboard plan generation', () => {
         jobId: 'ref-job-1',
         outputFileId: null,
         sourceReferenceFileIds: [],
+        approvalStatus: 'pending',
         errorMessage: null,
       },
     });
@@ -226,6 +267,7 @@ describe('StoryboardPage / storyboard plan generation', () => {
         jobId: 'ref-job-1',
         outputFileId: null,
         sourceReferenceFileIds: [],
+        approvalStatus: 'pending',
         errorMessage: null,
       },
     });
@@ -247,6 +289,7 @@ describe('StoryboardPage / storyboard plan generation', () => {
         jobId: 'ref-job-1',
         outputFileId: 'ref-file-1',
         sourceReferenceFileIds: [],
+        approvalStatus: 'pending',
         errorMessage: null,
       },
     });
@@ -268,6 +311,7 @@ describe('StoryboardPage / storyboard plan generation', () => {
         jobId: 'ref-job-1',
         outputFileId: 'ref-file-1',
         sourceReferenceFileIds: [],
+        approvalStatus: 'pending',
         errorMessage: null,
       },
     });
@@ -289,6 +333,7 @@ describe('StoryboardPage / storyboard plan generation', () => {
         jobId: 'ref-job-1',
         outputFileId: null,
         sourceReferenceFileIds: [],
+        approvalStatus: 'pending',
         errorMessage: 'Reference failed',
       },
     });
@@ -298,8 +343,8 @@ describe('StoryboardPage / storyboard plan generation', () => {
     expect(screen.getByText('Visual style reference failed')).toBeTruthy();
     expect(screen.getByTestId('storyboard-reference-preview-fallback').textContent).toBe('Failed');
     expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId('storyboard-illustration-generate-button').textContent).toBe('Retry');
-    fireEvent.click(screen.getByTestId('storyboard-illustration-generate-button'));
+    expect(screen.getByTestId('storyboard-illustration-retry-button').textContent).toBe('Retry');
+    fireEvent.click(screen.getByTestId('storyboard-illustration-retry-button'));
     expect(mockStartIllustrations).toHaveBeenCalledTimes(1);
   });
 
@@ -315,7 +360,7 @@ describe('StoryboardPage / storyboard plan generation', () => {
 
     expect(screen.getByText('Illustration failed')).toBeTruthy();
     expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId('storyboard-illustration-generate-button') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId('storyboard-illustration-retry-button')).toBeNull();
   });
 
   it('keeps Back and Home available while generation is running', () => {
@@ -336,7 +381,7 @@ describe('StoryboardPage / storyboard plan generation', () => {
     expect(screen.queryByTestId('storyboard-plan-overlay')).toBeNull();
     expect(screen.getByRole('alert').textContent).toContain('Could not apply');
 
-    fireEvent.click(screen.getByTestId('storyboard-plan-generate-button'));
+    fireEvent.click(screen.getByTestId('storyboard-plan-retry-button'));
     expect(mockRetry).toHaveBeenCalledTimes(1);
   });
 
@@ -412,8 +457,186 @@ describe('StoryboardPage / storyboard plan generation', () => {
     expect(updatedNode.data.onRetryIllustration).toBe(retryBlock);
   });
 
-  it('auto-starts when Step 2 is opened with the generateScenes flag', () => {
-    renderPage('/storyboard/test-draft-abc?generateScenes=1');
+  it('does not expose happy-path generate controls', () => {
+    renderPage();
+
+    expect(screen.queryByTestId('storyboard-plan-generate-button')).toBeNull();
+    expect(screen.queryByTestId('storyboard-illustration-generate-button')).toBeNull();
+  });
+
+  it('keeps Step 3 disabled until all scene illustrations are completed', () => {
+    renderPage();
+
+    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('enables Step 3 after all scene illustrations are completed', () => {
+    setIllustrationMock({
+      status: 'completed',
+      phase: 'completed',
+      reference: {
+        status: 'ready',
+        jobId: 'ref-job-1',
+        outputFileId: 'principal-file-1',
+        sourceReferenceFileIds: [],
+        approvalStatus: 'approved',
+        errorMessage: null,
+      },
+      items: [
+        {
+          blockId: 'scene-1',
+          status: 'ready',
+          jobId: 'scene-job-1',
+          outputFileId: 'scene-file-1',
+          errorMessage: null,
+        },
+      ],
+    });
+
+    renderPage();
+
+    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId('next-step3-button'));
+    expect(mockNavigate).toHaveBeenCalledWith('/generate/road-map');
+  });
+
+  it('opens the principal image approval modal and continues after approval', async () => {
+    const refresh = vi.fn().mockResolvedValue([
+      {
+        blockId: 'scene-1',
+        status: 'queued',
+        jobId: 'scene-job-1',
+        outputFileId: null,
+        errorMessage: null,
+      },
+    ]);
+    setIllustrationMock({
+      reference: {
+        status: 'ready',
+        jobId: 'ref-job-1',
+        outputFileId: 'principal-file-1',
+        sourceReferenceFileIds: [],
+        approvalStatus: 'pending',
+        errorMessage: null,
+      },
+      refresh,
+    });
+
+    renderPage();
+
+    expect(screen.getByTestId('principal-image-modal')).toBeTruthy();
+    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByTestId('principal-image-approve-button'));
+
+    await waitFor(() => {
+      expect(mockApprovePrincipalImage).toHaveBeenCalledWith('test-draft-abc');
+      expect(mockStartIllustrations).toHaveBeenCalledTimes(1);
+      expect(refresh).toHaveBeenCalled();
+    });
+  });
+
+  it('keeps Step 3 blocked when scene start fails after principal approval', async () => {
+    const refresh = vi.fn().mockResolvedValue([]);
+    const approvedReference = {
+      status: 'ready',
+      jobId: 'ref-job-1',
+      outputFileId: 'principal-file-1',
+      sourceReferenceFileIds: [],
+      approvalStatus: 'approved',
+      errorMessage: null,
+    };
+    setIllustrationMock({
+      reference: {
+        status: 'ready',
+        jobId: 'ref-job-1',
+        outputFileId: 'principal-file-1',
+        sourceReferenceFileIds: [],
+        approvalStatus: 'pending',
+        errorMessage: null,
+      },
+      refresh,
+    });
+
+    const { rerender } = renderPage();
+    await waitFor(() => {
+      expect(screen.getByTestId('principal-image-approve-button')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTestId('principal-image-approve-button'));
+
+    await waitFor(() => {
+      expect(mockApprovePrincipalImage).toHaveBeenCalledWith('test-draft-abc');
+      expect(mockStartIllustrations).toHaveBeenCalledTimes(1);
+    });
+
+    setIllustrationMock({
+      reference: approvedReference,
+      refresh,
+    });
+
+    rerender(
+      <QueryClientProvider client={new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      })}
+      >
+        <MemoryRouter initialEntries={['/storyboard/test-draft-abc']}>
+          <Routes>
+            <Route path="/storyboard/:draftId" element={<StoryboardPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByTestId('principal-image-modal')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain('Could not start illustration generation.');
+    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('keeps Step 3 blocked when scene start fails before approved state refreshes', async () => {
+    const refresh = vi.fn().mockResolvedValue([]);
+    setIllustrationMock({
+      reference: {
+        status: 'ready',
+        jobId: 'ref-job-1',
+        outputFileId: 'principal-file-1',
+        sourceReferenceFileIds: [],
+        approvalStatus: 'pending',
+        errorMessage: null,
+      },
+      refresh,
+    });
+
+    renderPage();
+
+    fireEvent.click(screen.getByTestId('principal-image-approve-button'));
+
+    await waitFor(() => {
+      expect(mockApprovePrincipalImage).toHaveBeenCalledWith('test-draft-abc');
+      expect(mockStartIllustrations).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('alert').textContent).toContain('Could not start illustration generation.');
+    });
+    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('does not auto-start a START and END storyboard twice across rerenders', () => {
+    setCanvasMock({ nodes: sentinelNodes });
+    const { rerender } = renderPage('/storyboard/test-draft-abc?generateScenes=1');
+    expect(mockStart).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <QueryClientProvider client={new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      })}
+      >
+        <MemoryRouter initialEntries={['/storyboard/test-draft-abc?generateScenes=1']}>
+          <Routes>
+            <Route path="/storyboard/:draftId" element={<StoryboardPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
     expect(mockStart).toHaveBeenCalledTimes(1);
   });
 });

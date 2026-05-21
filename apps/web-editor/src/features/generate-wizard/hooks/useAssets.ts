@@ -48,11 +48,19 @@ type UseAssetsResult = {
 export function useAssets({ type, draftId, scope = 'draft' }: UseAssetsOptions): UseAssetsResult {
   const { data, isLoading, isError, refetch } = useQuery<AssetListResponse>({
     queryKey: draftId
-      ? ['generate-wizard', 'assets', draftId, scope]
+      ? ['generate-wizard', 'assets', draftId, scope, type]
       : ['generate-wizard', 'assets', type],
-    queryFn: draftId
-      ? () => listDraftAssets({ draftId, scope })
-      : () => listAssets({ type, limit: 100 }),
+    queryFn: async () => {
+      const response = draftId
+        ? await listDraftAssets({ draftId, scope })
+        : await listAssets({ type, limit: 100 });
+      return type === 'all'
+        ? response
+        : {
+            ...response,
+            items: response.items.filter((item) => item.type === type),
+          };
+    },
   });
 
   return { data, isLoading, isError, refetch };

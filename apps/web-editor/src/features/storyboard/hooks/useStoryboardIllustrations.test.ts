@@ -48,6 +48,7 @@ function reference(
     jobId: null,
     outputFileId: null,
     sourceReferenceFileIds: [],
+    approvalStatus: 'pending',
     errorMessage: null,
     ...overrides,
   };
@@ -101,7 +102,12 @@ describe('useStoryboardIllustrations', () => {
         items: [item({ status: 'running', jobId: 'job-1' })],
       }))
       .mockResolvedValueOnce(response({
-        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-1' }),
+        reference: reference({
+          status: 'ready',
+          jobId: 'ref-job-1',
+          outputFileId: 'ref-file-1',
+          approvalStatus: 'approved',
+        }),
         items: [item({
           status: 'ready',
           jobId: 'job-1',
@@ -144,14 +150,14 @@ describe('useStoryboardIllustrations', () => {
         reference: reference({ status: 'running', jobId: 'ref-job-1' }),
       }))
       .mockResolvedValueOnce(response({
-        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-ready' }),
+        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-ready', approvalStatus: 'approved' }),
       }))
       .mockResolvedValueOnce(response({
-        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-ready' }),
+        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-ready', approvalStatus: 'approved' }),
         items: [item({ status: 'running', jobId: 'scene-job-1' })],
       }))
       .mockResolvedValueOnce(response({
-        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-ready' }),
+        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-ready', approvalStatus: 'approved' }),
         items: [item({ status: 'ready', jobId: 'scene-job-1', outputFileId: 'scene-file-1' })],
       }));
     mockStartStoryboardIllustrations
@@ -159,7 +165,7 @@ describe('useStoryboardIllustrations', () => {
         reference: reference({ status: 'queued', jobId: 'ref-job-1' }),
       }))
       .mockResolvedValueOnce(response({
-        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-ready' }),
+        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-ready', approvalStatus: 'approved' }),
         items: [item({ status: 'running', jobId: 'scene-job-1' })],
       }));
 
@@ -203,11 +209,180 @@ describe('useStoryboardIllustrations', () => {
     expect(onStoryboardUpdated).toHaveBeenCalledTimes(2);
   });
 
+  it('continues sequential scene starts after each previous scene output is ready', async () => {
+    const onStoryboardUpdated = vi.fn();
+    const approvedReference = reference({
+      status: 'ready',
+      jobId: 'ref-job-1',
+      outputFileId: 'ref-file-ready',
+      approvalStatus: 'approved',
+    });
+
+    mockFetchStoryboardIllustrations
+      .mockResolvedValueOnce(response({ reference: approvedReference }))
+      .mockResolvedValueOnce(response({
+        reference: approvedReference,
+        items: [
+          item({ blockId: 'scene-1', status: 'ready', jobId: 'scene-job-1', outputFileId: 'scene-file-1' }),
+          item({ blockId: 'scene-2', status: 'queued', jobId: null }),
+        ],
+      }))
+      .mockResolvedValueOnce(response({
+        reference: approvedReference,
+        items: [
+          item({ blockId: 'scene-1', status: 'ready', jobId: 'scene-job-1', outputFileId: 'scene-file-1' }),
+          item({ blockId: 'scene-2', status: 'ready', jobId: 'scene-job-2', outputFileId: 'scene-file-2' }),
+        ],
+      }));
+    mockStartStoryboardIllustrations
+      .mockResolvedValueOnce(response({
+        reference: approvedReference,
+        items: [
+          item({ blockId: 'scene-1', status: 'running', jobId: 'scene-job-1' }),
+          item({ blockId: 'scene-2', status: 'queued', jobId: null }),
+        ],
+      }))
+      .mockResolvedValueOnce(response({
+        reference: approvedReference,
+        items: [
+          item({ blockId: 'scene-1', status: 'ready', jobId: 'scene-job-1', outputFileId: 'scene-file-1' }),
+          item({ blockId: 'scene-2', status: 'running', jobId: 'scene-job-2' }),
+        ],
+      }));
+
+    const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, {
+      pollIntervalMs: 100,
+      onStoryboardUpdated,
+    }));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockFetchStoryboardIllustrations).toHaveBeenCalledWith(DRAFT_ID);
+    await act(async () => {
+      await result.current.start();
+    });
+
+    expect(result.current.status).toBe('running');
+    expect(result.current.byBlockId.get('scene-2')?.jobId).toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(mockStartStoryboardIllustrations).toHaveBeenCalledTimes(2);
+    expect(result.current.status).toBe('running');
+    expect(result.current.byBlockId.get('scene-2')?.jobId).toBe('scene-job-2');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(result.current.status).toBe('completed');
+    expect(result.current.byBlockId.get('scene-2')?.outputFileId).toBe('scene-file-2');
+    expect(onStoryboardUpdated).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not auto-start scene work while the ready reference is pending approval', async () => {
+    mockFetchStoryboardIllustrations
+      .mockResolvedValueOnce(response())
+      .mockResolvedValueOnce(response({
+        reference: reference({
+          status: 'ready',
+          jobId: 'ref-job-1',
+          outputFileId: 'ref-file-ready',
+          approvalStatus: 'pending',
+        }),
+      }));
+    mockStartStoryboardIllustrations.mockResolvedValueOnce(response({
+      reference: reference({ status: 'queued', jobId: 'ref-job-1' }),
+    }));
+
+    const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, { pollIntervalMs: 100 }));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await result.current.start();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(mockStartStoryboardIllustrations).toHaveBeenCalledTimes(1);
+    expect(result.current.status).toBe('idle');
+    expect(result.current.phase).toBe('idle');
+    expect(result.current.isBlocking).toBe(false);
+  });
+
+  it('continues polling when a manual refresh observes active reference work', async () => {
+    mockFetchStoryboardIllustrations
+      .mockResolvedValueOnce(response({
+        reference: reference({ status: 'queued', jobId: 'ref-job-1' }),
+      }))
+      .mockResolvedValueOnce(response({
+        reference: reference({ status: 'running', jobId: 'ref-job-1' }),
+      }))
+      .mockResolvedValueOnce(response({
+        reference: reference({
+          status: 'ready',
+          jobId: 'ref-job-1',
+          outputFileId: 'ref-file-ready',
+          approvalStatus: 'pending',
+        }),
+      }));
+
+    const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, { pollIntervalMs: 100 }));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.status).toBe('queued');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(result.current.status).toBe('running');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(result.current.reference).toMatchObject({
+      status: 'ready',
+      approvalStatus: 'pending',
+      outputFileId: 'ref-file-ready',
+    });
+  });
+
+  it('does not mark lifecycle completed while ready scenes wait on principal approval', async () => {
+    mockFetchStoryboardIllustrations.mockResolvedValueOnce(response({
+      reference: reference({
+        status: 'ready',
+        jobId: 'ref-job-1',
+        outputFileId: 'ref-file-1',
+        approvalStatus: 'pending',
+      }),
+      items: [item({ status: 'ready', jobId: 'scene-job-1', outputFileId: 'scene-file-1' })],
+    }));
+
+    const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, { pollIntervalMs: 100 }));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.status).toBe('idle');
+    expect(result.current.phase).toBe('idle');
+    expect(result.current.isBlocking).toBe(false);
+  });
+
   it('surfaces automatic scene-start failures after the reference is ready', async () => {
     mockFetchStoryboardIllustrations
       .mockResolvedValueOnce(response())
       .mockResolvedValueOnce(response({
-        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-ready' }),
+        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-ready', approvalStatus: 'approved' }),
       }));
     mockStartStoryboardIllustrations
       .mockResolvedValueOnce(response({

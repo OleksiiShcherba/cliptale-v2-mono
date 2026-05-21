@@ -45,6 +45,7 @@ function deriveStatus(response: StoryboardIllustrationStatusResponse): Storyboar
   if (entries.some((item) => item.status === 'failed')) return 'failed';
   if (
     response.reference.status === 'ready' &&
+    response.reference.approvalStatus === 'approved' &&
     response.items.length > 0 &&
     response.items.every((item) => item.jobId !== null && item.status === 'ready')
   ) {
@@ -68,6 +69,7 @@ function derivePhase(response: StoryboardIllustrationStatusResponse): Storyboard
   }
   if (
     response.reference.status === 'ready' &&
+    response.reference.approvalStatus === 'approved' &&
     response.items.length > 0 &&
     response.items.every((item) => item.jobId !== null && item.status === 'ready')
   ) {
@@ -83,6 +85,8 @@ function hasActiveWork(response: StoryboardIllustrationStatusResponse): boolean 
 function hasPendingSceneStart(response: StoryboardIllustrationStatusResponse): boolean {
   return (
     response.reference.status === 'ready' &&
+    response.reference.approvalStatus === 'approved' &&
+    !response.items.some(hasActiveJob) &&
     response.items.some((item) => item.status === 'queued' && item.jobId === null)
   );
 }
@@ -101,6 +105,7 @@ export function useStoryboardIllustrations(
   const hasActiveWorkRef = useRef(false);
   const workflowActiveRef = useRef(false);
   const shouldContinueSceneStartRef = useRef(false);
+  const schedulePollRef = useRef<(() => void) | null>(null);
 
   const [items, setItems] = useState<StoryboardIllustrationStatusItem[]>([]);
   const [reference, setReference] = useState<StoryboardIllustrationReferenceStatus | null>(null);
@@ -172,6 +177,9 @@ export function useStoryboardIllustrations(
       if (!isCurrentRequest(draftId, token)) return [];
       setError(null);
       applyResponse(response);
+      if (hasActiveWork(response)) {
+        schedulePollRef.current?.();
+      }
       return response.items;
     } catch (err) {
       if (!isCurrentRequest(draftId, token)) return [];
@@ -216,6 +224,10 @@ export function useStoryboardIllustrations(
       });
     }, pollIntervalMs);
   }, [clearPollTimeout, continueStoryboardIllustrations, pollIntervalMs, refresh]);
+
+  useEffect(() => {
+    schedulePollRef.current = schedulePoll;
+  }, [schedulePoll]);
 
   const start = useCallback(async (): Promise<void> => {
     if (!draftId) return;

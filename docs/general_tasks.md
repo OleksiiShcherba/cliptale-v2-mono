@@ -160,3 +160,118 @@ Tests and validation tickets:
    - Likely files: `apps/api/src/__tests__/integration/storyboard.integration.test.ts`, repository tests.
    - Dependencies: reference mapping model.
    - Validation: API integration tests.
+
+---
+
+Epic — Automated Storyboard Generation and Principal Image Approval:
+
+Goal:
+Remove manual user-triggered Step 2 generation controls from the normal storyboard flow and insert a required principal image approval/edit step before scene illustrations are generated from that image.
+
+Product behavior:
+
+1. `Generate scenes` and `Generate illustrations` must not be directly triggerable by users in the standard Step 2 flow.
+2. When the user moves from Step 1 to Step 2 and the storyboard contains only the START and END blocks, the system automatically starts scene planning.
+3. After scene planning completes and scene blocks are created, the system automatically creates the principal/canonical image first.
+4. Before generating scene illustrations from the principal image, the UI must show the principal image to the user in a modal for approval.
+5. The modal must let the user adjust the principal image before approval:
+   - Add a prompt describing how to change the principal image.
+   - Replace the principal image with an uploaded/selected image.
+   - Add additional reference images that should be used to regenerate the principal image.
+   - Use the available `gpt-image-2` image generation/editing capabilities exposed by the app.
+6. Scene illustrations start automatically only after the user approves the principal image.
+7. Retry and recovery controls remain available for failed jobs, but the primary happy path should feel automatic rather than button-driven.
+
+Backend tickets:
+
+1. Add storyboard automation state and idempotent orchestration guard.
+   - Goal: track whether a draft is eligible for automatic Step 2 orchestration and prevent duplicate scene/illustration jobs.
+   - Scope: add or reuse draft/storyboard metadata for automation status, approval status, current phase, error message, and timestamps; treat START+END-only storyboards as eligible for auto planning; keep existing manual retry endpoints idempotent.
+   - Acceptance criteria: only one active planning job can exist per eligible draft; re-entering Step 2 does not duplicate blocks or jobs; non-empty storyboards do not auto-replace user work; failures surface as retryable states.
+   - Likely files: `apps/api/src/services/generationDraft.storyboardPlan.service.ts`, `apps/api/src/services/storyboardPlanApply.service.ts`, `apps/api/src/repositories/storyboardPlanJob.repository.ts`, `apps/api/src/repositories/generationDraft.repository.ts`, `apps/api/src/db/migrations/*`.
+   - Dependencies: existing storyboard plan jobs, storyboard blocks/edges, generation draft persistence.
+   - Validation: service tests for empty storyboard eligibility, non-empty storyboard skip, duplicate request idempotency, and failed-job retry.
+
+2. Split principal image generation from scene illustration generation with approval gating.
+   - Goal: ensure the canonical principal image is generated and approved before any scene illustration jobs begin.
+   - Scope: extend the existing canonical reference flow with `pending_approval` or equivalent state; prevent scene job enqueueing until approval is stored; keep failed reference retries available.
+   - Acceptance criteria: principal image output can be ready while scene jobs remain unqueued; approving the principal image unlocks sequential scene generation; rejecting/editing/replacing the image keeps scene generation blocked; retries preserve the latest approved principal image.
+   - Likely files: `apps/api/src/services/storyboardIllustration.service.ts`, `apps/api/src/repositories/storyboardIllustrationReference.repository.ts`, `apps/api/src/controllers/storyboardIllustration.controller.ts`, `packages/api-contracts/src/openapi.ts`.
+   - Dependencies: completed canonical reference pipeline and direct `storyboard-openai-image` worker.
+   - Validation: API tests for reference ready/unapproved, approve, edit/regenerate, replace, and scene enqueue gating.
+
+3. Add principal image edit/regenerate API.
+   - Goal: support modal actions for changing the principal image through `gpt-image-2`.
+   - Scope: add endpoints to submit a principal-image edit prompt, replace the principal image with an existing/uploaded file, and add extra reference files for regeneration; resolve all references through draft-linked files and authenticated storage.
+   - Acceptance criteria: edit prompt creates a new `gpt-image-2` image-edit job using the current principal image plus optional extra references; replacement marks the selected file as the active principal image; extra references are persisted as source reference IDs; old generated outputs remain auditable but inactive.
+   - Likely files: `apps/api/src/controllers/storyboardIllustration.controller.ts`, `apps/api/src/services/storyboardIllustration.service.ts`, `apps/api/src/queues/jobs/enqueue-storyboard-openai-image.ts`, `apps/media-worker/src/jobs/storyboardOpenAIImage.job.ts`, `packages/project-schema/src/job-payloads/*`, `packages/api-contracts/src/openapi.ts`.
+   - Dependencies: draft file linking, OpenAI image edit worker, canonical reference repository.
+   - Validation: endpoint integration tests, worker payload tests, object-storage reference resolution tests.
+
+4. Extend status API for automation and principal approval.
+   - Goal: give the frontend one reliable status shape for Step 2 automation, principal image review, and scene illustration progress.
+   - Scope: expose automation phase values such as `planning`, `creating_principal_image`, `awaiting_principal_approval`, `generating_scene_illustrations`, `ready`, and `failed`; include principal image output, source refs, approval state, and actionable failure reason.
+   - Acceptance criteria: frontend can render progress, approval modal, retry states, and Step 3 gating without inferring state from unrelated fields; OpenAPI examples cover the happy path and failed path.
+   - Likely files: `packages/api-contracts/src/openapi.ts`, `packages/api-contracts/src/openapi.storyboard.schemas.test.ts`, `apps/api/src/controllers/storyboardIllustration.controller.ts`, `apps/api/src/services/storyboardIllustration.service.ts`, `apps/web-editor/src/features/storyboard/types.ts`.
+   - Dependencies: approval-gated reference model.
+   - Validation: OpenAPI tests, controller tests, frontend API contract tests.
+
+Frontend tickets:
+
+1. Remove standard manual generation triggers from Step 2.
+   - Goal: make Step 2 generation automatic in the normal flow instead of exposing `Generate scenes` and `Generate illustrations` as primary user actions.
+   - Scope: hide or remove the direct generation buttons when auto orchestration is available; keep scoped retry controls for failed planning, principal image generation, and failed scene blocks.
+   - Acceptance criteria: entering Step 2 with only START and END starts planning automatically; users cannot manually trigger duplicate scene or illustration generation; retries are visible only when the relevant phase fails.
+   - Likely files: `apps/web-editor/src/features/storyboard/components/StoryboardPlanControls.tsx`, `apps/web-editor/src/features/storyboard/hooks/useStoryboardPlanGeneration.ts`, `apps/web-editor/src/features/storyboard/hooks/useStoryboardIllustrations.ts`, `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx`.
+   - Dependencies: automation status API.
+   - Validation: hook tests and component tests for auto-start, duplicate prevention, and failure retry rendering.
+
+2. Build the principal image approval modal.
+   - Goal: let users inspect and adjust the principal image before it is used for scene illustrations.
+   - Scope: add a modal opened automatically when status reaches `awaiting_principal_approval`; show authenticated principal image preview; include approve, regenerate with prompt, replace image, and add reference images actions; use existing upload/asset picker patterns.
+   - Acceptance criteria: modal blocks Step 3 and scene generation until approval; prompt edits call the regeneration API; replacement updates the active principal image; additional references are shown as removable chips/thumbnails; image load failures have a graceful fallback.
+   - Likely files: `apps/web-editor/src/features/storyboard/components/PrincipalImageApprovalModal.tsx`, `apps/web-editor/src/features/storyboard/components/PrincipalImageApprovalModal.styles.ts`, `apps/web-editor/src/features/storyboard/api.ts`, `apps/web-editor/src/features/storyboard/types.ts`, shared asset picker/upload components.
+   - Dependencies: principal image status/edit/approve APIs.
+   - Validation: component tests for approve, prompt edit, replace, add/remove references, loading, failure, and disabled states.
+
+3. Wire automatic continuation after principal approval.
+   - Goal: start scene illustration generation immediately after the user approves the principal image.
+   - Scope: update Step 2 orchestration hooks so approval triggers or unlocks the existing sequential scene illustration endpoint; refresh storyboard data as scene outputs attach; keep Back/Home available while generation runs.
+   - Acceptance criteria: after approval, scene 1 starts without another user action; subsequent scenes continue sequentially; failed scene generation leaves per-scene retry available; Step 3 remains disabled until all required outputs are ready.
+   - Likely files: `apps/web-editor/src/features/storyboard/hooks/useStoryboardIllustrations.ts`, `apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx`, `apps/web-editor/src/features/storyboard/components/SceneBlockNode.tsx`, `apps/web-editor/src/features/storyboard/components/StoryboardPageFooter.tsx`.
+   - Dependencies: approval-gated backend behavior.
+   - Validation: hook tests, focused StoryboardPage tests, Step 3 gating tests.
+
+4. Update Step 2 status copy and visual hierarchy.
+   - Goal: communicate automatic progress clearly without showing implementation/provider details.
+   - Scope: replace button-led copy with phase-led status for planning scenes, creating principal image, waiting for approval, generating scene illustrations, ready, and failed; follow `docs/design-guide.md` dark theme tokens and 8px radius rules.
+   - Acceptance criteria: no visible provider jargon except where model-specific controls are intentionally exposed inside the principal image modal; status text fits at mobile/tablet/desktop breakpoints; controls do not overlap canvas or footer navigation.
+   - Likely files: `apps/web-editor/src/features/storyboard/components/StoryboardPlanControls.tsx`, `apps/web-editor/src/features/storyboard/components/StoryboardPlanControls.styles.ts`, modal styles.
+   - Dependencies: finalized status values.
+   - Validation: component snapshots or DOM assertions plus Playwright visual review.
+
+Tests and validation tickets:
+
+1. Add E2E coverage for automatic Step 2 orchestration.
+   - Goal: verify the happy path from Step 1 navigation to automatic planning, principal image approval, automatic scene illustrations, and Step 3 readiness.
+   - Scope: mock API/worker statuses and authenticated image streams; assert no manual `Generate scenes` or `Generate illustrations` buttons are available in the normal flow.
+   - Acceptance criteria: test covers START+END auto-start, principal modal display, approval, automatic scene generation, final thumbnails, and Step 3 enabling only when all scene outputs are ready.
+   - Likely files: `e2e/storyboard-illustrations.spec.ts`, `e2e/helpers/storyboard.ts`.
+   - Dependencies: frontend automation and modal implementation.
+   - Validation: Playwright pass with local API proxy setup.
+
+2. Add E2E coverage for principal image adjustment paths.
+   - Goal: verify users can correct the principal image before scene generation begins.
+   - Scope: cover prompt-based regeneration, replacement with an uploaded/selected image, and adding extra reference images before approval.
+   - Acceptance criteria: each adjustment path updates the principal preview/status; scene illustrations do not start before approval; approved adjusted image is used as the style anchor in subsequent scene generation requests.
+   - Likely files: `e2e/storyboard-illustrations.spec.ts`, asset/upload E2E helpers.
+   - Dependencies: modal actions and backend edit/regenerate APIs.
+   - Validation: Playwright pass with mocked provider outputs.
+
+3. Add regression coverage for duplicate prevention and user-edited storyboards.
+   - Goal: ensure automation does not overwrite user work or create duplicate jobs.
+   - Scope: test reloading Step 2 during active planning/reference jobs, entering Step 2 with existing custom blocks, and retrying failed phases.
+   - Acceptance criteria: active jobs remain singular; existing storyboard blocks are preserved; retries create only the intended replacement job; completed principal images remain auditable.
+   - Likely files: `apps/api/src/__tests__/integration/generationDraft.storyboardPlan.integration.test.ts`, `apps/api/src/__tests__/integration/storyboard-illustration-endpoints.test.ts`, `apps/web-editor/src/features/storyboard/components/StoryboardPage.plan.test.tsx`.
+   - Dependencies: automation state and approval model.
+   - Validation: API integration tests and focused frontend tests.

@@ -77,22 +77,58 @@ describe('openApiSpec storyboard component schemas', () => {
       'jobId',
       'outputFileId',
       'sourceReferenceFileIds',
+      'approvalStatus',
       'errorMessage',
     ]);
     const referenceProps = reference.properties as Record<string, Record<string, unknown>>;
     expect(referenceProps.status?.enum).toEqual(['queued', 'running', 'ready', 'failed']);
     expect(referenceProps.sourceReferenceFileIds?.type).toBe('array');
+    expect(referenceProps.approvalStatus?.enum).toEqual(['pending', 'approved']);
+
+    const automation = schemas['StoryboardAutomationStatus'] as Record<string, unknown>;
+    expect(automation).toBeDefined();
+    expect(automation.required).toEqual(['phase', 'planningJobId', 'errorMessage']);
+    const automationProps = automation.properties as Record<string, Record<string, unknown>>;
+    expect(automationProps.phase?.enum).toEqual([
+      'idle',
+      'planning',
+      'creating_principal_image',
+      'awaiting_principal_approval',
+      'generating_scene_illustrations',
+      'ready',
+      'failed',
+    ]);
 
     const response = schemas['StoryboardIllustrationStatusResponse'] as Record<string, unknown>;
     expect(response).toBeDefined();
-    expect(response.required).toEqual(['reference', 'items']);
+    expect(response.required).toEqual(['automation', 'reference', 'items']);
     const props = response.properties as Record<string, Record<string, unknown>>;
+    expect(props.automation?.$ref).toBe('#/components/schemas/StoryboardAutomationStatus');
     expect(props.reference?.$ref).toBe('#/components/schemas/StoryboardIllustrationReferenceStatus');
     const items = props.items?.items as Record<string, unknown>;
     expect(items.$ref).toBe('#/components/schemas/StoryboardIllustrationStatusItem');
-    const example = response.example as { reference?: Record<string, unknown>; items?: unknown[] };
+    const example = response.example as {
+      automation?: Record<string, unknown>;
+      reference?: Record<string, unknown>;
+      items?: unknown[];
+    };
+    expect(example.automation?.phase).toBe('creating_principal_image');
     expect(example.reference?.status).toBe('running');
     expect(example.items).toHaveLength(1);
+  });
+
+  it('defines principal image action body schemas', () => {
+    const edit = schemas['EditPrincipalImageBody'] as Record<string, unknown>;
+    expect(edit.required).toEqual(['prompt']);
+    const editProps = edit.properties as Record<string, Record<string, unknown>>;
+    expect(editProps.prompt?.maxLength).toBe(4000);
+    expect(editProps.extraReferenceFileIds?.type).toBe('array');
+
+    const replace = schemas['ReplacePrincipalImageBody'] as Record<string, unknown>;
+    expect(replace.required).toEqual(['fileId']);
+
+    const refs = schemas['SetPrincipalImageReferencesBody'] as Record<string, unknown>;
+    expect(refs.required).toEqual(['fileIds']);
   });
 
   it('defines SaveStoryboardBody schema with blocks and edges', () => {
@@ -132,6 +168,10 @@ describe('openApiSpec storyboard security coverage', () => {
     ['/storyboards/{draftId}/apply-latest-plan', 'post'],
     ['/storyboards/{draftId}/illustrations', 'get'],
     ['/storyboards/{draftId}/illustrations', 'post'],
+    ['/storyboards/{draftId}/illustrations/principal-image/approve', 'post'],
+    ['/storyboards/{draftId}/illustrations/principal-image/edit', 'post'],
+    ['/storyboards/{draftId}/illustrations/principal-image/replace', 'post'],
+    ['/storyboards/{draftId}/illustrations/principal-image/references', 'put'],
     ['/storyboards/{draftId}/blocks/{blockId}/illustration', 'post'],
     ['/storyboards/{draftId}', 'get'],
     ['/storyboards/{draftId}', 'put'],

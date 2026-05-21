@@ -570,6 +570,7 @@ The following specific files exceed 300 lines by necessity and are approved exce
 | File | Lines | Justification |
 |---|---|---|
 | `apps/web-editor/src/features/storyboard/store/storyboard-store.ts` | 374 | Additive exports from a `useSyncExternalStore` store; further split would require cross-file store mutation coupling. All exports are tightly coupled to the single module-level `state` variable. |
+| `apps/web-editor/src/features/storyboard/components/StoryboardPage.plan.test.tsx` | 642 | Page-level integration harness for auto storyboard planning, illustration gating, and principal-image approval. The shared mocks and render helper are larger than each individual scenario; splitting now would duplicate brittle route/query/provider setup and reduce readability. Revisit once `StoryboardPage` generation hooks have dedicated hook-level tests. |
 
 #### E2E spec file exemption
 

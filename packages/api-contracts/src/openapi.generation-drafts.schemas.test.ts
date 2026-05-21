@@ -55,7 +55,7 @@ describe('openApiSpec generation draft schemas', () => {
 
     expect(startRequired).toEqual(['jobId', 'status']);
     expect(startProps.jobId?.format).toBe('uuid');
-    expect(startProps.status?.enum).toEqual(['queued']);
+    expect(startProps.status?.enum).toEqual(['queued', 'running']);
 
     const statusResponse = schemas['StoryboardPlanJobStatusResponse'] as Record<string, unknown>;
     const variants = statusResponse.oneOf as Array<Record<string, unknown>>;

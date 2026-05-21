@@ -21,14 +21,13 @@ interface StoryboardPlanControlsProps {
   status: StoryboardPlanGenerationStatus;
   error: string | null;
   isBlocking: boolean;
-  onStart: () => void;
   onRetry: () => void;
 }
 
 export const STORYBOARD_PLAN_STATUS_COPY: Record<StoryboardPlanGenerationStatus, { title: string; meta: string }> = {
   idle: {
-    title: 'Generate scenes',
-    meta: 'Create ordered storyboard scenes from the AI plan.',
+    title: 'Scene planning',
+    meta: 'Ordered storyboard scenes start automatically for new drafts.',
   },
   queued: {
     title: 'Generation queued',
@@ -52,23 +51,15 @@ export const STORYBOARD_PLAN_STATUS_COPY: Record<StoryboardPlanGenerationStatus,
   },
 };
 
-function getActionLabel(status: StoryboardPlanGenerationStatus): string {
-  if (status === 'failed') return 'Retry';
-  if (status === 'completed') return 'Regenerate';
-  return 'Generate';
-}
-
 export function StoryboardPlanControls({
   status,
   error,
   isBlocking,
-  onStart,
   onRetry,
 }: StoryboardPlanControlsProps): React.ReactElement {
   const copy = STORYBOARD_PLAN_STATUS_COPY[status];
   const isDisabled = isBlocking;
-  const actionLabel = getActionLabel(status);
-  const handleClick = status === 'failed' ? onRetry : onStart;
+  const showRetry = status === 'failed';
 
   return (
     <>
@@ -87,16 +78,18 @@ export function StoryboardPlanControls({
             Done
           </span>
         )}
-        <button
-          type="button"
-          style={isDisabled ? s.buttonDisabled : s.button}
-          disabled={isDisabled}
-          aria-disabled={isDisabled}
-          onClick={handleClick}
-          data-testid="storyboard-plan-generate-button"
-        >
-          {actionLabel}
-        </button>
+        {showRetry && (
+          <button
+            type="button"
+            style={isDisabled ? s.buttonDisabled : s.button}
+            disabled={isDisabled}
+            aria-disabled={isDisabled}
+            onClick={onRetry}
+            data-testid="storyboard-plan-retry-button"
+          >
+            Retry
+          </button>
+        )}
       </div>
     </>
   );
@@ -162,8 +155,8 @@ function getStoryboardIllustrationCopy(params: {
     };
   }
   return {
-    title: 'Generate illustrations',
-    meta: 'Create image drafts for each scene.',
+    title: 'Illustration status',
+    meta: 'Scene images start automatically after the principal image is approved.',
   };
 }
 
@@ -237,12 +230,7 @@ export function StoryboardIllustrationControls({
   const copy = getStoryboardIllustrationCopy({ status, phase });
   const isSceneFailure = status === 'failed' && phase === 'scene';
   const isReferenceFailure = status === 'failed' && phase === 'reference';
-  const isDisabled = isBlocking || status === 'completed' || isSceneFailure;
-  const buttonLabel = status === 'completed'
-    ? 'Ready'
-    : isReferenceFailure
-      ? 'Retry'
-      : 'Generate';
+  const isDisabled = isBlocking || isSceneFailure;
 
   return (
     <div style={{ ...s.control, ...s.illustrationControl }} data-testid="storyboard-illustration-controls">
@@ -261,16 +249,18 @@ export function StoryboardIllustrationControls({
           Ready
         </span>
       )}
-      <button
-        type="button"
-        style={isDisabled ? s.buttonDisabled : s.button}
-        disabled={isDisabled}
-        aria-disabled={isDisabled}
-        onClick={onStart}
-        data-testid="storyboard-illustration-generate-button"
-      >
-        {buttonLabel}
-      </button>
+      {isReferenceFailure && (
+        <button
+          type="button"
+          style={isDisabled ? s.buttonDisabled : s.button}
+          disabled={isDisabled}
+          aria-disabled={isDisabled}
+          onClick={onStart}
+          data-testid="storyboard-illustration-retry-button"
+        >
+          Retry
+        </button>
+      )}
     </div>
   );
 }

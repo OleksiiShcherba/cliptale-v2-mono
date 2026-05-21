@@ -151,11 +151,12 @@ describe('StoryboardPage / navigation', () => {
     expect(nextBtn.getAttribute('aria-label')).toBe('Next: Step 3');
   });
 
-  it('"Next: Step 3 →" button navigates to /generate/road-map', () => {
+  it('"Next: Step 3 →" button does not navigate before illustrations complete', () => {
     renderPage();
     const nextBtn = screen.getByTestId('next-step3-button');
+    expect((nextBtn as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(nextBtn);
-    expect(mockNavigate).toHaveBeenCalledWith('/generate/road-map');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/generate/road-map');
   });
 
   // ── Home button ────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ const {
   mockDraftRepo,
   mockFileLinksRepo,
   mockStoryboardRepo,
+  mockStoryboardPlanJobRepo,
   mockIllustrationRepo,
   mockReferenceRepo,
   mockStoryboardOpenAIQueue,
@@ -15,11 +16,13 @@ const {
     createJob: vi.fn(),
     getJobById: vi.fn(),
     setDraftId: vi.fn(),
+    setOutputFile: vi.fn(),
     updateJobStatus: vi.fn(),
   },
   mockDraftRepo: { findDraftById: vi.fn() },
   mockFileLinksRepo: { findFilesByDraftId: vi.fn() },
   mockStoryboardRepo: { findBlocksByDraftId: vi.fn(), findEdgesByDraftId: vi.fn() },
+  mockStoryboardPlanJobRepo: { findLatestByDraftId: vi.fn() },
   mockIllustrationRepo: {
     createIllustrationJobMapping: vi.fn(),
     attachIllustrationOutputToBlock: vi.fn(),
@@ -33,7 +36,9 @@ const {
     updateIllustrationJobStatus: vi.fn(),
   },
   mockReferenceRepo: {
+    approveReference: vi.fn(),
     createReferenceMapping: vi.fn(),
+    deactivateActiveReference: vi.fn(),
     findLatestReferenceByDraftId: vi.fn(),
     setReferenceOutput: vi.fn(),
     toStoryboardIllustrationReferenceStatus: vi.fn((status: string) => {
@@ -41,6 +46,7 @@ const {
       if (status === 'completed') return 'ready';
       return status;
     }),
+    updateSourceReferenceFileIds: vi.fn(),
     updateReferenceStatus: vi.fn(),
   },
   mockStoryboardOpenAIQueue: { enqueueStoryboardOpenAIImage: vi.fn() },
@@ -51,6 +57,7 @@ vi.mock('@/repositories/aiGenerationJob.repository.js', () => mockAiJobRepo);
 vi.mock('@/repositories/fileLinks.repository.js', () => mockFileLinksRepo);
 vi.mock('@/repositories/generationDraft.repository.js', () => mockDraftRepo);
 vi.mock('@/repositories/storyboard.repository.js', () => mockStoryboardRepo);
+vi.mock('@/repositories/storyboardPlanJob.repository.js', () => mockStoryboardPlanJobRepo);
 vi.mock('@/repositories/storyboardSceneIllustration.repository.js', () => mockIllustrationRepo);
 vi.mock('@/repositories/storyboardIllustrationReference.repository.js', () => mockReferenceRepo);
 vi.mock('@/queues/jobs/enqueue-storyboard-openai-image.js', () => mockStoryboardOpenAIQueue);
@@ -62,6 +69,10 @@ import {
   listStoryboardIllustrations,
   startStoryboardBlockIllustration,
   startStoryboardIllustrations,
+  approveStoryboardPrincipalImage,
+  editStoryboardPrincipalImage,
+  replaceStoryboardPrincipalImage,
+  setStoryboardPrincipalImageReferences,
 } from './storyboardIllustration.service.js';
 
 const USER_ID = 'user-1';
@@ -141,9 +152,30 @@ function makeReference(overrides: Record<string, unknown> = {}) {
     status: 'ready',
     outputFileId: 'ref-file-1',
     sourceReferenceFileIds: [],
+    approvalStatus: 'approved',
+    approvedAt: new Date(),
     errorMessage: null,
     createdAt: new Date(),
     updatedAt: new Date(),
+    ...overrides,
+  };
+}
+
+function makePlanJob(overrides: Record<string, unknown> = {}) {
+  return {
+    jobId: 'plan-job-1',
+    draftId: DRAFT_ID,
+    userId: USER_ID,
+    status: 'completed',
+    model: null,
+    promptSnapshot: {},
+    mediaContext: null,
+    plan: null,
+    errorMessage: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    completedAt: new Date(),
+    failedAt: null,
     ...overrides,
   };
 }
@@ -154,6 +186,7 @@ describe('storyboardIllustration.service', () => {
     mockDraftRepo.findDraftById.mockResolvedValue(makeDraft());
     mockStoryboardRepo.findBlocksByDraftId.mockResolvedValue([makeBlock()]);
     mockStoryboardRepo.findEdgesByDraftId.mockResolvedValue([]);
+    mockStoryboardPlanJobRepo.findLatestByDraftId.mockResolvedValue(null);
     mockIllustrationRepo.findLatestIllustrationJobsByDraftId.mockResolvedValue([]);
     mockAiGenerationService.submitGeneration.mockImplementation(
       async (_userId: string, params: { beforeEnqueue?: (jobId: string) => Promise<void> }) => {
@@ -162,6 +195,7 @@ describe('storyboardIllustration.service', () => {
       },
     );
     mockAiJobRepo.setDraftId.mockResolvedValue(undefined);
+    mockAiJobRepo.setOutputFile.mockResolvedValue(undefined);
     mockAiJobRepo.createJob.mockResolvedValue(undefined);
     mockAiJobRepo.getJobById.mockResolvedValue(null);
     mockAiJobRepo.updateJobStatus.mockResolvedValue(undefined);
@@ -171,8 +205,11 @@ describe('storyboardIllustration.service', () => {
     mockIllustrationRepo.setIllustrationJobOutput.mockResolvedValue(undefined);
     mockIllustrationRepo.updateIllustrationJobStatus.mockResolvedValue(undefined);
     mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference());
+    mockReferenceRepo.approveReference.mockResolvedValue(true);
     mockReferenceRepo.createReferenceMapping.mockResolvedValue(true);
+    mockReferenceRepo.deactivateActiveReference.mockResolvedValue(undefined);
     mockReferenceRepo.setReferenceOutput.mockResolvedValue(undefined);
+    mockReferenceRepo.updateSourceReferenceFileIds.mockResolvedValue(true);
     mockReferenceRepo.updateReferenceStatus.mockResolvedValue(undefined);
     mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage.mockResolvedValue(undefined);
   });
@@ -208,6 +245,7 @@ describe('storyboardIllustration.service', () => {
       jobId: 'ref-job-1',
       outputFileId: 'ref-file-1',
       sourceReferenceFileIds: [],
+      approvalStatus: 'approved',
       errorMessage: null,
     });
     expect(result.items).toEqual([
@@ -255,10 +293,137 @@ describe('storyboardIllustration.service', () => {
     expect(mockAiGenerationService.submitGeneration).not.toHaveBeenCalled();
   });
 
+  it('reports backend-derived automation phase for active planning', async () => {
+    mockStoryboardPlanJobRepo.findLatestByDraftId.mockResolvedValue(makePlanJob({
+      status: 'running',
+      completedAt: null,
+    }));
+
+    const result = await listStoryboardIllustrations(USER_ID, DRAFT_ID);
+
+    expect(result.automation).toEqual({
+      phase: 'planning',
+      planningJobId: 'plan-job-1',
+      errorMessage: null,
+    });
+  });
+
+  it('reports idle automation when no planning, reference, or scene blocks exist', async () => {
+    mockStoryboardRepo.findBlocksByDraftId.mockResolvedValue([]);
+    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(null);
+
+    const result = await listStoryboardIllustrations(USER_ID, DRAFT_ID);
+
+    expect(result.automation).toEqual({
+      phase: 'idle',
+      planningJobId: null,
+      errorMessage: null,
+    });
+  });
+
+  it('reports principal image creation while the reference job is active', async () => {
+    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
+      status: 'running',
+      outputFileId: null,
+    }));
+
+    const result = await listStoryboardIllustrations(USER_ID, DRAFT_ID);
+
+    expect(result.automation.phase).toBe('creating_principal_image');
+    expect(result.automation.errorMessage).toBeNull();
+  });
+
+  it('reports scene illustration generation only for queued or running scene jobs with job ids', async () => {
+    mockIllustrationRepo.findLatestIllustrationJobsByDraftId.mockResolvedValue([
+      makeMapping({ status: 'queued', aiJobId: 'scene-job-1' }),
+    ]);
+
+    const result = await listStoryboardIllustrations(USER_ID, DRAFT_ID);
+
+    expect(result.automation.phase).toBe('generating_scene_illustrations');
+  });
+
+  it('reports ready when all scenes have ready outputs', async () => {
+    mockIllustrationRepo.findLatestIllustrationJobsByDraftId.mockResolvedValue([
+      makeMapping({ status: 'ready', outputFileId: 'scene-file-1' }),
+    ]);
+
+    const result = await listStoryboardIllustrations(USER_ID, DRAFT_ID);
+
+    expect(result.automation).toMatchObject({
+      phase: 'ready',
+      errorMessage: null,
+    });
+  });
+
+  it('reports awaiting approval instead of ready when all scenes are ready but principal approval is pending', async () => {
+    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
+      approvalStatus: 'pending',
+      approvedAt: null,
+    }));
+    mockIllustrationRepo.findLatestIllustrationJobsByDraftId.mockResolvedValue([
+      makeMapping({ status: 'ready', outputFileId: 'scene-file-1' }),
+    ]);
+
+    const result = await listStoryboardIllustrations(USER_ID, DRAFT_ID);
+
+    expect(result.automation).toMatchObject({
+      phase: 'awaiting_principal_approval',
+      errorMessage: null,
+    });
+  });
+
+  it('reports failed automation with planning, reference, then scene error precedence', async () => {
+    mockStoryboardRepo.findBlocksByDraftId.mockResolvedValueOnce([]);
+    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValueOnce(null);
+    mockStoryboardPlanJobRepo.findLatestByDraftId.mockResolvedValueOnce(makePlanJob({
+      status: 'failed',
+      errorMessage: 'planner rejected input',
+      completedAt: null,
+      failedAt: new Date(),
+    }));
+    await expect(listStoryboardIllustrations(USER_ID, DRAFT_ID)).resolves.toMatchObject({
+      automation: {
+        phase: 'failed',
+        errorMessage: 'planner rejected input',
+      },
+    });
+
+    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValueOnce(makeReference({
+      status: 'failed',
+      errorMessage: 'reference failed',
+      outputFileId: null,
+    }));
+    mockStoryboardPlanJobRepo.findLatestByDraftId.mockResolvedValueOnce(null);
+    await expect(listStoryboardIllustrations(USER_ID, DRAFT_ID)).resolves.toMatchObject({
+      automation: {
+        phase: 'failed',
+        errorMessage: 'reference failed',
+      },
+    });
+
+    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValueOnce(makeReference());
+    mockIllustrationRepo.findLatestIllustrationJobsByDraftId.mockResolvedValueOnce([
+      makeMapping({ status: 'failed', errorMessage: 'scene failed' }),
+    ]);
+    mockStoryboardPlanJobRepo.findLatestByDraftId.mockResolvedValueOnce(null);
+    await expect(listStoryboardIllustrations(USER_ID, DRAFT_ID)).resolves.toMatchObject({
+      automation: {
+        phase: 'failed',
+        errorMessage: 'scene failed',
+      },
+    });
+  });
+
   it('creates a text-only canonical reference before scene jobs and returns without scene enqueue', async () => {
     mockReferenceRepo.findLatestReferenceByDraftId
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(makeReference({ status: 'queued', outputFileId: null }));
+      .mockResolvedValueOnce(makeReference({
+        status: 'queued',
+        outputFileId: null,
+        approvalStatus: 'pending',
+        approvedAt: null,
+      }));
 
     const result = await startStoryboardIllustrations(USER_ID, DRAFT_ID);
 
@@ -267,6 +432,7 @@ describe('storyboardIllustration.service', () => {
       jobId: expect.any(String),
       outputFileId: null,
       sourceReferenceFileIds: [],
+      approvalStatus: 'pending',
       errorMessage: null,
     });
     expect(result.items).toEqual([
@@ -664,6 +830,215 @@ describe('storyboardIllustration.service', () => {
       aiJobId: 'job-1',
       outputFileId: 'file-1',
     });
+  });
+
+  it('does not enqueue scene jobs while the principal image is pending approval', async () => {
+    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
+      approvalStatus: 'pending',
+      approvedAt: null,
+    }));
+
+    const result = await startStoryboardIllustrations(USER_ID, DRAFT_ID);
+
+    expect(result.automation.phase).toBe('awaiting_principal_approval');
+    expect(result.reference.approvalStatus).toBe('pending');
+    expect(mockAiJobRepo.createJob).not.toHaveBeenCalled();
+    expect(mockIllustrationRepo.createIllustrationJobMapping).not.toHaveBeenCalled();
+    expect(mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage).not.toHaveBeenCalled();
+  });
+
+  it('does not enqueue explicit block scene jobs while the principal image is pending approval', async () => {
+    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
+      approvalStatus: 'pending',
+      approvedAt: null,
+    }));
+
+    const result = await startStoryboardBlockIllustration(USER_ID, DRAFT_ID, 'block-1');
+
+    expect(result.automation.phase).toBe('awaiting_principal_approval');
+    expect(result.reference.approvalStatus).toBe('pending');
+    expect(mockAiJobRepo.createJob).not.toHaveBeenCalled();
+    expect(mockIllustrationRepo.createIllustrationJobMapping).not.toHaveBeenCalled();
+    expect(mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage).not.toHaveBeenCalled();
+  });
+
+  it('approves a ready principal image for scene generation', async () => {
+    mockReferenceRepo.findLatestReferenceByDraftId
+      .mockResolvedValueOnce(makeReference({ approvalStatus: 'pending', approvedAt: null }))
+      .mockResolvedValueOnce(makeReference({ approvalStatus: 'approved' }));
+    mockReferenceRepo.approveReference.mockResolvedValue(true);
+
+    const result = await approveStoryboardPrincipalImage(USER_ID, DRAFT_ID);
+
+    expect(mockReferenceRepo.approveReference).toHaveBeenCalledWith({
+      draftId: DRAFT_ID,
+      referenceId: 'ref-1',
+    });
+    expect(result.reference.approvalStatus).toBe('approved');
+  });
+
+  it('rejects approving when no ready principal image exists', async () => {
+    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
+      status: 'queued',
+      outputFileId: null,
+      approvalStatus: 'pending',
+      approvedAt: null,
+    }));
+
+    await expect(approveStoryboardPrincipalImage(USER_ID, DRAFT_ID)).rejects.toThrow(
+      UnprocessableEntityError,
+    );
+    expect(mockReferenceRepo.approveReference).not.toHaveBeenCalled();
+  });
+
+  it('updates extra principal references and clears approval', async () => {
+    const imageFileId = '00000000-0000-4000-8000-000000000090';
+    mockFileLinksRepo.findFilesByDraftId.mockResolvedValue([
+      {
+        fileId: imageFileId,
+        userId: USER_ID,
+        kind: 'image',
+        storageUri: 's3://bucket/ref.png',
+        mimeType: 'image/png',
+        bytes: 1,
+        width: 100,
+        height: 100,
+        durationMs: null,
+        displayName: 'ref.png',
+        status: 'ready',
+        errorMessage: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+        thumbnailUri: null,
+      },
+    ]);
+    mockReferenceRepo.findLatestReferenceByDraftId
+      .mockResolvedValueOnce(makeReference())
+      .mockResolvedValueOnce(makeReference({ sourceReferenceFileIds: [imageFileId], approvalStatus: 'pending' }));
+
+    const result = await setStoryboardPrincipalImageReferences(USER_ID, DRAFT_ID, [imageFileId]);
+
+    expect(mockReferenceRepo.updateSourceReferenceFileIds).toHaveBeenCalledWith({
+      draftId: DRAFT_ID,
+      referenceId: 'ref-1',
+      sourceReferenceFileIds: [imageFileId],
+    });
+    expect(result.reference.sourceReferenceFileIds).toEqual([imageFileId]);
+    expect(result.reference.approvalStatus).toBe('pending');
+  });
+
+  it('replaces the principal image with a ready draft-linked image', async () => {
+    const fileId = '00000000-0000-4000-8000-000000000091';
+    mockFileLinksRepo.findFilesByDraftId.mockResolvedValue([
+      {
+        fileId,
+        userId: USER_ID,
+        kind: 'image',
+        storageUri: 's3://bucket/replacement.png',
+        mimeType: 'image/png',
+        bytes: 1,
+        width: 100,
+        height: 100,
+        durationMs: null,
+        displayName: 'replacement.png',
+        status: 'ready',
+        errorMessage: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+        thumbnailUri: null,
+      },
+    ]);
+    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
+      outputFileId: fileId,
+      sourceReferenceFileIds: [fileId],
+      approvalStatus: 'pending',
+    }));
+
+    const result = await replaceStoryboardPrincipalImage(USER_ID, DRAFT_ID, fileId);
+
+    expect(mockAiJobRepo.createJob).toHaveBeenCalledWith(expect.objectContaining({
+      capability: 'image_edit',
+      options: expect.objectContaining({ kind: 'style_reference_replacement' }),
+    }));
+    expect(mockAiJobRepo.setDraftId).toHaveBeenCalledWith(expect.any(String), DRAFT_ID);
+    expect(mockAiJobRepo.setOutputFile).toHaveBeenCalledWith(expect.any(String), fileId);
+    expect(mockReferenceRepo.deactivateActiveReference).toHaveBeenCalledWith(DRAFT_ID);
+    expect(mockReferenceRepo.setReferenceOutput).toHaveBeenCalledWith(expect.objectContaining({ outputFileId: fileId }));
+    expect(result.reference.outputFileId).toBe(fileId);
+  });
+
+  it('queues a principal image edit using the active image and extra references', async () => {
+    const extraFileId = '00000000-0000-4000-8000-000000000092';
+    mockFileLinksRepo.findFilesByDraftId.mockResolvedValue([
+      {
+        fileId: extraFileId,
+        userId: USER_ID,
+        kind: 'image',
+        storageUri: 's3://bucket/extra.png',
+        mimeType: 'image/png',
+        bytes: 1,
+        width: 100,
+        height: 100,
+        durationMs: null,
+        displayName: 'extra.png',
+        status: 'ready',
+        errorMessage: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+        thumbnailUri: null,
+      },
+    ]);
+    mockReferenceRepo.findLatestReferenceByDraftId
+      .mockResolvedValueOnce(makeReference())
+      .mockResolvedValueOnce(makeReference({
+        status: 'queued',
+        outputFileId: null,
+        sourceReferenceFileIds: [extraFileId],
+        approvalStatus: 'pending',
+      }));
+
+    const result = await editStoryboardPrincipalImage({
+      userId: USER_ID,
+      draftId: DRAFT_ID,
+      prompt: 'Make the principal image warmer',
+      extraReferenceFileIds: [extraFileId],
+    });
+
+    expect(mockReferenceRepo.deactivateActiveReference).toHaveBeenCalledWith(DRAFT_ID);
+    expect(mockReferenceRepo.createReferenceMapping).toHaveBeenCalledWith(expect.objectContaining({
+      draftId: DRAFT_ID,
+      sourceReferenceFileIds: [extraFileId],
+      status: 'queued',
+    }));
+    expect(mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'style_reference',
+      referenceFileIds: ['ref-file-1', extraFileId],
+    }));
+    expect(result.reference.status).toBe('queued');
+  });
+
+  it('does not deactivate the active principal image when edit enqueueing fails', async () => {
+    const error = new Error('queue unavailable');
+    mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage.mockRejectedValueOnce(error);
+
+    await expect(editStoryboardPrincipalImage({
+      userId: USER_ID,
+      draftId: DRAFT_ID,
+      prompt: 'Make the principal image warmer',
+      extraReferenceFileIds: [],
+    })).rejects.toThrow(error);
+
+    expect(mockAiJobRepo.setDraftId).toHaveBeenCalledWith(expect.any(String), DRAFT_ID);
+    expect(mockAiJobRepo.updateJobStatus).toHaveBeenCalledWith(
+      expect.any(String),
+      'failed',
+      'queue unavailable',
+    );
+    expect(mockReferenceRepo.deactivateActiveReference).not.toHaveBeenCalled();
+    expect(mockReferenceRepo.createReferenceMapping).not.toHaveBeenCalled();
   });
 
   it('self-heals stale scene mappings that already have an output file', async () => {

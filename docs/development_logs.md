@@ -701,6 +701,153 @@
 - checked by design-reviewer - APPROVED
 - checked by playwright-reviewer - APPROVED
 
+## Automated Storyboard Generation and Principal Image Approval — Subtask 1 Backend Automation Status and Idempotency (2026-05-21)
+- changed: `startStoryboardPlan` now reuses an existing queued/running storyboard planning job for the draft instead of enqueueing duplicates on reload or repeated Step 2 entry.
+- added: storyboard plan repository lookups for latest and active draft jobs.
+- added: storyboard illustration status responses now include `automation.phase`, `planningJobId`, and `errorMessage`, covering `idle`, `planning`, `creating_principal_image`, `awaiting_principal_approval`, `generating_scene_illustrations`, `ready`, and `failed`.
+- updated: OpenAPI and frontend storyboard types include the backend-derived automation status shape.
+- review fix: planning job idempotency now uses a repository-owned transaction that locks the draft row with `FOR UPDATE` before checking or inserting active storyboard plan jobs, preventing concurrent duplicate enqueue races.
+- review fix: `apps/web-editor` storyboard API response type now accepts reused active planning jobs with `status: 'running'`.
+- review fix: expanded automation phase coverage for `idle`, `creating_principal_image`, `generating_scene_illustrations`, `ready`, and failed planning/reference/scene errors, plus terminal planning job retry coverage.
+- review fix: newly reserved planning jobs are marked failed if BullMQ enqueueing throws, preventing orphaned active queued rows from blocking retries.
+- tests: `npm --workspace apps/api test -- generationDraft.storyboardPlan storyboardIllustration storyboard-illustration-endpoints` -> 5 files / 63 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi storyboard` -> 6 files / 124 tests passed.
+- tests: `npm --workspace apps/web-editor test -- useStoryboardIllustrations StoryboardPage.plan StoryboardPlanControls storyboard-api.test.ts` -> 3 files / 51 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed after tightening the reused-job status type.
+- typecheck: `npm --workspace packages/api-contracts run typecheck` -> passed.
+- active task: removed only Subtask 1 from `docs/active_task.md`; Subtask 2 and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Automated Storyboard Generation and Principal Image Approval — Subtask 2 Principal Approval Gate (2026-05-21)
+- added: migration `041_storyboard_illustration_reference_approval.sql` with `approval_status` and `approved_at` on canonical storyboard references.
+- changed: ready canonical/principal images default to `approval_status = pending`, including worker completion and stale status reconciliation paths.
+- changed: bulk scene illustration generation now returns the `awaiting_principal_approval` phase without enqueueing scene jobs until the active ready principal image is approved.
+- added: `POST /storyboards/:draftId/illustrations/principal-image/approve` to approve the active ready principal image and expose approval state in status responses.
+- updated: OpenAPI, API service types, web storyboard response types, and media-worker reference update SQL for the approval state.
+- fixed during validation: ready-reference polling no longer resets already approved references back to pending.
+- review fix: `useStoryboardIllustrations` now requires `reference.approvalStatus === 'approved'` before auto-continuing scene generation, preventing repeated scene-start calls while approval is pending.
+- review fix: added endpoint coverage proving bulk scene generation resumes after approval and service coverage proving explicit block scene generation remains blocked while approval is pending.
+- review fix: added repository tests for transactional `reserveQueuedJob` insert, active-job reuse, rollback, and connection release.
+- tests: `npm --workspace apps/api test -- storyboardIllustration storyboardIllustrationReference storyboard-illustration-endpoints storyboardPlanJob.repository generationDraft.storyboardPlan` -> 6 files / 86 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi.storyboard` -> 2 files / 71 tests passed.
+- tests: `npm --workspace apps/media-worker test -- workerRepositories storyboardOpenAIImage` -> 2 files / 17 tests passed.
+- tests: `npm --workspace apps/web-editor test -- useStoryboardIllustrations StoryboardPage.plan StoryboardPlanControls storyboard-api.test.ts` -> 3 files / 52 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` and `npm --workspace packages/api-contracts run typecheck` -> passed.
+- active task: removed only Subtask 2 from `docs/active_task.md`; Subtask 3 and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Automated Storyboard Generation and Principal Image Approval — Subtask 3 Principal Image Modal APIs (2026-05-21)
+- added: principal image modal API actions for edit/regenerate, replace from an existing ready draft-linked image, and setting extra reference image IDs.
+- implemented: edit/regenerate queues a `storyboard-openai-image` `gpt-image-2` image-edit job using the active principal image plus persisted extra references.
+- implemented: replacement creates an auditable completed AI job linked to the selected ready draft image, deactivates the old principal reference, and clears approval on the new active reference.
+- implemented: extra reference updates validate draft ownership, image kind, ready status, and non-deleted links through `draft_files`, then clear approval.
+- updated: frontend storyboard API helpers and OpenAPI request/response contracts for the new principal-image endpoints.
+- review fix: backend automation phase now reports `awaiting_principal_approval` instead of `ready` when scene outputs are ready but the active principal image is still pending approval.
+- review fix: frontend illustration lifecycle no longer reports `completed` or auto-starts scenes unless the principal image is approved.
+- review fix: principal image edit enqueue failures now mark the new AI job failed without deactivating the previous active principal reference or creating a failed active mapping.
+- review fix: principal image references request validation now requires `fileIds`, matching the OpenAPI contract.
+- review fix: added endpoint validation coverage for invalid UUID bodies, non-image files, processing files, other-draft files, other-user files, soft-deleted draft links, and soft-deleted files.
+- review fix: added frontend API helper coverage for approve, edit, replace, references, and error handling.
+- tests: `npm --workspace apps/api test -- storyboardIllustration storyboard-illustration-endpoints` -> 3 files / 63 tests passed.
+- tests: `npm --workspace apps/media-worker test -- storyboardOpenAIImage workerRepositories` -> 2 files / 17 tests passed.
+- tests: `npm --workspace packages/project-schema test -- job-payloads` -> 1 file / 15 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi.storyboard` -> 2 files / 79 tests passed.
+- tests: `npm --workspace apps/web-editor test -- storyboard-api.test.ts useStoryboardIllustrations` -> 2 files / 46 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck`, `npm --workspace apps/media-worker run typecheck`, and `npm --workspace packages/api-contracts run typecheck` -> passed.
+- typecheck blocked: `npm --workspace apps/web-editor run typecheck` still fails on pre-existing unrelated editor/timeline test type errors such as `App.PreviewSection.test.tsx` missing `UseRemotionPlayerResult` fields and many stale `EphemeralState` fixtures missing `volume`/`isMuted`.
+- active task: removed only Subtask 3 from `docs/active_task.md`; Subtask 4 and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Automated Storyboard Generation and Principal Image Approval — Subtask 4 Auto-Start Step 2 and Remove Happy-Path Buttons (2026-05-21)
+- changed: Step 2 now auto-starts storyboard planning when the loaded canvas contains exactly the START and END sentinels and no scene blocks.
+- changed: auto-start is guarded by draft id and plan lifecycle status so rerenders, polling, and active mutations do not duplicate frontend start calls.
+- changed: existing/custom storyboards no longer auto-trigger planning because any scene block makes the canvas ineligible.
+- changed: visible happy-path `Generate scenes` and `Generate illustrations` buttons were removed from the standard storyboard controls.
+- preserved: failed scene planning shows one `Retry` action; failed style-reference illustration generation shows one `Retry` action; scene failures remain scoped to scene block retry.
+- preserved: Back and Home stay usable while generation is running, and Step 3 remains disabled while generation is blocking or failed.
+- review fix: updated `e2e/storyboard-illustrations.spec.ts` and `e2e/storyboard-plan-scenes.spec.ts` so browser specs assert removed generate controls are absent and no longer click stale test ids.
+- review fix: E2E storyboard illustration reference fixtures now include `approvalStatus`, with completed canonical references marked approved to match the production auto-continue gate.
+- tests: `npm --workspace apps/web-editor test -- useStoryboardPlanGeneration useStoryboardIllustrations StoryboardPage.plan StoryboardPlanControls` -> 3 files / 36 tests passed.
+- tests: `npm --workspace apps/web-editor test -- storyboard-api.test.ts` -> 1 file / 34 tests passed.
+- tests: `npm --workspace apps/web-editor test -- StoryboardPage.plan useStoryboardIllustrations useStoryboardPlanGeneration StoryboardPage.navigation` -> 4 files / 43 tests passed.
+- tests: `npm --workspace apps/api test -- generationDraft.storyboardPlan storyboardIllustration.service storyboard-illustration-endpoints` -> 4 files / 64 tests passed.
+- typecheck: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-illustrations.spec.ts e2e/storyboard-plan-scenes.spec.ts` -> passed.
+- check: `git diff --check -- apps/web-editor/src/features/storyboard docs/development_logs.md docs/active_task.md` -> passed.
+- typecheck blocked: `npm --workspace apps/web-editor run typecheck` remains blocked by pre-existing unrelated editor/timeline test type errors documented under Subtask 3.
+- active task: removed only Subtask 4 from `docs/active_task.md`; Subtask 5 and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Automated Storyboard Generation and Principal Image Approval — Subtask 5 Principal Image Approval Modal (2026-05-21)
+- added: `PrincipalImageApprovalModal` with authenticated principal image preview, broken-image fallback, prompt regeneration, replacement image picker, extra reference chips, and approve-and-continue action.
+- added: modal styles aligned with the existing dark storyboard modal system, 8px radius, restrained controls, and no nested card layout.
+- changed: `StoryboardPage` opens the modal when the principal image is ready and pending approval, blocks Step 3 while pending, and keeps the modal open in a loading state while a modal-triggered edit/regeneration job is queued or running.
+- changed: approval calls the backend approval API, refreshes illustration status, and starts the existing scene illustration flow.
+- changed: edit, replace, and reference update actions call the Subtask 3 backend helpers and refresh status after completion.
+- changed: `AssetPickerModal` accepts optional draft-scoped listing props so principal image replacement/reference selection uses draft-linked images and upload-to-draft behavior.
+- changed: `useAssets` includes media type in draft-scoped query keys and filters draft asset responses by requested media type, preventing image pickers from showing audio/video files.
+- review fix: modal layout now switches to a single-column compact body for narrow screens, with a bounded square preview frame and accessible prompt label.
+- review fix: approval continuation now keeps Step 3 blocked and shows an explicit modal error if scene illustration startup does not produce any started or ready scene items.
+- review fix: `useStoryboardIllustrations.refresh()` now resumes polling when it observes queued/running principal or scene work, so modal edit/regenerate can recover from a queued image job back to the ready approval state.
+- review fix: removed stale `useLocation` import after query-param planning auto-start was replaced by canvas-shape auto-start.
+- tests: `npm --workspace apps/web-editor test -- PrincipalImageApprovalModal StoryboardPage.plan useStoryboardIllustrations storyboard-api.test.ts useAssets` -> 5 files / 80 tests passed.
+- check: `git diff --check -- apps/web-editor/src/features/storyboard apps/web-editor/src/features/generate-wizard` -> passed.
+- typecheck scan: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "PrincipalImageApprovalModal|StoryboardPage.tsx|AssetPickerModal.tsx|useAssets.ts"` -> no new-file errors; workspace typecheck remains blocked by unrelated existing errors.
+- active task: removed only Subtask 5 from `docs/active_task.md`; Subtask 6 and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Automated Storyboard Generation and Principal Image Approval — Subtask 6 Automatic Scene Continuation After Approval (2026-05-21)
+- changed: Step 3 now stays disabled until `useStoryboardIllustrations` reports `completed`, so users cannot continue while illustrations are idle, pending approval, running, failed, or missing ready scene outputs.
+- preserved: principal image approval calls the existing scene illustration start flow without another user click.
+- preserved: scene output refresh still invalidates storyboard data as new reference/scene outputs appear.
+- preserved: failed scene retry remains scoped to the failed scene block; main illustration retry remains only for reference failures.
+- changed: manual status refresh now resumes polling when it observes active reference/scene work, supporting modal-triggered regeneration and scene continuation.
+- review fix: added focused hook coverage proving scene 2 automatically starts after scene 1 becomes ready and scene 2 is still queued without a job.
+- review fix: automatic pending-scene continuation now waits until no scene jobs are active before starting the next queued scene.
+- tests: `npm --workspace apps/web-editor test -- useStoryboardIllustrations StoryboardPage.plan SceneBlockNode StoryboardPage.navigation` -> 5 files / 75 tests passed.
+- tests: `npm --workspace apps/api test -- storyboardIllustration storyboard-illustration-endpoints` -> 3 files / 63 tests passed.
+- typecheck scan: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "StoryboardPage.tsx|useStoryboardIllustrations.ts|SceneBlockNode|StoryboardPageFooter"` -> no touched-file errors; workspace typecheck remains blocked by unrelated existing errors.
+- check: `git diff --check -- apps/web-editor/src/features/storyboard apps/web-editor/src/features/generate-wizard docs/development_logs.md docs/active_task.md` -> passed.
+- active task: removed only Subtask 6 from `docs/active_task.md`; Subtask 7 remains.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Automated Storyboard Generation and Principal Image Approval — Subtask 7 E2E and Regression Coverage (2026-05-21)
+- changed: `e2e/storyboard-illustrations.spec.ts` now keeps the principal reference pending until the modal approval action is clicked, covering the real principal approval gate instead of bypassing it with pre-approved fixture data.
+- added: browser coverage for the automatic START+END Step 2 flow, removed happy-path generation buttons, principal modal display, approval-triggered scene generation, scene thumbnails, retry, and Step 3 gating.
+- added: browser coverage for editing the principal image prompt, replacing the principal image, and adding extra reference images before approval; each action asserts scene generation has not started until approval.
+- reused: existing API regression coverage for singular active storyboard planning and scene illustration jobs, and existing frontend coverage that prevents START+END auto-planning from firing twice or on custom storyboards.
+- review fix: principal approval preview now preserves the full image with `objectFit: contain` instead of cropping the approval image.
+- review fix: principal approval modal now traps Tab and Shift+Tab focus from the initially focused dialog and from the first/last focusable controls while `aria-modal` is active.
+- tests: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-illustrations.spec.ts` -> passed.
+- tests: `npm --workspace apps/web-editor test -- StoryboardPage.plan useStoryboardIllustrations PrincipalImageApprovalModal` -> 3 files / 42 tests passed.
+- tests: `npm --workspace apps/api test -- generationDraft.storyboardPlan storyboardIllustration storyboard-illustration-endpoints` -> 5 files / 77 tests passed.
+- e2e: `VITE_PUBLIC_API_BASE_URL=http://localhost:3001 E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/storyboard-illustrations.spec.ts --project=chromium` -> 4 passed.
+- e2e note: requested validation port 3002 was not running locally (`ECONNREFUSED`); the focused spec passed against the running local API on port 3001.
+- typecheck scan: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "storyboard-illustrations.spec.ts|StoryboardPage.plan|useStoryboardIllustrations|PrincipalImageApprovalModal|StoryboardPage.tsx"` -> no touched-file errors; workspace typecheck remains blocked by unrelated existing errors.
+- check: `git diff --check -- e2e/storyboard-illustrations.spec.ts apps/web-editor/src/features/storyboard docs/development_logs.md docs/active_task.md` -> passed.
+- active task: removed Subtask 7 from `docs/active_task.md`; no active task remains.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
 ---
 
 ## Architectural Decisions

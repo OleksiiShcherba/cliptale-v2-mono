@@ -22,6 +22,7 @@ import type { AssetListResponse } from '../types';
 import {
   VIDEO_ASSET,
   AUDIO_ASSET,
+  IMAGE_ASSET,
   VIDEO_RESPONSE,
   IMAGE_RESPONSE,
   AUDIO_RESPONSE,
@@ -45,6 +46,10 @@ vi.mock('@/lib/api-client', () => ({
     patch: vi.fn(),
     delete: vi.fn(),
   },
+}));
+
+vi.mock('@/lib/config', () => ({
+  config: { apiBaseUrl: 'http://api.test' },
 }));
 
 import { listAssets } from '@/features/generate-wizard/api';
@@ -127,6 +132,18 @@ describe('AssetPickerModal', () => {
     mockSuccess(IMAGE_RESPONSE);
     renderModal('image');
     expect(screen.getByText('Insert Image')).toBeTruthy();
+  });
+
+  it('should show image previews through the stream endpoint when no thumbnail exists', async () => {
+    mockSuccess({
+      items: [{ ...IMAGE_ASSET, thumbnailUrl: null }],
+      nextCursor: null,
+      totals: { count: 1, bytesUsed: 100 },
+    });
+    renderModal('image');
+
+    const image = await screen.findByAltText(IMAGE_ASSET.label) as HTMLImageElement;
+    expect(image.src).toContain('http://api.test/assets/i1/stream?token=test-token');
   });
 
   it('should render "Insert Audio" title when mediaType is audio', async () => {
@@ -233,8 +250,7 @@ describe('AssetPickerModal', () => {
     triggerButton.textContent = 'Open picker';
     document.body.appendChild(triggerButton);
 
-    const triggerRef = createRef<HTMLElement>() as React.MutableRefObject<HTMLElement>;
-    // @ts-expect-error: assigning to the read-only .current for test purposes
+    const triggerRef = createRef<HTMLElement>() as React.MutableRefObject<HTMLElement | null>;
     triggerRef.current = triggerButton;
 
     const { unmount } = renderModal('video', { onClose, triggerRef });

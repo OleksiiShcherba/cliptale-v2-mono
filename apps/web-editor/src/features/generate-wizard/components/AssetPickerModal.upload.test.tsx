@@ -117,7 +117,7 @@ describe('AssetPickerModal — upload affordance', () => {
     renderModal('video', { uploadTarget: TEST_UPLOAD_TARGET });
     const btn = screen.getByTestId('upload-button');
     expect(btn).toBeTruthy();
-    expect(btn.textContent).toBe('Upload new file');
+    expect(btn.textContent).toBe('Upload video');
     // File input must exist (hidden) for programmatic click
     expect(screen.getByTestId('upload-file-input')).toBeTruthy();
   });

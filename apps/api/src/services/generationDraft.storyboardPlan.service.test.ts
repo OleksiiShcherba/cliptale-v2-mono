@@ -23,7 +23,10 @@ vi.mock('@/repositories/generationDraft.repository.js', () => ({
 
 vi.mock('@/repositories/storyboardPlanJob.repository.js', () => ({
   createQueuedJob: vi.fn(),
+  findActiveByDraftId: vi.fn(),
   findByJobId: vi.fn(),
+  markFailed: vi.fn(),
+  reserveQueuedJob: vi.fn(),
 }));
 
 vi.mock('@/queues/jobs/enqueue-storyboard-plan.js', () => ({
@@ -92,7 +95,11 @@ describe('generationDraft.storyboardPlan.service', () => {
     vi.mocked(generationDraftRepository.findDraftById).mockResolvedValue(
       makeDraft({ promptDoc: VALID_PROMPT_DOC_WITH_SETTINGS }),
     );
-    vi.mocked(storyboardPlanJobRepository.createQueuedJob).mockResolvedValue();
+    vi.mocked(storyboardPlanJobRepository.reserveQueuedJob).mockImplementation(async (params) => ({
+      jobId: params.jobId,
+      status: 'queued',
+      created: true,
+    }));
     vi.mocked(enqueueStoryboardPlan).mockResolvedValue();
 
     const result = await startStoryboardPlan(USER_ID, DRAFT_ID);
@@ -101,8 +108,8 @@ describe('generationDraft.storyboardPlan.service', () => {
     expect(result.jobId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
-    expect(storyboardPlanJobRepository.createQueuedJob).toHaveBeenCalledWith({
-      jobId: result.jobId,
+    expect(storyboardPlanJobRepository.reserveQueuedJob).toHaveBeenCalledWith({
+      jobId: expect.any(String),
       draftId: DRAFT_ID,
       userId: USER_ID,
       model: null,
@@ -114,8 +121,67 @@ describe('generationDraft.storyboardPlan.service', () => {
       userId: USER_ID,
     });
     expect(
-      vi.mocked(storyboardPlanJobRepository.createQueuedJob).mock.invocationCallOrder[0],
+      vi.mocked(storyboardPlanJobRepository.reserveQueuedJob).mock.invocationCallOrder[0],
     ).toBeLessThan(vi.mocked(enqueueStoryboardPlan).mock.invocationCallOrder[0]!);
+  });
+
+  it('returns the active planning job instead of enqueueing a duplicate', async () => {
+    vi.mocked(generationDraftRepository.findDraftById).mockResolvedValue(
+      makeDraft({ promptDoc: VALID_PROMPT_DOC_WITH_SETTINGS }),
+    );
+    vi.mocked(storyboardPlanJobRepository.reserveQueuedJob).mockResolvedValue({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      status: 'running',
+      created: false,
+    });
+
+    await expect(startStoryboardPlan(USER_ID, DRAFT_ID)).resolves.toEqual({
+      jobId: '11111111-1111-4111-8111-111111111111',
+      status: 'running',
+    });
+    expect(enqueueStoryboardPlan).not.toHaveBeenCalled();
+  });
+
+  it('creates a fresh job when no queued or running planning job is reserved', async () => {
+    vi.mocked(generationDraftRepository.findDraftById).mockResolvedValue(
+      makeDraft({ promptDoc: VALID_PROMPT_DOC_WITH_SETTINGS }),
+    );
+    vi.mocked(storyboardPlanJobRepository.reserveQueuedJob).mockResolvedValue({
+      jobId: '22222222-2222-4222-8222-222222222222',
+      status: 'queued',
+      created: true,
+    });
+    vi.mocked(enqueueStoryboardPlan).mockResolvedValue();
+
+    await expect(startStoryboardPlan(USER_ID, DRAFT_ID)).resolves.toEqual({
+      jobId: '22222222-2222-4222-8222-222222222222',
+      status: 'queued',
+    });
+    expect(enqueueStoryboardPlan).toHaveBeenCalledWith({
+      jobId: '22222222-2222-4222-8222-222222222222',
+      draftId: DRAFT_ID,
+      userId: USER_ID,
+    });
+  });
+
+  it('marks a newly reserved planning job failed when enqueueing fails', async () => {
+    const error = new Error('Redis unavailable');
+    vi.mocked(generationDraftRepository.findDraftById).mockResolvedValue(
+      makeDraft({ promptDoc: VALID_PROMPT_DOC_WITH_SETTINGS }),
+    );
+    vi.mocked(storyboardPlanJobRepository.reserveQueuedJob).mockResolvedValue({
+      jobId: '44444444-4444-4444-8444-444444444444',
+      status: 'queued',
+      created: true,
+    });
+    vi.mocked(enqueueStoryboardPlan).mockRejectedValue(error);
+    vi.mocked(storyboardPlanJobRepository.markFailed).mockResolvedValue();
+
+    await expect(startStoryboardPlan(USER_ID, DRAFT_ID)).rejects.toThrow('Redis unavailable');
+    expect(storyboardPlanJobRepository.markFailed).toHaveBeenCalledWith(
+      '44444444-4444-4444-8444-444444444444',
+      error,
+    );
   });
 
   it('rejects an empty prompt with no media before enqueueing', async () => {
@@ -124,7 +190,7 @@ describe('generationDraft.storyboardPlan.service', () => {
     );
 
     await expect(startStoryboardPlan(USER_ID, DRAFT_ID)).rejects.toThrow(UnprocessableEntityError);
-    expect(storyboardPlanJobRepository.createQueuedJob).not.toHaveBeenCalled();
+    expect(storyboardPlanJobRepository.reserveQueuedJob).not.toHaveBeenCalled();
     expect(enqueueStoryboardPlan).not.toHaveBeenCalled();
   });
 
@@ -141,7 +207,11 @@ describe('generationDraft.storyboardPlan.service', () => {
       ],
     };
     vi.mocked(generationDraftRepository.findDraftById).mockResolvedValue(makeDraft({ promptDoc }));
-    vi.mocked(storyboardPlanJobRepository.createQueuedJob).mockResolvedValue();
+    vi.mocked(storyboardPlanJobRepository.reserveQueuedJob).mockResolvedValue({
+      jobId: '33333333-3333-4333-8333-333333333333',
+      status: 'queued',
+      created: true,
+    });
     vi.mocked(enqueueStoryboardPlan).mockResolvedValue();
 
     await expect(startStoryboardPlan(USER_ID, DRAFT_ID)).resolves.toMatchObject({

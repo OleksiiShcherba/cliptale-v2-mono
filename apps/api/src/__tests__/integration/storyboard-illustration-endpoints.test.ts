@@ -12,6 +12,10 @@ const MIGRATION_038_PATH = resolve(
   __dirname,
   '../../db/migrations/038_storyboard_scene_illustration_jobs.sql',
 );
+const MIGRATION_029_PATH = resolve(
+  __dirname,
+  '../../db/migrations/029_soft_delete_columns.sql',
+);
 const MIGRATION_039_PATH = resolve(
   __dirname,
   '../../db/migrations/039_storyboard_scene_illustration_active_lock.sql',
@@ -19,6 +23,10 @@ const MIGRATION_039_PATH = resolve(
 const MIGRATION_040_PATH = resolve(
   __dirname,
   '../../db/migrations/040_storyboard_illustration_references.sql',
+);
+const MIGRATION_041_PATH = resolve(
+  __dirname,
+  '../../db/migrations/041_storyboard_illustration_reference_approval.sql',
 );
 
 Object.assign(process.env, {
@@ -125,10 +133,51 @@ async function seedReadyReference(draftId: string, userId: string): Promise<void
   );
   await conn.execute(
     `INSERT INTO storyboard_illustration_references
-       (id, draft_id, ai_job_id, status, output_file_id, source_reference_file_ids, active_lock)
-     VALUES (?, ?, ?, 'ready', ?, JSON_ARRAY(), 1)`,
+       (id, draft_id, ai_job_id, status, output_file_id, source_reference_file_ids, active_lock,
+        approval_status, approved_at)
+     VALUES (?, ?, ?, 'ready', ?, JSON_ARRAY(), 1, 'approved', NOW(3))`,
     [randomUUID(), draftId, jobId, fileId],
   );
+}
+
+async function seedDraftFile(params: {
+  draftId: string;
+  userId: string;
+  name: string;
+  kind?: 'video' | 'audio' | 'image' | 'document' | 'other';
+  status?: 'pending' | 'processing' | 'ready' | 'error';
+  linkToDraft?: boolean;
+  fileDeleted?: boolean;
+  pivotDeleted?: boolean;
+}): Promise<string> {
+  const fileId = randomUUID();
+  cleanupFiles.push(fileId);
+  await conn.execute(
+    `INSERT INTO files
+       (file_id, user_id, kind, storage_uri, mime_type, display_name, status, deleted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      fileId,
+      params.userId,
+      params.kind ?? 'image',
+      `s3://test-bucket/${fileId}.png`,
+      params.kind === 'audio' ? 'audio/mpeg' : 'image/png',
+      params.name,
+      params.status ?? 'ready',
+      params.fileDeleted ? new Date() : null,
+    ],
+  );
+  if (params.linkToDraft !== false) {
+    await conn.execute(
+      'INSERT IGNORE INTO draft_files (draft_id, file_id, deleted_at) VALUES (?, ?, ?)',
+      [params.draftId, fileId, params.pivotDeleted ? new Date() : null],
+    );
+  }
+  return fileId;
+}
+
+async function seedReadyDraftImage(draftId: string, userId: string, name: string): Promise<string> {
+  return seedDraftFile({ draftId, userId, name });
 }
 
 beforeAll(async () => {
@@ -144,8 +193,10 @@ beforeAll(async () => {
     multipleStatements: true,
   });
   await conn.query(readFileSync(MIGRATION_038_PATH, 'utf-8'));
+  await conn.query(readFileSync(MIGRATION_029_PATH, 'utf-8'));
   await conn.query(readFileSync(MIGRATION_039_PATH, 'utf-8'));
   await conn.query(readFileSync(MIGRATION_040_PATH, 'utf-8'));
+  await conn.query(readFileSync(MIGRATION_041_PATH, 'utf-8'));
 
   userA = `ill-a-${randomUUID().slice(0, 8)}`;
   userB = `ill-b-${randomUUID().slice(0, 8)}`;
@@ -323,6 +374,10 @@ describe('storyboard illustration endpoints', () => {
       .set('Authorization', authA());
 
     expect(res.status).toBe(200);
+    expect(res.body.automation).toMatchObject({
+      phase: 'idle',
+      errorMessage: null,
+    });
     expect(res.body.reference).toMatchObject({
       status: 'ready',
       outputFileId: expect.any(String),
@@ -342,6 +397,74 @@ describe('storyboard illustration endpoints', () => {
       { blockId: sceneA2, status: 'queued', jobId: null, outputFileId: null, errorMessage: null },
       { blockId: sceneNoPrompt, status: 'queued', jobId: null, outputFileId: null, errorMessage: null },
     ]);
+  });
+
+  it('blocks scene enqueueing until the principal image is approved', async () => {
+    await conn.execute(
+      `UPDATE storyboard_illustration_references
+          SET approval_status = 'pending', approved_at = NULL
+        WHERE draft_id = ? AND active_lock = 1`,
+      [draftA],
+    );
+
+    const blocked = await request(app)
+      .post(`/storyboards/${draftA}/illustrations`)
+      .set('Authorization', authA())
+      .send({});
+
+    expect(blocked.status).toBe(202);
+    expect(blocked.body.automation).toMatchObject({
+      phase: 'awaiting_principal_approval',
+      errorMessage: null,
+    });
+    expect(blocked.body.reference).toMatchObject({
+      status: 'ready',
+      approvalStatus: 'pending',
+    });
+
+    const [beforeRows] = await conn.query<mysql.RowDataPacket[]>(
+      'SELECT COUNT(*) AS cnt FROM storyboard_scene_illustration_jobs WHERE draft_id = ?',
+      [draftA],
+    );
+    expect(Number(beforeRows[0]!['cnt'])).toBe(0);
+
+    const approved = await request(app)
+      .post(`/storyboards/${draftA}/illustrations/principal-image/approve`)
+      .set('Authorization', authA())
+      .send({});
+
+    expect(approved.status, JSON.stringify(approved.body)).toBe(200);
+    expect(approved.body.reference).toMatchObject({
+      status: 'ready',
+      approvalStatus: 'approved',
+    });
+
+    await conn.execute(
+      'UPDATE storyboard_blocks SET prompt = ? WHERE id = ?',
+      ['Temporary prompt so bulk generation can pass prompt validation.', sceneNoPrompt],
+    );
+    const unblocked = await request(app)
+      .post(`/storyboards/${draftA}/illustrations`)
+      .set('Authorization', authA())
+      .send({});
+
+    expect(unblocked.status, JSON.stringify(unblocked.body)).toBe(202);
+    const started = unblocked.body.items.find((item: { blockId: string }) => item.blockId === sceneA1);
+    expect(started).toMatchObject({
+      blockId: sceneA1,
+      status: 'queued',
+      outputFileId: null,
+    });
+    expect(started.jobId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    cleanupJobs.push(started.jobId);
+
+    await conn.execute('DELETE FROM storyboard_scene_illustration_jobs WHERE ai_job_id = ?', [
+      started.jobId,
+    ]);
+    await conn.execute('DELETE FROM ai_generation_jobs WHERE job_id = ?', [started.jobId]);
+    await conn.execute('UPDATE storyboard_blocks SET prompt = NULL WHERE id = ?', [sceneNoPrompt]);
   });
 
   it('starts one scene illustration and stores the draft-scoped queued mapping', async () => {
@@ -559,5 +682,123 @@ describe('storyboard illustration endpoints', () => {
       .set('Authorization', authA())
       .send({});
     expect(missingPrompt.status).toBe(422);
+  });
+
+  it('rejects invalid principal image modal inputs', async () => {
+    const invalidReplace = await request(app)
+      .post(`/storyboards/${draftB}/illustrations/principal-image/replace`)
+      .set('Authorization', authB())
+      .send({ fileId: 'not-a-uuid' });
+    expect(invalidReplace.status).toBe(400);
+
+    const missingReferences = await request(app)
+      .put(`/storyboards/${draftB}/illustrations/principal-image/references`)
+      .set('Authorization', authB())
+      .send({});
+    expect(missingReferences.status).toBe(400);
+
+    const invalidReferences = await request(app)
+      .put(`/storyboards/${draftB}/illustrations/principal-image/references`)
+      .set('Authorization', authB())
+      .send({ fileIds: ['not-a-uuid'] });
+    expect(invalidReferences.status).toBe(400);
+  });
+
+  it('rejects principal image modal files that are not ready draft-owned images', async () => {
+    const nonImageId = await seedDraftFile({
+      draftId: draftB,
+      userId: userB,
+      name: 'not-an-image.mp3',
+      kind: 'audio',
+    });
+    const processingImageId = await seedDraftFile({
+      draftId: draftB,
+      userId: userB,
+      name: 'processing.png',
+      status: 'processing',
+    });
+    const otherDraftImageId = await seedReadyDraftImage(draftA, userA, 'other-draft.png');
+    const otherUserImageId = await seedDraftFile({
+      draftId: draftB,
+      userId: userA,
+      name: 'other-user.png',
+    });
+    const softDeletedPivotImageId = await seedDraftFile({
+      draftId: draftB,
+      userId: userB,
+      name: 'soft-deleted-pivot.png',
+      pivotDeleted: true,
+    });
+    const softDeletedFileId = await seedDraftFile({
+      draftId: draftB,
+      userId: userB,
+      name: 'soft-deleted-file.png',
+      fileDeleted: true,
+    });
+
+    for (const fileId of [
+      nonImageId,
+      processingImageId,
+      otherDraftImageId,
+      otherUserImageId,
+      softDeletedPivotImageId,
+      softDeletedFileId,
+    ]) {
+      const res = await request(app)
+        .post(`/storyboards/${draftB}/illustrations/principal-image/replace`)
+        .set('Authorization', authB())
+        .send({ fileId });
+      expect(res.status, `${fileId}: ${JSON.stringify(res.body)}`).toBe(422);
+    }
+  });
+
+  it('updates, replaces, and edits principal image references through modal APIs', async () => {
+    const extraFileId = await seedReadyDraftImage(draftB, userB, 'extra-reference.png');
+    const replacementFileId = await seedReadyDraftImage(draftB, userB, 'replacement-principal.png');
+
+    await conn.execute(
+      `UPDATE storyboard_scene_illustration_jobs
+          SET active_lock = NULL
+        WHERE draft_id = ?`,
+      [draftB],
+    );
+
+    const refs = await request(app)
+      .put(`/storyboards/${draftB}/illustrations/principal-image/references`)
+      .set('Authorization', authB())
+      .send({ fileIds: [extraFileId] });
+    expect(refs.status, JSON.stringify(refs.body)).toBe(200);
+    expect(refs.body.reference).toMatchObject({
+      sourceReferenceFileIds: [extraFileId],
+      approvalStatus: 'pending',
+    });
+
+    const replace = await request(app)
+      .post(`/storyboards/${draftB}/illustrations/principal-image/replace`)
+      .set('Authorization', authB())
+      .send({ fileId: replacementFileId });
+    expect(replace.status, JSON.stringify(replace.body)).toBe(200);
+    expect(replace.body.reference).toMatchObject({
+      status: 'ready',
+      outputFileId: replacementFileId,
+      sourceReferenceFileIds: [replacementFileId],
+      approvalStatus: 'pending',
+    });
+
+    const edit = await request(app)
+      .post(`/storyboards/${draftB}/illustrations/principal-image/edit`)
+      .set('Authorization', authB())
+      .send({
+        prompt: 'Make the principal image brighter.',
+        extraReferenceFileIds: [extraFileId],
+      });
+    expect(edit.status, JSON.stringify(edit.body)).toBe(202);
+    expect(edit.body.reference).toMatchObject({
+      status: 'queued',
+      outputFileId: null,
+      sourceReferenceFileIds: expect.arrayContaining([extraFileId, replacementFileId]),
+      approvalStatus: 'pending',
+    });
+    cleanupJobs.push(edit.body.reference.jobId);
   });
 });

@@ -13,6 +13,8 @@ import * as generationDraftRepository from '@/repositories/generationDraft.repos
 import type { GenerationDraft } from '@/repositories/generationDraft.repository.js';
 import * as storyboardRepository from '@/repositories/storyboard.repository.js';
 import type { StoryboardBlock, StoryboardEdge } from '@/repositories/storyboard.repository.js';
+import * as storyboardPlanJobRepository from '@/repositories/storyboardPlanJob.repository.js';
+import type { StoryboardPlanJob } from '@/repositories/storyboardPlanJob.repository.js';
 import * as illustrationRepository from '@/repositories/storyboardSceneIllustration.repository.js';
 import * as referenceRepository from '@/repositories/storyboardIllustrationReference.repository.js';
 import type {
@@ -38,10 +40,27 @@ export type StoryboardIllustrationReferenceStatusItem = {
   jobId: string | null;
   outputFileId: string | null;
   sourceReferenceFileIds: string[];
+  approvalStatus: 'pending' | 'approved';
+  errorMessage: string | null;
+};
+
+export type StoryboardAutomationPhase =
+  | 'idle'
+  | 'planning'
+  | 'creating_principal_image'
+  | 'awaiting_principal_approval'
+  | 'generating_scene_illustrations'
+  | 'ready'
+  | 'failed';
+
+export type StoryboardAutomationStatus = {
+  phase: StoryboardAutomationPhase;
+  planningJobId: string | null;
   errorMessage: string | null;
 };
 
 export type StoryboardIllustrationStatusResponse = {
+  automation: StoryboardAutomationStatus;
   reference: StoryboardIllustrationReferenceStatusItem;
   items: StoryboardIllustrationStatusItem[];
 };
@@ -165,6 +184,28 @@ async function resolveDraftImageReferenceFileIds(
     throw new UnprocessableEntityError(`Image reference file ${missing} is not available on this draft`);
   }
   return uniquePromptRefs;
+}
+
+async function assertReadyDraftImageFileIds(params: {
+  draft: GenerationDraft;
+  fileIds: string[];
+}): Promise<string[]> {
+  const uniqueFileIds = [...new Set(params.fileIds)];
+  if (!uniqueFileIds.length) {
+    return [];
+  }
+
+  const linkedFiles = await fileLinksRepository.findFilesByDraftId(params.draft.id);
+  const linkedReadyImages = new Set(
+    linkedFiles
+      .filter((file) => file.userId === params.draft.userId && file.kind === 'image' && file.status === 'ready')
+      .map((file) => file.fileId),
+  );
+  const missing = uniqueFileIds.find((fileId) => !linkedReadyImages.has(fileId));
+  if (missing) {
+    throw new UnprocessableEntityError(`Image file ${missing} is not available on this draft`);
+  }
+  return uniqueFileIds;
 }
 
 function assertPromptedBlocks(blocks: StoryboardBlock[]): void {
@@ -305,7 +346,13 @@ async function refreshReference(
       ...reference,
       status: 'ready',
       errorMessage: null,
+      approvalStatus: 'pending',
+      approvedAt: null,
     };
+  }
+
+  if (reference.status === 'ready' && reference.outputFileId) {
+    return reference;
   }
 
   const aiJob = await aiGenerationJobRepository.getJobById(reference.aiJobId);
@@ -324,6 +371,8 @@ async function refreshReference(
       status: 'ready',
       outputFileId: aiJob.outputFileId,
       errorMessage: null,
+      approvalStatus: 'pending',
+      approvedAt: null,
     };
   }
 
@@ -338,6 +387,8 @@ async function refreshReference(
   return {
     ...reference,
     status: nextStatus,
+    approvalStatus: nextStatus === 'failed' ? 'pending' : reference.approvalStatus,
+    approvedAt: nextStatus === 'failed' ? null : reference.approvedAt,
     errorMessage: nextStatus === 'failed' ? aiJob.errorMessage : null,
   };
 }
@@ -353,14 +404,35 @@ function toStatusResponse(
   sceneBlocks: StoryboardBlock[],
   mappingsByBlock: Map<string, StoryboardSceneIllustrationJob>,
   reference: referenceRepository.StoryboardIllustrationReference | null,
+  latestPlanJob: StoryboardPlanJob | null,
 ): StoryboardIllustrationStatusResponse {
+  const items = sceneBlocks.map((block) => {
+    const mapping = mappingsByBlock.get(block.id);
+    return {
+      blockId: block.id,
+      status: mapping?.status ?? 'queued',
+      jobId: mapping?.aiJobId ?? null,
+      outputFileId: mapping?.outputFileId ?? null,
+      errorMessage: mapping?.errorMessage ?? null,
+    };
+  });
+
   return {
+    automation: {
+      phase: getAutomationPhase({ sceneBlocks, items, reference, latestPlanJob }),
+      planningJobId:
+        latestPlanJob && ['queued', 'running', 'completed', 'failed'].includes(latestPlanJob.status)
+          ? latestPlanJob.jobId
+          : null,
+      errorMessage: getAutomationErrorMessage({ items, reference, latestPlanJob }),
+    },
     reference: reference
       ? {
           status: reference.status,
           jobId: reference.aiJobId,
           outputFileId: reference.outputFileId,
           sourceReferenceFileIds: reference.sourceReferenceFileIds,
+          approvalStatus: reference.approvalStatus,
           errorMessage: reference.errorMessage,
         }
       : {
@@ -368,19 +440,77 @@ function toStatusResponse(
           jobId: null,
           outputFileId: null,
           sourceReferenceFileIds: [],
+          approvalStatus: 'pending',
           errorMessage: null,
         },
-    items: sceneBlocks.map((block) => {
-      const mapping = mappingsByBlock.get(block.id);
-      return {
-        blockId: block.id,
-        status: mapping?.status ?? 'queued',
-        jobId: mapping?.aiJobId ?? null,
-        outputFileId: mapping?.outputFileId ?? null,
-        errorMessage: mapping?.errorMessage ?? null,
-      };
-    }),
+    items,
   };
+}
+
+function getAutomationPhase(params: {
+  sceneBlocks: StoryboardBlock[];
+  items: StoryboardIllustrationStatusItem[];
+  reference: referenceRepository.StoryboardIllustrationReference | null;
+  latestPlanJob: StoryboardPlanJob | null;
+}): StoryboardAutomationPhase {
+  if (params.latestPlanJob?.status === 'queued' || params.latestPlanJob?.status === 'running') {
+    return 'planning';
+  }
+
+  if (params.latestPlanJob?.status === 'failed' && params.sceneBlocks.length === 0) {
+    return 'failed';
+  }
+
+  if (params.reference?.status === 'failed' || params.items.some((item) => item.status === 'failed')) {
+    return 'failed';
+  }
+
+  if (params.reference?.status === 'queued' || params.reference?.status === 'running') {
+    return 'creating_principal_image';
+  }
+
+  if (
+    params.items.some(
+      (item) => item.jobId && (item.status === 'queued' || item.status === 'running'),
+    )
+  ) {
+    return 'generating_scene_illustrations';
+  }
+
+  if (
+    params.reference?.status === 'ready' &&
+    params.reference.outputFileId &&
+    params.reference.approvalStatus !== 'approved'
+  ) {
+    return 'awaiting_principal_approval';
+  }
+
+  if (
+    params.reference?.status === 'ready' &&
+    params.reference.outputFileId &&
+    params.reference.approvalStatus === 'approved' &&
+    params.sceneBlocks.length > 0 &&
+    params.items.every((item) => item.status === 'ready')
+  ) {
+    return 'ready';
+  }
+
+  return 'idle';
+}
+
+function getAutomationErrorMessage(params: {
+  items: StoryboardIllustrationStatusItem[];
+  reference: referenceRepository.StoryboardIllustrationReference | null;
+  latestPlanJob: StoryboardPlanJob | null;
+}): string | null {
+  if (params.latestPlanJob?.status === 'failed') {
+    return params.latestPlanJob.errorMessage ?? 'Storyboard planning failed';
+  }
+  if (params.reference?.status === 'failed') {
+    return params.reference.errorMessage ?? 'Principal image generation failed';
+  }
+  const failedScene = params.items.find((item) => item.status === 'failed');
+  return failedScene?.errorMessage ?? null;
 }
 
 function getReadyOutputFileId(
@@ -578,7 +708,9 @@ async function ensureReadyReference(params: {
       latestReference.status === 'running' ||
       latestReference.status === 'ready')
   ) {
-    return latestReference.status === 'ready' && latestReference.outputFileId
+    return latestReference.status === 'ready' &&
+      latestReference.outputFileId &&
+      latestReference.approvalStatus === 'approved'
       ? latestReference
       : null;
   }
@@ -597,7 +729,8 @@ export async function listStoryboardIllustrations(
   const edges = await storyboardRepository.findEdgesByDraftId(draftId);
   const sceneBlocks = orderSceneBlocks(blocks, edges);
   const mappingsByBlock = await getLatestMappings(draftId);
-  return toStatusResponse(sceneBlocks, mappingsByBlock, reference);
+  const latestPlanJob = await storyboardPlanJobRepository.findLatestByDraftId(draftId);
+  return toStatusResponse(sceneBlocks, mappingsByBlock, reference, latestPlanJob);
 }
 
 export async function startStoryboardIllustrations(
@@ -610,17 +743,16 @@ export async function startStoryboardIllustrations(
   const sceneBlocks = orderSceneBlocks(blocks, edges);
   const mappingsByBlock = await getLatestMappings(draftId);
   const aspectRatio = getDraftAspectRatio(draft);
-  const blocksToCreate = sceneBlocks.filter((block) => {
-    const latest = mappingsByBlock.get(block.id);
-    return !isActiveIllustrationStatus(latest?.status);
-  });
-
-  assertPromptedBlocks(blocksToCreate);
-
   const reference = await ensureReadyReference({ userId, draft, aspectRatio });
   if (!reference?.outputFileId) {
     return listStoryboardIllustrations(userId, draftId);
   }
+
+  const blocksToCreate = sceneBlocks.filter((block) => {
+    const latest = mappingsByBlock.get(block.id);
+    return !isActiveIllustrationStatus(latest?.status);
+  });
+  assertPromptedBlocks(blocksToCreate);
 
   const next = getNextSceneToCreate({ sceneBlocks, mappingsByBlock });
   if (next) {
@@ -677,4 +809,149 @@ export async function startStoryboardBlockIllustration(
   }
 
   return listStoryboardIllustrations(userId, draftId);
+}
+
+export async function approveStoryboardPrincipalImage(
+  userId: string,
+  draftId: string,
+): Promise<StoryboardIllustrationStatusResponse> {
+  await resolveDraft(userId, draftId);
+  const reference = await getLatestReference(draftId);
+  if (!reference || reference.status !== 'ready' || !reference.outputFileId) {
+    throw new UnprocessableEntityError('No ready principal image exists for this storyboard');
+  }
+
+  const approved = await referenceRepository.approveReference({
+    draftId,
+    referenceId: reference.id,
+  });
+  if (!approved) {
+    throw new UnprocessableEntityError('Principal image is not available for approval');
+  }
+
+  return listStoryboardIllustrations(userId, draftId);
+}
+
+export async function setStoryboardPrincipalImageReferences(
+  userId: string,
+  draftId: string,
+  fileIds: string[],
+): Promise<StoryboardIllustrationStatusResponse> {
+  const draft = await resolveDraft(userId, draftId);
+  const reference = await getLatestReference(draftId);
+  if (!reference || reference.status !== 'ready' || !reference.outputFileId) {
+    throw new UnprocessableEntityError('No ready principal image exists for this storyboard');
+  }
+  const sourceReferenceFileIds = await assertReadyDraftImageFileIds({ draft, fileIds });
+  const updated = await referenceRepository.updateSourceReferenceFileIds({
+    draftId,
+    referenceId: reference.id,
+    sourceReferenceFileIds,
+  });
+  if (!updated) {
+    throw new UnprocessableEntityError('Principal image references could not be updated');
+  }
+  return listStoryboardIllustrations(userId, draftId);
+}
+
+export async function replaceStoryboardPrincipalImage(
+  userId: string,
+  draftId: string,
+  fileId: string,
+): Promise<StoryboardIllustrationStatusResponse> {
+  const draft = await resolveDraft(userId, draftId);
+  const [readyFileId] = await assertReadyDraftImageFileIds({ draft, fileIds: [fileId] });
+  const jobId = randomUUID();
+  await aiGenerationJobRepository.createJob({
+    jobId,
+    userId,
+    modelId: STORYBOARD_OPENAI_IMAGE_MODEL_ID,
+    capability: 'image_edit',
+    prompt: 'User selected replacement principal image.',
+    options: { kind: 'style_reference_replacement', sourceReferenceFileIds: [readyFileId] },
+  });
+  await aiGenerationJobRepository.setDraftId(jobId, draftId);
+  await aiGenerationJobRepository.setOutputFile(jobId, readyFileId);
+  await referenceRepository.deactivateActiveReference(draftId);
+  const inserted = await referenceRepository.createReferenceMapping({
+    id: randomUUID(),
+    draftId,
+    aiJobId: jobId,
+    sourceReferenceFileIds: [readyFileId],
+    status: 'ready',
+  });
+  if (!inserted) {
+    await aiGenerationJobRepository.updateJobStatus(jobId, 'failed', 'Active storyboard reference already exists');
+    throw new UnprocessableEntityError('Active principal image already exists');
+  }
+  await referenceRepository.setReferenceOutput({ aiJobId: jobId, outputFileId: readyFileId });
+  return listStoryboardIllustrations(userId, draftId);
+}
+
+export async function editStoryboardPrincipalImage(params: {
+  userId: string;
+  draftId: string;
+  prompt: string;
+  extraReferenceFileIds?: string[];
+}): Promise<StoryboardIllustrationStatusResponse> {
+  const draft = await resolveDraft(params.userId, params.draftId);
+  const prompt = params.prompt.trim();
+  if (!prompt) {
+    throw new UnprocessableEntityError('Principal image edit prompt is required');
+  }
+  const reference = await getLatestReference(params.draftId);
+  if (!reference || reference.status !== 'ready' || !reference.outputFileId) {
+    throw new UnprocessableEntityError('No ready principal image exists for this storyboard');
+  }
+  const extraReferenceFileIds = await assertReadyDraftImageFileIds({
+    draft,
+    fileIds: params.extraReferenceFileIds ?? [],
+  });
+  const sourceReferenceFileIds = [...new Set([...reference.sourceReferenceFileIds, ...extraReferenceFileIds])];
+  const jobId = randomUUID();
+  const referenceFileIds = [...new Set([reference.outputFileId, ...sourceReferenceFileIds])];
+
+  await aiGenerationJobRepository.createJob({
+    jobId,
+    userId: params.userId,
+    modelId: STORYBOARD_OPENAI_IMAGE_MODEL_ID,
+    capability: 'image_edit',
+    prompt,
+    options: {
+      kind: 'style_reference',
+      sourceReferenceFileIds,
+      size: getOpenAIImageSize(getDraftAspectRatio(draft)),
+    },
+  });
+  await aiGenerationJobRepository.setDraftId(jobId, params.draftId);
+  try {
+    await enqueueStoryboardOpenAIImage({
+      jobId,
+      userId: params.userId,
+      draftId: params.draftId,
+      kind: 'style_reference',
+      prompt,
+      referenceFileIds,
+      size: getOpenAIImageSize(getDraftAspectRatio(draft)),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to enqueue storyboard reference edit job';
+    await aiGenerationJobRepository.updateJobStatus(jobId, 'failed', message);
+    throw error;
+  }
+
+  await referenceRepository.deactivateActiveReference(params.draftId);
+  const inserted = await referenceRepository.createReferenceMapping({
+    id: randomUUID(),
+    draftId: params.draftId,
+    aiJobId: jobId,
+    sourceReferenceFileIds,
+    status: 'queued',
+  });
+  if (!inserted) {
+    await aiGenerationJobRepository.updateJobStatus(jobId, 'failed', 'Active storyboard reference already exists');
+    throw new UnprocessableEntityError('Active principal image already exists');
+  }
+
+  return listStoryboardIllustrations(params.userId, params.draftId);
 }

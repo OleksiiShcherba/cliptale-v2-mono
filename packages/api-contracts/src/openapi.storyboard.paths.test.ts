@@ -148,6 +148,45 @@ describe('openApiSpec storyboard paths', () => {
       expect(schema.$ref).toBe('#/components/schemas/StoryboardIllustrationStatusResponse');
       expect(responses[422]).toBeDefined();
     });
+
+    it('defines POST /storyboards/{draftId}/illustrations/principal-image/approve', () => {
+      const op = paths['/storyboards/{draftId}/illustrations/principal-image/approve']?.['post'] as Record<
+        string,
+        unknown
+      >;
+      expect(op.operationId).toBe('approveStoryboardPrincipalImage');
+      expect(op.description).toContain('blocked until this approval exists');
+      const responses = op.responses as Record<string, unknown>;
+      const ok = responses[200] as Record<string, unknown>;
+      const schema = (
+        (ok.content as Record<string, unknown>)['application/json'] as Record<string, unknown>
+      ).schema as Record<string, unknown>;
+      expect(schema.$ref).toBe('#/components/schemas/StoryboardIllustrationStatusResponse');
+      expect(responses[422]).toBeDefined();
+    });
+
+    it('defines principal image edit, replace, and reference endpoints', () => {
+      const edit = paths['/storyboards/{draftId}/illustrations/principal-image/edit']?.['post'] as Record<
+        string,
+        unknown
+      >;
+      expect(edit.operationId).toBe('editStoryboardPrincipalImage');
+      expect(edit.requestBody).toBeDefined();
+
+      const replace = paths['/storyboards/{draftId}/illustrations/principal-image/replace']?.['post'] as Record<
+        string,
+        unknown
+      >;
+      expect(replace.operationId).toBe('replaceStoryboardPrincipalImage');
+      expect(replace.requestBody).toBeDefined();
+
+      const refs = paths['/storyboards/{draftId}/illustrations/principal-image/references']?.['put'] as Record<
+        string,
+        unknown
+      >;
+      expect(refs.operationId).toBe('setStoryboardPrincipalImageReferences');
+      expect(refs.requestBody).toBeDefined();
+    });
   });
 
   describe('GET /storyboards/{draftId}', () => {

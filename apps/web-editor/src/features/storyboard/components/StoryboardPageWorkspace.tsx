@@ -113,7 +113,6 @@ export function StoryboardPageWorkspace({
           status={planGeneration.status}
           error={planGeneration.error}
           isBlocking={isPlanBlocking}
-          onStart={() => { void planGeneration.start(); }}
           onRetry={() => { void planGeneration.retry(); }}
         />
         <StoryboardIllustrationControls

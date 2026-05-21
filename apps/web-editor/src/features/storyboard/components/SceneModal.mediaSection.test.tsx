@@ -58,6 +58,19 @@ function renderSection(uploadDraftId?: string) {
   return { onAdd, onRemove };
 }
 
+function renderSectionWithItems(items: ModalMediaItem[]) {
+  const onAdd = vi.fn();
+  const onRemove = vi.fn();
+  render(
+    <SceneModalMediaSection
+      items={items}
+      onAdd={onAdd}
+      onRemove={onRemove}
+    />,
+  );
+  return { onAdd, onRemove };
+}
+
 /** Open the picker by clicking Add Media then selecting 'Image'. */
 function openPicker(): void {
   fireEvent.click(screen.getByTestId('add-media-button'));
@@ -96,5 +109,111 @@ describe('SceneModalMediaSection — uploadDraftId threading', () => {
     expect(screen.getByTestId('asset-picker-modal')).toBeTruthy();
     const uploadTarget = capturedPickerProps.current?.uploadTarget;
     expect(uploadTarget).toBeUndefined();
+  });
+
+  it('renders image media as a preview thumbnail instead of filename only', () => {
+    renderSectionWithItems([
+      {
+        fileId: 'asset-image-1',
+        mediaType: 'image',
+        filename: 'Product image',
+        sortOrder: 0,
+      },
+    ]);
+
+    const preview = screen.getByTestId('media-preview-image') as HTMLImageElement;
+    expect(preview.src).toBe('http://localhost:3001/assets/asset-image-1/stream?token=test');
+    expect(preview.alt).toBe('image preview for Product image');
+    expect(screen.getByText('IMAGE CLIP')).toBeTruthy();
+  });
+
+  it('opens a full image preview modal from an image media thumbnail', () => {
+    renderSectionWithItems([
+      {
+        fileId: 'asset-image-1',
+        mediaType: 'image',
+        filename: 'Product image',
+        sortOrder: 0,
+      },
+    ]);
+
+    fireEvent.click(screen.getByTestId('media-preview-button'));
+
+    const lightboxImage = screen.getByTestId('media-lightbox-image') as HTMLImageElement;
+    expect(lightboxImage.src).toBe('http://localhost:3001/assets/asset-image-1/stream?token=test');
+    expect(lightboxImage.alt).toBe('image preview for Product image');
+
+    fireEvent.click(screen.getByTestId('media-lightbox-close'));
+    expect(screen.queryByTestId('media-lightbox')).toBeNull();
+  });
+
+  it('keeps keyboard focus inside the media preview modal', () => {
+    renderSectionWithItems([
+      {
+        fileId: 'asset-image-1',
+        mediaType: 'image',
+        filename: 'Product image',
+        sortOrder: 0,
+      },
+    ]);
+
+    fireEvent.click(screen.getByTestId('media-preview-button'));
+
+    const lightbox = screen.getByTestId('media-lightbox');
+    const closeButton = screen.getByTestId('media-lightbox-close');
+
+    expect(document.activeElement).toBe(lightbox);
+    fireEvent.keyDown(lightbox, { key: 'Tab' });
+    expect(document.activeElement).toBe(closeButton);
+  });
+
+  it('renders video media via thumbnail endpoint', () => {
+    renderSectionWithItems([
+      {
+        fileId: 'asset-video-1',
+        mediaType: 'video',
+        filename: 'Product reel',
+        sortOrder: 0,
+      },
+    ]);
+
+    const preview = screen.getByTestId('media-preview-image') as HTMLImageElement;
+    expect(preview.src).toBe('http://localhost:3001/assets/asset-video-1/thumbnail?token=test');
+    expect(preview.alt).toBe('video preview for Product reel');
+  });
+
+  it('opens a full video preview modal from a video media thumbnail', () => {
+    renderSectionWithItems([
+      {
+        fileId: 'asset-video-1',
+        mediaType: 'video',
+        filename: 'Product reel',
+        sortOrder: 0,
+      },
+    ]);
+
+    fireEvent.click(screen.getByTestId('media-preview-button'));
+
+    const lightboxVideo = screen.getByTestId('media-lightbox-video') as HTMLVideoElement;
+    expect(lightboxVideo.src).toBe('http://localhost:3001/assets/asset-video-1/stream?token=test');
+
+    fireEvent.keyDown(screen.getByTestId('media-lightbox'), { key: 'Escape' });
+    expect(screen.queryByTestId('media-lightbox')).toBeNull();
+  });
+
+  it('keeps a compact placeholder for audio media', () => {
+    renderSectionWithItems([
+      {
+        fileId: 'asset-audio-1',
+        mediaType: 'audio',
+        filename: 'Voiceover',
+        sortOrder: 0,
+      },
+    ]);
+
+    expect(screen.getByTestId('media-preview-placeholder')).toBeTruthy();
+    expect(screen.queryByTestId('media-preview-image')).toBeNull();
+    expect(screen.queryByTestId('media-preview-button')).toBeNull();
+    expect(screen.getByText('AUDIO CLIP')).toBeTruthy();
   });
 });

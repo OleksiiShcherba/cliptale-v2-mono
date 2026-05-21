@@ -1,9 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockQuery } = vi.hoisted(() => ({ mockQuery: vi.fn() }));
+const { mockQuery, mockGetConnection, mockConn } = vi.hoisted(() => {
+  const mockConn = {
+    beginTransaction: vi.fn(),
+    commit: vi.fn(),
+    query: vi.fn(),
+    release: vi.fn(),
+    rollback: vi.fn(),
+  };
+  return {
+    mockQuery: vi.fn(),
+    mockGetConnection: vi.fn(() => mockConn),
+    mockConn,
+  };
+});
 
 vi.mock('@/db/connection.js', () => ({
-  pool: { query: mockQuery },
+  pool: { query: mockQuery, getConnection: mockGetConnection },
 }));
 
 import type { StoryboardPlan } from '@ai-video-editor/project-schema';
@@ -14,6 +27,7 @@ import {
   markCompleted,
   markFailed,
   markRunning,
+  reserveQueuedJob,
   sanitizeStoryboardPlanJobError,
 } from './storyboardPlanJob.repository.js';
 
@@ -110,6 +124,11 @@ function makeRow(overrides: Record<string, unknown> = {}) {
 describe('storyboardPlanJob.repository', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetConnection.mockReturnValue(mockConn);
+    mockConn.beginTransaction.mockResolvedValue(undefined);
+    mockConn.commit.mockResolvedValue(undefined);
+    mockConn.rollback.mockResolvedValue(undefined);
+    mockConn.release.mockReturnValue(undefined);
   });
 
   it('creates queued jobs with serialized prompt and stable media context JSON', async () => {
@@ -134,6 +153,73 @@ describe('storyboardPlanJob.repository', () => {
       JSON.stringify(PROMPT_SNAPSHOT),
       JSON.stringify(MEDIA_CONTEXT),
     ]);
+  });
+
+  it('reserves a queued job inside a draft-row transaction', async () => {
+    mockConn.query
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+    const result = await reserveQueuedJob({
+      jobId: 'job-1',
+      draftId: 'draft-1',
+      userId: 'user-1',
+      model: 'gpt-4.1',
+      promptSnapshot: PROMPT_SNAPSHOT,
+      mediaContext: MEDIA_CONTEXT,
+    });
+
+    expect(result).toEqual({ jobId: 'job-1', status: 'queued', created: true });
+    expect(mockConn.beginTransaction).toHaveBeenCalledTimes(1);
+    expect(mockConn.query.mock.calls[0]![0]).toContain('FROM generation_drafts');
+    expect(mockConn.query.mock.calls[0]![0]).toContain('FOR UPDATE');
+    expect(mockConn.query.mock.calls[1]![0]).toContain("status IN ('queued', 'running')");
+    expect(mockConn.query.mock.calls[2]![0]).toContain('INSERT INTO storyboard_plan_jobs');
+    expect(mockConn.commit).toHaveBeenCalledTimes(1);
+    expect(mockConn.rollback).not.toHaveBeenCalled();
+    expect(mockConn.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses an active reserved planning job without inserting', async () => {
+    mockConn.query
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[{ job_id: 'active-job', status: 'running' }]]);
+
+    const result = await reserveQueuedJob({
+      jobId: 'job-1',
+      draftId: 'draft-1',
+      userId: 'user-1',
+      model: null,
+      promptSnapshot: PROMPT_SNAPSHOT,
+    });
+
+    expect(result).toEqual({ jobId: 'active-job', status: 'running', created: false });
+    expect(mockConn.query).toHaveBeenCalledTimes(2);
+    expect(mockConn.commit).toHaveBeenCalledTimes(1);
+    expect(mockConn.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('rolls back and releases the connection when reservation insert fails', async () => {
+    const error = new Error('insert failed');
+    mockConn.query
+      .mockResolvedValueOnce([[]])
+      .mockResolvedValueOnce([[]])
+      .mockRejectedValueOnce(error);
+
+    await expect(
+      reserveQueuedJob({
+        jobId: 'job-1',
+        draftId: 'draft-1',
+        userId: 'user-1',
+        model: null,
+        promptSnapshot: PROMPT_SNAPSHOT,
+      }),
+    ).rejects.toThrow('insert failed');
+
+    expect(mockConn.rollback).toHaveBeenCalledTimes(1);
+    expect(mockConn.commit).not.toHaveBeenCalled();
+    expect(mockConn.release).toHaveBeenCalledTimes(1);
   });
 
   it('rejects media context values that contain signed URLs', async () => {

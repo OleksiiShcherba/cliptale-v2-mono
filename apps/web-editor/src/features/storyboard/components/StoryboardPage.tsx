@@ -1,5 +1,4 @@
 import '@xyflow/react/dist/style.css';
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 
 import { useQueryClient } from '@tanstack/react-query';
@@ -15,7 +14,7 @@ import type {
   Node,
   NodeMouseHandler,
 } from '@xyflow/react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
 import { useAddBlock } from '@/features/storyboard/hooks/useAddBlock';
 import { useHandleAddFromLibrary } from '@/features/storyboard/hooks/useHandleAddFromLibrary';
@@ -29,8 +28,7 @@ import { useStoryboardDrag } from '@/features/storyboard/hooks/useStoryboardDrag
 import { useStoryboardHistoryPush } from '@/features/storyboard/hooks/useStoryboardHistoryPush';
 import { useStoryboardKeyboard } from '@/features/storyboard/hooks/useStoryboardKeyboard';
 import { useStoryboardKnifeTool } from '@/features/storyboard/hooks/useStoryboardKnifeTool';
-import { useStoryboardIllustrations } from '@/features/storyboard/hooks/useStoryboardIllustrations';
-import { useStoryboardPlanGeneration } from '@/features/storyboard/hooks/useStoryboardPlanGeneration';
+import { useStoryboardGenerationFlow } from '@/features/storyboard/hooks/useStoryboardGenerationFlow';
 import {
   storyboardHistoryStore,
   initHistoryStore,
@@ -41,6 +39,7 @@ import type { StoryboardSidebarTab, SceneBlockNodeData } from '@/features/storyb
 import { EndNode } from './EndNode';
 import { SceneBlockNode } from './SceneBlockNode';
 import { SceneModal } from './SceneModal';
+import { PrincipalImageApprovalModal } from './PrincipalImageApprovalModal';
 import { StartNode } from './StartNode';
 import { StoryboardPageFooter } from './StoryboardPageFooter';
 import { StoryboardPageWorkspace } from './StoryboardPageWorkspace';
@@ -55,10 +54,9 @@ const NODE_TYPES: NodeTypes = {
 
 export function StoryboardPage(): React.ReactElement {
   const navigate = useNavigate();
-  const location = useLocation();
   const queryClient = useQueryClient();
   const { draftId } = useParams<{ draftId: string }>();
-  const autoStartPlanRef = useRef(false);
+  const autoStartedPlanDraftRef = useRef<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<StoryboardSidebarTab>('storyboard');
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
@@ -71,17 +69,25 @@ export function StoryboardPage(): React.ReactElement {
   }, [reload]);
 
   const { selectedBlockId } = useStoryboardStore();
-  const planGeneration = useStoryboardPlanGeneration(safeDraftId, { onRemoveNode: removeNode });
-  const isPlanBlocking = (
-    planGeneration.status === 'queued'
-    || planGeneration.status === 'running'
-    || planGeneration.status === 'applying'
-  );
-  const illustrationGeneration = useStoryboardIllustrations(safeDraftId, {
-    onStoryboardUpdated: reloadStoryboard,
+  const generationFlow = useStoryboardGenerationFlow({
+    draftId: safeDraftId,
+    nodes,
+    isLoading,
+    error,
+    autoStartedPlanDraftRef,
+    setNodes,
+    setEdges,
+    removeNode,
+    reloadStoryboard,
   });
-  const isGenerationBlocking = isPlanBlocking || illustrationGeneration.isBlocking;
-  const isStep3Disabled = isGenerationBlocking || illustrationGeneration.status === 'failed';
+  const {
+    planGeneration,
+    illustrationGeneration,
+    isPlanBlocking,
+    isGenerationBlocking,
+    isStep3Disabled,
+    principalImageModal,
+  } = generationFlow;
 
   useEffect(() => {
     initHistoryStore(safeDraftId);
@@ -91,57 +97,6 @@ export function StoryboardPage(): React.ReactElement {
   }, [safeDraftId]);
 
   const { saveLabel, saveNow } = useStoryboardAutosave(safeDraftId, nodes, edges);
-
-  useEffect(() => {
-    if (!planGeneration.canvasState || planGeneration.status !== 'completed') return;
-    setNodes(planGeneration.canvasState.nodes);
-    setEdges(planGeneration.canvasState.edges);
-  }, [planGeneration.canvasState, planGeneration.status, setEdges, setNodes]);
-
-  useEffect(() => {
-    if (planGeneration.status !== 'completed') return;
-    void illustrationGeneration.start();
-  }, [illustrationGeneration.start, planGeneration.status]);
-
-  useEffect(() => {
-    setNodes((prev) => {
-      let changed = false;
-      const next = prev.map((node) => {
-        if (node.type !== 'scene-block') return node;
-        const data = node.data as SceneBlockNodeData;
-        const illustration = illustrationGeneration.byBlockId.get(node.id);
-        if (
-          data.illustration === illustration
-          && data.onRetryIllustration === illustrationGeneration.retryBlock
-        ) {
-          return node;
-        }
-        changed = true;
-        return {
-          ...node,
-          data: {
-            ...data,
-            illustration,
-            onRetryIllustration: illustrationGeneration.retryBlock,
-          } satisfies SceneBlockNodeData,
-        };
-      });
-      return changed ? next : prev;
-    });
-  }, [illustrationGeneration.byBlockId, illustrationGeneration.retryBlock, nodes, setNodes]);
-
-  useEffect(() => {
-    const searchParams = new URLSearchParams(location.search);
-    const shouldAutoStart = (
-      searchParams.get('generateScenes') === '1'
-      || searchParams.get('startStoryboardPlan') === '1'
-      || (location.state as { startStoryboardPlan?: boolean } | null)?.startStoryboardPlan === true
-    );
-
-    if (!shouldAutoStart || autoStartPlanRef.current) return;
-    autoStartPlanRef.current = true;
-    void planGeneration.start();
-  }, [location.search, location.state, planGeneration]);
 
   const { editingBlock, openModal, handleSave, handleDelete, handleClose } = useSceneModal(setNodes, saveNow);
 
@@ -325,6 +280,19 @@ export function StoryboardPage(): React.ReactElement {
           onDelete={handleDelete}
           onClose={handleClose}
           uploadDraftId={safeDraftId}
+        />
+      )}
+
+      {principalImageModal.shouldRender && illustrationGeneration.reference && (
+        <PrincipalImageApprovalModal
+          draftId={safeDraftId}
+          reference={illustrationGeneration.reference}
+          isBusy={principalImageModal.isBusy}
+          error={principalImageModal.error}
+          onApprove={principalImageModal.onApprove}
+          onEdit={principalImageModal.onEdit}
+          onReplace={principalImageModal.onReplace}
+          onSetReferences={principalImageModal.onSetReferences}
         />
       )}
     </div>

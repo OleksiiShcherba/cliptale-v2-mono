@@ -7,6 +7,7 @@ vi.mock('@/db/connection.js', () => ({
 }));
 
 import {
+  approveReference,
   createReferenceMapping,
   findActiveReferenceByDraftId,
   findLatestReferenceByDraftId,
@@ -27,6 +28,8 @@ function makeRow(overrides: Record<string, unknown> = {}) {
     status: 'queued',
     output_file_id: null,
     source_reference_file_ids: ['00000000-0000-4000-8000-000000000030'],
+    approval_status: 'pending',
+    approved_at: null,
     error_message: null,
     created_at: NOW,
     updated_at: NOW,
@@ -173,6 +176,8 @@ describe('storyboardIllustrationReference.repository', () => {
       'failed',
       'Provider rejected the style prompt.',
       'failed',
+      'failed',
+      'failed',
       'job-1',
     ]);
   });
@@ -189,7 +194,21 @@ describe('storyboardIllustrationReference.repository', () => {
     expect(sql).toContain("SET status = 'ready'");
     expect(sql).toContain('output_file_id = ?');
     expect(sql).toContain('error_message = NULL');
+    expect(sql).toContain("approval_status = 'pending'");
     expect(sql).toContain('active_lock = 1');
     expect(params).toEqual(['file-1', 'job-1']);
+  });
+
+  it('approves a ready active reference with an output file', async () => {
+    mockExecute.mockResolvedValueOnce([{ affectedRows: 1 }]);
+
+    await expect(approveReference({ draftId: 'draft-1', referenceId: 'ref-1' })).resolves.toBe(true);
+
+    const [sql, params] = mockExecute.mock.calls[0] as [string, string[]];
+    expect(sql).toContain("approval_status = 'approved'");
+    expect(sql).toContain("status = 'ready'");
+    expect(sql).toContain('output_file_id IS NOT NULL');
+    expect(sql).toContain('active_lock = 1');
+    expect(params).toEqual(['ref-1', 'draft-1']);
   });
 });

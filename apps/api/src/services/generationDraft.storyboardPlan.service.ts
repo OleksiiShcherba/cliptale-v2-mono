@@ -18,7 +18,7 @@ import { enqueueStoryboardPlan } from '@/queues/jobs/enqueue-storyboard-plan.js'
 
 export type StartStoryboardPlanResult = {
   jobId: string;
-  status: 'queued';
+  status: 'queued' | 'running';
 };
 
 async function resolveDraft(userId: string, id: string): Promise<GenerationDraft> {
@@ -62,17 +62,25 @@ export async function startStoryboardPlan(
   assertValidPromptDoc(draft.promptDoc);
   assertHasPlanningInput(draft.promptDoc);
 
-  const jobId = randomUUID();
-  await storyboardPlanJobRepository.createQueuedJob({
-    jobId,
+  const reservation = await storyboardPlanJobRepository.reserveQueuedJob({
+    jobId: randomUUID(),
     draftId,
     userId,
     model: draft.promptDoc.settings?.modelPreference ?? null,
     promptSnapshot: draft.promptDoc,
   });
-  await enqueueStoryboardPlan({ jobId, draftId, userId });
+  if (!reservation.created) {
+    return { jobId: reservation.jobId, status: reservation.status };
+  }
 
-  return { jobId, status: 'queued' };
+  try {
+    await enqueueStoryboardPlan({ jobId: reservation.jobId, draftId, userId });
+  } catch (error) {
+    await storyboardPlanJobRepository.markFailed(reservation.jobId, error);
+    throw error;
+  }
+
+  return { jobId: reservation.jobId, status: 'queued' };
 }
 
 export async function getStoryboardPlanStatus(

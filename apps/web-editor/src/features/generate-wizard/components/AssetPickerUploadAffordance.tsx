@@ -27,6 +27,12 @@ const MIME_ACCEPT: Record<AssetKind, string> = {
   audio: 'audio/*',
 };
 
+const UPLOAD_LABEL: Record<AssetKind, string> = {
+  image: 'Upload image',
+  video: 'Upload video',
+  audio: 'Upload audio',
+};
+
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -106,7 +112,7 @@ export function AssetPickerUploadAffordance({
           onClick={handleButtonClick}
           data-testid="upload-button"
         >
-          Upload new file
+          {UPLOAD_LABEL[mediaType]}
         </button>
       )}
       <input

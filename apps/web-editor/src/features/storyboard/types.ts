@@ -82,10 +82,27 @@ export type StoryboardIllustrationReferenceStatus = {
   jobId: string | null;
   outputFileId: string | null;
   sourceReferenceFileIds: string[];
+  approvalStatus: 'pending' | 'approved';
+  errorMessage: string | null;
+};
+
+export type StoryboardAutomationPhase =
+  | 'idle'
+  | 'planning'
+  | 'creating_principal_image'
+  | 'awaiting_principal_approval'
+  | 'generating_scene_illustrations'
+  | 'ready'
+  | 'failed';
+
+export type StoryboardAutomationStatus = {
+  phase: StoryboardAutomationPhase;
+  planningJobId: string | null;
   errorMessage: string | null;
 };
 
 export type StoryboardIllustrationStatusResponse = {
+  automation: StoryboardAutomationStatus;
   reference: StoryboardIllustrationReferenceStatus;
   items: StoryboardIllustrationStatusItem[];
 };

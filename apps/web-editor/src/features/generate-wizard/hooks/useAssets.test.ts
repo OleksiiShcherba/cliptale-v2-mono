@@ -147,6 +147,37 @@ describe('useAssets', () => {
       expect(result.current.data?.items[1]?.type).toBe('image');
     });
 
+    it('filters draft-scoped assets by requested media type', async () => {
+      mockListDraftAssets.mockResolvedValue(FILLED_ENVELOPE);
+
+      const { result } = renderHook(
+        () => useAssets({ type: 'image', draftId: DRAFT_ID }),
+        { wrapper: makeWrapper() },
+      );
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      expect(result.current.data?.items).toHaveLength(1);
+      expect(result.current.data?.items[0]?.id).toBe('file-bbb');
+      expect(result.current.data?.items[0]?.type).toBe('image');
+    });
+
+    it('uses media type in the draft-scoped query key', async () => {
+      mockListDraftAssets.mockResolvedValue(FILLED_ENVELOPE);
+      const wrapper = makeWrapper();
+
+      renderHook(
+        () => useAssets({ type: 'image', draftId: DRAFT_ID }),
+        { wrapper },
+      );
+      renderHook(
+        () => useAssets({ type: 'video', draftId: DRAFT_ID }),
+        { wrapper },
+      );
+
+      await waitFor(() => expect(mockListDraftAssets).toHaveBeenCalledTimes(2));
+    });
+
     it('calls listDraftAssets with scope=all when scope prop is all', async () => {
       mockListDraftAssets.mockResolvedValue(EMPTY_ENVELOPE);
 

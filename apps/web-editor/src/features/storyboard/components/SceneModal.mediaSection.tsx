@@ -1,13 +1,4 @@
-/**
- * SceneModal.mediaSection — Media list section for SceneModal.
- *
- * Renders:
- * - List of added media items with type badge + filename + remove button
- * - "+ Add Media" button that opens AssetPickerModal (cycles image → video → audio)
- * - Max 6 items enforced with a toast-style warning
- */
-
-import React, { useState, useRef } from 'react';
+import React, { useRef, useState } from 'react';
 
 import { AssetPickerModal } from '@/features/generate-wizard/components/AssetPickerModal';
 import type { AssetKind, AssetSummary } from '@/features/generate-wizard/types';
@@ -23,9 +14,8 @@ import {
   TEXT_SECONDARY,
   sectionLabelStyle,
 } from './SceneModal.styles';
+import { SceneModalMediaPreview } from './SceneModal.mediaPreview';
 import type { ModalMediaItem } from './SceneModal.types';
-
-// ── Constants ──────────────────────────────────────────────────────────────────
 
 const MAX_MEDIA_ITEMS = 6;
 
@@ -47,12 +37,10 @@ const MEDIA_BADGE_LABELS: Record<AssetKind, string> = {
   audio: 'AUDIO CLIP',
 };
 
-// ── Sub-styles ─────────────────────────────────────────────────────────────────
-
 const mediaItemRowStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: '8px',
+  gap: '10px',
   padding: '8px 12px',
   background: SURFACE,
   borderRadius: '8px',
@@ -75,14 +63,22 @@ const badgeStyle = (color: string): React.CSSProperties => ({
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
   flexShrink: 0,
+  alignSelf: 'flex-start',
   fontFamily: 'Inter, sans-serif',
 });
+
+const mediaDetailsStyle: React.CSSProperties = {
+  minWidth: 0,
+  flex: 1,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '4px',
+};
 
 const fileNameStyle: React.CSSProperties = {
   fontSize: '12px',
   fontWeight: 400,
   color: TEXT_SECONDARY,
-  flex: 1,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
@@ -145,22 +141,13 @@ const warningBoxStyle: React.CSSProperties = {
   fontWeight: 400,
 };
 
-// ── Props ──────────────────────────────────────────────────────────────────────
-
 interface SceneModalMediaSectionProps {
   items: ModalMediaItem[];
   onAdd: (item: ModalMediaItem) => void;
   onRemove: (index: number) => void;
-  /** When provided, the AssetPickerModal will render an upload affordance. */
   uploadDraftId?: string;
 }
 
-// ── Component ──────────────────────────────────────────────────────────────────
-
-/**
- * Media section rendered inside SceneModal.
- * Handles the picker flow and enforces the max-6 item limit.
- */
 export function SceneModalMediaSection({
   items,
   onAdd,
@@ -200,10 +187,6 @@ export function SceneModalMediaSection({
     setPickerKind(null);
   };
 
-  const handlePickerClose = (): void => {
-    setPickerKind(null);
-  };
-
   return (
     <section aria-label="Media items">
       <p style={sectionLabelStyle}>Media</p>
@@ -218,14 +201,14 @@ export function SceneModalMediaSection({
         <div style={mediaListStyle} data-testid="media-list">
           {items.map((item, idx) => (
             <div key={`${item.fileId}-${idx}`} style={mediaItemRowStyle} data-testid="media-item-row">
-              <span
-                style={badgeStyle(BADGE_COLORS[item.mediaType])}
-                data-testid="media-badge"
-              >
-                {MEDIA_BADGE_LABELS[item.mediaType]}
-              </span>
-              <span style={fileNameStyle} title={item.filename}>
-                {item.filename}
+              <SceneModalMediaPreview item={item} />
+              <span style={mediaDetailsStyle}>
+                <span style={badgeStyle(BADGE_COLORS[item.mediaType])} data-testid="media-badge">
+                  {MEDIA_BADGE_LABELS[item.mediaType]}
+                </span>
+                <span style={fileNameStyle} title={item.filename}>
+                  {item.filename}
+                </span>
               </span>
               <button
                 type="button"
@@ -286,7 +269,7 @@ export function SceneModalMediaSection({
         <AssetPickerModal
           mediaType={pickerKind}
           onPick={handlePick}
-          onClose={handlePickerClose}
+          onClose={() => setPickerKind(null)}
           triggerRef={addButtonRef}
           uploadTarget={uploadTarget}
         />

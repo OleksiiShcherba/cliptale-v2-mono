@@ -4,7 +4,7 @@ import {
   type StoryboardPlan,
   type StoryboardPlanJobStatus,
 } from '@ai-video-editor/project-schema';
-import type { RowDataPacket } from 'mysql2/promise';
+import type { PoolConnection, RowDataPacket } from 'mysql2/promise';
 
 import { pool } from '@/db/connection.js';
 
@@ -22,6 +22,12 @@ export type StoryboardPlanJob = {
   updatedAt: Date;
   completedAt: Date | null;
   failedAt: Date | null;
+};
+
+export type ReservedStoryboardPlanJob = {
+  jobId: string;
+  status: 'queued' | 'running';
+  created: boolean;
 };
 
 type StoryboardPlanJobRow = RowDataPacket & {
@@ -127,6 +133,62 @@ export async function createQueuedJob(params: {
   );
 }
 
+export async function reserveQueuedJob(params: {
+  jobId: string;
+  draftId: string;
+  userId: string;
+  model: string | null;
+  promptSnapshot: unknown;
+  mediaContext?: unknown | null;
+}): Promise<ReservedStoryboardPlanJob> {
+  if (params.mediaContext !== undefined && params.mediaContext !== null) {
+    assertNoSignedUrls(params.mediaContext);
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await lockDraftRow(conn, params.draftId);
+
+    const activeJob = await findActiveByDraftIdInConnection(conn, params.draftId);
+    if (activeJob) {
+      await conn.commit();
+      return { jobId: activeJob.jobId, status: activeJob.status, created: false };
+    }
+
+    await conn.query(
+      `INSERT INTO storyboard_plan_jobs
+         (job_id, draft_id, user_id, status, model, prompt_snapshot_json, media_context_json)
+       VALUES (?, ?, ?, 'queued', ?, ?, ?)`,
+      [
+        params.jobId,
+        params.draftId,
+        params.userId,
+        params.model,
+        JSON.stringify(params.promptSnapshot),
+        params.mediaContext === undefined || params.mediaContext === null ? null : JSON.stringify(params.mediaContext),
+      ],
+    );
+    await conn.commit();
+    return { jobId: params.jobId, status: 'queued', created: true };
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
+async function lockDraftRow(conn: PoolConnection, draftId: string): Promise<void> {
+  await conn.query(
+    `SELECT id
+       FROM generation_drafts
+      WHERE id = ?
+      FOR UPDATE`,
+    [draftId],
+  );
+}
+
 export async function markRunning(jobId: string): Promise<void> {
   await pool.query(
     `UPDATE storyboard_plan_jobs
@@ -186,6 +248,57 @@ export async function findByJobId(jobId: string): Promise<StoryboardPlanJob | nu
     [jobId],
   );
   return rows.length ? mapRow(rows[0]!) : null;
+}
+
+export async function findLatestByDraftId(draftId: string): Promise<StoryboardPlanJob | null> {
+  const [rows] = await pool.query<StoryboardPlanJobRow[]>(
+    `SELECT job_id, draft_id, user_id, status, model, prompt_snapshot_json,
+            media_context_json, plan_json, error_message, created_at, updated_at,
+            completed_at, failed_at
+       FROM storyboard_plan_jobs
+      WHERE draft_id = ?
+      ORDER BY created_at DESC, job_id DESC
+      LIMIT 1`,
+    [draftId],
+  );
+  return rows.length ? mapRow(rows[0]!) : null;
+}
+
+export async function findActiveByDraftId(draftId: string): Promise<StoryboardPlanJob | null> {
+  const [rows] = await pool.query<StoryboardPlanJobRow[]>(
+    `SELECT job_id, draft_id, user_id, status, model, prompt_snapshot_json,
+            media_context_json, plan_json, error_message, created_at, updated_at,
+            completed_at, failed_at
+       FROM storyboard_plan_jobs
+      WHERE draft_id = ? AND status IN ('queued', 'running')
+      ORDER BY created_at DESC, job_id DESC
+      LIMIT 1`,
+    [draftId],
+  );
+  return rows.length ? mapRow(rows[0]!) : null;
+}
+
+async function findActiveByDraftIdInConnection(
+  conn: PoolConnection,
+  draftId: string,
+): Promise<ReservedStoryboardPlanJob | null> {
+  const [rows] = await conn.query<Array<RowDataPacket & {
+    job_id: string;
+    status: 'queued' | 'running';
+  }>>(
+    `SELECT job_id, status
+       FROM storyboard_plan_jobs
+      WHERE draft_id = ? AND status IN ('queued', 'running')
+      ORDER BY created_at DESC, job_id DESC
+      LIMIT 1`,
+    [draftId],
+  );
+  if (!rows.length) return null;
+  return {
+    jobId: rows[0]!.job_id,
+    status: rows[0]!.status,
+    created: false,
+  };
 }
 
 export async function findLatestCompletedByDraftId(draftId: string): Promise<StoryboardPlanJob | null> {

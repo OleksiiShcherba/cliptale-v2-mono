@@ -103,6 +103,7 @@ type ReferenceStatusItem = {
   jobId: string | null;
   outputFileId: string | null;
   sourceReferenceFileIds: string[];
+  approvalStatus: "pending" | "approved";
   errorMessage: string | null;
 };
 
@@ -283,6 +284,7 @@ function buildReference(
     jobId: null,
     outputFileId: null,
     sourceReferenceFileIds: [],
+    approvalStatus: "pending",
     errorMessage: null,
     ...overrides,
   };
@@ -335,6 +337,7 @@ async function installStoryboardIllustrationMocks(
   completeRetry: () => void;
   failReference: () => void;
   recoverReference: () => void;
+  getSceneStartCount: () => number;
 }> {
   let latestStoryboardState: StoryboardState | null = null;
   let sceneBlockIds: string[] = [];
@@ -342,12 +345,14 @@ async function installStoryboardIllustrationMocks(
   let retryStarted = false;
   let referenceStarted = false;
   let referenceComplete = false;
+  let referenceApproved = false;
   let referenceFailed = false;
+  let replacementFileId: string | null = null;
   let initialRunComplete = false;
   let retryComplete = false;
   const readyBlockIds = new Set<string>();
   const failedBlockIds = new Set<string>();
-  const sourceReferenceFileIds = params.sourceReferenceFileIds ?? [];
+  let sourceReferenceFileIds = [...(params.sourceReferenceFileIds ?? [])];
 
   const currentReference = (): ReferenceStatusItem => {
     if (referenceFailed) {
@@ -362,8 +367,9 @@ async function installStoryboardIllustrationMocks(
       return buildReference({
         status: "ready",
         jobId: "ref-job-1",
-        outputFileId: referenceFileId(sourceReferenceFileIds),
+        outputFileId: replacementFileId ?? referenceFileId(sourceReferenceFileIds),
         sourceReferenceFileIds,
+        approvalStatus: referenceApproved ? "approved" : "pending",
       });
     }
     if (referenceStarted) {
@@ -381,7 +387,11 @@ async function installStoryboardIllustrationMocks(
     const url = new URL(request.url());
     const path = url.pathname;
 
-    if (request.method() === "GET" && path.includes("/assets/") && path.endsWith("/thumbnail")) {
+    if (
+      request.method() === "GET" &&
+      path.includes("/assets/") &&
+      (path.endsWith("/thumbnail") || path.endsWith("/stream"))
+    ) {
       await route.fulfill({
         status: 200,
         contentType: "image/png",
@@ -451,7 +461,7 @@ async function installStoryboardIllustrationMocks(
       if (retryStarted && retryComplete) {
         failedBlockIds.clear();
         readyBlockIds.add(sceneBlockIds[1]!);
-      } else if (!referenceComplete && !referenceFailed) {
+      } else if ((!referenceComplete || !referenceApproved) && !referenceFailed) {
         params.onIllustrationsRunning();
         await route.fulfill(
           jsonResponse(buildIllustrationResponse({
@@ -504,7 +514,7 @@ async function installStoryboardIllustrationMocks(
       request.method() === "POST" &&
       path === `/storyboards/${params.draftId}/illustrations`
     ) {
-      if (!referenceComplete) {
+      if (!referenceComplete || !referenceApproved) {
         referenceStarted = true;
         referenceFailed = false;
         await route.fulfill(
@@ -527,6 +537,72 @@ async function installStoryboardIllustrationMocks(
           ),
         }), 202),
       );
+      return;
+    }
+
+    if (
+      request.method() === "POST" &&
+      path === `/storyboards/${params.draftId}/illustrations/principal-image/approve`
+    ) {
+      referenceStarted = true;
+      referenceComplete = true;
+      referenceApproved = true;
+      referenceFailed = false;
+      await route.fulfill(jsonResponse(buildIllustrationResponse({
+        reference: currentReference(),
+        items: buildItems(sceneBlockIds, new Map()),
+      })));
+      return;
+    }
+
+    if (
+      request.method() === "POST" &&
+      path === `/storyboards/${params.draftId}/illustrations/principal-image/edit`
+    ) {
+      const body = request.postDataJSON() as { extraReferenceFileIds?: string[] } | null;
+      sourceReferenceFileIds = [...new Set(body?.extraReferenceFileIds ?? sourceReferenceFileIds)];
+      referenceStarted = true;
+      referenceComplete = false;
+      referenceApproved = false;
+      referenceFailed = false;
+      replacementFileId = null;
+      await route.fulfill(
+        jsonResponse(buildIllustrationResponse({
+          reference: currentReference(),
+          items: buildItems(sceneBlockIds, new Map()),
+        }), 202),
+      );
+      return;
+    }
+
+    if (
+      request.method() === "POST" &&
+      path === `/storyboards/${params.draftId}/illustrations/principal-image/replace`
+    ) {
+      const body = request.postDataJSON() as { fileId?: string } | null;
+      replacementFileId = body?.fileId ?? null;
+      referenceStarted = true;
+      referenceComplete = true;
+      referenceApproved = false;
+      referenceFailed = false;
+      await route.fulfill(jsonResponse(buildIllustrationResponse({
+        reference: currentReference(),
+        items: buildItems(sceneBlockIds, new Map()),
+      })));
+      return;
+    }
+
+    if (
+      request.method() === "PUT" &&
+      path === `/storyboards/${params.draftId}/illustrations/principal-image/references`
+    ) {
+      const body = request.postDataJSON() as { fileIds?: string[] } | null;
+      sourceReferenceFileIds = [...new Set(body?.fileIds ?? [])];
+      referenceApproved = false;
+      await route.fulfill(jsonResponse(buildIllustrationResponse({
+        reference: currentReference(),
+        items: buildItems(sceneBlockIds, new Map()),
+      })));
       return;
     }
 
@@ -582,6 +658,7 @@ async function installStoryboardIllustrationMocks(
     completeReference: () => {
       referenceStarted = true;
       referenceComplete = true;
+      referenceApproved = false;
       referenceFailed = false;
     },
     completeInitialRun: () => {
@@ -598,8 +675,10 @@ async function installStoryboardIllustrationMocks(
     recoverReference: () => {
       referenceStarted = true;
       referenceComplete = true;
+      referenceApproved = false;
       referenceFailed = false;
     },
+    getSceneStartCount: () => startCount,
   };
 }
 
@@ -638,7 +717,8 @@ test.describe("Storyboard Step 2 scene illustrations", () => {
       await page.waitForLoadState("networkidle", { timeout: 30_000 });
       await waitForCanvas(page);
 
-      await page.getByTestId("storyboard-plan-generate-button").click();
+      await expect(page.getByTestId("storyboard-plan-generate-button")).toHaveCount(0);
+      await expect(page.getByTestId("storyboard-illustration-generate-button")).toHaveCount(0);
       await expect(page.getByTestId("scene-block-node")).toHaveCount(3, { timeout: 20_000 });
 
       const nextButton = page.getByTestId("next-step3-button");
@@ -648,6 +728,14 @@ test.describe("Storyboard Step 2 scene illustrations", () => {
       await expect(nextButton).toBeDisabled();
 
       illustrationMocks.completeReference();
+      await expect(page.getByTestId("principal-image-modal")).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId("principal-image-preview-img")).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId("principal-image-approve-button")).toBeEnabled();
+      await expect(nextButton).toBeDisabled();
+      expect(illustrationMocks.getSceneStartCount()).toBe(0);
+
+      await page.getByTestId("principal-image-approve-button").click();
+      await expect(page.getByTestId("principal-image-modal")).toHaveCount(0, { timeout: 10_000 });
       await expect(page.getByText("Image running").first()).toBeVisible({ timeout: 10_000 });
       await expect(page.getByText("Generating scene illustrations")).toBeVisible({ timeout: 10_000 });
       await expect(page.getByTestId("storyboard-reference-preview-image")).toBeVisible({ timeout: 10_000 });
@@ -704,20 +792,25 @@ test.describe("Storyboard Step 2 scene illustrations", () => {
       await page.waitForLoadState("networkidle", { timeout: 30_000 });
       await waitForCanvas(page);
 
-      await page.getByTestId("storyboard-plan-generate-button").click();
+      await expect(page.getByTestId("storyboard-plan-generate-button")).toHaveCount(0);
+      await expect(page.getByTestId("storyboard-illustration-generate-button")).toHaveCount(0);
       await expect(page.getByTestId("scene-block-node")).toHaveCount(3, { timeout: 20_000 });
 
       illustrationMocks.failReference();
       await expect(page.getByText("Visual style reference failed")).toBeVisible({ timeout: 10_000 });
       await expect(page.getByTestId("storyboard-reference-preview-fallback")).toHaveText("Failed");
       await expect(page.getByTestId("next-step3-button")).toBeDisabled();
-      const illustrationButton = page.getByTestId("storyboard-illustration-generate-button");
+      const illustrationButton = page.getByTestId("storyboard-illustration-retry-button");
       await expect(illustrationButton).toHaveText("Retry");
 
       await illustrationButton.click();
       await expect(page.getByText("Creating visual style reference")).toBeVisible({ timeout: 10_000 });
 
       illustrationMocks.completeReference();
+      await expect(page.getByTestId("principal-image-modal")).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId("principal-image-approve-button")).toBeEnabled();
+      expect(illustrationMocks.getSceneStartCount()).toBe(0);
+      await page.getByTestId("principal-image-approve-button").click();
       await expect(page.getByText("Generating scene illustrations")).toBeVisible({ timeout: 10_000 });
     } finally {
       if (planJobId) await deleteStoryboardPlanJob(conn, planJobId).catch(() => {});
@@ -761,7 +854,8 @@ test.describe("Storyboard Step 2 scene illustrations", () => {
       await page.waitForLoadState("networkidle", { timeout: 30_000 });
       await waitForCanvas(page);
 
-      await page.getByTestId("storyboard-plan-generate-button").click();
+      await expect(page.getByTestId("storyboard-plan-generate-button")).toHaveCount(0);
+      await expect(page.getByTestId("storyboard-illustration-generate-button")).toHaveCount(0);
       await expect(page.getByText("Creating visual style reference")).toBeVisible({ timeout: 10_000 });
 
       illustrationMocks.completeReference();
@@ -771,7 +865,89 @@ test.describe("Storyboard Step 2 scene illustrations", () => {
         "src",
         /file-canonical-reference-merged-2\/thumbnail/,
       );
+      await expect(page.getByTestId("principal-image-modal")).toBeVisible({ timeout: 10_000 });
+      expect(illustrationMocks.getSceneStartCount()).toBe(0);
+      await page.getByTestId("principal-image-approve-button").click();
       await expect(page.getByText("Generating scene illustrations")).toBeVisible({ timeout: 10_000 });
+    } finally {
+      if (planJobId) await deleteStoryboardPlanJob(conn, planJobId).catch(() => {});
+      await cleanupDraftImageReferences(conn, sourceReferenceFileIds).catch(() => {});
+      await cleanupDraft(page.request, token, draftId);
+      await conn.end();
+    }
+  });
+
+  test("keeps scene generation blocked while principal image is edited, replaced, and given extra references", async ({ page }) => {
+    const token = await readBearerToken();
+    await installCorsWorkaround(page, token);
+
+    const draftId = await createTempDraft(page.request, token);
+    const conn = await createE2eDbConnection();
+    let planJobId: string | null = null;
+    let sourceReferenceFileIds: string[] = [];
+
+    try {
+      const userId = await readAuthenticatedUserId(page.request, token);
+      sourceReferenceFileIds = await seedDraftImageReferences({
+        conn,
+        draftId,
+        userId,
+      });
+      await initializeDraft(page.request, token, draftId);
+      planJobId = await seedCompletedStoryboardPlanJob(conn, {
+        draftId,
+        userId,
+        plan: PLAN,
+      });
+
+      const illustrationMocks = await installStoryboardIllustrationMocks(page, {
+        token,
+        draftId,
+        planJobId,
+        sourceReferenceFileIds: [sourceReferenceFileIds[0]!],
+        onIllustrationsRunning: () => {},
+      });
+
+      await page.goto(`/storyboard/${draftId}`);
+      await page.waitForLoadState("networkidle", { timeout: 30_000 });
+      await waitForCanvas(page);
+      await expect(page.getByTestId("scene-block-node")).toHaveCount(3, { timeout: 20_000 });
+
+      illustrationMocks.completeReference();
+      await expect(page.getByTestId("principal-image-modal")).toBeVisible({ timeout: 10_000 });
+      expect(illustrationMocks.getSceneStartCount()).toBe(0);
+
+      await page.getByTestId("principal-image-edit-prompt").fill("Make the creator face camera.");
+      await page.getByTestId("principal-image-edit-button").click();
+      await expect(page.getByText("Creating visual style reference")).toBeVisible({ timeout: 10_000 });
+      expect(illustrationMocks.getSceneStartCount()).toBe(0);
+
+      illustrationMocks.recoverReference();
+      await expect(page.getByTestId("principal-image-modal")).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId("principal-image-approve-button")).toBeEnabled();
+
+      await page.getByTestId("principal-image-replace-button").click();
+      await expect(page.getByTestId("picker-dialog")).toBeVisible({ timeout: 10_000 });
+      await page.getByRole("button", { name: "Style reference 1" }).click();
+      await expect(page.getByTestId("picker-dialog")).toHaveCount(0, { timeout: 10_000 });
+      await expect(page.getByTestId("principal-image-modal")).toBeVisible({ timeout: 10_000 });
+      expect(illustrationMocks.getSceneStartCount()).toBe(0);
+
+      await page.getByTestId("principal-image-add-reference-button").click();
+      await expect(page.getByTestId("picker-dialog")).toBeVisible({ timeout: 10_000 });
+      await page.getByRole("button", { name: "Style reference 2" }).click();
+      await expect(page.getByTestId("picker-dialog")).toHaveCount(0, { timeout: 10_000 });
+      await expect(page.getByTestId("principal-image-reference-preview")).toHaveCount(2);
+      await expect(page.getByTestId("principal-image-reference-preview").last()).toHaveAttribute(
+        "title",
+        sourceReferenceFileIds[1]!,
+      );
+      expect(illustrationMocks.getSceneStartCount()).toBe(0);
+      await expect(page.getByTestId("next-step3-button")).toBeDisabled();
+
+      await page.getByTestId("principal-image-approve-button").click();
+      await expect(page.getByText("Generating scene illustrations")).toBeVisible({ timeout: 10_000 });
+      expect(illustrationMocks.getSceneStartCount()).toBe(1);
     } finally {
       if (planJobId) await deleteStoryboardPlanJob(conn, planJobId).catch(() => {});
       await cleanupDraftImageReferences(conn, sourceReferenceFileIds).catch(() => {});
