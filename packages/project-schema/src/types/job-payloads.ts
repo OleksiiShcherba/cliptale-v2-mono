@@ -107,3 +107,39 @@ export type StoryboardPlanJobPayload = {
   /** User who initiated planning. */
   userId: string;
 };
+
+export type StoryboardOpenAIImageJobKind = 'style_reference' | 'scene';
+
+export type StoryboardOpenAIImageSize =
+  | '1024x1024'
+  | '1536x1024'
+  | '1024x1536'
+  | 'auto';
+
+/**
+ * Payload for direct OpenAI Images storyboard illustration jobs.
+ *
+ * The worker owns the OpenAI API key and resolves file IDs into durable object
+ * storage reads. API services should validate/orchestrate, persist an
+ * `ai_generation_jobs` row, then enqueue this payload with the same `jobId`.
+ */
+export type StoryboardOpenAIImageJobPayload = {
+  /** Unique job identifier, matching ai_generation_jobs.job_id. */
+  jobId: string;
+  /** User who initiated the image job. */
+  userId: string;
+  /** Generation draft owning the output file link. */
+  draftId: string;
+  /** Draft-level canonical reference or a scene illustration. */
+  kind: StoryboardOpenAIImageJobKind;
+  /** Scene block for kind='scene'. Omitted for draft-level style references. */
+  blockId?: string;
+  /** Prompt sent to the OpenAI Images API. */
+  prompt: string;
+  /** File IDs used as image-edit inputs. Empty means text-to-image. */
+  referenceFileIds: string[];
+  /** Optional previous scene output used as an additional continuity input. */
+  previousSceneFileId?: string;
+  /** Requested output size/aspect. Defaults to auto in the worker. */
+  size?: StoryboardOpenAIImageSize;
+};

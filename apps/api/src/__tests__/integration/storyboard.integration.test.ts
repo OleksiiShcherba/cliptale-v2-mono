@@ -454,6 +454,156 @@ describe('PUT /storyboards/:draftId', () => {
       await conn.execute('DELETE FROM generation_drafts WHERE id = ?', [freshDraftId]);
     }
   });
+
+  it('preserves canonical references and retained scene mappings during PUT', async () => {
+    const freshDraftId = randomUUID();
+    const retainedSceneId = randomUUID();
+    const deletedSceneId = randomUUID();
+    const referenceJobId = randomUUID();
+    const referenceId = randomUUID();
+    const activeSceneJobId = randomUUID();
+    const activeSceneMappingId = randomUUID();
+    const readySceneJobId = randomUUID();
+    const readySceneMappingId = randomUUID();
+    const referenceFileId = randomUUID();
+    const readySceneFileId = randomUUID();
+
+    await conn.execute(
+      'INSERT INTO generation_drafts (id, user_id, prompt_doc) VALUES (?, ?, ?)',
+      [freshDraftId, USER_A_ID, JSON.stringify({ schemaVersion: 1, blocks: [] })],
+    );
+    await conn.execute(
+      `INSERT INTO files
+         (file_id, user_id, kind, storage_uri, mime_type, display_name, status)
+       VALUES (?, ?, 'image', ?, 'image/png', 'reference.png', 'ready'),
+              (?, ?, 'image', ?, 'image/png', 'scene-ready.png', 'ready')`,
+      [
+        referenceFileId,
+        USER_A_ID,
+        `s3://test-bucket/${referenceFileId}.png`,
+        readySceneFileId,
+        USER_A_ID,
+        `s3://test-bucket/${readySceneFileId}.png`,
+      ],
+    );
+    await conn.execute(
+      `INSERT INTO storyboard_blocks
+         (id, draft_id, block_type, name, prompt, duration_s, position_x, position_y, sort_order, style)
+       VALUES (?, ?, 'scene', 'Retained scene', 'Draw retained.', 6, 100, 200, 1, NULL),
+              (?, ?, 'scene', 'Deleted scene', 'Draw deleted.', 6, 300, 200, 2, NULL)`,
+      [retainedSceneId, freshDraftId, deletedSceneId, freshDraftId],
+    );
+    await conn.execute(
+      `INSERT INTO ai_generation_jobs
+         (job_id, user_id, model_id, capability, prompt, options, status, progress, output_file_id, draft_id)
+       VALUES (?, ?, 'gpt-image-2', 'text_to_image', 'reference', '{}', 'completed', 100, ?, ?),
+              (?, ?, 'gpt-image-2', 'image_edit', 'retained scene active', '{}', 'queued', 0, NULL, ?),
+              (?, ?, 'gpt-image-2', 'image_edit', 'deleted scene ready', '{}', 'completed', 100, ?, ?)`,
+      [
+        referenceJobId,
+        USER_A_ID,
+        referenceFileId,
+        freshDraftId,
+        activeSceneJobId,
+        USER_A_ID,
+        freshDraftId,
+        readySceneJobId,
+        USER_A_ID,
+        readySceneFileId,
+        freshDraftId,
+      ],
+    );
+    await conn.execute(
+      `INSERT INTO storyboard_illustration_references
+         (id, draft_id, ai_job_id, status, output_file_id, source_reference_file_ids, active_lock)
+       VALUES (?, ?, ?, 'ready', ?, JSON_ARRAY(), 1)`,
+      [referenceId, freshDraftId, referenceJobId, referenceFileId],
+    );
+    await conn.execute(
+      `INSERT INTO storyboard_scene_illustration_jobs
+         (id, draft_id, block_id, ai_job_id, status, output_file_id, active_lock)
+       VALUES (?, ?, ?, ?, 'queued', NULL, 1),
+              (?, ?, ?, ?, 'ready', ?, 1)`,
+      [
+        activeSceneMappingId,
+        freshDraftId,
+        retainedSceneId,
+        activeSceneJobId,
+        readySceneMappingId,
+        freshDraftId,
+        deletedSceneId,
+        readySceneJobId,
+        readySceneFileId,
+      ],
+    );
+
+    try {
+      const putRes = await request(app)
+        .put(`/storyboards/${freshDraftId}`)
+        .set('Authorization', authA())
+        .send({
+          blocks: [{
+            id: retainedSceneId,
+            draftId: freshDraftId,
+            blockType: 'scene',
+            name: 'Retained scene',
+            prompt: 'Draw retained.',
+            durationS: 6,
+            positionX: 120,
+            positionY: 220,
+            sortOrder: 1,
+            style: null,
+            mediaItems: [],
+          }],
+          edges: [],
+        });
+
+      expect(putRes.status, JSON.stringify(putRes.body)).toBe(200);
+
+      const [referenceRows] = await conn.execute<import('mysql2/promise').RowDataPacket[]>(
+        `SELECT id, ai_job_id, status, output_file_id
+           FROM storyboard_illustration_references
+          WHERE draft_id = ?`,
+        [freshDraftId],
+      );
+      expect(referenceRows).toEqual([
+        expect.objectContaining({
+          id: referenceId,
+          ai_job_id: referenceJobId,
+          status: 'ready',
+          output_file_id: referenceFileId,
+        }),
+      ]);
+
+      const [sceneRows] = await conn.execute<import('mysql2/promise').RowDataPacket[]>(
+        `SELECT id, block_id, ai_job_id, status, output_file_id
+           FROM storyboard_scene_illustration_jobs
+          WHERE draft_id = ?
+          ORDER BY id ASC`,
+        [freshDraftId],
+      );
+      expect(sceneRows).toEqual([
+        expect.objectContaining({
+          id: activeSceneMappingId,
+          block_id: retainedSceneId,
+          ai_job_id: activeSceneJobId,
+          status: 'queued',
+          output_file_id: null,
+        }),
+      ]);
+    } finally {
+      await conn.execute('DELETE FROM storyboard_illustration_references WHERE draft_id = ?', [freshDraftId]);
+      await conn.execute('DELETE FROM storyboard_scene_illustration_jobs WHERE draft_id = ?', [freshDraftId]);
+      await conn.execute('DELETE FROM storyboard_blocks WHERE draft_id = ?', [freshDraftId]);
+      await conn.execute('DELETE FROM ai_generation_jobs WHERE job_id IN (?, ?, ?)', [
+        referenceJobId,
+        activeSceneJobId,
+        readySceneJobId,
+      ]);
+      await conn.execute('DELETE FROM files WHERE file_id IN (?, ?)', [referenceFileId, readySceneFileId]);
+      await conn.execute('DELETE FROM generation_drafts WHERE id = ?', [freshDraftId]);
+    }
+  });
 });
 
 // ── Concurrent GET /storyboards/:draftId — sentinel dedup race ───────────────

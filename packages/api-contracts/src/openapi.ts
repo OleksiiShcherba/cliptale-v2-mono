@@ -796,7 +796,7 @@ export const openApiSpec = {
       get: {
         summary: 'List storyboard illustration statuses',
         description:
-          'Returns one illustration status item for every scene block in storyboard order.',
+          'Returns the canonical style reference status and one illustration status item for every scene block in storyboard order.',
         operationId: 'listStoryboardIllustrations',
         tags: ['storyboard'],
         parameters: [
@@ -824,10 +824,11 @@ export const openApiSpec = {
         security: [{ bearerAuth: [] }],
       },
       post: {
-        summary: 'Start storyboard scene illustrations',
+        summary: 'Start storyboard reference and scene illustrations',
         description:
-          'Enqueues missing or failed text-to-image jobs for scene blocks without duplicating ' +
-          'queued/running jobs. Returns quickly with current queued/running/ready/failed states.',
+          'Creates or retries the canonical style reference, then enqueues the next eligible ' +
+          'missing or failed scene image-edit job without duplicating queued/running jobs. ' +
+          'Returns quickly with current reference and scene queued/running/ready/failed states.',
         operationId: 'startStoryboardIllustrations',
         tags: ['storyboard'],
         parameters: [
@@ -841,7 +842,7 @@ export const openApiSpec = {
         ],
         responses: {
           202: {
-            description: 'Scene illustration jobs queued where needed.',
+            description: 'Reference or scene illustration work queued where needed.',
             content: {
               'application/json': {
                 schema: { $ref: '#/components/schemas/StoryboardIllustrationStatusResponse' },
@@ -860,8 +861,9 @@ export const openApiSpec = {
       post: {
         summary: 'Start or retry one storyboard scene illustration',
         description:
-          'Enqueues a text-to-image job for one scene block unless its latest attempt is still ' +
-          'queued, running, or ready. Failed scenes can be retried through this endpoint.',
+          'Creates or retries the canonical style reference if needed, then enqueues one scene ' +
+          'image-edit job only when its reference and previous-scene prerequisites are ready. ' +
+          'Failed scenes can be retried through this endpoint.',
         operationId: 'startStoryboardBlockIllustration',
         tags: ['storyboard'],
         parameters: [
@@ -1817,15 +1819,65 @@ export const openApiSpec = {
           },
         },
       },
+      StoryboardIllustrationReferenceStatus: {
+        type: 'object',
+        required: ['status', 'jobId', 'outputFileId', 'sourceReferenceFileIds', 'errorMessage'],
+        description: 'Draft-level canonical style reference generation status.',
+        properties: {
+          status: {
+            type: 'string',
+            enum: ['queued', 'running', 'ready', 'failed'],
+            description: 'UI-facing canonical reference state.',
+          },
+          jobId: {
+            type: ['string', 'null'],
+            format: 'uuid',
+            description: 'Reference AI generation job id, or null before one has been created.',
+          },
+          outputFileId: {
+            type: ['string', 'null'],
+            format: 'uuid',
+            description: 'Generated canonical reference output file id when ready.',
+          },
+          sourceReferenceFileIds: {
+            type: 'array',
+            items: { type: 'string', format: 'uuid' },
+            description: 'User-provided image reference file ids used to create the canonical reference.',
+          },
+          errorMessage: {
+            type: ['string', 'null'],
+            description: 'Provider or validation error when failed.',
+          },
+        },
+      },
       StoryboardIllustrationStatusResponse: {
         type: 'object',
-        required: ['items'],
-        description: 'Per-scene illustration statuses ordered by storyboard sort order.',
+        required: ['reference', 'items'],
+        description: 'Canonical reference and per-scene illustration statuses ordered by storyboard order.',
         properties: {
+          reference: { $ref: '#/components/schemas/StoryboardIllustrationReferenceStatus' },
           items: {
             type: 'array',
             items: { $ref: '#/components/schemas/StoryboardIllustrationStatusItem' },
           },
+        },
+        example: {
+          reference: {
+            status: 'running',
+            jobId: '11111111-1111-4111-8111-111111111111',
+            outputFileId: null,
+            sourceReferenceFileIds: [],
+            errorMessage: null,
+          },
+          items: [
+            {
+              blockId: '22222222-2222-4222-8222-222222222222',
+              status: 'queued',
+              jobId: null,
+              outputFileId: null,
+              errorMessage: null,
+            },
+          ],
         },
       },
       BlockInsert: {

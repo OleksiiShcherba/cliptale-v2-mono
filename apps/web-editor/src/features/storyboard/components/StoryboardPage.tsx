@@ -81,6 +81,7 @@ export function StoryboardPage(): React.ReactElement {
     onStoryboardUpdated: reloadStoryboard,
   });
   const isGenerationBlocking = isPlanBlocking || illustrationGeneration.isBlocking;
+  const isStep3Disabled = isGenerationBlocking || illustrationGeneration.status === 'failed';
 
   useEffect(() => {
     initHistoryStore(safeDraftId);
@@ -287,7 +288,7 @@ export function StoryboardPage(): React.ReactElement {
 
   const handleBack = (): void => { navigate(draftId ? `/generate?draftId=${draftId}` : '/generate'); };
   const handleNext = (): void => {
-    if (isGenerationBlocking) return;
+    if (isStep3Disabled) return;
     navigate('/generate/road-map');
   };
 
@@ -314,7 +315,7 @@ export function StoryboardPage(): React.ReactElement {
         isPlanBlocking={isPlanBlocking}
       />
 
-      <StoryboardPageFooter isNextDisabled={isGenerationBlocking} onBack={handleBack} onNext={handleNext} />
+      <StoryboardPageFooter isNextDisabled={isStep3Disabled} onBack={handleBack} onNext={handleNext} />
 
       {editingBlock !== null && (
         <SceneModal

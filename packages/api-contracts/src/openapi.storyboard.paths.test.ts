@@ -107,6 +107,7 @@ describe('openApiSpec storyboard paths', () => {
     it('defines GET /storyboards/{draftId}/illustrations', () => {
       const op = paths['/storyboards/{draftId}/illustrations']?.['get'] as Record<string, unknown>;
       expect(op.operationId).toBe('listStoryboardIllustrations');
+      expect(op.description).toContain('canonical style reference status');
       const responses = op.responses as Record<string, unknown>;
       const ok = responses[200] as Record<string, unknown>;
       const schema = (
@@ -118,6 +119,8 @@ describe('openApiSpec storyboard paths', () => {
     it('defines POST /storyboards/{draftId}/illustrations', () => {
       const op = paths['/storyboards/{draftId}/illustrations']?.['post'] as Record<string, unknown>;
       expect(op.operationId).toBe('startStoryboardIllustrations');
+      expect(op.description).toContain('canonical style reference');
+      expect(op.description).toContain('next eligible');
       const responses = op.responses as Record<string, unknown>;
       const accepted = responses[202] as Record<string, unknown>;
       const schema = (
@@ -133,9 +136,17 @@ describe('openApiSpec storyboard paths', () => {
         unknown
       >;
       expect(op.operationId).toBe('startStoryboardBlockIllustration');
+      expect(op.description).toContain('previous-scene prerequisites');
       const params = op.parameters as Array<Record<string, unknown>>;
       expect(params.find((param) => param.name === 'draftId')).toBeDefined();
       expect(params.find((param) => param.name === 'blockId')).toBeDefined();
+      const responses = op.responses as Record<string, unknown>;
+      const accepted = responses[202] as Record<string, unknown>;
+      const schema = (
+        (accepted.content as Record<string, unknown>)['application/json'] as Record<string, unknown>
+      ).schema as Record<string, unknown>;
+      expect(schema.$ref).toBe('#/components/schemas/StoryboardIllustrationStatusResponse');
+      expect(responses[422]).toBeDefined();
     });
   });
 

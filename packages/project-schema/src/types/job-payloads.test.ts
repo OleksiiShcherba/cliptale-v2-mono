@@ -7,6 +7,7 @@ import type {
   CaptionSegment,
   RenderPreset,
   RenderVideoJobPayload,
+  StoryboardOpenAIImageJobPayload,
 } from './job-payloads.js';
 
 describe('TranscriptionJobPayload', () => {
@@ -213,5 +214,42 @@ describe('MediaIngestJobPayload', () => {
     expect(video.contentType).toBe('video/mp4');
     expect(audio.contentType).toBe('audio/mpeg');
     expect(image.contentType).toBe('image/jpeg');
+  });
+});
+
+describe('StoryboardOpenAIImageJobPayload', () => {
+  it('accepts a text-only canonical style reference job', () => {
+    const payload: StoryboardOpenAIImageJobPayload = {
+      jobId: 'job-100',
+      userId: 'user-100',
+      draftId: 'draft-100',
+      kind: 'style_reference',
+      prompt: 'Create a consistent cinematic storyboard style reference.',
+      referenceFileIds: [],
+      size: '1536x1024',
+    };
+
+    expect(payload.kind).toBe('style_reference');
+    expect(payload.referenceFileIds).toEqual([]);
+    expect(payload.blockId).toBeUndefined();
+  });
+
+  it('accepts a scene image-edit job with canonical and previous-scene references', () => {
+    const payload: StoryboardOpenAIImageJobPayload = {
+      jobId: 'job-101',
+      userId: 'user-100',
+      draftId: 'draft-100',
+      kind: 'scene',
+      blockId: 'block-100',
+      prompt: 'Show the second scene in the same visual language.',
+      referenceFileIds: ['canonical-file'],
+      previousSceneFileId: 'scene-1-file',
+      size: '1024x1024',
+    };
+
+    expect(payload.kind).toBe('scene');
+    expect(payload.blockId).toBe('block-100');
+    expect(payload.referenceFileIds).toEqual(['canonical-file']);
+    expect(payload.previousSceneFileId).toBe('scene-1-file');
   });
 });

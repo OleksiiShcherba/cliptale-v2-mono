@@ -72,6 +72,14 @@ vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
   useStoryboardHistorySeed: vi.fn(),
 }));
 
+vi.mock('@/lib/api-client', () => ({
+  buildAuthenticatedUrl: (url: string) => `${url}?token=test`,
+}));
+
+vi.mock('@/lib/config', () => ({
+  config: { apiBaseUrl: 'http://api.test' },
+}));
+
 vi.mock('@/features/storyboard/components/LibraryPanel', () => ({
   LibraryPanel: ({ draftId }: { draftId: string }) => (
     <div data-testid="library-panel-mock" data-draft-id={draftId} />
@@ -131,7 +139,9 @@ function setPlanMock(overrides: Record<string, unknown> = {}) {
 function setIllustrationMock(overrides: Record<string, unknown> = {}) {
   mockUseStoryboardIllustrations.mockReturnValue({
     status: 'idle',
+    phase: 'idle',
     error: null,
+    reference: null,
     items: [],
     byBlockId: new Map(),
     isBlocking: false,
@@ -172,7 +182,7 @@ describe('StoryboardPage / storyboard plan generation', () => {
   });
 
   it('disables Step 3 while scene illustrations are running without blocking Back or Home', () => {
-    setIllustrationMock({ status: 'running', isBlocking: true });
+    setIllustrationMock({ status: 'running', phase: 'scene', isBlocking: true });
     renderPage();
 
     expect(screen.queryByTestId('storyboard-plan-overlay')).toBeNull();
@@ -183,6 +193,129 @@ describe('StoryboardPage / storyboard plan generation', () => {
 
     expect(mockNavigate).toHaveBeenCalledWith('/generate?draftId=test-draft-abc');
     expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('shows visual style reference progress while reference generation is active', () => {
+    setIllustrationMock({
+      status: 'running',
+      phase: 'reference',
+      isBlocking: true,
+      reference: {
+        status: 'running',
+        jobId: 'ref-job-1',
+        outputFileId: null,
+        sourceReferenceFileIds: [],
+        errorMessage: null,
+      },
+    });
+
+    renderPage();
+
+    expect(screen.getByText('Creating visual style reference')).toBeTruthy();
+    expect(screen.getByTestId('storyboard-reference-preview-fallback').textContent).toBe('Wait');
+    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('shows a queued fallback in the canonical reference preview before the thumbnail is ready', () => {
+    setIllustrationMock({
+      status: 'queued',
+      phase: 'reference',
+      isBlocking: true,
+      reference: {
+        status: 'queued',
+        jobId: 'ref-job-1',
+        outputFileId: null,
+        sourceReferenceFileIds: [],
+        errorMessage: null,
+      },
+    });
+
+    renderPage();
+
+    expect(screen.getByTestId('storyboard-reference-preview')).toBeTruthy();
+    expect(screen.getByTestId('storyboard-reference-preview-fallback').textContent).toBe('Wait');
+    expect(screen.queryByTestId('storyboard-reference-preview-image')).toBeNull();
+  });
+
+  it('shows the ready canonical reference preview thumbnail', () => {
+    setIllustrationMock({
+      status: 'running',
+      phase: 'scene',
+      isBlocking: true,
+      reference: {
+        status: 'ready',
+        jobId: 'ref-job-1',
+        outputFileId: 'ref-file-1',
+        sourceReferenceFileIds: [],
+        errorMessage: null,
+      },
+    });
+
+    renderPage();
+
+    const image = screen.getByTestId('storyboard-reference-preview-image') as HTMLImageElement;
+    expect(image.alt).toBe('Canonical visual style reference');
+    expect(image.src).toContain('http://api.test/assets/ref-file-1/thumbnail?token=test');
+  });
+
+  it('falls back gracefully when the canonical reference thumbnail fails', () => {
+    setIllustrationMock({
+      status: 'running',
+      phase: 'scene',
+      isBlocking: true,
+      reference: {
+        status: 'ready',
+        jobId: 'ref-job-1',
+        outputFileId: 'ref-file-1',
+        sourceReferenceFileIds: [],
+        errorMessage: null,
+      },
+    });
+
+    renderPage();
+
+    fireEvent.error(screen.getByTestId('storyboard-reference-preview-image'));
+    expect(screen.getByTestId('storyboard-reference-preview-fallback').textContent).toBe('Ref');
+  });
+
+  it('allows retry from main illustration control when the style reference failed', () => {
+    setIllustrationMock({
+      status: 'failed',
+      phase: 'reference',
+      isBlocking: false,
+      error: 'Reference failed',
+      reference: {
+        status: 'failed',
+        jobId: 'ref-job-1',
+        outputFileId: null,
+        sourceReferenceFileIds: [],
+        errorMessage: 'Reference failed',
+      },
+    });
+
+    renderPage();
+
+    expect(screen.getByText('Visual style reference failed')).toBeTruthy();
+    expect(screen.getByTestId('storyboard-reference-preview-fallback').textContent).toBe('Failed');
+    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('storyboard-illustration-generate-button').textContent).toBe('Retry');
+    fireEvent.click(screen.getByTestId('storyboard-illustration-generate-button'));
+    expect(mockStartIllustrations).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps scene failure retry scoped to the scene block', () => {
+    setIllustrationMock({
+      status: 'failed',
+      phase: 'scene',
+      isBlocking: false,
+      error: 'Scene failed',
+    });
+
+    renderPage();
+
+    expect(screen.getByText('Illustration failed')).toBeTruthy();
+    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId('storyboard-illustration-generate-button') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('keeps Back and Home available while generation is running', () => {

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { test, expect, type Page, type Route } from "@playwright/test";
 
 import { installCorsWorkaround } from "./helpers/cors-workaround";
@@ -96,6 +98,71 @@ type IllustrationItem = {
   errorMessage: string | null;
 };
 
+type ReferenceStatusItem = {
+  status: IllustrationStatus;
+  jobId: string | null;
+  outputFileId: string | null;
+  sourceReferenceFileIds: string[];
+  errorMessage: string | null;
+};
+
+type IllustrationStatusResponse = {
+  reference: ReferenceStatusItem;
+  items: IllustrationItem[];
+};
+
+async function seedDraftImageReferences(params: {
+  conn: Awaited<ReturnType<typeof createE2eDbConnection>>;
+  draftId: string;
+  userId: string;
+}): Promise<string[]> {
+  const fileIds = [randomUUID(), randomUUID()];
+  for (const [index, fileId] of fileIds.entries()) {
+    await params.conn.execute(
+      `INSERT INTO files
+         (file_id, user_id, kind, storage_uri, mime_type, bytes, width, height, display_name, status)
+       VALUES (?, ?, 'image', ?, 'image/png', 128, 1, 1, ?, 'ready')`,
+      [
+        fileId,
+        params.userId,
+        `s3://e2e-storyboard/${fileId}.png`,
+        `Style reference ${index + 1}`,
+      ],
+    );
+    await params.conn.execute(
+      `INSERT INTO draft_files (draft_id, file_id) VALUES (?, ?)`,
+      [params.draftId, fileId],
+    );
+  }
+
+  await params.conn.execute(
+    `UPDATE generation_drafts SET prompt_doc = ? WHERE id = ?`,
+    [
+      JSON.stringify({
+        schemaVersion: 1,
+        blocks: [
+          { type: "text", value: "Build a consistent storyboard from these visual references." },
+          { type: "media-ref", mediaType: "image", fileId: fileIds[0], label: "Style reference 1" },
+          { type: "media-ref", mediaType: "image", fileId: fileIds[1], label: "Style reference 2" },
+        ],
+      }),
+      params.draftId,
+    ],
+  );
+
+  return fileIds;
+}
+
+async function cleanupDraftImageReferences(
+  conn: Awaited<ReturnType<typeof createE2eDbConnection>>,
+  fileIds: string[],
+): Promise<void> {
+  if (fileIds.length === 0) return;
+  const placeholders = fileIds.map(() => "?").join(",");
+  await conn.query(`DELETE FROM draft_files WHERE file_id IN (${placeholders})`, fileIds);
+  await conn.query(`DELETE FROM files WHERE file_id IN (${placeholders})`, fileIds);
+}
+
 function jsonResponse(body: unknown, status = 200) {
   return {
     status,
@@ -110,6 +177,12 @@ function jsonResponse(body: unknown, status = 200) {
 
 function readyFileId(blockId: string): string {
   return `file-${blockId.slice(-12)}`;
+}
+
+function referenceFileId(sourceReferenceFileIds: string[] = []): string {
+  return sourceReferenceFileIds.length > 1
+    ? `file-canonical-reference-merged-${sourceReferenceFileIds.length}`
+    : "file-canonical-reference";
 }
 
 function buildAppliedStoryboardState(draftId: string): StoryboardState {
@@ -185,17 +258,44 @@ function buildAppliedStoryboardState(draftId: string): StoryboardState {
 function buildItems(
   sceneBlockIds: string[],
   overrides: Map<string, IllustrationStatus>,
+  options: { queuedJobIds?: boolean } = {},
 ): IllustrationItem[] {
   return sceneBlockIds.map((blockId, index) => {
     const status = overrides.get(blockId) ?? "queued";
+    const jobId = status === "queued" && options.queuedJobIds !== true
+      ? null
+      : `job-${index + 1}`;
     return {
       blockId,
       status,
-      jobId: `job-${index + 1}`,
+      jobId,
       outputFileId: status === "ready" ? readyFileId(blockId) : null,
       errorMessage: status === "failed" ? "Provider rejected this scene." : null,
     };
   });
+}
+
+function buildReference(
+  overrides: Partial<ReferenceStatusItem> = {},
+): ReferenceStatusItem {
+  return {
+    status: "queued",
+    jobId: null,
+    outputFileId: null,
+    sourceReferenceFileIds: [],
+    errorMessage: null,
+    ...overrides,
+  };
+}
+
+function buildIllustrationResponse(params: {
+  reference: ReferenceStatusItem;
+  items: IllustrationItem[];
+}): IllustrationStatusResponse {
+  return {
+    reference: params.reference,
+    items: params.items,
+  };
 }
 
 function withReadyMedia(state: StoryboardState, readyBlockIds: Set<string>): StoryboardState {
@@ -227,19 +327,54 @@ async function installStoryboardIllustrationMocks(
     draftId: string;
     planJobId: string;
     onIllustrationsRunning: () => void;
+    sourceReferenceFileIds?: string[];
   },
 ): Promise<{
+  completeReference: () => void;
   completeInitialRun: () => void;
   completeRetry: () => void;
+  failReference: () => void;
+  recoverReference: () => void;
 }> {
   let latestStoryboardState: StoryboardState | null = null;
   let sceneBlockIds: string[] = [];
   let startCount = 0;
   let retryStarted = false;
+  let referenceStarted = false;
+  let referenceComplete = false;
+  let referenceFailed = false;
   let initialRunComplete = false;
   let retryComplete = false;
   const readyBlockIds = new Set<string>();
   const failedBlockIds = new Set<string>();
+  const sourceReferenceFileIds = params.sourceReferenceFileIds ?? [];
+
+  const currentReference = (): ReferenceStatusItem => {
+    if (referenceFailed) {
+      return buildReference({
+        status: "failed",
+        jobId: "ref-job-1",
+        sourceReferenceFileIds,
+        errorMessage: "Reference generation failed.",
+      });
+    }
+    if (referenceComplete) {
+      return buildReference({
+        status: "ready",
+        jobId: "ref-job-1",
+        outputFileId: referenceFileId(sourceReferenceFileIds),
+        sourceReferenceFileIds,
+      });
+    }
+    if (referenceStarted) {
+      return buildReference({
+        status: "running",
+        jobId: "ref-job-1",
+        sourceReferenceFileIds,
+      });
+    }
+    return buildReference({ sourceReferenceFileIds });
+  };
 
   await page.route("**/*", async (route: Route) => {
     const request = route.request();
@@ -306,23 +441,36 @@ async function installStoryboardIllustrationMocks(
       path === `/storyboards/${params.draftId}/illustrations`
     ) {
       if (sceneBlockIds.length === 0) {
-        await route.fulfill(jsonResponse({ items: [] }));
+        await route.fulfill(jsonResponse(buildIllustrationResponse({
+          reference: currentReference(),
+          items: [],
+        })));
         return;
       }
 
       if (retryStarted && retryComplete) {
         failedBlockIds.clear();
         readyBlockIds.add(sceneBlockIds[1]!);
+      } else if (!referenceComplete && !referenceFailed) {
+        params.onIllustrationsRunning();
+        await route.fulfill(
+          jsonResponse(buildIllustrationResponse({
+            reference: currentReference(),
+            items: buildItems(sceneBlockIds, new Map()),
+          })),
+        );
+        return;
       } else if (retryStarted) {
         params.onIllustrationsRunning();
         await route.fulfill(
-          jsonResponse({
+          jsonResponse(buildIllustrationResponse({
+            reference: currentReference(),
             items: buildItems(sceneBlockIds, new Map([
               [sceneBlockIds[0]!, "ready"],
               [sceneBlockIds[1]!, "running"],
               [sceneBlockIds[2]!, "ready"],
             ])),
-          }),
+          })),
         );
         return;
       } else if (initialRunComplete) {
@@ -332,20 +480,22 @@ async function installStoryboardIllustrationMocks(
       } else if (startCount > 0) {
         params.onIllustrationsRunning();
         await route.fulfill(
-          jsonResponse({
+          jsonResponse(buildIllustrationResponse({
+            reference: currentReference(),
             items: buildItems(sceneBlockIds, new Map(sceneBlockIds.map((id) => [id, "running"]))),
-          }),
+          })),
         );
         return;
       }
 
       await route.fulfill(
-        jsonResponse({
+        jsonResponse(buildIllustrationResponse({
+          reference: currentReference(),
           items: buildItems(sceneBlockIds, new Map([
             ...Array.from(readyBlockIds).map((id) => [id, "ready"] as const),
             ...Array.from(failedBlockIds).map((id) => [id, "failed"] as const),
           ])),
-        }),
+        })),
       );
       return;
     }
@@ -354,11 +504,28 @@ async function installStoryboardIllustrationMocks(
       request.method() === "POST" &&
       path === `/storyboards/${params.draftId}/illustrations`
     ) {
+      if (!referenceComplete) {
+        referenceStarted = true;
+        referenceFailed = false;
+        await route.fulfill(
+          jsonResponse(buildIllustrationResponse({
+            reference: currentReference(),
+            items: buildItems(sceneBlockIds, new Map()),
+          }), 202),
+        );
+        return;
+      }
+
       startCount += 1;
       await route.fulfill(
-        jsonResponse({
-          items: buildItems(sceneBlockIds, new Map(sceneBlockIds.map((id) => [id, "queued"]))),
-        }, 202),
+        jsonResponse(buildIllustrationResponse({
+          reference: currentReference(),
+          items: buildItems(
+            sceneBlockIds,
+            new Map(sceneBlockIds.map((id) => [id, "queued"])),
+            { queuedJobIds: true },
+          ),
+        }), 202),
       );
       return;
     }
@@ -371,13 +538,18 @@ async function installStoryboardIllustrationMocks(
       retryStarted = true;
       failedBlockIds.clear();
       await route.fulfill(
-        jsonResponse({
-          items: buildItems(sceneBlockIds, new Map([
-            [sceneBlockIds[0]!, "ready"],
-            [sceneBlockIds[1]!, "queued"],
-            [sceneBlockIds[2]!, "ready"],
-          ])),
-        }, 202),
+        jsonResponse(buildIllustrationResponse({
+          reference: currentReference(),
+          items: buildItems(
+            sceneBlockIds,
+            new Map([
+              [sceneBlockIds[0]!, "ready"],
+              [sceneBlockIds[1]!, "queued"],
+              [sceneBlockIds[2]!, "ready"],
+            ]),
+            { queuedJobIds: true },
+          ),
+        }), 202),
       );
       return;
     }
@@ -407,11 +579,26 @@ async function installStoryboardIllustrationMocks(
   });
 
   return {
+    completeReference: () => {
+      referenceStarted = true;
+      referenceComplete = true;
+      referenceFailed = false;
+    },
     completeInitialRun: () => {
       initialRunComplete = true;
     },
     completeRetry: () => {
       retryComplete = true;
+    },
+    failReference: () => {
+      referenceStarted = true;
+      referenceComplete = false;
+      referenceFailed = true;
+    },
+    recoverReference: () => {
+      referenceStarted = true;
+      referenceComplete = true;
+      referenceFailed = false;
     },
   };
 }
@@ -456,7 +643,14 @@ test.describe("Storyboard Step 2 scene illustrations", () => {
 
       const nextButton = page.getByTestId("next-step3-button");
       await runningSeen;
+      await expect(page.getByText("Creating visual style reference")).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId("storyboard-reference-preview-fallback")).toHaveText("Wait");
+      await expect(nextButton).toBeDisabled();
+
+      illustrationMocks.completeReference();
       await expect(page.getByText("Image running").first()).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText("Generating scene illustrations")).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId("storyboard-reference-preview-image")).toBeVisible({ timeout: 10_000 });
       await expect(nextButton).toBeDisabled();
       await expect(page.getByTestId("back-button")).toBeEnabled();
       await expect(page.getByTestId("home-button")).toBeEnabled();
@@ -464,7 +658,7 @@ test.describe("Storyboard Step 2 scene illustrations", () => {
       illustrationMocks.completeInitialRun();
       await expect(page.getByText("Image failed")).toBeVisible({ timeout: 10_000 });
       await expect(page.getByText("Image ready").first()).toBeVisible({ timeout: 10_000 });
-      await expect(nextButton).toBeEnabled();
+      await expect(nextButton).toBeDisabled();
 
       const failedScene = page.getByTestId("scene-block-node").filter({ hasText: "Image failed" });
       await failedScene.getByTestId("illustration-retry-button").click();
@@ -477,6 +671,110 @@ test.describe("Storyboard Step 2 scene illustrations", () => {
       await expect(page.getByTestId("thumbnail-img")).toHaveCount(3, { timeout: 15_000 });
     } finally {
       if (planJobId) await deleteStoryboardPlanJob(conn, planJobId).catch(() => {});
+      await cleanupDraft(page.request, token, draftId);
+      await conn.end();
+    }
+  });
+
+  test("retries a failed canonical reference from the main illustration control", async ({ page }) => {
+    const token = await readBearerToken();
+    await installCorsWorkaround(page, token);
+
+    const draftId = await createTempDraft(page.request, token);
+    const conn = await createE2eDbConnection();
+    let planJobId: string | null = null;
+
+    try {
+      const userId = await readAuthenticatedUserId(page.request, token);
+      await initializeDraft(page.request, token, draftId);
+      planJobId = await seedCompletedStoryboardPlanJob(conn, {
+        draftId,
+        userId,
+        plan: PLAN,
+      });
+
+      const illustrationMocks = await installStoryboardIllustrationMocks(page, {
+        token,
+        draftId,
+        planJobId,
+        onIllustrationsRunning: () => {},
+      });
+
+      await page.goto(`/storyboard/${draftId}`);
+      await page.waitForLoadState("networkidle", { timeout: 30_000 });
+      await waitForCanvas(page);
+
+      await page.getByTestId("storyboard-plan-generate-button").click();
+      await expect(page.getByTestId("scene-block-node")).toHaveCount(3, { timeout: 20_000 });
+
+      illustrationMocks.failReference();
+      await expect(page.getByText("Visual style reference failed")).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByTestId("storyboard-reference-preview-fallback")).toHaveText("Failed");
+      await expect(page.getByTestId("next-step3-button")).toBeDisabled();
+      const illustrationButton = page.getByTestId("storyboard-illustration-generate-button");
+      await expect(illustrationButton).toHaveText("Retry");
+
+      await illustrationButton.click();
+      await expect(page.getByText("Creating visual style reference")).toBeVisible({ timeout: 10_000 });
+
+      illustrationMocks.completeReference();
+      await expect(page.getByText("Generating scene illustrations")).toBeVisible({ timeout: 10_000 });
+    } finally {
+      if (planJobId) await deleteStoryboardPlanJob(conn, planJobId).catch(() => {});
+      await cleanupDraft(page.request, token, draftId);
+      await conn.end();
+    }
+  });
+
+  test("shows a merged reference preview for multi-image-reference drafts", async ({ page }) => {
+    const token = await readBearerToken();
+    await installCorsWorkaround(page, token);
+
+    const draftId = await createTempDraft(page.request, token);
+    const conn = await createE2eDbConnection();
+    let planJobId: string | null = null;
+    let sourceReferenceFileIds: string[] = [];
+
+    try {
+      const userId = await readAuthenticatedUserId(page.request, token);
+      sourceReferenceFileIds = await seedDraftImageReferences({
+        conn,
+        draftId,
+        userId,
+      });
+      await initializeDraft(page.request, token, draftId);
+      planJobId = await seedCompletedStoryboardPlanJob(conn, {
+        draftId,
+        userId,
+        plan: PLAN,
+      });
+
+      const illustrationMocks = await installStoryboardIllustrationMocks(page, {
+        token,
+        draftId,
+        planJobId,
+        sourceReferenceFileIds,
+        onIllustrationsRunning: () => {},
+      });
+
+      await page.goto(`/storyboard/${draftId}`);
+      await page.waitForLoadState("networkidle", { timeout: 30_000 });
+      await waitForCanvas(page);
+
+      await page.getByTestId("storyboard-plan-generate-button").click();
+      await expect(page.getByText("Creating visual style reference")).toBeVisible({ timeout: 10_000 });
+
+      illustrationMocks.completeReference();
+      const referenceImage = page.getByTestId("storyboard-reference-preview-image");
+      await expect(referenceImage).toBeVisible({ timeout: 10_000 });
+      await expect(referenceImage).toHaveAttribute(
+        "src",
+        /file-canonical-reference-merged-2\/thumbnail/,
+      );
+      await expect(page.getByText("Generating scene illustrations")).toBeVisible({ timeout: 10_000 });
+    } finally {
+      if (planJobId) await deleteStoryboardPlanJob(conn, planJobId).catch(() => {});
+      await cleanupDraftImageReferences(conn, sourceReferenceFileIds).catch(() => {});
       await cleanupDraft(page.request, token, draftId);
       await conn.end();
     }

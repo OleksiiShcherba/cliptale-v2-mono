@@ -6,8 +6,11 @@ import {
   startStoryboardIllustrations,
 } from '@/features/storyboard/api';
 import type {
+  StoryboardIllustrationLifecyclePhase,
+  StoryboardIllustrationReferenceStatus,
   StoryboardIllustrationLifecycleStatus,
   StoryboardIllustrationStatusItem,
+  StoryboardIllustrationStatusResponse,
 } from '@/features/storyboard/types';
 
 const DEFAULT_POLL_INTERVAL_MS = 1_500;
@@ -19,7 +22,9 @@ type UseStoryboardIllustrationsOptions = {
 
 export type UseStoryboardIllustrationsResult = {
   status: StoryboardIllustrationLifecycleStatus;
+  phase: StoryboardIllustrationLifecyclePhase;
   error: string | null;
+  reference: StoryboardIllustrationReferenceStatus | null;
   items: StoryboardIllustrationStatusItem[];
   byBlockId: Map<string, StoryboardIllustrationStatusItem>;
   isBlocking: boolean;
@@ -28,19 +33,58 @@ export type UseStoryboardIllustrationsResult = {
   refresh: () => Promise<StoryboardIllustrationStatusItem[]>;
 };
 
-function hasActiveJob(item: StoryboardIllustrationStatusItem): boolean {
+function hasActiveJob(item: StoryboardIllustrationStatusItem | StoryboardIllustrationReferenceStatus): boolean {
   return item.jobId !== null && (item.status === 'queued' || item.status === 'running');
 }
 
-function deriveStatus(items: StoryboardIllustrationStatusItem[]): StoryboardIllustrationLifecycleStatus {
-  if (items.some(hasActiveJob)) {
-    return items.some((item) => item.jobId !== null && item.status === 'running') ? 'running' : 'queued';
+function deriveStatus(response: StoryboardIllustrationStatusResponse): StoryboardIllustrationLifecycleStatus {
+  const entries = [response.reference, ...response.items];
+  if (entries.some(hasActiveJob)) {
+    return entries.some((item) => item.jobId !== null && item.status === 'running') ? 'running' : 'queued';
   }
-  if (items.some((item) => item.status === 'failed')) return 'failed';
-  if (items.length > 0 && items.every((item) => item.jobId !== null && item.status === 'ready')) {
+  if (entries.some((item) => item.status === 'failed')) return 'failed';
+  if (
+    response.reference.status === 'ready' &&
+    response.items.length > 0 &&
+    response.items.every((item) => item.jobId !== null && item.status === 'ready')
+  ) {
     return 'completed';
   }
   return 'idle';
+}
+
+function derivePhase(response: StoryboardIllustrationStatusResponse): StoryboardIllustrationLifecyclePhase {
+  if (hasActiveJob(response.reference)) {
+    return 'reference';
+  }
+  if (response.items.some(hasActiveJob)) {
+    return 'scene';
+  }
+  if (response.reference.status === 'failed') {
+    return 'reference';
+  }
+  if (response.items.some((item) => item.status === 'failed')) {
+    return 'scene';
+  }
+  if (
+    response.reference.status === 'ready' &&
+    response.items.length > 0 &&
+    response.items.every((item) => item.jobId !== null && item.status === 'ready')
+  ) {
+    return 'completed';
+  }
+  return 'idle';
+}
+
+function hasActiveWork(response: StoryboardIllustrationStatusResponse): boolean {
+  return hasActiveJob(response.reference) || response.items.some(hasActiveJob);
+}
+
+function hasPendingSceneStart(response: StoryboardIllustrationStatusResponse): boolean {
+  return (
+    response.reference.status === 'ready' &&
+    response.items.some((item) => item.status === 'queued' && item.jobId === null)
+  );
 }
 
 export function useStoryboardIllustrations(
@@ -54,9 +98,14 @@ export function useStoryboardIllustrations(
   const seenOutputFileIdsRef = useRef<Set<string>>(new Set());
   const activeDraftIdRef = useRef(draftId);
   const requestTokenRef = useRef(0);
+  const hasActiveWorkRef = useRef(false);
+  const workflowActiveRef = useRef(false);
+  const shouldContinueSceneStartRef = useRef(false);
 
   const [items, setItems] = useState<StoryboardIllustrationStatusItem[]>([]);
+  const [reference, setReference] = useState<StoryboardIllustrationReferenceStatus | null>(null);
   const [status, setStatus] = useState<StoryboardIllustrationLifecycleStatus>('idle');
+  const [phase, setPhase] = useState<StoryboardIllustrationLifecyclePhase>('idle');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -70,15 +119,31 @@ export function useStoryboardIllustrations(
     }
   }, []);
 
-  const applyItems = useCallback((nextItems: StoryboardIllustrationStatusItem[]) => {
-    setItems(nextItems);
-    setStatus(deriveStatus(nextItems));
+  const applyResponse = useCallback((response: StoryboardIllustrationStatusResponse) => {
+    const nextStatus = deriveStatus(response);
+    const nextPhase = derivePhase(response);
+    const shouldContinueSceneStart = workflowActiveRef.current && hasPendingSceneStart(response);
 
-    const unseenReadyOutput = nextItems.find((item) => (
-      item.outputFileId !== null && !seenOutputFileIdsRef.current.has(item.outputFileId)
+    setReference(response.reference);
+    setItems(response.items);
+    setStatus(shouldContinueSceneStart ? 'queued' : nextStatus);
+    setPhase(shouldContinueSceneStart ? 'scene' : nextPhase);
+    hasActiveWorkRef.current = hasActiveWork(response) || shouldContinueSceneStart;
+    shouldContinueSceneStartRef.current = shouldContinueSceneStart;
+
+    if (nextStatus === 'completed' || nextStatus === 'failed') {
+      workflowActiveRef.current = false;
+    }
+
+    const readyOutputs = [
+      response.reference.outputFileId,
+      ...response.items.map((item) => item.outputFileId),
+    ].filter((fileId): fileId is string => fileId !== null);
+    const unseenReadyOutput = readyOutputs.find((fileId) => (
+      !seenOutputFileIdsRef.current.has(fileId)
     ));
-    nextItems.forEach((item) => {
-      if (item.outputFileId) seenOutputFileIdsRef.current.add(item.outputFileId);
+    readyOutputs.forEach((fileId) => {
+      seenOutputFileIdsRef.current.add(fileId);
     });
 
     if (unseenReadyOutput) {
@@ -106,78 +171,113 @@ export function useStoryboardIllustrations(
       const response = await fetchStoryboardIllustrations(draftId);
       if (!isCurrentRequest(draftId, token)) return [];
       setError(null);
-      applyItems(response.items);
+      applyResponse(response);
       return response.items;
     } catch (err) {
       if (!isCurrentRequest(draftId, token)) return [];
       setError('Could not check illustration progress.');
       setStatus('failed');
+      setPhase('failed');
       throw err;
     }
-  }, [applyItems, beginRequest, draftId, isCurrentRequest]);
+  }, [applyResponse, beginRequest, draftId, isCurrentRequest]);
+
+  const continueStoryboardIllustrations = useCallback(async (): Promise<void> => {
+    if (!draftId) return;
+    const token = requestTokenRef.current;
+    const draftIdForRequest = draftId;
+    const response = await startStoryboardIllustrations(draftId);
+    if (!isCurrentRequest(draftIdForRequest, token)) return;
+    applyResponse(response);
+  }, [applyResponse, draftId, isCurrentRequest]);
 
   const schedulePoll = useCallback(() => {
     clearPollTimeout();
     timeoutRef.current = window.setTimeout(() => {
-      void refresh().then((nextItems) => {
+      void refresh().then(async () => {
         if (!isMountedRef.current) return;
-        if (nextItems.some(hasActiveJob)) schedulePoll();
+        if (shouldContinueSceneStartRef.current) {
+          try {
+            await continueStoryboardIllustrations();
+          } catch {
+            if (!isMountedRef.current) return;
+            workflowActiveRef.current = false;
+            hasActiveWorkRef.current = false;
+            shouldContinueSceneStartRef.current = false;
+            setError('Could not start illustration generation.');
+            setStatus('failed');
+            setPhase('reference');
+          }
+          if (!isMountedRef.current) return;
+        }
+        if (hasActiveWorkRef.current) schedulePoll();
       }).catch(() => {
         clearPollTimeout();
       });
     }, pollIntervalMs);
-  }, [clearPollTimeout, pollIntervalMs, refresh]);
+  }, [clearPollTimeout, continueStoryboardIllustrations, pollIntervalMs, refresh]);
 
   const start = useCallback(async (): Promise<void> => {
     if (!draftId) return;
     clearPollTimeout();
     const token = beginRequest(draftId);
+    workflowActiveRef.current = true;
     setStatus('queued');
+    setPhase('reference');
     setError(null);
 
     try {
       const response = await startStoryboardIllustrations(draftId);
       if (!isCurrentRequest(draftId, token)) return;
-      applyItems(response.items);
-      if (response.items.some(hasActiveJob)) schedulePoll();
+      applyResponse(response);
+      if (hasActiveWorkRef.current) schedulePoll();
     } catch (err) {
       if (!isCurrentRequest(draftId, token)) return;
+      workflowActiveRef.current = false;
       setError('Could not start illustration generation.');
       setStatus('failed');
+      setPhase('failed');
     }
-  }, [applyItems, beginRequest, clearPollTimeout, draftId, isCurrentRequest, schedulePoll]);
+  }, [applyResponse, beginRequest, clearPollTimeout, draftId, isCurrentRequest, schedulePoll]);
 
   const retryBlock = useCallback(async (blockId: string): Promise<void> => {
     if (!draftId) return;
     clearPollTimeout();
     const token = beginRequest(draftId);
     setStatus('queued');
+    setPhase('scene');
     setError(null);
 
     try {
       const response = await startStoryboardBlockIllustration(draftId, blockId);
       if (!isCurrentRequest(draftId, token)) return;
-      applyItems(response.items);
-      if (response.items.some(hasActiveJob)) schedulePoll();
+      applyResponse(response);
+      if (hasActiveWork(response)) schedulePoll();
     } catch (err) {
       if (!isCurrentRequest(draftId, token)) return;
       setError('Could not retry the scene illustration.');
       setStatus('failed');
+      setPhase('failed');
     }
-  }, [applyItems, beginRequest, clearPollTimeout, draftId, isCurrentRequest, schedulePoll]);
+  }, [applyResponse, beginRequest, clearPollTimeout, draftId, isCurrentRequest, schedulePoll]);
 
   useEffect(() => {
     isMountedRef.current = true;
     activeDraftIdRef.current = draftId;
     requestTokenRef.current += 1;
     seenOutputFileIdsRef.current = new Set();
+    hasActiveWorkRef.current = false;
+    workflowActiveRef.current = false;
+    shouldContinueSceneStartRef.current = false;
     clearPollTimeout();
     setItems([]);
+    setReference(null);
     setStatus('idle');
+    setPhase('idle');
     setError(null);
     void refresh().then((nextItems) => {
       if (!isMountedRef.current) return;
-      if (nextItems.some(hasActiveJob)) schedulePoll();
+      if (hasActiveWorkRef.current) schedulePoll();
     }).catch(() => {
       clearPollTimeout();
     });
@@ -194,7 +294,9 @@ export function useStoryboardIllustrations(
 
   return {
     status,
+    phase,
     error,
+    reference,
     items,
     byBlockId,
     isBlocking: status === 'queued' || status === 'running',

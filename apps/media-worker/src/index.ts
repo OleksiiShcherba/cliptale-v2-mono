@@ -4,6 +4,7 @@ import type {
   TranscriptionJobPayload,
   EnhancePromptJobPayload,
   StoryboardPlanJobPayload,
+  StoryboardOpenAIImageJobPayload,
 } from '@ai-video-editor/project-schema';
 import OpenAI from 'openai';
 
@@ -19,128 +20,29 @@ import {
 } from '@/lib/elevenlabs-client.js';
 import { processIngestJob } from '@/jobs/ingest.job.js';
 import { processTranscribeJob } from '@/jobs/transcribe.job.js';
-import { processAiGenerateJob, type AiGenerateJobPayload, type FilesRepo, type AiGenerationJobRepo, type CreateFileParams, type StoryboardIllustrationRepo } from '@/jobs/ai-generate.job.js';
+import { processAiGenerateJob, type AiGenerateJobPayload } from '@/jobs/ai-generate.job.js';
 import { processEnhancePromptJob } from '@/jobs/enhancePrompt.job.js';
 import { processStoryboardPlanJob } from '@/jobs/storyboardPlan.job.js';
+import { processStoryboardOpenAIImageJob } from '@/jobs/storyboardOpenAIImage.job.js';
+import {
+  aiGenerationJobRepo,
+  filesRepo,
+  storyboardAiGenerationJobRepo,
+  storyboardIllustrationRepo,
+  storyboardImageFileReadRepo,
+  storyboardReferenceRepo,
+} from '@/jobs/workerRepositories.js';
 
 const QUEUE_MEDIA_INGEST = 'media-ingest';
 const QUEUE_TRANSCRIPTION = 'transcription';
 const QUEUE_AI_GENERATE = 'ai-generate';
 const QUEUE_AI_ENHANCE = 'ai-enhance';
 const QUEUE_STORYBOARD_PLAN = 'storyboard-plan';
+const QUEUE_STORYBOARD_OPENAI_IMAGE = 'storyboard-openai-image';
 
 const connection = { url: config.redis.url };
 
 const openaiClient = new OpenAI({ apiKey: config.openai.apiKey });
-
-// ── Worker-local repo implementations ─────────────────────────────────────────
-
-/**
- * Thin worker-local implementation of FilesRepo — inserts into `files` with
- * status='processing'. The full repository lives in apps/api; workers use this
- * injected implementation so they do not import across app boundaries.
- */
-const filesRepo: FilesRepo = {
-  async createFile(params: CreateFileParams): Promise<string> {
-    await pool.execute(
-      `INSERT INTO files
-         (file_id, user_id, kind, storage_uri, mime_type, bytes, width, height, display_name, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing')`,
-      [
-        params.fileId,
-        params.userId,
-        params.kind,
-        params.storageUri,
-        params.mimeType,
-        params.bytes,
-        params.width,
-        params.height,
-        params.displayName,
-      ],
-    );
-    return params.fileId;
-  },
-};
-
-/**
- * Thin worker-local implementation of AiGenerationJobRepo — mirrors the
- * setOutputFile contract from apps/api/src/repositories/aiGenerationJob.repository.ts.
- * Marks the job completed, sets output_file_id, and INSERT IGNOREs into
- * draft_files when the job has a draft_id set.
- */
-const aiGenerationJobRepo: AiGenerationJobRepo = {
-  async setOutputFile(jobId: string, fileId: string): Promise<void> {
-    const [rows] = await pool.execute<Array<{ draft_id: string | null } & import('mysql2/promise').RowDataPacket>>(
-      'SELECT draft_id FROM ai_generation_jobs WHERE job_id = ?',
-      [jobId],
-    );
-    const draftId = rows.length ? rows[0]!.draft_id : null;
-
-    await pool.execute(
-      `UPDATE ai_generation_jobs
-       SET status = 'completed', progress = 100, output_file_id = ?
-       WHERE job_id = ?`,
-      [fileId, jobId],
-    );
-
-    if (draftId) {
-      // INSERT IGNORE: if the draft was deleted between job submit and completion
-      // the FK will reject the insert and the link is silently skipped.
-      await pool.execute(
-        'INSERT IGNORE INTO draft_files (draft_id, file_id) VALUES (?, ?)',
-        [draftId, fileId],
-      );
-    }
-  },
-};
-
-const storyboardIllustrationRepo: StoryboardIllustrationRepo = {
-  async attachOutputToBlock(params): Promise<void> {
-    await pool.execute(
-      `UPDATE storyboard_scene_illustration_jobs
-          SET status = 'ready',
-              output_file_id = ?,
-              error_message = NULL
-        WHERE ai_job_id = ?`,
-      [params.outputFileId, params.aiJobId],
-    );
-
-    await pool.execute(
-      `INSERT INTO storyboard_block_media (id, block_id, file_id, media_type, sort_order)
-       SELECT ?, sj.block_id, ?, 'image', COALESCE(MAX(existing.sort_order) + 1, 0)
-         FROM storyboard_scene_illustration_jobs sj
-         LEFT JOIN storyboard_block_media existing
-           ON existing.block_id = sj.block_id
-        WHERE sj.ai_job_id = ?
-          AND sj.output_file_id = ?
-          AND NOT EXISTS (
-            SELECT 1
-              FROM storyboard_block_media duplicate
-             WHERE duplicate.block_id = sj.block_id
-               AND duplicate.file_id = ?
-               AND duplicate.media_type = 'image'
-          )
-        GROUP BY sj.block_id`,
-      [
-        params.id,
-        params.outputFileId,
-        params.aiJobId,
-        params.outputFileId,
-        params.outputFileId,
-      ],
-    );
-  },
-
-  async markFailed(aiJobId: string, errorMessage: string): Promise<void> {
-    await pool.execute(
-      `UPDATE storyboard_scene_illustration_jobs
-          SET status = 'failed',
-              error_message = ?
-        WHERE ai_job_id = ?`,
-      [errorMessage, aiJobId],
-    );
-  },
-};
 
 // Worker-side producer for media-ingest — used by the ai-generate handler to
 // hand off newly written assets to FFprobe so they get duration/fps/thumbnail.
@@ -271,6 +173,38 @@ storyboardPlanWorker.on('error', (err) => {
 
 console.log('[media-worker] Listening for jobs on queue:', QUEUE_STORYBOARD_PLAN);
 
+// ── Storyboard OpenAI Images worker (concurrency 1 — image generation/edit) ─
+
+const storyboardOpenAIImageWorker = new Worker<StoryboardOpenAIImageJobPayload>(
+  QUEUE_STORYBOARD_OPENAI_IMAGE,
+  (job) => processStoryboardOpenAIImageJob(job, {
+    openai: openaiClient,
+    s3: s3Client,
+    pool,
+    bucket: config.s3.bucket,
+    filesRepo,
+    fileReadRepo: storyboardImageFileReadRepo,
+    aiGenerationJobRepo: storyboardAiGenerationJobRepo,
+    storyboardReferenceRepo,
+    storyboardSceneRepo: storyboardIllustrationRepo,
+  }),
+  { connection, concurrency: 1 },
+);
+
+storyboardOpenAIImageWorker.on('completed', (job) => {
+  console.log(`[media-worker] storyboard-openai-image job ${job.id} completed`);
+});
+
+storyboardOpenAIImageWorker.on('failed', (job, err) => {
+  console.error(`[media-worker] storyboard-openai-image job ${job?.id} failed:`, err.message);
+});
+
+storyboardOpenAIImageWorker.on('error', (err) => {
+  console.error('[media-worker] storyboard-openai-image worker error:', err.message);
+});
+
+console.log('[media-worker] Listening for jobs on queue:', QUEUE_STORYBOARD_OPENAI_IMAGE);
+
 // ── Graceful shutdown ─────────────────────────────────────────────────────────
 
 async function shutdown(signal: string): Promise<void> {
@@ -281,6 +215,7 @@ async function shutdown(signal: string): Promise<void> {
     aiGenerateWorker.close(),
     aiEnhanceWorker.close(),
     storyboardPlanWorker.close(),
+    storyboardOpenAIImageWorker.close(),
     mediaIngestQueue.close(),
   ]);
   console.log('[media-worker] Workers closed. Exiting.');

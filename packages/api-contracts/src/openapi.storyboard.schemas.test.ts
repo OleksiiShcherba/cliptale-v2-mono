@@ -70,11 +70,29 @@ describe('openApiSpec storyboard component schemas', () => {
     const itemProps = item.properties as Record<string, Record<string, unknown>>;
     expect(itemProps.status?.enum).toEqual(['queued', 'running', 'ready', 'failed']);
 
+    const reference = schemas['StoryboardIllustrationReferenceStatus'] as Record<string, unknown>;
+    expect(reference).toBeDefined();
+    expect(reference.required).toEqual([
+      'status',
+      'jobId',
+      'outputFileId',
+      'sourceReferenceFileIds',
+      'errorMessage',
+    ]);
+    const referenceProps = reference.properties as Record<string, Record<string, unknown>>;
+    expect(referenceProps.status?.enum).toEqual(['queued', 'running', 'ready', 'failed']);
+    expect(referenceProps.sourceReferenceFileIds?.type).toBe('array');
+
     const response = schemas['StoryboardIllustrationStatusResponse'] as Record<string, unknown>;
     expect(response).toBeDefined();
+    expect(response.required).toEqual(['reference', 'items']);
     const props = response.properties as Record<string, Record<string, unknown>>;
+    expect(props.reference?.$ref).toBe('#/components/schemas/StoryboardIllustrationReferenceStatus');
     const items = props.items?.items as Record<string, unknown>;
     expect(items.$ref).toBe('#/components/schemas/StoryboardIllustrationStatusItem');
+    const example = response.example as { reference?: Record<string, unknown>; items?: unknown[] };
+    expect(example.reference?.status).toBe('running');
+    expect(example.items).toHaveLength(1);
   });
 
   it('defines SaveStoryboardBody schema with blocks and edges', () => {

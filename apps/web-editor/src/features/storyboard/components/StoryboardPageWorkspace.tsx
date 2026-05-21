@@ -118,6 +118,8 @@ export function StoryboardPageWorkspace({
         />
         <StoryboardIllustrationControls
           status={illustrationGeneration.status}
+          phase={illustrationGeneration.phase}
+          reference={illustrationGeneration.reference}
           error={illustrationGeneration.error}
           isBlocking={illustrationGeneration.isBlocking || isPlanBlocking}
           onStart={() => { void illustrationGeneration.start(); }}

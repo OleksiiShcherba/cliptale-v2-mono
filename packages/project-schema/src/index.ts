@@ -56,4 +56,7 @@ export type {
   RenderVideoJobPayload,
   EnhancePromptJobPayload,
   StoryboardPlanJobPayload,
+  StoryboardOpenAIImageJobKind,
+  StoryboardOpenAIImageSize,
+  StoryboardOpenAIImageJobPayload,
 } from './types/job-payloads.js';

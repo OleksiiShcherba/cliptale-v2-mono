@@ -525,6 +525,182 @@
 - tests: `npm --workspace apps/api test -- storyboard.integration storyboardIllustration storyboard-illustration-endpoints` -> 3 files / 30 tests passed.
 - typecheck: `npm --workspace apps/api run typecheck` -> passed.
 
+## Consistent Storyboard Illustration Style Reference Pipeline — STYLE-REF-1 (2026-05-14)
+- added: migration `040_storyboard_illustration_references.sql` with draft-level canonical reference mappings, source reference JSON, output file link, status lifecycle, and active draft lock uniqueness.
+- added: `storyboardIllustrationReference.repository` with create, latest/active lookup, AI-job lookup, status updates, output updates, and mysql2 JSON string/object guards.
+- covered: migration shape/idempotency, real MySQL active-draft uniqueness, retry after failed active-lock clearing, AI-job uniqueness, draft cascade delete, output file `SET NULL`, source reference JSON round-trip, repository lifecycle calls against MySQL, and ready output linkage.
+- tests: `npm --workspace apps/api test -- migration-040 storyboardIllustrationReference` -> 2 files / 19 tests passed.
+- note: an earlier `npm --workspace apps/api test -- migration-040` failed because MySQL was not listening on `127.0.0.1:3306`; after `docker compose up -d db` and healthy DB, the expanded command above passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- active task: removed only `STYLE-REF-1` from `docs/active_task.md`; `STYLE-REF-2` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Consistent Storyboard Illustration Style Reference Pipeline — STYLE-REF-2 (2026-05-14)
+- added: shared `StoryboardOpenAIImageJobPayload` for `storyboard-openai-image` jobs with style-reference/scene kind, reference file IDs, optional block/previous-scene file, prompt, and output size.
+- added: API `storyboard-openai-image` BullMQ queue and enqueue helper using persisted `ai_generation_jobs.job_id` as the BullMQ job id.
+- added: media-worker `processStoryboardOpenAIImageJob` direct OpenAI Images path using `model: 'gpt-image-2'`; text-only jobs call `images.generate`, referenced jobs call `images.edit` with image files read from object storage.
+- added: worker-local repository split in `workerRepositories.ts` so workers keep using injected thin repository interfaces without importing API repositories.
+- implemented: OpenAI output decode/download, S3 upload, `files` row creation, `ai_generation_jobs` completion/draft-file linkage, reference output update hook, sanitized failure persistence, and storyboard reference failure update.
+- review fix: storyboard OpenAI image outputs now mark their `files` rows `ready` immediately after upload, since this path already owns the final PNG bytes and does not need media ingest.
+- review fix: expanded media-worker coverage for missing reference files, unreadable object-storage references, malformed OpenAI image responses, failed OpenAI URL downloads, and worker repository SQL behavior.
+- preserved: existing fal.ai/ElevenLabs `ai-generate` behavior remains on its existing queue and handler.
+- tests: `npm --workspace packages/project-schema test -- job-payloads` -> 1 file / 15 tests passed.
+- tests: `npm --workspace apps/api test -- enqueue-storyboard-openai-image` -> 1 file / 1 test passed.
+- tests: `npm --workspace apps/media-worker test -- storyboardOpenAIImage workerRepositories` -> 2 files / 13 tests passed.
+- build/typecheck: `npm --workspace packages/project-schema run build`, `npm --workspace packages/project-schema run typecheck`, `npm --workspace apps/media-worker run typecheck`, and `npm --workspace apps/api run typecheck` -> passed.
+- active task: removed only `STYLE-REF-2` from `docs/active_task.md`; `STYLE-REF-3` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Consistent Storyboard Illustration Style Reference Pipeline — STYLE-REF-3 (2026-05-14)
+- added: storyboard illustration service now creates/reuses a draft-level canonical reference before scene jobs are enqueued.
+- implemented: text-only drafts enqueue `gpt-image-2` text-to-image reference jobs; drafts with linked ready image refs enqueue `gpt-image-2` image-edit reference jobs; video/audio refs are ignored for reference selection.
+- guarded: missing/unlinked/not-ready image refs return 422 before creating jobs; scene prompt validation still runs before creating a reference; scene illustration jobs are skipped until the canonical reference is ready.
+- integrated: reference mappings are persisted before enqueue, `ai_generation_jobs.draft_id` is set, and duplicate active reference races mark the extra DB job failed without duplicating queue work.
+- refreshed: status reads now reconcile canonical reference mappings from `ai_generation_jobs` so stale ready/failed states repair during polling.
+- review fix: explicit block illustration now validates the scene prompt before creating/reusing a canonical reference.
+- review fix: added coverage for duplicate active reference races, endpoint-level first-reference creation/gating, explicit single-scene gating, and linked-but-not-ready image references.
+- tests: `npm --workspace apps/api test -- storyboardIllustration storyboard-illustration-endpoints` -> 3 files / 35 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- active task: removed only `STYLE-REF-3` from `docs/active_task.md`; `STYLE-REF-4` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Consistent Storyboard Illustration Style Reference Pipeline — STYLE-REF-4 (2026-05-14)
+- confirmed: storyboard OpenAI image worker updates canonical reference mappings ready on success with `output_file_id`, and failed with sanitized error plus `active_lock = NULL`.
+- confirmed: worker success/failure remains injected through thin worker-local repository interfaces and does not couple to the fal `ai-generate` path.
+- added: API polling coverage for completed canonical reference jobs repairing stale mappings through `setReferenceOutput`.
+- added: API polling coverage for failed canonical reference jobs updating status/error so references become retryable.
+- review fix: storyboard OpenAI image worker now persists failed AI/reference state only on the final BullMQ attempt, preventing early `active_lock` clearing while Redis retries remain pending.
+- covered: worker tests still verify output file creation/ready status, `ai_generation_jobs` completion/failure, reference ready/failed updates, and failure sanitization.
+- tests: `npm --workspace apps/api test -- storyboardIllustration` -> 2 files / 29 tests passed.
+- tests: `npm --workspace apps/media-worker test -- storyboardOpenAIImage workerRepositories` -> 2 files / 14 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` and `npm --workspace apps/media-worker run typecheck` -> passed.
+- active task: removed only `STYLE-REF-4` from `docs/active_task.md`; `STYLE-REF-5` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Consistent Storyboard Illustration Style Reference Pipeline — STYLE-REF-5 (2026-05-14)
+- changed: scene illustration jobs now use the direct `storyboard-openai-image` queue with `gpt-image-2` image-edit payloads instead of the standalone fal text-to-image submit path.
+- implemented: scene generation is sequential in storyboard graph order from START to END, with sort-order fallback when a full graph path cannot be derived.
+- implemented: scene 1 waits for the canonical reference output; later scenes wait for both the canonical reference and the previous ready scene output, then pass both file IDs to the OpenAI image-edit worker.
+- preserved: ready scene outputs are skipped by bulk POST, failed scenes remain retryable per block, duplicate active scene mapping races fail the extra AI job without queueing duplicate work, and scene output attachment remains idempotent.
+- wired: storyboard OpenAI image worker success/failure now updates scene illustration mappings through injected worker-local repository hooks, parallel to the canonical reference hooks.
+- covered: API unit/integration tests for reference gating, graph ordering, next-scene-only enqueueing, previous-scene continuity refs, explicit block retry gating, direct scene job persistence, and endpoint DB assertions.
+- covered: media-worker tests for scene output attach/failure hooks plus worker repository SQL for ready/failed scene mapping updates.
+- tests: `npm --workspace apps/api test -- storyboardIllustration storyboard-illustration-endpoints` -> 3 files / 41 tests passed.
+- tests: `npm --workspace apps/media-worker test -- storyboardOpenAIImage workerRepositories` -> 2 files / 17 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` and `npm --workspace apps/media-worker run typecheck` -> passed.
+- active task: removed only `STYLE-REF-5` from `docs/active_task.md`; `STYLE-REF-6` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Consistent Storyboard Illustration Style Reference Pipeline — STYLE-REF-6 (2026-05-14)
+- changed: `StoryboardIllustrationStatusResponse` now returns a required `reference` object alongside the existing scene `items` array.
+- added: reference status shape includes `status`, `jobId`, `outputFileId`, `sourceReferenceFileIds`, and `errorMessage`, with endpoint tests covering ready and queued reference responses.
+- updated: OpenAPI schemas, path descriptions, and examples now describe the canonical reference phase before sequential scene image generation.
+- kept compatible: scene item shape remains unchanged, and web-editor storyboard types now include the reference object.
+- review fix: `useStoryboardIllustrations` now derives lifecycle/polling from both the canonical reference and scene items, so a reference-only queued/running job remains blocking and continues polling.
+- covered: hook tests now use the `{ reference, items }` response shape and include a reference-only active job regression that refreshes the storyboard when the reference output appears.
+- tests: `npm --workspace apps/api test -- storyboardIllustration storyboard-illustration-endpoints` -> 3 files / 41 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi` -> 5 files / 117 tests passed.
+- tests: `npm --workspace apps/web-editor test -- useStoryboardIllustrations` -> 1 file / 8 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` and `npm --workspace packages/api-contracts run typecheck` -> passed.
+- typecheck caveat: `npm --workspace apps/web-editor run typecheck` still fails on pre-existing unrelated workspace errors; filtered check for `useStoryboardIllustrations` and storyboard types produced no touched-file errors.
+- active task: removed only `STYLE-REF-6` from `docs/active_task.md`; `STYLE-REF-7` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Consistent Storyboard Illustration Style Reference Pipeline — STYLE-REF-7 (2026-05-14)
+- confirmed: canonical reference mappings are draft-level rows and are not affected by storyboard block full-replace deletes.
+- confirmed: existing storyboard full-replace logic snapshots scene illustration mappings before block deletion and restores mappings only for retained blocks after reinserting blocks.
+- added: integration regression coverage for `PUT /storyboards/:draftId` preserving a completed canonical reference row and output file, preserving a retained active scene mapping, and allowing a deleted scene block mapping to cascade away.
+- covered: retained scene mapping assertions verify original mapping id, block id, AI job id, status, and null output remain intact after autosave/full replace.
+- tests: `npm --workspace apps/api test -- storyboard.integration storyboardIllustration` -> 3 files / 49 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- active task: removed only `STYLE-REF-7` from `docs/active_task.md`; `STYLE-REF-8` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Consistent Storyboard Illustration Style Reference Pipeline — STYLE-REF-8 (2026-05-14)
+- changed: web-editor illustration lifecycle now tracks both `status` and `phase` (`reference` vs `scene`) so Step 2 can distinguish canonical reference creation from scene illustration generation.
+- implemented: hook polling treats reference jobs as blocking, refreshes storyboard when reference or scene outputs first appear, and auto-continues by calling the start endpoint again after the reference becomes ready so the next eligible scene job is queued.
+- implemented: automatic scene-start continuation failures now clear the blocking state, surface a failure, and keep the retry path on the main illustration control.
+- updated: illustration control copy now shows "Creating visual style reference" during reference work and "Generating scene illustrations" during scene work.
+- updated: failed references show a main `Retry` CTA; failed scene generation disables the main CTA so retry remains scoped to the failed scene block.
+- preserved: Back/Home remain available while illustration work blocks Step 3, and per-scene retry buttons remain on `SceneBlockNode`.
+- tests: `npm --workspace apps/web-editor test -- useStoryboardIllustrations StoryboardPage.plan SceneBlockNode` -> 4 files / 54 tests passed.
+- typecheck caveat: `npm --workspace apps/web-editor run typecheck` still fails on pre-existing unrelated workspace errors; filtered check for touched storyboard files produced no errors.
+- active task: removed only `STYLE-REF-8` from `docs/active_task.md`; `STYLE-REF-9` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Consistent Storyboard Illustration Style Reference Pipeline — STYLE-REF-9 (2026-05-14)
+- added: compact canonical reference preview inside the Step 2 illustration control, using existing dark tokens, 8px radius, and no nested card structure.
+- implemented: ready canonical references render an authenticated `/assets/:id/thumbnail` image via `buildAuthenticatedUrl`.
+- implemented: queued/running/missing references show compact fallback text, and thumbnail load failures fall back without breaking the control.
+- added: stable `data-testid` hooks for the preview, image, and fallback states.
+- review fix: control title text now clips with ellipsis to avoid overlap after adding the thumbnail preview.
+- tests: `npm --workspace apps/web-editor test -- StoryboardPage.plan useStoryboardIllustrations StoryboardPlanControls` -> 2 files / 25 tests passed.
+- typecheck caveat: `npm --workspace apps/web-editor run typecheck` still fails on pre-existing unrelated workspace errors; filtered check for touched storyboard files produced no errors.
+- check: `git diff --check -- apps/web-editor/src/features/storyboard/components/StoryboardPlanControls.styles.ts apps/web-editor/src/features/storyboard/components/StoryboardPlanControls.tsx apps/web-editor/src/features/storyboard/components/StoryboardPage.plan.test.tsx` -> passed.
+- active task: removed only `STYLE-REF-9` from `docs/active_task.md`; `STYLE-REF-10` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Consistent Storyboard Illustration Style Reference Pipeline — STYLE-REF-10 (2026-05-14)
+- added: E2E coverage in `e2e/storyboard-illustrations.spec.ts` for the reference-driven storyboard illustration flow without live provider calls.
+- covered: text-only canonical reference progress into scene generation, reference preview thumbnail, Step 3 gating during reference and scene work, failed scene retry, final scene thumbnails, and Back/Home availability while generation blocks only Step 3.
+- covered: failed canonical reference state from the main illustration control, including failed preview fallback, Step 3 gating, retry click while still failed, recovery through reference progress, and continuation into scene generation.
+- covered: multi-image-reference draft path by seeding two ready image files linked to the draft, storing `media-ref` prompt blocks, and asserting the merged canonical reference thumbnail URL.
+- fixed: Step 3 navigation now remains disabled for failed illustration workflows while leaving Back/Home/canvas retry paths available; Step 3 re-enables only after all scene outputs are ready.
+- tests: `npm --workspace apps/web-editor test -- StoryboardPage.plan useStoryboardIllustrations StoryboardPlanControls` -> 2 files / 25 tests passed.
+- typecheck: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/helpers/storyboard.ts e2e/storyboard-illustrations.spec.ts` -> passed.
+- playwright: `VITE_PUBLIC_API_BASE_URL=http://localhost:3002 E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3002 npx playwright test e2e/storyboard-illustrations.spec.ts` -> 3 passed.
+- check: `git diff --check -- apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx apps/web-editor/src/features/storyboard/components/StoryboardPage.plan.test.tsx e2e/storyboard-illustrations.spec.ts` -> passed.
+- active task: removed only `STYLE-REF-10` from `docs/active_task.md`; `STYLE-REF-11` remains.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Consistent Storyboard Illustration Style Reference Pipeline — STYLE-REF-11 Final Regression (2026-05-14)
+- verified: shared storyboard OpenAI image job payloads, OpenAPI storyboard illustration reference status contracts, API reference/scene orchestration, media-worker OpenAI Images processing, frontend reference/scene lifecycle UI, and E2E reference-driven user flows.
+- confirmed: direct OpenAI Images API calls remain in `apps/media-worker/src/jobs/storyboardOpenAIImage.job.ts`; API code only enqueues `storyboard-openai-image` jobs and stores/reports canonical reference state.
+- confirmed: no cross-app imports were found by the focused architecture scan.
+- confirmed: reference and scene reconciliation paths are covered by focused API/media-worker tests for active-job guards, idempotent completion/failure updates, and retry behavior.
+- tests: `npm --workspace packages/project-schema test -- job-payloads` -> 1 file / 15 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi fal-models` -> 6 files / 132 tests passed.
+- tests: `npm --workspace apps/api test -- migration-040 storyboardIllustration storyboardIllustrationReference storyboard-illustration-endpoints storyboard.integration` -> 5 files / 64 tests passed.
+- tests: `npm --workspace apps/media-worker test -- storyboardOpenAIImage ai-generate` -> 6 files / 47 tests passed.
+- tests: `npm --workspace apps/web-editor test -- useStoryboardIllustrations StoryboardPage.plan SceneBlockNode StoryboardPlanControls` -> 4 files / 57 tests passed.
+- typecheck: focused E2E compile `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/helpers/storyboard.ts e2e/storyboard-illustrations.spec.ts` -> passed.
+- playwright: `VITE_PUBLIC_API_BASE_URL=http://localhost:3002 E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3002 npx playwright test e2e/storyboard-illustrations.spec.ts` hit local login rate limit after repeated reviewer runs; restarted a fresh clean API on `3003`, seeded the E2E user, and reran `VITE_PUBLIC_API_BASE_URL=http://localhost:3003 E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3003 npx playwright test e2e/storyboard-illustrations.spec.ts` -> 3 passed.
+- active task: cleared `docs/active_task.md`; all STYLE-REF subtasks are complete.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
 ---
 
 ## Architectural Decisions

@@ -16,6 +16,10 @@ const MIGRATION_039_PATH = resolve(
   __dirname,
   '../../db/migrations/039_storyboard_scene_illustration_active_lock.sql',
 );
+const MIGRATION_040_PATH = resolve(
+  __dirname,
+  '../../db/migrations/040_storyboard_illustration_references.sql',
+);
 
 Object.assign(process.env, {
   APP_DB_HOST: process.env['APP_DB_HOST'] ?? 'localhost',
@@ -71,6 +75,8 @@ let sceneA1: string;
 let sceneA2: string;
 let sceneNoPrompt: string;
 let sceneB1: string;
+let draftNoReference: string;
+let sceneNoReference: string;
 
 const cleanupJobs: string[] = [];
 const cleanupFiles: string[] = [];
@@ -99,6 +105,32 @@ async function seedScene(params: {
   );
 }
 
+async function seedReadyReference(draftId: string, userId: string): Promise<void> {
+  const jobId = randomUUID();
+  const fileId = randomUUID();
+  cleanupJobs.push(jobId);
+  cleanupFiles.push(fileId);
+
+  await conn.execute(
+    `INSERT INTO ai_generation_jobs
+       (job_id, user_id, model_id, capability, prompt, options, status, progress, output_file_id, draft_id)
+     VALUES (?, ?, 'gpt-image-2', 'text_to_image', 'reference', JSON_OBJECT(), 'completed', 100, ?, ?)`,
+    [jobId, userId, fileId, draftId],
+  );
+  await conn.execute(
+    `INSERT INTO files
+       (file_id, user_id, kind, storage_uri, mime_type, display_name, status)
+     VALUES (?, ?, 'image', ?, 'image/png', 'ready-reference.png', 'ready')`,
+    [fileId, userId, `s3://test-bucket/${fileId}.png`],
+  );
+  await conn.execute(
+    `INSERT INTO storyboard_illustration_references
+       (id, draft_id, ai_job_id, status, output_file_id, source_reference_file_ids, active_lock)
+     VALUES (?, ?, ?, 'ready', ?, JSON_ARRAY(), 1)`,
+    [randomUUID(), draftId, jobId, fileId],
+  );
+}
+
 beforeAll(async () => {
   const mod = await import('../../index.js');
   app = mod.default;
@@ -113,6 +145,7 @@ beforeAll(async () => {
   });
   await conn.query(readFileSync(MIGRATION_038_PATH, 'utf-8'));
   await conn.query(readFileSync(MIGRATION_039_PATH, 'utf-8'));
+  await conn.query(readFileSync(MIGRATION_040_PATH, 'utf-8'));
 
   userA = `ill-a-${randomUUID().slice(0, 8)}`;
   userB = `ill-b-${randomUUID().slice(0, 8)}`;
@@ -122,10 +155,12 @@ beforeAll(async () => {
   sessionB = randomUUID();
   draftA = randomUUID();
   draftB = randomUUID();
+  draftNoReference = randomUUID();
   sceneA1 = randomUUID();
   sceneA2 = randomUUID();
   sceneNoPrompt = randomUUID();
   sceneB1 = randomUUID();
+  sceneNoReference = randomUUID();
 
   for (const [uid, email] of [
     [userA, `${userA}@test.local`],
@@ -166,6 +201,10 @@ beforeAll(async () => {
     'INSERT INTO generation_drafts (id, user_id, prompt_doc, status) VALUES (?, ?, ?, ?)',
     [draftB, userB, JSON.stringify(promptDoc), 'step2'],
   );
+  await conn.execute(
+    'INSERT INTO generation_drafts (id, user_id, prompt_doc, status) VALUES (?, ?, ?, ?)',
+    [draftNoReference, userA, JSON.stringify(promptDoc), 'step2'],
+  );
 
   await seedScene({
     id: sceneA1,
@@ -195,13 +234,35 @@ beforeAll(async () => {
     prompt: 'Other owner prompt.',
     sortOrder: 1,
   });
+  await seedScene({
+    id: sceneNoReference,
+    draftId: draftNoReference,
+    name: 'Scene without reference',
+    prompt: 'A scene that should wait for the canonical reference.',
+    sortOrder: 1,
+  });
+
+  await seedReadyReference(draftA, userA);
+  await seedReadyReference(draftB, userB);
 });
 
 afterAll(async () => {
   if (conn) {
     await conn.execute(
+      'DELETE FROM storyboard_illustration_references WHERE draft_id IN (?, ?)',
+      [draftA, draftB],
+    );
+    await conn.execute(
+      'DELETE FROM storyboard_illustration_references WHERE draft_id = ?',
+      [draftNoReference],
+    );
+    await conn.execute(
       'DELETE FROM storyboard_scene_illustration_jobs WHERE draft_id IN (?, ?)',
       [draftA, draftB],
+    );
+    await conn.execute(
+      'DELETE FROM storyboard_scene_illustration_jobs WHERE draft_id = ?',
+      [draftNoReference],
     );
     if (cleanupJobs.length) {
       await conn.query(
@@ -220,7 +281,8 @@ afterAll(async () => {
       );
     }
     await conn.execute('DELETE FROM storyboard_blocks WHERE draft_id IN (?, ?)', [draftA, draftB]);
-    await conn.execute('DELETE FROM generation_drafts WHERE id IN (?, ?)', [draftA, draftB]);
+    await conn.execute('DELETE FROM storyboard_blocks WHERE draft_id = ?', [draftNoReference]);
+    await conn.execute('DELETE FROM generation_drafts WHERE id IN (?, ?, ?)', [draftA, draftB, draftNoReference]);
     await conn.execute('DELETE FROM sessions WHERE session_id IN (?, ?)', [sessionA, sessionB]);
     await conn.execute('DELETE FROM users WHERE user_id IN (?, ?)', [userA, userB]);
     await conn.end();
@@ -261,6 +323,15 @@ describe('storyboard illustration endpoints', () => {
       .set('Authorization', authA());
 
     expect(res.status).toBe(200);
+    expect(res.body.reference).toMatchObject({
+      status: 'ready',
+      outputFileId: expect.any(String),
+      sourceReferenceFileIds: [],
+      errorMessage: null,
+    });
+    expect(res.body.reference.jobId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
     expect(res.body.items.map((item: { blockId: string }) => item.blockId)).toEqual([
       sceneA1,
       sceneA2,
@@ -280,6 +351,15 @@ describe('storyboard illustration endpoints', () => {
       .send({});
 
     expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(res.body.reference).toMatchObject({
+      status: 'ready',
+      outputFileId: expect.any(String),
+      sourceReferenceFileIds: [],
+      errorMessage: null,
+    });
+    expect(res.body.reference.jobId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
     const item = res.body.items.find((candidate: { blockId: string }) => candidate.blockId === sceneA1);
     expect(item).toMatchObject({
       blockId: sceneA1,
@@ -304,18 +384,64 @@ describe('storyboard illustration endpoints', () => {
     expect(rows[0]!['block_id']).toBe(sceneA1);
     expect(rows[0]!['status']).toBe('queued');
     expect(rows[0]!['draft_id']).toBe(draftA);
-    expect(rows[0]!['model_id']).toBe('openai/gpt-image-2');
+    expect(rows[0]!['model_id']).toBe('gpt-image-2');
     const options =
       typeof rows[0]!['options'] === 'string'
         ? JSON.parse(rows[0]!['options'] as string)
         : rows[0]!['options'];
     expect(options).toMatchObject({
-      image_size: 'landscape_16_9',
-      quality: 'low',
-      num_images: 1,
-      output_format: 'png',
-      sync_mode: false,
+      kind: 'scene',
+      blockId: sceneA1,
+      referenceFileIds: expect.any(Array),
+      previousSceneFileId: null,
+      size: '1536x1024',
     });
+  });
+
+  it('creates a canonical reference first and leaves scene jobs unqueued when no reference exists', async () => {
+    const res = await request(app)
+      .post(`/storyboards/${draftNoReference}/illustrations`)
+      .set('Authorization', authA())
+      .send({});
+
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(res.body.reference).toMatchObject({
+      status: 'queued',
+      outputFileId: null,
+      sourceReferenceFileIds: [],
+      errorMessage: null,
+    });
+    expect(res.body.reference.jobId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(res.body.items).toEqual([
+      {
+        blockId: sceneNoReference,
+        status: 'queued',
+        jobId: null,
+        outputFileId: null,
+        errorMessage: null,
+      },
+    ]);
+
+    const [referenceRows] = await conn.query<mysql.RowDataPacket[]>(
+      `SELECT sr.status, sr.source_reference_file_ids, aj.model_id, aj.capability, aj.draft_id
+         FROM storyboard_illustration_references sr
+         INNER JOIN ai_generation_jobs aj ON aj.job_id = sr.ai_job_id
+        WHERE sr.draft_id = ?`,
+      [draftNoReference],
+    );
+    expect(referenceRows).toHaveLength(1);
+    expect(referenceRows[0]!['status']).toBe('queued');
+    expect(referenceRows[0]!['model_id']).toBe('gpt-image-2');
+    expect(referenceRows[0]!['capability']).toBe('text_to_image');
+    expect(referenceRows[0]!['draft_id']).toBe(draftNoReference);
+
+    const [sceneRows] = await conn.query<mysql.RowDataPacket[]>(
+      'SELECT COUNT(*) AS cnt FROM storyboard_scene_illustration_jobs WHERE draft_id = ?',
+      [draftNoReference],
+    );
+    expect(Number(sceneRows[0]!['cnt'])).toBe(0);
   });
 
   it('reconciles completed mapped jobs into storyboard block media during status polling', async () => {

@@ -18,11 +18,18 @@ vi.mock('@/features/storyboard/api', () => ({
 }));
 
 import { useStoryboardIllustrations } from './useStoryboardIllustrations';
+import type {
+  StoryboardIllustrationReferenceStatus,
+  StoryboardIllustrationStatusItem,
+  StoryboardIllustrationStatusResponse,
+} from '@/features/storyboard/types';
 
 const DRAFT_ID = 'draft-1';
 const NEXT_DRAFT_ID = 'draft-2';
 
-function item(overrides: Record<string, unknown> = {}) {
+function item(
+  overrides: Partial<StoryboardIllustrationStatusItem> = {},
+): StoryboardIllustrationStatusItem {
   return {
     blockId: 'block-1',
     status: 'queued',
@@ -33,17 +40,40 @@ function item(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function reference(
+  overrides: Partial<StoryboardIllustrationReferenceStatus> = {},
+): StoryboardIllustrationReferenceStatus {
+  return {
+    status: 'queued',
+    jobId: null,
+    outputFileId: null,
+    sourceReferenceFileIds: [],
+    errorMessage: null,
+    ...overrides,
+  };
+}
+
+function response(
+  overrides: Partial<StoryboardIllustrationStatusResponse> = {},
+): StoryboardIllustrationStatusResponse {
+  return {
+    reference: reference(),
+    items: [item()],
+    ...overrides,
+  } as StoryboardIllustrationStatusResponse;
+}
+
 describe('useStoryboardIllustrations', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
-    mockFetchStoryboardIllustrations.mockResolvedValue({ items: [item()] });
-    mockStartStoryboardIllustrations.mockResolvedValue({
+    mockFetchStoryboardIllustrations.mockResolvedValue(response());
+    mockStartStoryboardIllustrations.mockResolvedValue(response({
       items: [item({ status: 'queued', jobId: 'job-1' })],
-    });
-    mockStartStoryboardBlockIllustration.mockResolvedValue({
+    }));
+    mockStartStoryboardBlockIllustration.mockResolvedValue(response({
       items: [item({ status: 'queued', jobId: 'job-2' })],
-    });
+    }));
   });
 
   afterEach(() => {
@@ -66,15 +96,18 @@ describe('useStoryboardIllustrations', () => {
   it('starts all illustrations, polls active jobs, and refreshes storyboard when output arrives', async () => {
     const onStoryboardUpdated = vi.fn();
     mockFetchStoryboardIllustrations
-      .mockResolvedValueOnce({ items: [item()] })
-      .mockResolvedValueOnce({ items: [item({ status: 'running', jobId: 'job-1' })] })
-      .mockResolvedValueOnce({
+      .mockResolvedValueOnce(response())
+      .mockResolvedValueOnce(response({
+        items: [item({ status: 'running', jobId: 'job-1' })],
+      }))
+      .mockResolvedValueOnce(response({
+        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-1' }),
         items: [item({
           status: 'ready',
           jobId: 'job-1',
           outputFileId: 'file-1',
         })],
-      });
+      }));
 
     const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, {
       pollIntervalMs: 100,
@@ -103,6 +136,103 @@ describe('useStoryboardIllustrations', () => {
     expect(onStoryboardUpdated).toHaveBeenCalledTimes(1);
   });
 
+  it('polls reference work, then starts scene work when the reference is ready', async () => {
+    const onStoryboardUpdated = vi.fn();
+    mockFetchStoryboardIllustrations
+      .mockResolvedValueOnce(response({ reference: reference({ status: 'queued', jobId: null }) }))
+      .mockResolvedValueOnce(response({
+        reference: reference({ status: 'running', jobId: 'ref-job-1' }),
+      }))
+      .mockResolvedValueOnce(response({
+        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-ready' }),
+      }))
+      .mockResolvedValueOnce(response({
+        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-ready' }),
+        items: [item({ status: 'running', jobId: 'scene-job-1' })],
+      }))
+      .mockResolvedValueOnce(response({
+        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-ready' }),
+        items: [item({ status: 'ready', jobId: 'scene-job-1', outputFileId: 'scene-file-1' })],
+      }));
+    mockStartStoryboardIllustrations
+      .mockResolvedValueOnce(response({
+        reference: reference({ status: 'queued', jobId: 'ref-job-1' }),
+      }))
+      .mockResolvedValueOnce(response({
+        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-ready' }),
+        items: [item({ status: 'running', jobId: 'scene-job-1' })],
+      }));
+
+    const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, {
+      pollIntervalMs: 100,
+      onStoryboardUpdated,
+    }));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await result.current.start();
+    });
+
+    expect(result.current.status).toBe('queued');
+    expect(result.current.isBlocking).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(result.current.status).toBe('running');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(mockStartStoryboardIllustrations).toHaveBeenCalledTimes(2);
+    expect(result.current.status).toBe('running');
+    expect(result.current.phase).toBe('scene');
+    expect(result.current.reference?.outputFileId).toBe('ref-file-ready');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(result.current.status).toBe('running');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(result.current.status).toBe('completed');
+    expect(onStoryboardUpdated).toHaveBeenCalledTimes(2);
+  });
+
+  it('surfaces automatic scene-start failures after the reference is ready', async () => {
+    mockFetchStoryboardIllustrations
+      .mockResolvedValueOnce(response())
+      .mockResolvedValueOnce(response({
+        reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-ready' }),
+      }));
+    mockStartStoryboardIllustrations
+      .mockResolvedValueOnce(response({
+        reference: reference({ status: 'queued', jobId: 'ref-job-1' }),
+      }))
+      .mockRejectedValueOnce(new Error('scene start failed'));
+
+    const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, { pollIntervalMs: 100 }));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await result.current.start();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(result.current.status).toBe('failed');
+    expect(result.current.phase).toBe('reference');
+    expect(result.current.error).toBe('Could not start illustration generation.');
+    expect(result.current.isBlocking).toBe(false);
+  });
+
   it('retries one failed block through the block endpoint', async () => {
     const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, { pollIntervalMs: 100 }));
 
@@ -119,6 +249,7 @@ describe('useStoryboardIllustrations', () => {
 
   it('derives failed lifecycle from failed scene status responses', async () => {
     mockFetchStoryboardIllustrations.mockResolvedValueOnce({
+      reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-1' }),
       items: [item({ status: 'failed', jobId: 'job-1', errorMessage: 'Provider failed' })],
     });
 
@@ -131,6 +262,26 @@ describe('useStoryboardIllustrations', () => {
     expect(result.current.status).toBe('failed');
     expect(result.current.isBlocking).toBe(false);
     expect(result.current.byBlockId.get('block-1')?.errorMessage).toBe('Provider failed');
+  });
+
+  it('keeps reference phase when the canonical reference fails', async () => {
+    mockFetchStoryboardIllustrations.mockResolvedValueOnce(response({
+      reference: reference({
+        status: 'failed',
+        jobId: 'ref-job-1',
+        errorMessage: 'Reference failed',
+      }),
+    }));
+
+    const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, { pollIntervalMs: 100 }));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.status).toBe('failed');
+    expect(result.current.phase).toBe('reference');
+    expect(result.current.reference?.errorMessage).toBe('Reference failed');
   });
 
   it('surfaces start and retry request failures without keeping Step 3 blocked', async () => {
@@ -165,7 +316,7 @@ describe('useStoryboardIllustrations', () => {
 
   it('stops blocking and polling when status polling fails', async () => {
     mockFetchStoryboardIllustrations
-      .mockResolvedValueOnce({ items: [item()] })
+      .mockResolvedValueOnce(response())
       .mockRejectedValueOnce(new Error('network down'));
 
     const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, { pollIntervalMs: 100 }));
@@ -197,9 +348,9 @@ describe('useStoryboardIllustrations', () => {
     });
     mockFetchStoryboardIllustrations
       .mockReturnValueOnce(firstResponse)
-      .mockResolvedValueOnce({
+      .mockResolvedValueOnce(response({
         items: [item({ blockId: 'block-next', status: 'ready', jobId: 'job-next', outputFileId: 'file-next' })],
-      });
+      }));
 
     const { result, rerender } = renderHook(
       ({ draftId }) => useStoryboardIllustrations(draftId, { pollIntervalMs: 100 }),
@@ -215,6 +366,7 @@ describe('useStoryboardIllustrations', () => {
 
     await act(async () => {
       resolveFirst({
+        reference: reference({ status: 'ready', jobId: 'ref-old', outputFileId: 'file-old-ref' }),
         items: [item({ blockId: 'block-old', status: 'running', jobId: 'job-old' })],
       });
       await Promise.resolve();

@@ -73,6 +73,8 @@ export type CreateFileParams = {
 export type FilesRepo = {
   /** Inserts a new `files` row with status='processing' and returns the fileId. */
   createFile: (params: CreateFileParams) => Promise<string>;
+  /** Marks a file ready when no ingest pass is needed. */
+  markReady?: (fileId: string) => Promise<void>;
 };
 
 /**

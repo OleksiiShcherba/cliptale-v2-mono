@@ -77,7 +77,16 @@ export type StoryboardIllustrationStatusItem = {
   errorMessage: string | null;
 };
 
+export type StoryboardIllustrationReferenceStatus = {
+  status: StoryboardIllustrationStatus;
+  jobId: string | null;
+  outputFileId: string | null;
+  sourceReferenceFileIds: string[];
+  errorMessage: string | null;
+};
+
 export type StoryboardIllustrationStatusResponse = {
+  reference: StoryboardIllustrationReferenceStatus;
   items: StoryboardIllustrationStatusItem[];
 };
 
@@ -85,6 +94,13 @@ export type StoryboardIllustrationLifecycleStatus =
   | 'idle'
   | 'queued'
   | 'running'
+  | 'completed'
+  | 'failed';
+
+export type StoryboardIllustrationLifecyclePhase =
+  | 'idle'
+  | 'reference'
+  | 'scene'
   | 'completed'
   | 'failed';
 

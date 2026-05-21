@@ -37,6 +37,7 @@ export const storyboardPlanControlStyles = {
     flexDirection: 'column' as const,
     gap: '2px',
     minWidth: 0,
+    flex: '1 1 auto',
   } as React.CSSProperties,
 
   controlTitle: {
@@ -44,6 +45,8 @@ export const storyboardPlanControlStyles = {
     fontSize: '12px',
     fontWeight: 600,
     lineHeight: '16px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
     whiteSpace: 'nowrap' as const,
   } as React.CSSProperties,
 
@@ -96,6 +99,35 @@ export const storyboardPlanControlStyles = {
     fontWeight: 600,
     fontFamily: 'Inter, sans-serif',
     lineHeight: '16px',
+  } as React.CSSProperties,
+
+  referencePreview: {
+    flexShrink: 0,
+    width: '40px',
+    height: '40px',
+    borderRadius: '8px',
+    border: `1px solid ${BORDER}`,
+    background: SURFACE,
+    overflow: 'hidden',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  } as React.CSSProperties,
+
+  referencePreviewImage: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover' as const,
+    display: 'block',
+  } as React.CSSProperties,
+
+  referencePreviewFallback: {
+    color: TEXT_SECONDARY,
+    fontSize: '10px',
+    fontWeight: 600,
+    lineHeight: '12px',
+    textAlign: 'center' as const,
+    padding: '4px',
   } as React.CSSProperties,
 
   overlay: {
