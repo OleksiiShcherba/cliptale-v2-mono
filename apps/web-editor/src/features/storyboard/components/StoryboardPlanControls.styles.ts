@@ -128,6 +128,20 @@ export const storyboardPlanControlStyles = {
     lineHeight: '12px',
     textAlign: 'center' as const,
     padding: '4px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '4px',
+  } as React.CSSProperties,
+
+  referencePreviewSpinner: {
+    width: '12px',
+    height: '12px',
+    borderRadius: '999px',
+    border: `2px solid ${BORDER}`,
+    borderTopColor: PRIMARY,
+    flexShrink: 0,
+    animation: 'storyboard-reference-spin 0.8s linear infinite',
   } as React.CSSProperties,
 
   overlay: {

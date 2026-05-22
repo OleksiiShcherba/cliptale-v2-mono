@@ -16,6 +16,7 @@
  *  - GET /generation-drafts/{id}/storyboard-plan/{jobId} — poll storyboard planning
  *  - POST /storyboards/{draftId}/initialize      — seed START/END sentinel blocks
  *  - POST /storyboards/{draftId}/apply-latest-plan — apply latest completed plan
+ *  - POST /storyboards/{draftId}/project         — create editor project from ready storyboard
  *  - GET /storyboards/{draftId}                  — fetch blocks + edges for a draft
  *  - PUT /storyboards/{draftId}                  — full-replace blocks + edges
  *  - GET /storyboards/{draftId}/history          — list last 50 history snapshots
@@ -788,6 +789,43 @@ export const openApiSpec = {
           403: { description: 'Draft belongs to another user.' },
           404: { description: 'Draft not found.' },
           422: { description: 'No completed storyboard plan exists for this draft.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/storyboards/{draftId}/project': {
+      post: {
+        summary: 'Create an editor project from a ready storyboard',
+        description:
+          'Assembles approved storyboard scene illustrations into a new image-based editor project. ' +
+          'The operation is idempotent for completed drafts: repeated calls return the existing projectId/versionId.',
+        operationId: 'createProjectFromStoryboard',
+        tags: ['storyboard'],
+        parameters: [
+          {
+            name: 'draftId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the storyboard generation draft.',
+          },
+        ],
+        responses: {
+          201: {
+            description: 'Project created or existing completed project returned.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StoryboardProjectCreateResponse' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Authenticated user does not own the storyboard draft.' },
+          404: { description: 'Storyboard draft not found.' },
+          422: {
+            description:
+              'Storyboard is not ready for project creation: missing scenes, unapproved principal image, or unfinished scene outputs.',
+          },
         },
         security: [{ bearerAuth: [] }],
       },
@@ -1922,6 +1960,23 @@ export const openApiSpec = {
             type: 'array',
             items: { $ref: '#/components/schemas/StoryboardEdge' },
             description: 'All directed edges for the draft.',
+          },
+        },
+      },
+      StoryboardProjectCreateResponse: {
+        type: 'object',
+        required: ['projectId', 'versionId'],
+        description: 'Result returned after creating or reusing the editor project for a storyboard draft.',
+        properties: {
+          projectId: {
+            type: 'string',
+            format: 'uuid',
+            description: 'Editor project id created from the storyboard.',
+          },
+          versionId: {
+            type: 'integer',
+            minimum: 1,
+            description: 'Initial project_versions row id containing the assembled ProjectDoc.',
           },
         },
       },

@@ -22,6 +22,7 @@ vi.mock('@/db/connection.js', () => ({
 import {
   findFilesByProjectId,
   findFilesByDraftId,
+  linkFileToProjectTransaction,
 } from './fileLinks.repository.js';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -80,6 +81,45 @@ describe('fileLinks.repository — findFilesByProjectId (deleted_at filter)', ()
     expect(result).toHaveLength(1);
     expect(result[0]!.fileId).toBe('file-uuid-001');
     expect(result[0]!.deletedAt).toBeNull();
+  });
+});
+
+// ── linkFileToProjectTransaction ──────────────────────────────────────────────
+
+describe('fileLinks.repository — linkFileToProjectTransaction', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('uses the supplied transaction connection and INSERT IGNORE for project_files', async () => {
+    const mockConn = {
+      execute: vi.fn().mockResolvedValueOnce([{ affectedRows: 1 }, []]),
+    };
+
+    const result = await linkFileToProjectTransaction(
+      mockConn as never,
+      'proj-uuid-001',
+      'file-uuid-001',
+    );
+
+    expect(result).toBe(true);
+    expect(mockExecute).not.toHaveBeenCalled();
+    expect(mockConn.execute).toHaveBeenCalledWith(
+      'INSERT IGNORE INTO project_files (project_id, file_id) VALUES (?, ?)',
+      ['proj-uuid-001', 'file-uuid-001'],
+    );
+  });
+
+  it('returns false when the project file link already exists', async () => {
+    const mockConn = {
+      execute: vi.fn().mockResolvedValueOnce([{ affectedRows: 0 }, []]),
+    };
+
+    const result = await linkFileToProjectTransaction(
+      mockConn as never,
+      'proj-uuid-001',
+      'file-uuid-001',
+    );
+
+    expect(result).toBe(false);
   });
 });
 

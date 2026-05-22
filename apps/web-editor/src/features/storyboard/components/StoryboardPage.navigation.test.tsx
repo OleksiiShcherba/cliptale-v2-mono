@@ -156,7 +156,7 @@ describe('StoryboardPage / navigation', () => {
     const nextBtn = screen.getByTestId('next-step3-button');
     expect((nextBtn as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(nextBtn);
-    expect(mockNavigate).not.toHaveBeenCalledWith('/generate/road-map');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/generate/road-map?draftId=my-draft-id');
   });
 
   // ── Home button ────────────────────────────────────────────────────────────

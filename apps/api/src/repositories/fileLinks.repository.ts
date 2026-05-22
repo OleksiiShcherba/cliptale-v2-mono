@@ -8,7 +8,7 @@
  * (project_id, file_id) or (draft_id, file_id) pair is inserted twice.
  * The INSERT is a no-op on a duplicate PK; the service treats this as success.
  */
-import type { RowDataPacket } from 'mysql2/promise';
+import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 
 import { pool } from '@/db/connection.js';
 import type { FileRow } from '@/repositories/file.repository.js';
@@ -63,7 +63,20 @@ function mapRowToFileRow(row: FileDbRow): FileRow {
  * Returns true when a new row was inserted, false when it already existed.
  */
 export async function linkFileToProject(projectId: string, fileId: string): Promise<boolean> {
-  const [result] = await pool.execute<import('mysql2/promise').ResultSetHeader>(
+  const [result] = await pool.execute<ResultSetHeader>(
+    'INSERT IGNORE INTO project_files (project_id, file_id) VALUES (?, ?)',
+    [projectId, fileId],
+  );
+  return result.affectedRows > 0;
+}
+
+/** Transaction-scoped project file link helper. */
+export async function linkFileToProjectTransaction(
+  conn: PoolConnection,
+  projectId: string,
+  fileId: string,
+): Promise<boolean> {
+  const [result] = await conn.execute<ResultSetHeader>(
     'INSERT IGNORE INTO project_files (project_id, file_id) VALUES (?, ?)',
     [projectId, fileId],
   );
@@ -181,7 +194,7 @@ export async function getProjectFilesTotals(projectId: string): Promise<ProjectF
  * Returns true when a new row was inserted, false when it already existed.
  */
 export async function linkFileToDraft(draftId: string, fileId: string): Promise<boolean> {
-  const [result] = await pool.execute<import('mysql2/promise').ResultSetHeader>(
+  const [result] = await pool.execute<ResultSetHeader>(
     'INSERT IGNORE INTO draft_files (draft_id, file_id) VALUES (?, ?)',
     [draftId, fileId],
   );

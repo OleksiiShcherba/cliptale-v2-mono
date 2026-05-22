@@ -167,6 +167,7 @@ export const sceneBlockNodeStyles = {
   illustrationStatusBadge: {
     display: 'inline-flex',
     alignItems: 'center',
+    gap: '4px',
     minWidth: 0,
     maxWidth: '128px',
     background: SURFACE,
@@ -180,6 +181,16 @@ export const sceneBlockNodeStyles = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  } as React.CSSProperties,
+
+  illustrationStatusSpinner: {
+    width: '10px',
+    height: '10px',
+    borderRadius: '999px',
+    border: `2px solid ${BORDER}`,
+    borderTopColor: 'currentColor',
+    flexShrink: 0,
+    animation: 'storyboard-illustration-spin 0.8s linear infinite',
   } as React.CSSProperties,
 
   illustrationRetryButton: {

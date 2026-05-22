@@ -20,6 +20,7 @@ vi.mock('@/db/connection.js', () => ({
 
 import {
   insertClip,
+  insertClipTransaction,
   getClipByIdAndProject,
   type ClipInsert,
   type ClipRow,
@@ -150,6 +151,24 @@ describe('clip.repository — insertClip', () => {
       const [, params] = mockExecute.mock.calls[mockExecute.mock.calls.length - 1] as [string, unknown[]];
       expect(params[3]).toBe(type);
     }
+  });
+
+  it('inserts through the supplied transaction connection', async () => {
+    const mockConn = {
+      execute: vi.fn().mockResolvedValueOnce([{ affectedRows: 1 } as ResultSetHeader, []]),
+    };
+
+    await insertClipTransaction(mockConn as never, {
+      ...CAPTION_CLIP_INSERT,
+      type: 'image',
+      fileId: 'file-uuid-001',
+    });
+
+    expect(mockExecute).not.toHaveBeenCalled();
+    const [sql, params] = mockConn.execute.mock.calls[0] as [string, unknown[]];
+    expect(sql).toMatch(/INSERT\s+INTO\s+project_clips_current/i);
+    expect(params[3]).toBe('image');
+    expect(params[4]).toBe('file-uuid-001');
   });
 });
 

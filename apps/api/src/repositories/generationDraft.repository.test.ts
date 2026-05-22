@@ -19,6 +19,10 @@ vi.mock('@/db/connection.js', () => ({
 }));
 
 import { findDraftById, findAssetPreviewsByIds } from './generationDraft.repository.js';
+import {
+  lockDraftForProjectAssembly,
+  markDraftProjectAssemblyComplete,
+} from './generationDraft.repository.js';
 import type { PromptDoc } from '@ai-video-editor/project-schema';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -41,8 +45,12 @@ const VALID_PROMPT_DOC_WITH_SETTINGS: PromptDoc = {
 const BASE_ROW = {
   id: 'draft-uuid-001',
   user_id: 'user-uuid-001',
+  status: 'draft',
+  created_project_id: null,
+  created_project_version_id: null,
   created_at: new Date('2026-01-01T00:00:00Z'),
   updated_at: new Date('2026-01-01T00:00:00Z'),
+  deleted_at: null,
 };
 
 // ── mapRowToDraft via findDraftById ──────────────────────────────────────────
@@ -106,6 +114,23 @@ describe('generationDraft.repository — mapRowToDraft JSON column handling', ()
     expect(draft!.userId).toBe('user-uuid-001');
   });
 
+  it('maps Step 3 created project ids when present', async () => {
+    const row = {
+      ...BASE_ROW,
+      prompt_doc: VALID_PROMPT_DOC,
+      status: 'completed',
+      created_project_id: 'project-uuid-001',
+      created_project_version_id: 42,
+    };
+    mockQuery.mockResolvedValueOnce([[row]]);
+
+    const draft = await findDraftById('draft-uuid-001');
+
+    expect(draft!.status).toBe('completed');
+    expect(draft!.createdProjectId).toBe('project-uuid-001');
+    expect(draft!.createdProjectVersionId).toBe(42);
+  });
+
   it('returns null when no row is found', async () => {
     mockQuery.mockResolvedValueOnce([[]]);
 
@@ -135,6 +160,51 @@ describe('generationDraft.repository — mapRowToDraft JSON column handling', ()
       fileId: '00000000-0000-0000-0000-000000000001',
       label: 'Intro',
     });
+  });
+});
+
+describe('generationDraft.repository — Step 3 project assembly helpers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('locks a non-deleted draft row for project assembly', async () => {
+    const mockConn = { query: vi.fn().mockResolvedValueOnce([[{ ...BASE_ROW, prompt_doc: VALID_PROMPT_DOC }]]) };
+
+    const draft = await lockDraftForProjectAssembly(mockConn as never, 'draft-uuid-001');
+
+    expect(draft?.id).toBe('draft-uuid-001');
+    expect(mockConn.query).toHaveBeenCalledOnce();
+    const [sql, params] = mockConn.query.mock.calls[0] as [string, string[]];
+    expect(sql).toContain('FOR UPDATE');
+    expect(sql).toContain('deleted_at IS NULL');
+    expect(sql).toContain('created_project_id');
+    expect(params).toEqual(['draft-uuid-001']);
+  });
+
+  it('returns null when no draft row can be locked', async () => {
+    const mockConn = { query: vi.fn().mockResolvedValueOnce([[]]) };
+
+    const draft = await lockDraftForProjectAssembly(mockConn as never, 'missing-draft');
+
+    expect(draft).toBeNull();
+  });
+
+  it('marks project assembly complete with project and version ids', async () => {
+    const mockConn = { query: vi.fn().mockResolvedValueOnce([{ affectedRows: 1 }]) };
+
+    await markDraftProjectAssemblyComplete(mockConn as never, {
+      draftId: 'draft-uuid-001',
+      projectId: 'project-uuid-001',
+      versionId: 42,
+    });
+
+    const [sql, params] = mockConn.query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("status = 'completed'");
+    expect(sql).toContain('created_project_id = ?');
+    expect(sql).toContain('created_project_version_id = ?');
+    expect(sql).toContain('deleted_at IS NULL');
+    expect(params).toEqual(['project-uuid-001', 42, 'draft-uuid-001']);
   });
 });
 

@@ -11,6 +11,7 @@ import type {
   StoryboardBlock,
   StoryboardState,
   StoryboardIllustrationStatusResponse,
+  StoryboardProjectCreateResponse,
   SceneTemplate,
   CreateSceneTemplatePayload,
   UpdateSceneTemplatePayload,
@@ -232,6 +233,16 @@ export async function setStoryboardPrincipalImageReferences(
     throw new Error(`PUT /storyboards/${draftId}/illustrations/principal-image/references failed: ${res.status}`);
   }
   return res.json() as Promise<StoryboardIllustrationStatusResponse>;
+}
+
+export async function createProjectFromStoryboard(
+  draftId: string,
+): Promise<StoryboardProjectCreateResponse> {
+  const res = await apiClient.post(`/storyboards/${draftId}/project`, {});
+  if (!res.ok) {
+    throw new Error(`POST /storyboards/${draftId}/project failed: ${res.status}`);
+  }
+  return res.json() as Promise<StoryboardProjectCreateResponse>;
 }
 
 // ── Scene Template API functions ───────────────────────────────────────────────

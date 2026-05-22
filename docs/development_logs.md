@@ -848,6 +848,119 @@
 - checked by design-reviewer - APPROVED
 - checked by playwright-reviewer - APPROVED
 
+## Step 3 Storyboard Project Creation — STAGE3-PROJECT-1 (2026-05-22)
+- added: migration `042_generation_draft_created_project.sql` with nullable `created_project_id` and `created_project_version_id` completion pointers on `generation_drafts`, plus an index for created project lookup.
+- changed: generation draft repository reads now expose `createdProjectId` and `createdProjectVersionId`, and Step 3 can lock a draft row with `FOR UPDATE` before assembly.
+- added: transaction-aware repository helpers for creating project rows, linking project files, inserting current clip rows, and marking draft project assembly complete.
+- preserved: services still own transaction boundaries; repository helpers accept a caller-provided `PoolConnection`.
+- tests: `npm --workspace apps/api test -- migration-042 generationDraft.repository project.repository version.repository clip.repository fileLinks.repository` -> 8 files / 90 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- check: `git diff --check -- apps/api/src/db/migrations/042_generation_draft_created_project.sql apps/api/src/repositories/generationDraft.repository.ts apps/api/src/repositories/project.repository.ts apps/api/src/repositories/version.repository.ts apps/api/src/repositories/fileLinks.repository.ts apps/api/src/repositories/clip.repository.ts apps/api/src/repositories/generationDraft.repository.test.ts apps/api/src/repositories/project.repository.test.ts apps/api/src/repositories/clip.repository.test.ts apps/api/src/services/generationDraft.service.fixtures.ts apps/api/src/__tests__/integration/migration-042.test.ts` -> passed.
+- active task: removed only `STAGE3-PROJECT-1` from `docs/active_task.md`; `STAGE3-PROJECT-2` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Step 3 Storyboard Project Creation — STAGE3-PROJECT-2 (2026-05-22)
+- added: `storyboardGraph.service.ts` with reusable START-to-END scene ordering and sort-order fallback for incomplete/invalid graphs.
+- changed: storyboard illustration service now uses the shared graph ordering helper.
+- added: pure `storyboardProjectDoc.service.ts` that converts ready storyboard scene outputs into a validated image-clip `ProjectDoc`, matching `project_clips_current` insert rows, used file ids, and a derived title.
+- implemented: 30fps duration rounding, sequential start frames, aspect-ratio dimensions, UUID ids, generated scene output file usage, missing-output rejection, no database writes.
+- tests: `npm --workspace apps/api test -- storyboardGraph storyboardProjectDoc storyboardIllustration` -> 4 files / 63 tests passed.
+- tests: `npm --workspace packages/project-schema test -- project-doc` -> 1 file / 13 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- check: `git diff --check -- apps/api/src/services/storyboardGraph.service.ts apps/api/src/services/storyboardGraph.service.test.ts apps/api/src/services/storyboardProjectDoc.service.ts apps/api/src/services/storyboardProjectDoc.service.test.ts apps/api/src/services/storyboardIllustration.service.ts docs/active_task.md docs/development_logs.md` -> passed.
+- active task: removed only `STAGE3-PROJECT-2` from `docs/active_task.md`; `STAGE3-PROJECT-3` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Step 3 Storyboard Project Creation — STAGE3-PROJECT-3 (2026-05-22)
+- added: authenticated `POST /storyboards/:draftId/project` route and controller returning `{ projectId, versionId }`.
+- added: `storyboardProject.service.ts` transaction flow that locks the draft, returns existing completion ids, validates ready/approved storyboard illustration state, creates the project, links generated scene output files, inserts current image clip rows, inserts the initial version snapshot/audit row, and marks the draft completed.
+- review fix: project assembly now reads storyboard blocks, edges, active reference, and latest illustration jobs through the same transaction connection with `FOR UPDATE` helpers before committing completion, preventing concurrent autosave/reconciliation races from changing source rows mid-assembly.
+- added: OpenAPI path and `StoryboardProjectCreateResponse` schema coverage.
+- added: integration coverage for happy path persistence, idempotent retry, 422 readiness failures, auth/wrong-owner/missing semantics, and latest-version hydration of the assembled `ProjectDoc`.
+- tests: `npm --workspace packages/api-contracts test -- openapi.storyboard` -> 2 files / 86 tests passed.
+- tests: `npm --workspace apps/api test -- storyboardProject storyboard-project` -> 3 files / 16 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- typecheck: `npm --workspace packages/api-contracts run typecheck` -> passed.
+- check: `git diff --check -- apps/api/src/services/storyboardProject.service.ts apps/api/src/services/storyboardProject.service.test.ts apps/api/src/controllers/storyboardProject.controller.ts apps/api/src/routes/storyboard.routes.ts apps/api/src/__tests__/integration/storyboard-project.integration.test.ts packages/api-contracts/src/openapi.ts packages/api-contracts/src/openapi.storyboard.paths.test.ts packages/api-contracts/src/openapi.storyboard.schemas.test.ts docs/active_task.md docs/development_logs.md` -> passed.
+- active task: removed only `STAGE3-PROJECT-3` from `docs/active_task.md`; `STAGE3-PROJECT-4` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Step 3 Storyboard Project Creation — STAGE3-PROJECT-4 (2026-05-22)
+- added: typed web helper `createProjectFromStoryboard()` for `POST /storyboards/:draftId/project`.
+- added: `GenerateProjectFromStoryboardPage` on the existing `/generate/road-map` route, reading `draftId` from the query string, assembling once per draft, showing compact loading/error states, and navigating to `/editor?projectId=<id>` on success.
+- implemented: React Strict Mode request dedupe, retry after failed assembly, missing-draft handling without API calls, and back actions to `/generate` or `/storyboard/:draftId`.
+- changed: `/generate/road-map` route now renders the Step 3 assembly page instead of the old placeholder.
+- tests: `npm --workspace apps/web-editor test -- GenerateProjectFromStoryboardPage storyboard-api` -> 2 files / 41 tests passed.
+- typecheck scan: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "GenerateProjectFromStoryboardPage|storyboard/api|storyboard/types|main.tsx" || true` -> no touched-file errors; workspace typecheck remains subject to known unrelated editor/timeline test type debt.
+- check: `git diff --check -- apps/web-editor/src/features/generate-wizard/components/GenerateProjectFromStoryboardPage.tsx apps/web-editor/src/features/generate-wizard/components/GenerateProjectFromStoryboardPage.test.tsx apps/web-editor/src/features/generate-wizard/components/GenerateRoadMapPlaceholder.test.tsx apps/web-editor/src/features/storyboard/api.ts apps/web-editor/src/features/storyboard/types.ts apps/web-editor/src/features/storyboard/__tests__/storyboard-api.test.ts apps/web-editor/src/main.tsx docs/active_task.md docs/development_logs.md` -> passed.
+- active task: removed only `STAGE3-PROJECT-4` from `docs/active_task.md`; `STAGE3-PROJECT-5` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Step 3 Storyboard Project Creation — STAGE3-PROJECT-5 (2026-05-22)
+- changed: `StoryboardPage.handleNext` now navigates to `/generate/road-map?draftId=<draftId>` once Step 3 is enabled.
+- preserved: Step 3 remains disabled until storyboard illustrations complete; Back and Home navigation behavior is unchanged.
+- tests: `npm --workspace apps/web-editor test -- StoryboardPage.navigation StoryboardPage.plan` -> 2 files / 29 tests passed.
+- check: `wc -l apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx` -> 300 lines.
+- check: `git diff --check -- apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx apps/web-editor/src/features/storyboard/components/StoryboardPage.navigation.test.tsx apps/web-editor/src/features/storyboard/components/StoryboardPage.plan.test.tsx docs/active_task.md docs/development_logs.md` -> passed.
+- active task: removed only `STAGE3-PROJECT-5` from `docs/active_task.md`; `STAGE3-PROJECT-6` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Step 3 Storyboard Project Creation — STAGE3-PROJECT-6 (2026-05-22)
+- added: `useProjectInit` regression coverage proving an assembled storyboard project hydrates from its saved latest version without calling blank project creation, while preserving URL project id authority and current version id.
+- added: `useRemotionPlayer` regression coverage proving assembled image clips resolve authenticated `/assets/:id/stream` URLs.
+- extended: storyboard project integration happy path now patches an assembled image clip row through the normal clip endpoint and verifies the created project appears in `/projects` with a null thumbnail fallback when generated files do not yet have thumbnail data.
+- tests: `npm --workspace apps/web-editor test -- useProjectInit useRemotionPlayer` -> 3 files / 52 tests passed.
+- tests: `npm --workspace apps/api test -- clip-patch-endpoint projects-list-endpoint storyboard-project` -> 3 files / 33 tests passed.
+- check: `git diff --check` -> passed.
+- active task: removed only `STAGE3-PROJECT-6` from `docs/active_task.md`; `STAGE3-PROJECT-7` remains.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Step 3 Storyboard Project Creation — STAGE3-PROJECT-7 (2026-05-22)
+- added: focused Playwright coverage in `e2e/storyboard-project.spec.ts` for the Step 2 to editor handoff without live provider calls.
+- covered: Step 3 remains disabled while a scene illustration is still running, then enables after mocked illustration polling completes.
+- covered: clicking `Next: Step 3` calls project assembly, navigates to `/editor?projectId=<id>`, hydrates the saved assembled `ProjectDoc`, and renders one image timeline clip per scene in order.
+- covered: failed project assembly shows retry and back-to-storyboard controls; retry reuses the route and succeeds.
+- review fix: the E2E mock now fails unexpected API requests instead of falling through to the live API, and the editor assertion now requires exactly two ordered image timeline clips.
+- validation prep: local E2E seed user existed with invalid credentials, so the expected `apps/web-editor/e2e/seed-test-user.sql` password hash was restored via the repo `mysql2` dependency before running Playwright.
+- typecheck: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-project.spec.ts e2e/helpers/storyboard.ts` -> passed.
+- e2e: `VITE_PUBLIC_API_BASE_URL=http://localhost:3001 E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/storyboard-project.spec.ts --project=chromium` -> 2 tests passed.
+- check: `git diff --check` -> passed.
+- active task: removed `STAGE3-PROJECT-7` from `docs/active_task.md`; only final validation remains.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Step 3 Storyboard Project Creation — Final Validation (2026-05-22)
+- tests: `npm --workspace packages/project-schema test` -> 7 files / 134 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi` -> 5 files / 135 tests passed.
+- tests: `npm --workspace apps/api test -- storyboardProject storyboard-project clip-patch-endpoint projects-list-endpoint` -> 5 files / 46 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- typecheck: `npm --workspace packages/api-contracts run typecheck` -> passed.
+- tests: `npm --workspace apps/web-editor test -- GenerateProjectFromStoryboardPage StoryboardPage.navigation StoryboardPage.plan useProjectInit useRemotionPlayer storyboard-api` -> 7 files / 122 tests passed.
+- e2e typecheck: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-project.spec.ts e2e/helpers/storyboard.ts` -> passed.
+- e2e: `VITE_PUBLIC_API_BASE_URL=http://localhost:3001 E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/storyboard-project.spec.ts --project=chromium` -> 2 tests passed.
+- check: `git diff --check` -> passed.
+- note: `npm --workspace apps/web-editor run typecheck` still fails on pre-existing unrelated test/type debt in App, asset-manager, timeline, AI generation, and related test fixtures; a touched-file scan confirmed no remaining new assembled-project fixture type error, but pre-existing touched test files still contain older fixture debt in `useProjectInit` and `useRemotionPlayer`.
+
 ---
 
 ## Architectural Decisions

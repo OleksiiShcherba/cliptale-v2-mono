@@ -103,6 +103,34 @@ describe('openApiSpec storyboard paths', () => {
     });
   });
 
+  describe('POST /storyboards/{draftId}/project', () => {
+    const op = paths['/storyboards/{draftId}/project']?.['post'] as Record<string, unknown>;
+
+    it('exists in the spec', () => {
+      expect(op).toBeDefined();
+    });
+
+    it('has operationId createProjectFromStoryboard', () => {
+      expect(op.operationId).toBe('createProjectFromStoryboard');
+    });
+
+    it('is tagged storyboard and secured with bearerAuth', () => {
+      expect(op.tags).toContain('storyboard');
+      expect(op.security).toEqual(expect.arrayContaining([{ bearerAuth: [] }]));
+    });
+
+    it('documents idempotent project creation and response schema', () => {
+      expect(op.description).toContain('idempotent');
+      const responses = op.responses as Record<string, unknown>;
+      const created = responses[201] as Record<string, unknown>;
+      const schema = (
+        (created.content as Record<string, unknown>)['application/json'] as Record<string, unknown>
+      ).schema as Record<string, unknown>;
+      expect(schema.$ref).toBe('#/components/schemas/StoryboardProjectCreateResponse');
+      expect(responses[422]).toBeDefined();
+    });
+  });
+
   describe('storyboard illustration paths', () => {
     it('defines GET /storyboards/{draftId}/illustrations', () => {
       const op = paths['/storyboards/{draftId}/illustrations']?.['get'] as Record<string, unknown>;

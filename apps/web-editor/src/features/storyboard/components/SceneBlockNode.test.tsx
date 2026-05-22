@@ -246,6 +246,11 @@ describe('SceneBlockNode', () => {
     });
 
     expect(screen.getByTestId('illustration-status-badge').textContent).toBe(label);
+    if (status === 'queued' || status === 'running') {
+      expect(screen.getByTestId('illustration-status-loader')).toBeTruthy();
+    } else {
+      expect(screen.queryByTestId('illustration-status-loader')).toBeNull();
+    }
     expect(screen.queryByTestId('illustration-retry-button')).toBeNull();
   });
 

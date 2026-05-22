@@ -244,7 +244,7 @@ export function StoryboardPage(): React.ReactElement {
   const handleBack = (): void => { navigate(draftId ? `/generate?draftId=${draftId}` : '/generate'); };
   const handleNext = (): void => {
     if (isStep3Disabled) return;
-    navigate('/generate/road-map');
+    navigate(`/generate/road-map?draftId=${encodeURIComponent(safeDraftId)}`);
   };
 
   return (

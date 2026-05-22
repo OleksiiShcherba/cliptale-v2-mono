@@ -62,6 +62,16 @@ describe('openApiSpec storyboard component schemas', () => {
     expect(props.edges?.type).toBe('array');
   });
 
+  it('defines StoryboardProjectCreateResponse schema', () => {
+    const schema = schemas['StoryboardProjectCreateResponse'] as Record<string, unknown>;
+    expect(schema).toBeDefined();
+    expect(schema.required).toEqual(['projectId', 'versionId']);
+    const props = schema.properties as Record<string, Record<string, unknown>>;
+    expect(props.projectId?.format).toBe('uuid');
+    expect(props.versionId?.type).toBe('integer');
+    expect(props.versionId?.minimum).toBe(1);
+  });
+
   it('defines StoryboardIllustrationStatusResponse schema', () => {
     const item = schemas['StoryboardIllustrationStatusItem'] as Record<string, unknown>;
     expect(item).toBeDefined();
@@ -166,6 +176,7 @@ describe('openApiSpec storyboard security coverage', () => {
   const storyboardPaths = [
     ['/storyboards/{draftId}/initialize', 'post'],
     ['/storyboards/{draftId}/apply-latest-plan', 'post'],
+    ['/storyboards/{draftId}/project', 'post'],
     ['/storyboards/{draftId}/illustrations', 'get'],
     ['/storyboards/{draftId}/illustrations', 'post'],
     ['/storyboards/{draftId}/illustrations/principal-image/approve', 'post'],

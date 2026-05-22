@@ -1,4 +1,4 @@
-import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 
 import { pool } from '@/db/connection.js';
 import type { AiJobStatus } from '@/repositories/aiGenerationJob.repository.js';
@@ -171,6 +171,39 @@ export async function findLatestIllustrationJobsByDraftId(
            LIMIT 1
         )
       ORDER BY sj.created_at ASC, sj.id ASC`,
+    [draftId, draftId],
+  );
+  return rows.map(mapRow);
+}
+
+export async function findLatestIllustrationJobsByDraftIdForUpdate(
+  conn: PoolConnection,
+  draftId: string,
+): Promise<StoryboardSceneIllustrationJob[]> {
+  const [rows] = await conn.execute<IllustrationJobRow[]>(
+    `SELECT sj.id, sj.draft_id, sj.block_id, sj.ai_job_id, sj.status,
+            sj.output_file_id, sj.error_message, sj.created_at, sj.updated_at
+       FROM storyboard_scene_illustration_jobs sj
+       INNER JOIN (
+         SELECT block_id, MAX(created_at) AS max_created_at
+           FROM storyboard_scene_illustration_jobs
+          WHERE draft_id = ?
+          GROUP BY block_id
+       ) latest
+         ON latest.block_id = sj.block_id
+        AND latest.max_created_at = sj.created_at
+      WHERE sj.draft_id = ?
+        AND sj.id = (
+          SELECT sj2.id
+            FROM storyboard_scene_illustration_jobs sj2
+           WHERE sj2.draft_id = sj.draft_id
+             AND sj2.block_id = sj.block_id
+             AND sj2.created_at = sj.created_at
+           ORDER BY sj2.id DESC
+           LIMIT 1
+        )
+      ORDER BY sj.created_at ASC, sj.id ASC
+      FOR UPDATE`,
     [draftId, draftId],
   );
   return rows.map(mapRow);

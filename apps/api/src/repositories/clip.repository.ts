@@ -1,4 +1,4 @@
-import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
+import type { PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 import { pool } from '@/db/connection.js';
 
@@ -97,6 +97,41 @@ export async function insertClip(clip: ClipInsert): Promise<void> {
       clip.layer ?? 0,
     ],
   );
+}
+
+/** Transaction-scoped variant used by project assembly services. */
+export async function insertClipTransaction(
+  conn: PoolConnection,
+  clip: ClipInsert,
+): Promise<void> {
+  await conn.execute<ResultSetHeader>(
+    `INSERT INTO project_clips_current
+       (clip_id, project_id, track_id, type, file_id,
+        start_frame, duration_frames, trim_in_frames, trim_out_frames, layer)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      clip.clipId,
+      clip.projectId,
+      clip.trackId,
+      clip.type,
+      clip.fileId ?? null,
+      clip.startFrame,
+      clip.durationFrames,
+      clip.trimInFrames ?? 0,
+      clip.trimOutFrames ?? null,
+      clip.layer ?? 0,
+    ],
+  );
+}
+
+/** Inserts multiple current clip rows inside a caller-owned transaction. */
+export async function insertClipsTransaction(
+  conn: PoolConnection,
+  clips: ClipInsert[],
+): Promise<void> {
+  for (const clip of clips) {
+    await insertClipTransaction(conn, clip);
+  }
 }
 
 /**

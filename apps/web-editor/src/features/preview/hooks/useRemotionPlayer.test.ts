@@ -343,6 +343,28 @@ describe('useRemotionPlayer', () => {
       expect(result.current.assetUrls['asset-a']).toBe('http://localhost:3001/assets/asset-a/stream?token=test-auth-token-123');
     });
 
+    it('appends auth token to image stream URLs for assembled storyboard clips', () => {
+      localStorage.setItem('auth_token', 'storyboard-token-456');
+      const doc = makeProjectDoc({
+        clips: [
+          { id: 'c1', type: 'image', fileId: 'scene-file-a', trackId: 't1', startFrame: 0, durationFrames: 60 },
+          { id: 'c2', type: 'image', fileId: 'scene-file-b', trackId: 't1', startFrame: 60, durationFrames: 90 },
+        ] as ProjectDoc['clips'],
+      });
+      mockGetProjectSnapshot.mockReturnValue(doc);
+      mockGetQueryData.mockReturnValue(makeEnvelope([
+        { ...makeAssetItem('scene-file-a', 'ready'), contentType: 'image/png' },
+        { ...makeAssetItem('scene-file-b', 'ready'), contentType: 'image/png' },
+      ]));
+
+      const { result } = renderHook(() => useRemotionPlayer());
+
+      expect(result.current.assetUrls).toEqual({
+        'scene-file-a': 'http://localhost:3001/assets/scene-file-a/stream?token=storyboard-token-456',
+        'scene-file-b': 'http://localhost:3001/assets/scene-file-b/stream?token=storyboard-token-456',
+      });
+    });
+
     it('does not append token when no token exists in localStorage', () => {
       expect(localStorage.getItem('auth_token')).toBeNull();
 

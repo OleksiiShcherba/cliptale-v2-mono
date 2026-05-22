@@ -12,7 +12,7 @@ import * as fileLinksRepository from '@/repositories/fileLinks.repository.js';
 import * as generationDraftRepository from '@/repositories/generationDraft.repository.js';
 import type { GenerationDraft } from '@/repositories/generationDraft.repository.js';
 import * as storyboardRepository from '@/repositories/storyboard.repository.js';
-import type { StoryboardBlock, StoryboardEdge } from '@/repositories/storyboard.repository.js';
+import type { StoryboardBlock } from '@/repositories/storyboard.repository.js';
 import * as storyboardPlanJobRepository from '@/repositories/storyboardPlanJob.repository.js';
 import type { StoryboardPlanJob } from '@/repositories/storyboardPlanJob.repository.js';
 import * as illustrationRepository from '@/repositories/storyboardSceneIllustration.repository.js';
@@ -22,6 +22,7 @@ import type {
   StoryboardSceneIllustrationStatus,
 } from '@/repositories/storyboardSceneIllustration.repository.js';
 import { enqueueStoryboardOpenAIImage } from '@/queues/jobs/enqueue-storyboard-openai-image.js';
+import { orderStoryboardSceneBlocks } from '@/services/storyboardGraph.service.js';
 
 export const STORYBOARD_ILLUSTRATION_MODEL_ID = 'openai/gpt-image-2';
 export const STORYBOARD_OPENAI_IMAGE_MODEL_ID = 'gpt-image-2';
@@ -228,52 +229,6 @@ function requireSceneBlock(
     throw new NotFoundError(`Storyboard block ${blockId} not found`);
   }
   return block;
-}
-
-function orderSceneBlocks(
-  blocks: StoryboardBlock[],
-  edges: StoryboardEdge[],
-): StoryboardBlock[] {
-  const sceneBlocks = blocks
-    .filter((block) => block.blockType === 'scene')
-    .sort((a, b) => a.sortOrder - b.sortOrder);
-  const start = blocks.find((block) => block.blockType === 'start');
-  if (!start || sceneBlocks.length === 0) {
-    return sceneBlocks;
-  }
-
-  const blockById = new Map(blocks.map((block) => [block.id, block]));
-  const outgoingBySource = new Map<string, StoryboardEdge[]>();
-  for (const edge of edges) {
-    const outgoing = outgoingBySource.get(edge.sourceBlockId) ?? [];
-    outgoing.push(edge);
-    outgoingBySource.set(edge.sourceBlockId, outgoing);
-  }
-
-  const ordered: StoryboardBlock[] = [];
-  const visited = new Set<string>();
-  let currentId = start.id;
-
-  while (!visited.has(currentId)) {
-    visited.add(currentId);
-    const outgoing = outgoingBySource.get(currentId);
-    if (!outgoing || outgoing.length !== 1) {
-      break;
-    }
-    const next = blockById.get(outgoing[0]!.targetBlockId);
-    if (!next) {
-      break;
-    }
-    if (next.blockType === 'end') {
-      break;
-    }
-    if (next.blockType === 'scene') {
-      ordered.push(next);
-    }
-    currentId = next.id;
-  }
-
-  return ordered.length === sceneBlocks.length ? ordered : sceneBlocks;
 }
 
 async function refreshMapping(
@@ -727,7 +682,7 @@ export async function listStoryboardIllustrations(
   const reference = await getLatestReference(draftId);
   const blocks = await storyboardRepository.findBlocksByDraftId(draftId);
   const edges = await storyboardRepository.findEdgesByDraftId(draftId);
-  const sceneBlocks = orderSceneBlocks(blocks, edges);
+  const sceneBlocks = orderStoryboardSceneBlocks(blocks, edges);
   const mappingsByBlock = await getLatestMappings(draftId);
   const latestPlanJob = await storyboardPlanJobRepository.findLatestByDraftId(draftId);
   return toStatusResponse(sceneBlocks, mappingsByBlock, reference, latestPlanJob);
@@ -740,7 +695,7 @@ export async function startStoryboardIllustrations(
   const draft = await resolveDraft(userId, draftId);
   const blocks = await storyboardRepository.findBlocksByDraftId(draftId);
   const edges = await storyboardRepository.findEdgesByDraftId(draftId);
-  const sceneBlocks = orderSceneBlocks(blocks, edges);
+  const sceneBlocks = orderStoryboardSceneBlocks(blocks, edges);
   const mappingsByBlock = await getLatestMappings(draftId);
   const aspectRatio = getDraftAspectRatio(draft);
   const reference = await ensureReadyReference({ userId, draft, aspectRatio });
@@ -779,7 +734,7 @@ export async function startStoryboardBlockIllustration(
   const block = requireSceneBlock(blocks, blockId, draftId);
   buildPrompt(block);
   const edges = await storyboardRepository.findEdgesByDraftId(draftId);
-  const sceneBlocks = orderSceneBlocks(blocks, edges);
+  const sceneBlocks = orderStoryboardSceneBlocks(blocks, edges);
   const mappingsByBlock = await getLatestMappings(draftId);
   const latest = mappingsByBlock.get(block.id);
   const reference = await ensureReadyReference({

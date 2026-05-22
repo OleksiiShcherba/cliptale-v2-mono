@@ -58,6 +58,8 @@ const ILLUSTRATION_STATUS_COLORS = {
   failed: ERROR,
 } as const;
 
+const LOADING_ILLUSTRATION_STATUSES = new Set(['queued', 'running']);
+
 // ── Handle styles ──────────────────────────────────────────────────────────────
 
 const SOURCE_HANDLE_STYLE: React.CSSProperties = {
@@ -255,6 +257,11 @@ export function SceneBlockNode({ id, data }: SceneBlockNodeProps): React.ReactEl
 
         {illustration?.jobId ? (
           <div style={s.illustrationStatusRow} data-testid="illustration-status-row">
+            {LOADING_ILLUSTRATION_STATUSES.has(illustration.status) ? (
+              <style>
+                {'@keyframes storyboard-illustration-spin { to { transform: rotate(360deg); } }'}
+              </style>
+            ) : null}
             <span
               style={{
                 ...s.illustrationStatusBadge,
@@ -264,6 +271,15 @@ export function SceneBlockNode({ id, data }: SceneBlockNodeProps): React.ReactEl
               title={illustration.errorMessage ?? ILLUSTRATION_STATUS_LABELS[illustration.status]}
               data-testid="illustration-status-badge"
             >
+              {LOADING_ILLUSTRATION_STATUSES.has(illustration.status) ? (
+                <>
+                  <span
+                    style={s.illustrationStatusSpinner}
+                    aria-hidden="true"
+                    data-testid="illustration-status-loader"
+                  />
+                </>
+              ) : null}
               {ILLUSTRATION_STATUS_LABELS[illustration.status]}
             </span>
             {illustration.status === 'failed' ? (

@@ -1,4 +1,4 @@
-import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 
 import { pool } from '@/db/connection.js';
 
@@ -68,6 +68,36 @@ export async function createProject(
   );
 
   const [rows] = await pool.execute<ProjectRow[]>(
+    'SELECT project_id, created_at FROM projects WHERE project_id = ?',
+    [projectId],
+  );
+
+  const row = rows[0];
+  if (!row) {
+    throw new Error(`Project row not found after insert: ${projectId}`);
+  }
+
+  return { projectId: row.project_id, createdAt: row.created_at };
+}
+
+/**
+ * Transaction-scoped variant for services that create a project alongside
+ * versions, file links, and draft completion pointers.
+ */
+export async function createProjectTransaction(
+  conn: PoolConnection,
+  projectId: string,
+  ownerUserId: string,
+  title?: string,
+): Promise<CreateProjectResult> {
+  const resolvedTitle = title ?? 'Untitled project';
+
+  await conn.execute<ResultSetHeader>(
+    'INSERT INTO projects (project_id, owner_user_id, title) VALUES (?, ?, ?)',
+    [projectId, ownerUserId, resolvedTitle],
+  );
+
+  const [rows] = await conn.execute<ProjectRow[]>(
     'SELECT project_id, created_at FROM projects WHERE project_id = ?',
     [projectId],
   );

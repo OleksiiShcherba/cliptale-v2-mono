@@ -107,6 +107,11 @@ export type StoryboardIllustrationStatusResponse = {
   items: StoryboardIllustrationStatusItem[];
 };
 
+export type StoryboardProjectCreateResponse = {
+  projectId: string;
+  versionId: number;
+};
+
 export type StoryboardIllustrationLifecycleStatus =
   | 'idle'
   | 'queued'

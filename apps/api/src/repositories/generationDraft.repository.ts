@@ -1,4 +1,4 @@
-import type { RowDataPacket, ResultSetHeader } from 'mysql2/promise';
+import type { PoolConnection, RowDataPacket, ResultSetHeader } from 'mysql2/promise';
 
 import { pool } from '@/db/connection.js';
 import type { PromptDoc } from '@ai-video-editor/project-schema';
@@ -12,9 +12,16 @@ export type GenerationDraft = {
   userId: string;
   promptDoc: PromptDoc;
   status: GenerationDraftStatus;
+  createdProjectId: string | null;
+  createdProjectVersionId: number | null;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
+};
+
+export type LockedGenerationDraftForProjectAssembly = GenerationDraft & {
+  createdProjectId: string | null;
+  createdProjectVersionId: number | null;
 };
 
 /**
@@ -46,6 +53,8 @@ type GenerationDraftRow = RowDataPacket & {
    */
   prompt_doc: string | PromptDoc;
   status: GenerationDraftStatus;
+  created_project_id: string | null;
+  created_project_version_id: number | null;
   created_at: Date;
   updated_at: Date;
   deleted_at: Date | null;
@@ -60,6 +69,8 @@ function mapRowToDraft(row: GenerationDraftRow): GenerationDraft {
         ? (JSON.parse(row.prompt_doc) as PromptDoc)
         : (row.prompt_doc as PromptDoc),
     status: row.status,
+    createdProjectId: row.created_project_id ?? null,
+    createdProjectVersionId: row.created_project_version_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at ?? null,
@@ -93,7 +104,8 @@ export async function insertDraft(
   );
 
   const [rows] = await pool.query<GenerationDraftRow[]>(
-    `SELECT id, user_id, prompt_doc, status, created_at, updated_at, deleted_at
+    `SELECT id, user_id, prompt_doc, status, created_project_id, created_project_version_id,
+            created_at, updated_at, deleted_at
      FROM generation_drafts WHERE id = ?`,
     [id],
   );
@@ -110,7 +122,8 @@ export async function insertDraft(
  */
 export async function findDraftById(id: string): Promise<GenerationDraft | null> {
   const [rows] = await pool.query<GenerationDraftRow[]>(
-    `SELECT id, user_id, prompt_doc, status, created_at, updated_at, deleted_at
+    `SELECT id, user_id, prompt_doc, status, created_project_id, created_project_version_id,
+            created_at, updated_at, deleted_at
      FROM generation_drafts WHERE id = ? AND deleted_at IS NULL`,
     [id],
   );
@@ -124,7 +137,8 @@ export async function findDraftById(id: string): Promise<GenerationDraft | null>
  */
 export async function findDraftByIdIncludingDeleted(id: string): Promise<GenerationDraft | null> {
   const [rows] = await pool.query<GenerationDraftRow[]>(
-    `SELECT id, user_id, prompt_doc, status, created_at, updated_at, deleted_at
+    `SELECT id, user_id, prompt_doc, status, created_project_id, created_project_version_id,
+            created_at, updated_at, deleted_at
      FROM generation_drafts WHERE id = ?`,
     [id],
   );
@@ -135,7 +149,8 @@ export async function findDraftByIdIncludingDeleted(id: string): Promise<Generat
 /** List all non-deleted drafts belonging to a user, newest first. */
 export async function findDraftsByUserId(userId: string): Promise<GenerationDraft[]> {
   const [rows] = await pool.query<GenerationDraftRow[]>(
-    `SELECT id, user_id, prompt_doc, status, created_at, updated_at, deleted_at
+    `SELECT id, user_id, prompt_doc, status, created_project_id, created_project_version_id,
+            created_at, updated_at, deleted_at
      FROM generation_drafts WHERE user_id = ? AND deleted_at IS NULL
      ORDER BY updated_at DESC, id DESC`,
     [userId],
@@ -162,7 +177,8 @@ export async function updateDraftPromptDoc(
   if (result.affectedRows === 0) return null;
 
   const [rows] = await pool.query<GenerationDraftRow[]>(
-    `SELECT id, user_id, prompt_doc, status, created_at, updated_at, deleted_at
+    `SELECT id, user_id, prompt_doc, status, created_project_id, created_project_version_id,
+            created_at, updated_at, deleted_at
      FROM generation_drafts WHERE id = ?`,
     [id],
   );
@@ -194,6 +210,47 @@ export async function updateDraftStatus(
   await pool.query<ResultSetHeader>(
     'UPDATE generation_drafts SET status = ?, updated_at = NOW() WHERE id = ?',
     [status, draftId],
+  );
+}
+
+/**
+ * Locks a non-deleted draft row for Step 3 project assembly.
+ *
+ * Must be called inside a caller-owned transaction. The row lock serializes
+ * concurrent create-project requests so only the first request can assemble and
+ * mark completion; later requests observe the committed created ids.
+ */
+export async function lockDraftForProjectAssembly(
+  conn: PoolConnection,
+  draftId: string,
+): Promise<LockedGenerationDraftForProjectAssembly | null> {
+  const [rows] = await conn.query<GenerationDraftRow[]>(
+    `SELECT id, user_id, prompt_doc, status, created_project_id, created_project_version_id,
+            created_at, updated_at, deleted_at
+       FROM generation_drafts
+      WHERE id = ? AND deleted_at IS NULL
+      FOR UPDATE`,
+    [draftId],
+  );
+  return rows.length ? mapRowToDraft(rows[0]!) : null;
+}
+
+/**
+ * Marks Step 3 assembly complete for a draft after all project writes succeed.
+ * Must be called inside the same transaction that creates the project/version.
+ */
+export async function markDraftProjectAssemblyComplete(
+  conn: PoolConnection,
+  params: { draftId: string; projectId: string; versionId: number },
+): Promise<void> {
+  await conn.query<ResultSetHeader>(
+    `UPDATE generation_drafts
+        SET status = 'completed',
+            created_project_id = ?,
+            created_project_version_id = ?,
+            updated_at = NOW()
+      WHERE id = ? AND deleted_at IS NULL`,
+    [params.projectId, params.versionId, params.draftId],
   );
 }
 

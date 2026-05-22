@@ -11,7 +11,7 @@ import { RegisterPage } from '@/features/auth/components/RegisterPage';
 import { ForgotPasswordPage } from '@/features/auth/components/ForgotPasswordPage';
 import { ResetPasswordPage } from '@/features/auth/components/ResetPasswordPage';
 import { GenerateWizardPage } from '@/features/generate-wizard/components/GenerateWizardPage';
-import { GenerateRoadMapPlaceholder } from '@/features/generate-wizard/components/GenerateRoadMapPlaceholder';
+import { GenerateProjectFromStoryboardPage } from '@/features/generate-wizard/components/GenerateProjectFromStoryboardPage';
 import { HomePage } from '@/features/home/components/HomePage';
 import { TrashPanel } from '@/features/trash/TrashPanel';
 import { StoryboardPage } from '@/features/storyboard/components/StoryboardPage';
@@ -79,7 +79,7 @@ const router = createBrowserRouter([
     path: '/generate/road-map',
     element: (
       <ProtectedRoute>
-        <GenerateRoadMapPlaceholder />
+        <GenerateProjectFromStoryboardPage />
       </ProtectedRoute>
     ),
   },

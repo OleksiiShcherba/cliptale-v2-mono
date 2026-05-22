@@ -254,6 +254,7 @@ describe('StoryboardPage / storyboard plan generation', () => {
 
     expect(screen.getByText('Creating visual style reference')).toBeTruthy();
     expect(screen.getByTestId('storyboard-reference-preview-fallback').textContent).toBe('Wait');
+    expect(screen.getByTestId('storyboard-reference-loader')).toBeTruthy();
     expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -276,6 +277,7 @@ describe('StoryboardPage / storyboard plan generation', () => {
 
     expect(screen.getByTestId('storyboard-reference-preview')).toBeTruthy();
     expect(screen.getByTestId('storyboard-reference-preview-fallback').textContent).toBe('Wait');
+    expect(screen.getByTestId('storyboard-reference-loader')).toBeTruthy();
     expect(screen.queryByTestId('storyboard-reference-preview-image')).toBeNull();
   });
 
@@ -497,7 +499,7 @@ describe('StoryboardPage / storyboard plan generation', () => {
 
     expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByTestId('next-step3-button'));
-    expect(mockNavigate).toHaveBeenCalledWith('/generate/road-map');
+    expect(mockNavigate).toHaveBeenCalledWith('/generate/road-map?draftId=test-draft-abc');
   });
 
   it('opens the principal image approval modal and continues after approval', async () => {

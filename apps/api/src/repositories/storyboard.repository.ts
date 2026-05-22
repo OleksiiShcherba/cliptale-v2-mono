@@ -89,6 +89,49 @@ export async function findBlocksByDraftId(draftId: string): Promise<StoryboardBl
   return blockRows.map((r) => mapBlockRow(r, mediaByBlock.get(r.id) ?? []));
 }
 
+export async function findBlocksByDraftIdForUpdate(
+  conn: PoolConnection,
+  draftId: string,
+): Promise<StoryboardBlock[]> {
+  const [blockRows] = await conn.execute<BlockRow[]>(
+    `SELECT id, draft_id, block_type, name, prompt, duration_s,
+            position_x, position_y, sort_order, style, created_at, updated_at
+     FROM storyboard_blocks
+     WHERE draft_id = ?
+     ORDER BY sort_order ASC
+     FOR UPDATE`,
+    [draftId],
+  );
+
+  if (blockRows.length === 0) return [];
+
+  const blockIds = blockRows.map((r) => r.id);
+  const placeholders = blockIds.map(() => '?').join(', ');
+
+  const [mediaRows] = await conn.execute<BlockMediaRow[]>(
+    `SELECT id, block_id, file_id, media_type, sort_order
+     FROM storyboard_block_media
+     WHERE block_id IN (${placeholders})
+     ORDER BY sort_order ASC
+     FOR UPDATE`,
+    blockIds,
+  );
+
+  const mediaByBlock = new Map<string, BlockMediaItem[]>();
+  for (const m of mediaRows) {
+    const existing = mediaByBlock.get(m.block_id) ?? [];
+    existing.push({
+      id: m.id,
+      fileId: m.file_id,
+      mediaType: m.media_type,
+      sortOrder: m.sort_order,
+    });
+    mediaByBlock.set(m.block_id, existing);
+  }
+
+  return blockRows.map((r) => mapBlockRow(r, mediaByBlock.get(r.id) ?? []));
+}
+
 /**
  * Returns all edges for a draft.
  */
@@ -97,6 +140,20 @@ export async function findEdgesByDraftId(draftId: string): Promise<StoryboardEdg
     `SELECT id, draft_id, source_block_id, target_block_id
      FROM storyboard_edges
      WHERE draft_id = ?`,
+    [draftId],
+  );
+  return rows.map(mapEdgeRow);
+}
+
+export async function findEdgesByDraftIdForUpdate(
+  conn: PoolConnection,
+  draftId: string,
+): Promise<StoryboardEdge[]> {
+  const [rows] = await conn.execute<EdgeRow[]>(
+    `SELECT id, draft_id, source_block_id, target_block_id
+     FROM storyboard_edges
+     WHERE draft_id = ?
+     FOR UPDATE`,
     [draftId],
   );
   return rows.map(mapEdgeRow);

@@ -1,4 +1,4 @@
-import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 
 import { pool } from '@/db/connection.js';
 import type { AiJobStatus } from '@/repositories/aiGenerationJob.repository.js';
@@ -156,6 +156,25 @@ export async function findActiveReferenceByDraftId(
         AND active_lock = 1
       ORDER BY created_at DESC, id DESC
       LIMIT 1`,
+    [draftId],
+  );
+  return rows.length ? mapRow(rows[0]!) : null;
+}
+
+export async function findActiveReferenceByDraftIdForUpdate(
+  conn: PoolConnection,
+  draftId: string,
+): Promise<StoryboardIllustrationReference | null> {
+  const [rows] = await conn.execute<StoryboardIllustrationReferenceRow[]>(
+    `SELECT id, draft_id, ai_job_id, status, output_file_id,
+            source_reference_file_ids, approval_status, approved_at,
+            error_message, created_at, updated_at
+       FROM storyboard_illustration_references
+      WHERE draft_id = ?
+        AND active_lock = 1
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+      FOR UPDATE`,
     [draftId],
   );
   return rows.length ? mapRow(rows[0]!) : null;

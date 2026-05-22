@@ -12,6 +12,7 @@ vi.mock('@/db/connection.js', () => ({
 
 import {
   createProject,
+  createProjectTransaction,
   findProjectsByUserId,
 } from './project.repository.js';
 
@@ -82,6 +83,31 @@ describe('project.repository', () => {
 
       await expect(createProject('missing-id', 'user-123')).rejects.toThrow(
         'Project row not found after insert: missing-id',
+      );
+    });
+  });
+
+  describe('createProjectTransaction', () => {
+    it('uses the supplied transaction connection instead of the pool', async () => {
+      const mockConn = {
+        execute: vi.fn()
+          .mockResolvedValueOnce([{}, []])
+          .mockResolvedValueOnce([[makeProjectRow({ project_id: 'project-tx' })], []]),
+      };
+
+      const result = await createProjectTransaction(
+        mockConn as never,
+        'project-tx',
+        'user-123',
+        'Storyboard project',
+      );
+
+      expect(result.projectId).toBe('project-tx');
+      expect(mockExecute).not.toHaveBeenCalled();
+      expect(mockConn.execute).toHaveBeenNthCalledWith(
+        1,
+        'INSERT INTO projects (project_id, owner_user_id, title) VALUES (?, ?, ?)',
+        ['project-tx', 'user-123', 'Storyboard project'],
       );
     });
   });

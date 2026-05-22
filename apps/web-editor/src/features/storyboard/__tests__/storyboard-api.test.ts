@@ -44,6 +44,7 @@ import {
   editStoryboardPrincipalImage,
   replaceStoryboardPrincipalImage,
   setStoryboardPrincipalImageReferences,
+  createProjectFromStoryboard,
 } from '../api';
 
 import type { SceneTemplate, CreateSceneTemplatePayload, UpdateSceneTemplatePayload } from '../types';
@@ -489,6 +490,26 @@ describe('principal image API helpers', () => {
 
     await expect(setStoryboardPrincipalImageReferences('draft-abc', [])).rejects.toThrow(
       'PUT /storyboards/draft-abc/illustrations/principal-image/references failed: 400',
+    );
+  });
+});
+
+describe('storyboard project API helper', () => {
+  it('creates a project from a storyboard draft', async () => {
+    const response = { projectId: 'project-1', versionId: 10 };
+    mockApiClient.post.mockResolvedValue(mockOkResponse(response));
+
+    const result = await createProjectFromStoryboard('draft-abc');
+
+    expect(mockApiClient.post).toHaveBeenCalledWith('/storyboards/draft-abc/project', {});
+    expect(result).toEqual(response);
+  });
+
+  it('throws when storyboard project assembly fails', async () => {
+    mockApiClient.post.mockResolvedValue(mockErrorResponse(422));
+
+    await expect(createProjectFromStoryboard('draft-abc')).rejects.toThrow(
+      'POST /storyboards/draft-abc/project failed: 422',
     );
   });
 });

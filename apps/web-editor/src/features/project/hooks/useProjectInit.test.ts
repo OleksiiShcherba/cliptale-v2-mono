@@ -1,5 +1,6 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { ProjectDoc } from '@ai-video-editor/project-schema';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -141,6 +142,66 @@ describe('useProjectInit', () => {
       await waitFor(() => expect(result.current.status).toBe('ready'));
 
       expect(mockSetCurrentVersionId).toHaveBeenCalledWith(7);
+    });
+
+    it('hydrates an assembled storyboard project from the latest version without creating a blank project', async () => {
+      const assembledDoc: ProjectDoc = {
+        schemaVersion: 1,
+        id: '00000000-0000-4000-8000-000000000100',
+        title: 'Storyboard Assembly',
+        fps: 30,
+        durationFrames: 150,
+        width: 1920,
+        height: 1080,
+        tracks: [
+          {
+            id: '00000000-0000-4000-8000-000000000101',
+            type: 'video',
+            name: 'Scenes',
+            muted: false,
+            locked: false,
+          },
+        ],
+        clips: [
+          {
+            id: '00000000-0000-4000-8000-000000000201',
+            type: 'image',
+            fileId: '00000000-0000-4000-8000-000000000301',
+            trackId: '00000000-0000-4000-8000-000000000101',
+            startFrame: 0,
+            durationFrames: 60,
+            opacity: 1,
+          },
+          {
+            id: '00000000-0000-4000-8000-000000000202',
+            type: 'image',
+            fileId: '00000000-0000-4000-8000-000000000302',
+            trackId: '00000000-0000-4000-8000-000000000101',
+            startFrame: 60,
+            durationFrames: 90,
+            opacity: 1,
+          },
+        ],
+        createdAt: '2026-04-17T10:00:00.000Z',
+        updatedAt: '2026-04-17T10:00:00.000Z',
+      };
+      setUrlSearch('?projectId=assembled-project-id');
+      mockFetchLatestVersion.mockResolvedValue({
+        versionId: 42,
+        docJson: assembledDoc,
+        createdAt: '2026-04-17T10:00:00.000Z',
+      });
+      const { result } = renderHook(() => useProjectInit());
+
+      await waitFor(() => expect(result.current.status).toBe('ready'));
+
+      expect(mockCreateProject).not.toHaveBeenCalled();
+      expect(mockSetProjectSilent).toHaveBeenCalledWith({
+        ...assembledDoc,
+        id: 'assembled-project-id',
+      });
+      expect(mockSetCurrentVersionId).toHaveBeenCalledWith(42);
+      expect(result.current.projectId).toBe('assembled-project-id');
     });
 
     it('transitions to ready with the URL projectId after hydration', async () => {

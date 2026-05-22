@@ -5,6 +5,7 @@ import { aclMiddleware } from '@/middleware/acl.middleware.js';
 import { validateBody } from '@/middleware/validate.middleware.js';
 import * as storyboardController from '@/controllers/storyboard.controller.js';
 import * as storyboardIllustrationController from '@/controllers/storyboardIllustration.controller.js';
+import * as storyboardProjectController from '@/controllers/storyboardProject.controller.js';
 
 const router = Router();
 
@@ -38,6 +39,15 @@ router.post(
   authMiddleware,
   aclMiddleware('editor'),
   storyboardController.applyLatestPlan,
+);
+
+// POST /storyboards/:draftId/project
+// Creates or returns the editor project assembled from a ready storyboard.
+router.post(
+  '/storyboards/:draftId/project',
+  authMiddleware,
+  aclMiddleware('editor'),
+  storyboardProjectController.createProjectFromStoryboard,
 );
 
 // GET /storyboards/:draftId/illustrations

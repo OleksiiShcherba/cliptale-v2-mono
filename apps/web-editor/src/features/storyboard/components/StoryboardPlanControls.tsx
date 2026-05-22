@@ -190,6 +190,9 @@ function StoryboardReferencePreview({
   }, [reference?.outputFileId]);
 
   const showImage = reference?.status === 'ready' && reference.outputFileId && !failed;
+  const isWaiting = reference !== null &&
+    reference.jobId !== null &&
+    (reference.status === 'queued' || reference.status === 'running');
   const label = reference?.status === 'ready'
     ? 'Canonical visual style reference'
     : 'Canonical visual style reference status';
@@ -201,6 +204,11 @@ function StoryboardReferencePreview({
       title={label}
       data-testid="storyboard-reference-preview"
     >
+      {isWaiting ? (
+        <style>
+          {'@keyframes storyboard-reference-spin { to { transform: rotate(360deg); } }'}
+        </style>
+      ) : null}
       {showImage ? (
         <img
           src={buildAuthenticatedUrl(`${config.apiBaseUrl}/assets/${reference.outputFileId}/thumbnail`)}
@@ -212,6 +220,11 @@ function StoryboardReferencePreview({
         />
       ) : (
         <span style={s.referencePreviewFallback} data-testid="storyboard-reference-preview-fallback">
+          {isWaiting ? (
+            <>
+              <span style={s.referencePreviewSpinner} aria-hidden="true" data-testid="storyboard-reference-loader" />
+            </>
+          ) : null}
           {getReferencePreviewFallback(reference)}
         </span>
       )}
