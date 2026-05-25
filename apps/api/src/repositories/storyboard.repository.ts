@@ -52,7 +52,7 @@ export async function getConnection(): Promise<PoolConnection> {
  */
 export async function findBlocksByDraftId(draftId: string): Promise<StoryboardBlock[]> {
   const [blockRows] = await pool.execute<BlockRow[]>(
-    `SELECT id, draft_id, block_type, name, prompt, duration_s,
+    `SELECT id, draft_id, block_type, name, prompt, video_prompt, duration_s,
             position_x, position_y, sort_order, style, created_at, updated_at
      FROM storyboard_blocks
      WHERE draft_id = ?
@@ -94,7 +94,7 @@ export async function findBlocksByDraftIdForUpdate(
   draftId: string,
 ): Promise<StoryboardBlock[]> {
   const [blockRows] = await conn.execute<BlockRow[]>(
-    `SELECT id, draft_id, block_type, name, prompt, duration_s,
+    `SELECT id, draft_id, block_type, name, prompt, video_prompt, duration_s,
             position_x, position_y, sort_order, style, created_at, updated_at
      FROM storyboard_blocks
      WHERE draft_id = ?
@@ -230,10 +230,10 @@ export async function replaceStoryboard(
   for (const b of blocks) {
     await conn.execute<ResultSetHeader>(
       `INSERT INTO storyboard_blocks
-         (id, draft_id, block_type, name, prompt, duration_s,
+         (id, draft_id, block_type, name, prompt, video_prompt, duration_s,
           position_x, position_y, sort_order, style)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [b.id, b.draftId, b.blockType, b.name, b.prompt, b.durationS,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [b.id, b.draftId, b.blockType, b.name, b.prompt, b.videoPrompt, b.durationS,
        b.positionX, b.positionY, b.sortOrder, b.style],
     );
     for (const m of b.mediaItems ?? []) {
@@ -267,11 +267,11 @@ export async function replaceStoryboard(
 export async function insertBlock(block: BlockInsert): Promise<void> {
   await pool.execute<ResultSetHeader>(
     `INSERT INTO storyboard_blocks
-       (id, draft_id, block_type, name, prompt, duration_s,
+       (id, draft_id, block_type, name, prompt, video_prompt, duration_s,
         position_x, position_y, sort_order, style)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [block.id, block.draftId, block.blockType, block.name, block.prompt,
-     block.durationS, block.positionX, block.positionY, block.sortOrder, block.style],
+     block.videoPrompt, block.durationS, block.positionX, block.positionY, block.sortOrder, block.style],
   );
 }
 
@@ -309,11 +309,11 @@ export async function insertSentinelsInTx(
   for (const block of [start, end]) {
     await conn.execute<ResultSetHeader>(
       `INSERT INTO storyboard_blocks
-         (id, draft_id, block_type, name, prompt, duration_s,
+         (id, draft_id, block_type, name, prompt, video_prompt, duration_s,
           position_x, position_y, sort_order, style)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [block.id, block.draftId, block.blockType, block.name, block.prompt,
-       block.durationS, block.positionX, block.positionY, block.sortOrder, block.style],
+       block.videoPrompt, block.durationS, block.positionX, block.positionY, block.sortOrder, block.style],
     );
   }
 }

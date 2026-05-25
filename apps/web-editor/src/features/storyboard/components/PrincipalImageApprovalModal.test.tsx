@@ -2,8 +2,9 @@ import React from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-const { capturedPickerProps } = vi.hoisted(() => ({
+const { capturedPickerProps, mockApiClientGet } = vi.hoisted(() => ({
   capturedPickerProps: { current: null as Record<string, unknown> | null },
+  mockApiClientGet: vi.fn(),
 }));
 
 vi.mock('@/features/generate-wizard/components/AssetPickerModal', () => ({
@@ -14,11 +15,7 @@ vi.mock('@/features/generate-wizard/components/AssetPickerModal', () => ({
 }));
 
 vi.mock('@/lib/api-client', () => ({
-  buildAuthenticatedUrl: (url: string) => `${url}?token=test`,
-}));
-
-vi.mock('@/lib/config', () => ({
-  config: { apiBaseUrl: 'http://api.test' },
+  apiClient: { get: mockApiClientGet },
 }));
 
 import { PrincipalImageApprovalModal } from './PrincipalImageApprovalModal';
@@ -71,13 +68,19 @@ describe('PrincipalImageApprovalModal', () => {
   beforeEach(() => {
     capturedPickerProps.current = null;
     vi.clearAllMocks();
+    mockApiClientGet.mockImplementation((path: string) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ url: `https://signed.test${path}` }),
+    }));
   });
 
   it('renders the authenticated principal image preview and approves it', async () => {
     const { props } = renderModal();
 
-    const image = screen.getByTestId('principal-image-preview-img') as HTMLImageElement;
-    expect(image.src).toContain('http://api.test/assets/principal-file-1/stream?token=test');
+    const image = await screen.findByTestId('principal-image-preview-img') as HTMLImageElement;
+    expect(image.src).toContain('https://signed.test/files/principal-file-1/stream');
+    expect(mockApiClientGet).toHaveBeenCalledWith('/files/principal-file-1/stream');
 
     fireEvent.click(screen.getByTestId('principal-image-approve-button'));
 
@@ -86,24 +89,24 @@ describe('PrincipalImageApprovalModal', () => {
     });
   });
 
-  it('opens a full preview from the principal image and closes it', () => {
+  it('opens a full preview from the principal image and closes it', async () => {
     renderModal();
 
-    fireEvent.click(screen.getByTestId('principal-image-preview-open'));
+    fireEvent.click(await screen.findByTestId('principal-image-preview-open'));
 
     const lightbox = screen.getByTestId('principal-image-lightbox');
     const lightboxImage = screen.getByTestId('principal-image-lightbox-img') as HTMLImageElement;
-    expect(lightboxImage.src).toContain('http://api.test/assets/principal-file-1/stream?token=test');
+    expect(lightboxImage.src).toContain('https://signed.test/files/principal-file-1/stream');
     expect(document.activeElement).toBe(lightbox);
 
     fireEvent.keyDown(lightbox, { key: 'Escape' });
     expect(screen.queryByTestId('principal-image-lightbox')).toBeNull();
   });
 
-  it('keeps keyboard focus inside the full preview modal', () => {
+  it('keeps keyboard focus inside the full preview modal', async () => {
     renderModal();
 
-    fireEvent.click(screen.getByTestId('principal-image-preview-open'));
+    fireEvent.click(await screen.findByTestId('principal-image-preview-open'));
 
     const lightbox = screen.getByTestId('principal-image-lightbox');
     const closeButton = screen.getByTestId('principal-image-lightbox-close');
@@ -178,8 +181,8 @@ describe('PrincipalImageApprovalModal', () => {
       reference: reference({ sourceReferenceFileIds: ['reference-file-1'] }),
     });
 
-    const initialPreview = screen.getByTestId('principal-image-reference-preview-img') as HTMLImageElement;
-    expect(initialPreview.src).toContain('http://api.test/assets/reference-file-1/stream?token=test');
+    const initialPreview = await screen.findByTestId('principal-image-reference-preview-img') as HTMLImageElement;
+    expect(initialPreview.src).toContain('https://signed.test/files/reference-file-1/stream');
     expect(screen.queryByText('reference-file-1')).toBeNull();
 
     fireEvent.click(screen.getByTestId('principal-image-add-reference-button'));
@@ -199,15 +202,15 @@ describe('PrincipalImageApprovalModal', () => {
     });
   });
 
-  it('opens a full preview from an extra reference thumbnail', () => {
+  it('opens a full preview from an extra reference thumbnail', async () => {
     renderModal({
       reference: reference({ sourceReferenceFileIds: ['reference-file-1'] }),
     });
 
-    fireEvent.click(screen.getByTestId('principal-image-reference-preview-open'));
+    fireEvent.click(await screen.findByTestId('principal-image-reference-preview-open'));
 
     const lightboxImage = screen.getByTestId('principal-image-lightbox-img') as HTMLImageElement;
-    expect(lightboxImage.src).toContain('http://api.test/assets/reference-file-1/stream?token=test');
+    expect(lightboxImage.src).toContain('https://signed.test/files/reference-file-1/stream');
   });
 
   it('does not show a picked extra reference when the update fails', async () => {
@@ -231,19 +234,19 @@ describe('PrincipalImageApprovalModal', () => {
     expect(screen.getAllByTestId('principal-image-reference-preview')).toHaveLength(1);
   });
 
-  it('falls back when the preview image fails', () => {
+  it('falls back when the preview image fails', async () => {
     renderModal();
 
-    fireEvent.error(screen.getByTestId('principal-image-preview-img'));
+    fireEvent.error(await screen.findByTestId('principal-image-preview-img'));
 
     expect(screen.getByTestId('principal-image-preview-fallback').textContent).toBe('Preview unavailable');
   });
 
-  it('traps tab focus within the modal', () => {
+  it('traps tab focus within the modal', async () => {
     renderModal();
 
     const dialog = screen.getByTestId('principal-image-modal');
-    const previewButton = screen.getByTestId('principal-image-preview-open') as HTMLButtonElement;
+    const previewButton = await screen.findByTestId('principal-image-preview-open') as HTMLButtonElement;
     const editPrompt = screen.getByTestId('principal-image-edit-prompt') as HTMLTextAreaElement;
     const approveButton = screen.getByTestId('principal-image-approve-button') as HTMLButtonElement;
 

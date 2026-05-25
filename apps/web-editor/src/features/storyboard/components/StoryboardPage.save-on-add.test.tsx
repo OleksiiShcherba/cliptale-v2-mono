@@ -303,6 +303,7 @@ describe('StoryboardPage / library-add (SB-UI-BUG-1)', () => {
       blockType: 'scene',
       name: 'Library Scene',
       prompt: 'p',
+      videoPrompt: null,
       durationS: 10,
       positionX: 340,
       positionY: 200,

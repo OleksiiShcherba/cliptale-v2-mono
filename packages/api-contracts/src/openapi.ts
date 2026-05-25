@@ -810,6 +810,14 @@ export const openApiSpec = {
             description: 'UUID of the storyboard generation draft.',
           },
         ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CreateStoryboardProjectBody' },
+            },
+          },
+        },
         responses: {
           201: {
             description: 'Project created or existing completed project returned.',
@@ -825,6 +833,83 @@ export const openApiSpec = {
           422: {
             description:
               'Storyboard is not ready for project creation: missing scenes, unapproved principal image, or unfinished scene outputs.',
+          },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/storyboards/{draftId}/videos': {
+      get: {
+        summary: 'List storyboard scene video statuses',
+        description:
+          'Returns one Image-to-Video generation status item for every scene block in storyboard order.',
+        operationId: 'listStoryboardVideos',
+        tags: ['storyboard'],
+        parameters: [
+          {
+            name: 'draftId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft.',
+          },
+        ],
+        responses: {
+          200: {
+            description: 'Scene video generation statuses.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StoryboardVideoStatusResponse' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found.' },
+          422: { description: 'Storyboard has no scene blocks.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+      post: {
+        summary: 'Start storyboard scene video generation',
+        description:
+          'Enqueues one Image-to-Video AI generation job for each eligible scene block using the selected model, ' +
+          'the scene videoPrompt, the ready scene illustration, optional next-scene end image, and optional native audio.',
+        operationId: 'startStoryboardVideos',
+        tags: ['storyboard'],
+        parameters: [
+          {
+            name: 'draftId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+            description: 'UUID of the generation draft.',
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/StartStoryboardVideosBody' },
+            },
+          },
+        },
+        responses: {
+          202: {
+            description: 'Scene video generation jobs queued where needed.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StoryboardVideoStatusResponse' },
+              },
+            },
+          },
+          400: { description: 'Invalid model selection or unsupported audio toggle.' },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found.' },
+          422: {
+            description:
+              'Storyboard is not ready for video generation: missing video prompts, unapproved principal image, or missing ready scene images.',
           },
         },
         security: [{ bearerAuth: [] }],
@@ -1691,6 +1776,7 @@ export const openApiSpec = {
           'sceneNumber',
           'prompt',
           'visualPrompt',
+          'videoPrompt',
           'durationSeconds',
           'referencedMedia',
           'transitionNotes',
@@ -1700,6 +1786,11 @@ export const openApiSpec = {
           sceneNumber: { type: 'integer', minimum: 1 },
           prompt: { type: 'string', minLength: 1 },
           visualPrompt: { type: 'string', minLength: 1 },
+          videoPrompt: {
+            type: 'string',
+            minLength: 1,
+            description: 'Image-to-video motion prompt for animating the generated scene illustration.',
+          },
           durationSeconds: { type: 'number', exclusiveMinimum: 0 },
           referencedMedia: {
             type: 'array',
@@ -1907,7 +1998,7 @@ export const openApiSpec = {
       StoryboardBlock: {
         type: 'object',
         required: [
-          'id', 'draftId', 'blockType', 'name', 'prompt', 'durationS',
+          'id', 'draftId', 'blockType', 'name', 'prompt', 'videoPrompt', 'durationS',
           'positionX', 'positionY', 'sortOrder', 'style', 'createdAt', 'updatedAt', 'mediaItems',
         ],
         description: 'A fully-hydrated storyboard block returned from the API.',
@@ -1920,7 +2011,11 @@ export const openApiSpec = {
             description: 'Block category: start/end are sentinels; scene is user-created.',
           },
           name: { type: ['string', 'null'], maxLength: 255, description: 'User-editable scene name.' },
-          prompt: { type: ['string', 'null'], description: 'AI generation prompt for this scene.' },
+          prompt: { type: ['string', 'null'], description: 'Still-image generation prompt for this scene.' },
+          videoPrompt: {
+            type: ['string', 'null'],
+            description: 'Optional Image-to-Video motion prompt for this scene.',
+          },
           durationS: { type: 'integer', minimum: 1, description: 'Intended scene duration in seconds.' },
           positionX: { type: 'number', description: 'Canvas X position in logical pixels.' },
           positionY: { type: 'number', description: 'Canvas Y position in logical pixels.' },
@@ -1977,6 +2072,20 @@ export const openApiSpec = {
             type: 'integer',
             minimum: 1,
             description: 'Initial project_versions row id containing the assembled ProjectDoc.',
+          },
+        },
+      },
+      CreateStoryboardProjectBody: {
+        type: 'object',
+        additionalProperties: false,
+        description:
+          'Optional assembly mode for creating a project from storyboard outputs. Missing body defaults to image clips.',
+        properties: {
+          mode: {
+            type: 'string',
+            enum: ['images', 'videos'],
+            default: 'images',
+            description: 'Use ready scene illustrations or ready scene videos when assembling the timeline.',
           },
         },
       },
@@ -2117,6 +2226,77 @@ export const openApiSpec = {
           ],
         },
       },
+      StartStoryboardVideosBody: {
+        type: 'object',
+        required: ['modelId'],
+        additionalProperties: false,
+        description: 'Request body for starting storyboard Image-to-Video generation.',
+        properties: {
+          modelId: {
+            type: 'string',
+            description: 'AI model id from GET /ai/models with capability image_to_video.',
+          },
+          generateAudio: {
+            type: 'boolean',
+            default: false,
+            description: 'Whether to request native audio when the selected model supports it.',
+          },
+        },
+      },
+      StoryboardVideoStatusItem: {
+        type: 'object',
+        required: [
+          'blockId',
+          'status',
+          'jobId',
+          'modelId',
+          'generateAudio',
+          'outputFileId',
+          'errorMessage',
+        ],
+        description: 'Latest AI Image-to-Video generation status for one scene block.',
+        properties: {
+          blockId: { type: 'string', format: 'uuid', description: 'UUID of the scene block.' },
+          status: {
+            type: 'string',
+            enum: ['queued', 'running', 'ready', 'failed'],
+            description: 'UI-facing scene video generation state.',
+          },
+          jobId: {
+            type: ['string', 'null'],
+            format: 'uuid',
+            description: 'Latest AI generation job id, or null before one has been created.',
+          },
+          modelId: {
+            type: ['string', 'null'],
+            description: 'Image-to-Video model id used by the latest job, or null before one exists.',
+          },
+          generateAudio: {
+            type: 'boolean',
+            description: 'Whether the latest job requested provider-native audio generation.',
+          },
+          outputFileId: {
+            type: ['string', 'null'],
+            format: 'uuid',
+            description: 'Generated video output file id when ready.',
+          },
+          errorMessage: {
+            type: ['string', 'null'],
+            description: 'Provider or validation error when failed.',
+          },
+        },
+      },
+      StoryboardVideoStatusResponse: {
+        type: 'object',
+        required: ['items'],
+        description: 'Per-scene storyboard Image-to-Video generation statuses ordered by storyboard order.',
+        properties: {
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/StoryboardVideoStatusItem' },
+          },
+        },
+      },
       EditPrincipalImageBody: {
         type: 'object',
         required: ['prompt'],
@@ -2155,7 +2335,7 @@ export const openApiSpec = {
       BlockInsert: {
         type: 'object',
         required: [
-          'id', 'draftId', 'blockType', 'name', 'prompt', 'durationS',
+          'id', 'draftId', 'blockType', 'name', 'prompt', 'videoPrompt', 'durationS',
           'positionX', 'positionY', 'sortOrder', 'style',
         ],
         description: 'A single block in the PUT /storyboards/:draftId request body.',
@@ -2168,7 +2348,11 @@ export const openApiSpec = {
             description: 'Block category.',
           },
           name: { type: ['string', 'null'], maxLength: 255, description: 'User-editable scene name.' },
-          prompt: { type: ['string', 'null'], description: 'AI generation prompt.' },
+          prompt: { type: ['string', 'null'], description: 'Still-image generation prompt.' },
+          videoPrompt: {
+            type: ['string', 'null'],
+            description: 'Optional Image-to-Video motion prompt.',
+          },
           durationS: { type: 'integer', minimum: 1, default: 5, description: 'Scene duration in seconds.' },
           positionX: { type: 'number', description: 'Canvas X position.' },
           positionY: { type: 'number', description: 'Canvas Y position.' },

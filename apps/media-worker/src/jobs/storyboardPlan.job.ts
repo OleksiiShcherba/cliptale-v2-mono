@@ -93,7 +93,8 @@ export const STORYBOARD_PLAN_SYSTEM_PROMPT = [
   'You are a storyboard planning worker for ClipTale.',
   'Return only valid JSON. Do not include markdown, code fences, comments, prose, or extra keys.',
   `The JSON must match schemaVersion ${STORYBOARD_PLAN_SCHEMA_VERSION} with keys: schemaVersion, videoLengthSeconds, sceneCount, scenes.`,
-  'Every scene must include sceneNumber, prompt, visualPrompt, durationSeconds, referencedMedia, transitionNotes, and style.',
+  'Every scene must include sceneNumber, prompt, visualPrompt, videoPrompt, durationSeconds, referencedMedia, transitionNotes, and style.',
+  'videoPrompt must be an Image to Video prompt: describe main subject motion, camera movement, foreground/background depth cues, cinematic timing across the scene duration, continuity from the previous scene and into the next scene when applicable, and natural transitions without provider-specific jargon.',
   'Use only referencedMedia items supplied in the prompt context; each item must include fileId, mediaType, and label.',
   'Scene numbers must be sequential starting at 1. Scene durations must sum to videoLengthSeconds.',
 ].join('\n');

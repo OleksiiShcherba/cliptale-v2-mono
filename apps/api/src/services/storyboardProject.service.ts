@@ -10,6 +10,8 @@ import type { StoryboardBlock } from '@/repositories/storyboard.repository.js';
 import * as referenceRepository from '@/repositories/storyboardIllustrationReference.repository.js';
 import * as illustrationRepository from '@/repositories/storyboardSceneIllustration.repository.js';
 import type { StoryboardSceneIllustrationJob } from '@/repositories/storyboardSceneIllustration.repository.js';
+import * as videoRepository from '@/repositories/storyboardSceneVideo.repository.js';
+import type { StoryboardSceneVideoJob } from '@/repositories/storyboardSceneVideo.repository.js';
 import * as versionRepository from '@/repositories/version.repository.js';
 import { buildStoryboardProjectDoc } from '@/services/storyboardProjectDoc.service.js';
 import { orderStoryboardSceneBlocks } from '@/services/storyboardGraph.service.js';
@@ -18,6 +20,8 @@ export type CreateProjectFromStoryboardResult = {
   projectId: string;
   versionId: number;
 };
+
+export type StoryboardProjectAssemblyMode = 'images' | 'videos';
 
 function assertReadyForProjectAssembly(params: {
   sceneBlocks: StoryboardBlock[];
@@ -44,9 +48,28 @@ function assertReadyForProjectAssembly(params: {
   }
 }
 
+function assertReadyForVideoProjectAssembly(params: {
+  sceneBlocks: StoryboardBlock[];
+  videoJobs: StoryboardSceneVideoJob[];
+}): void {
+  if (params.sceneBlocks.length === 0) {
+    throw new UnprocessableEntityError('Storyboard has no scene blocks to assemble');
+  }
+
+  const latestByBlock = new Map(params.videoJobs.map((job) => [job.blockId, job]));
+  const missing = params.sceneBlocks.find((block) => {
+    const job = latestByBlock.get(block.id);
+    return !job || job.status !== 'ready' || !job.outputFileId;
+  });
+  if (missing) {
+    throw new UnprocessableEntityError(`Scene ${missing.name ?? missing.id} is missing a ready generated video`);
+  }
+}
+
 export async function createProjectFromStoryboard(
   userId: string,
   draftId: string,
+  mode: StoryboardProjectAssemblyMode = 'images',
 ): Promise<CreateProjectFromStoryboardResult> {
   const conn = await versionRepository.getConnection();
   try {
@@ -74,15 +97,24 @@ export async function createProjectFromStoryboard(
       conn,
       draftId,
     );
+    const videoJobs = mode === 'videos'
+      ? await videoRepository.findLatestVideoJobsByDraftIdForUpdate(conn, draftId)
+      : [];
     const sceneBlocks = orderStoryboardSceneBlocks(blocks, edges);
-    assertReadyForProjectAssembly({ sceneBlocks, reference, illustrationJobs });
+    if (mode === 'videos') {
+      assertReadyForVideoProjectAssembly({ sceneBlocks, videoJobs });
+    } else {
+      assertReadyForProjectAssembly({ sceneBlocks, reference, illustrationJobs });
+    }
 
     const projectId = randomUUID();
     const assembly = buildStoryboardProjectDoc({
       draft,
       blocks,
       edges,
+      mode,
       illustrationJobs,
+      videoJobs,
       projectId,
     });
 

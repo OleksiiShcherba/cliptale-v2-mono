@@ -2,7 +2,7 @@
  * useStoryboardDrag — ghost drag and auto-insert-on-edge behaviours.
  *
  * Ghost drag:
- *   - When a SCENE block drag starts, set `dragState` so the canvas can render
+ *   - When a scene, START, or END block drag starts, set `dragState` so the canvas can render
  *     a fixed-position portal clone that follows the cursor.
  *   - The dragged node's opacity is set to 0.3 (ghost) while dragging.
  *   - On drag end, restore full opacity.
@@ -70,7 +70,7 @@ type UseStoryboardDragArgs = {
 };
 
 type UseStoryboardDragResult = {
-  /** Non-null while a SCENE node is being dragged. Render a portal clone using this. */
+  /** Non-null while a scene, START, or END node is being dragged. Render a portal clone using this. */
   dragState: GhostDragState | null;
   /** Keeps internal node/edge refs up-to-date. Call this whenever nodes or edges change. */
   syncRefs: (nodes: Node[], edges: Edge[]) => void;
@@ -106,6 +106,18 @@ function dist(a: XYPosition, b: XYPosition): number {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 }
 
+function isGhostPreviewNode(node: Node): boolean {
+  return node.type === 'scene-block' || node.type === 'start' || node.type === 'end';
+}
+
+function restoreNodeOpacity(node: Node): Node {
+  const { opacity: _removed, ...restStyle } = (node.style ?? {}) as Record<string, unknown>;
+  return {
+    ...node,
+    style: restStyle as React.CSSProperties,
+  };
+}
+
 // ── Hook ───────────────────────────────────────────────────────────────────────
 
 /**
@@ -134,13 +146,11 @@ export function useStoryboardDrag({
 
   const handleNodeDragStart: OnNodeDrag = useCallback(
     (_event, node) => {
-      // Ghost drag only applies to SCENE blocks.
-      if (node.type !== 'scene-block') return;
+      if (!isGhostPreviewNode(node)) return;
 
       const nodeWidth = node.measured?.width ?? 220;
       const nodeHeight = node.measured?.height ?? 120;
 
-      // Dim the original node to 30% opacity (ghost).
       setNodes((prev) =>
         prev.map((n) =>
           n.id === node.id
@@ -163,7 +173,7 @@ export function useStoryboardDrag({
   // ── onNodeDrag ─────────────────────────────────────────────────────────────
 
   const handleNodeDrag: OnNodeDrag = useCallback((event, node) => {
-    if (node.type !== 'scene-block') return;
+    if (!isGhostPreviewNode(node)) return;
 
     // React Flow v12 passes a native DOM event (from d3-drag's sourceEvent),
     // NOT a React synthetic event.  The TypeScript declaration says
@@ -200,9 +210,13 @@ export function useStoryboardDrag({
       if (!isSceneBlock) {
         const droppedId = node.id;
         const droppedPosition = node.position;
-        const updatedNodes: Node[] = nodesRef.current.map((n) =>
-          n.id === droppedId ? { ...n, position: droppedPosition } : n,
-        );
+        const updatedNodes: Node[] = nodesRef.current.map((n) => {
+          if (n.id !== droppedId) return n;
+          return {
+            ...restoreNodeOpacity(n),
+            position: droppedPosition,
+          };
+        });
 
         setNodes(() => updatedNodes);
         void pushSnapshot(updatedNodes, edgesRef.current);
@@ -219,11 +233,8 @@ export function useStoryboardDrag({
       const droppedPosition = node.position;
       const updatedNodes: Node[] = nodesRef.current.map((n) => {
         if (n.id !== droppedId) return n;
-        const { opacity: _removed, ...restStyle } = (n.style ?? {}) as Record<string, unknown>;
         return {
-          ...n,
-          // Restore opacity and commit the final dropped position.
-          style: restStyle as React.CSSProperties,
+          ...restoreNodeOpacity(n),
           position: droppedPosition,
         };
       });

@@ -2,11 +2,11 @@
  * Tests for useStoryboardDrag — drag lifecycle, ghost state, and no-op cases.
  *
  * Covers:
- * - handleNodeDragStart: sets dragState for scene-block nodes
- * - handleNodeDragStart: no-op for non-scene-block nodes
+ * - handleNodeDragStart: sets dragState for scene-block, START, and END nodes
+ * - handleNodeDragStart: no-op for unsupported node types
  * - handleNodeDragStart: dims original node to GHOST_OPACITY (0.3)
- * - handleNodeDrag: updates dragState clientX/clientY for scene-block nodes
- * - handleNodeDrag: no-op for non-scene-block nodes
+ * - handleNodeDrag: updates dragState clientX/clientY for supported nodes
+ * - handleNodeDrag: no-op for unsupported node types
  * - handleNodeDragStop: clears dragState
  * - handleNodeDragStop: no-op auto-insert when no edge midpoint is within tolerance
  */
@@ -46,7 +46,7 @@ describe('useStoryboardDrag', () => {
       expect(result.current.dragState?.node.id).toBe('scene-1');
     });
 
-    it('does NOT set dragState for non-scene-block nodes', () => {
+    it('sets dragState when a START node drag starts', () => {
       const setNodes = vi.fn();
       const setEdges = vi.fn();
       const pushSnapshot = vi.fn().mockResolvedValue(undefined);
@@ -62,6 +62,49 @@ describe('useStoryboardDrag', () => {
 
       act(() => {
         fireDragStart(result.current.handleNodeDragStart, startNode);
+      });
+
+      expect(result.current.dragState?.node.id).toBe('start');
+      expect(result.current.dragState?.nodeWidth).toBe(220);
+    });
+
+    it('sets dragState when an END node drag starts', () => {
+      const setNodes = vi.fn();
+      const setEdges = vi.fn();
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }));
+
+      const endNode: Node = {
+        id: 'end',
+        type: 'end',
+        position: { x: 900, y: 200 },
+        data: {},
+      };
+
+      act(() => {
+        fireDragStart(result.current.handleNodeDragStart, endNode);
+      });
+
+      expect(result.current.dragState?.node.id).toBe('end');
+    });
+
+    it('does NOT set dragState for unsupported node types', () => {
+      const setNodes = vi.fn();
+      const setEdges = vi.fn();
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }));
+
+      const noteNode: Node = {
+        id: 'note',
+        type: 'note',
+        position: { x: 60, y: 200 },
+        data: {},
+      };
+
+      act(() => {
+        fireDragStart(result.current.handleNodeDragStart, noteNode);
       });
 
       expect(result.current.dragState).toBeNull();
@@ -114,7 +157,7 @@ describe('useStoryboardDrag', () => {
       expect(result.current.dragState?.clientY).toBe(300);
     });
 
-    it('does NOT update dragState for non-scene-block nodes', () => {
+    it('updates dragState clientX and clientY for START nodes', () => {
       const setNodes = vi.fn();
       const setEdges = vi.fn();
       const pushSnapshot = vi.fn().mockResolvedValue(undefined);
@@ -129,10 +172,32 @@ describe('useStoryboardDrag', () => {
       };
 
       act(() => {
+        fireDragStart(result.current.handleNodeDragStart, startNode);
         fireDrag(result.current.handleNodeDrag, startNode, 999, 999);
       });
 
-      // dragState should remain null — not updated by non-scene events.
+      expect(result.current.dragState?.clientX).toBe(999);
+      expect(result.current.dragState?.clientY).toBe(999);
+    });
+
+    it('does NOT update dragState for unsupported node types', () => {
+      const setNodes = vi.fn();
+      const setEdges = vi.fn();
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }));
+
+      const noteNode: Node = {
+        id: 'note',
+        type: 'note',
+        position: { x: 60, y: 200 },
+        data: {},
+      };
+
+      act(() => {
+        fireDrag(result.current.handleNodeDrag, noteNode, 999, 999);
+      });
+
       expect(result.current.dragState).toBeNull();
     });
   });

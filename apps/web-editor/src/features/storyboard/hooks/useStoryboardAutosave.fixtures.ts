@@ -26,6 +26,7 @@ export const makeSceneNode = (id = 'scene-abc'): Node => ({
       blockType: 'scene',
       name: 'Scene 1',
       prompt: 'A scene',
+      videoPrompt: null,
       durationS: 5,
       positionX: 300,
       positionY: 200,

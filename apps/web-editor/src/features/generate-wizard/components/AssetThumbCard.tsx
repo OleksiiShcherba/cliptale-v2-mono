@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 
+import { useFileStreamUrl } from '@/shared/hooks/useFileStreamUrl';
 import { buildAuthenticatedUrl } from '@/lib/api-client';
-import { config } from '@/lib/config';
 
 import type { AssetSummary } from '../types';
 
@@ -34,6 +34,9 @@ export function AssetThumbCard({
   onAssetSelected,
 }: AssetThumbCardProps): React.ReactElement {
   const [isHovered, setIsHovered] = useState(false);
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const needsImageStream = asset.type === 'image' && !asset.thumbnailUrl;
+  const { url: imageStreamUrl } = useFileStreamUrl(needsImageStream ? asset.id : null);
   // Holds a reference to the off-screen drag image so we can remove it after
   // the drag ends. The element is appended to `document.body` during `dragstart`
   // and removed on `dragend` to avoid leaking DOM nodes.
@@ -42,8 +45,12 @@ export function AssetThumbCard({
   const thumbSrc = asset.thumbnailUrl
     ? buildAuthenticatedUrl(asset.thumbnailUrl)
     : asset.type === 'image'
-      ? buildAuthenticatedUrl(`${config.apiBaseUrl}/assets/${asset.id}/stream`)
+      ? imageStreamUrl
       : null;
+
+  React.useEffect(() => {
+    setPreviewFailed(false);
+  }, [asset.id, thumbSrc]);
 
   function handleDragStart(e: React.DragEvent<HTMLButtonElement>): void {
     const payload = JSON.stringify({
@@ -101,11 +108,12 @@ export function AssetThumbCard({
       aria-label={asset.label}
     >
       <div style={thumbCardStyles.thumbWrapper}>
-        {thumbSrc ? (
+        {thumbSrc && !previewFailed ? (
           <img
             src={thumbSrc}
             alt={asset.label}
             style={thumbCardStyles.thumb}
+            onError={() => setPreviewFailed(true)}
           />
         ) : (
           <div

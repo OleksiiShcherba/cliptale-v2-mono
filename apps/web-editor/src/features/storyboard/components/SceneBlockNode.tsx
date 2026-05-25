@@ -6,7 +6,7 @@
  * - Red × button (top-right) to remove the node from canvas state
  * - Prompt preview (first 80 chars, truncated with "…")
  * - Duration badge
- * - Up to 3 media thumbnail previews via buildAuthenticatedUrl()
+ * - Up to 3 media thumbnail previews
  *   (placeholder SVG if no image/video items; audio shows placeholder)
  * - Media type badges (IMAGE CLIP / VIDEO CLIP / AUDIO CLIP) per unique type
  * - Income port (left) and exit port (right) — both visible on hover
@@ -16,10 +16,8 @@ import React, { useCallback } from 'react';
 
 import { Handle, Position } from '@xyflow/react';
 
-import { buildAuthenticatedUrl } from '@/lib/api-client';
-import { config } from '@/lib/config';
-
-import type { BlockMediaItem, SceneBlockNodeData } from '../types';
+import type { SceneBlockNodeData } from '../types';
+import { MediaThumbnail, PlaceholderThumbnail } from './SceneBlockNode.mediaThumbnail';
 import {
   ERROR,
   PRIMARY,
@@ -34,9 +32,6 @@ import {
 
 const PROMPT_MAX_CHARS = 80;
 const MAX_THUMBNAILS = 3;
-
-/** Only image and video items provide a visual thumbnail; audio uses placeholder. */
-const VISUAL_MEDIA_TYPES = new Set<string>(['image', 'video']);
 
 const MEDIA_TYPE_BADGE_LABELS: Record<string, string> = {
   image: 'IMAGE CLIP',
@@ -79,57 +74,6 @@ const TARGET_HANDLE_STYLE: React.CSSProperties = {
 };
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
-
-/** Placeholder SVG shown when a thumbnail slot has no image/video media. */
-function PlaceholderThumbnail(): React.ReactElement {
-  return (
-    <div style={s.thumbnailPlaceholder} aria-label="No media preview">
-      <svg
-        width="20"
-        height="20"
-        viewBox="0 0 20 20"
-        fill="none"
-        aria-hidden="true"
-        focusable="false"
-        data-testid="placeholder-svg"
-      >
-        <rect x="1" y="1" width="18" height="18" rx="3" stroke="#252535" strokeWidth="1.5" />
-        <path
-          d="M7 13l3-4 2 2.5 1.5-2 2.5 3.5H7Z"
-          fill="#252535"
-        />
-        <circle cx="6.5" cy="6.5" r="1.5" fill="#252535" />
-      </svg>
-    </div>
-  );
-}
-
-/** Thumbnail image loaded via authenticated URL. Falls back to placeholder on error. */
-function MediaThumbnail({ item }: { item: BlockMediaItem }): React.ReactElement {
-  if (!VISUAL_MEDIA_TYPES.has(item.mediaType)) {
-    return <PlaceholderThumbnail />;
-  }
-
-  const previewPath = item.mediaType === 'image' ? 'stream' : 'thumbnail';
-  const thumbnailUrl = buildAuthenticatedUrl(
-    `${config.apiBaseUrl}/assets/${item.fileId}/${previewPath}`,
-  );
-
-  return (
-    <img
-      src={thumbnailUrl}
-      alt={`${item.mediaType} thumbnail`}
-      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-      loading="lazy"
-      crossOrigin="anonymous"
-      data-testid="thumbnail-img"
-      onError={(e) => {
-        // On load error, hide img — parent shows placeholder via CSS fallback.
-        (e.currentTarget as HTMLImageElement).style.display = 'none';
-      }}
-    />
-  );
-}
 
 /** Red × remove button. */
 function RemoveButton({ onClick }: { onClick: (e: React.MouseEvent) => void }): React.ReactElement {

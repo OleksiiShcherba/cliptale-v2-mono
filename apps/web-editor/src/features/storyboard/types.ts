@@ -30,6 +30,7 @@ export type StoryboardBlock = {
   blockType: BlockType;
   name: string | null;
   prompt: string | null;
+  videoPrompt: string | null;
   durationS: number;
   positionX: number;
   positionY: number;
@@ -106,6 +107,24 @@ export type StoryboardIllustrationStatusResponse = {
   reference: StoryboardIllustrationReferenceStatus;
   items: StoryboardIllustrationStatusItem[];
 };
+
+export type StoryboardVideoStatus = 'queued' | 'running' | 'ready' | 'failed';
+
+export type StoryboardVideoStatusItem = {
+  blockId: string;
+  status: StoryboardVideoStatus;
+  jobId: string | null;
+  modelId: string | null;
+  generateAudio: boolean;
+  outputFileId: string | null;
+  errorMessage: string | null;
+};
+
+export type StoryboardVideoStatusResponse = {
+  items: StoryboardVideoStatusItem[];
+};
+
+export type StoryboardProjectAssemblyMode = 'images' | 'videos';
 
 export type StoryboardProjectCreateResponse = {
   projectId: string;

@@ -1,7 +1,6 @@
 import React from 'react';
 
-import { buildAuthenticatedUrl } from '@/lib/api-client';
-import { config } from '@/lib/config';
+import { useFileStreamUrl } from '@/shared/hooks/useFileStreamUrl';
 
 import type { PrincipalImageLightboxState } from './PrincipalImageLightbox';
 import * as s from './PrincipalImageApprovalModal.styles';
@@ -29,6 +28,69 @@ interface PrincipalImageApprovalControlsProps {
   onOpenLightbox: (lightbox: PrincipalImageLightboxState) => void;
   onOpenReferencePicker: () => void;
   onOpenReplacePicker: () => void;
+}
+
+interface ReferencePreviewProps {
+  fileId: string;
+  isBusy: boolean;
+  onRemoveReference: (fileId: string) => void;
+  onOpenLightbox: (lightbox: PrincipalImageLightboxState) => void;
+}
+
+function ReferencePreview({
+  fileId,
+  isBusy,
+  onRemoveReference,
+  onOpenLightbox,
+}: ReferencePreviewProps): React.ReactElement {
+  const [previewFailed, setPreviewFailed] = React.useState(false);
+  const { url, isLoading, error } = useFileStreamUrl(fileId);
+
+  React.useEffect(() => {
+    setPreviewFailed(false);
+  }, [fileId, url]);
+
+  return (
+    <div
+      style={s.referencePreviewStyle}
+      title={fileId}
+      data-testid="principal-image-reference-preview"
+    >
+      {url && !previewFailed ? (
+        <button
+          type="button"
+          style={s.referencePreviewButtonStyle}
+          onClick={() => onOpenLightbox({ src: url, alt: 'Extra reference preview' })}
+          aria-label={`Open reference ${fileId}`}
+          data-testid="principal-image-reference-preview-open"
+        >
+          <img
+            src={url}
+            alt="Extra reference preview"
+            style={s.referencePreviewImageStyle}
+            onError={() => setPreviewFailed(true)}
+            data-testid="principal-image-reference-preview-img"
+          />
+        </button>
+      ) : (
+        <span
+          style={s.referencePreviewFallbackStyle}
+          aria-label={error ?? (isLoading ? 'Loading reference preview' : 'Reference preview unavailable')}
+        >
+          {isLoading ? '' : '!'}
+        </span>
+      )}
+      <button
+        type="button"
+        style={s.removeChipButtonStyle}
+        onClick={() => onRemoveReference(fileId)}
+        aria-label={`Remove reference ${fileId}`}
+        disabled={isBusy}
+      >
+        <CloseIcon />
+      </button>
+    </div>
+  );
 }
 
 export function PrincipalImageApprovalControls({
@@ -79,41 +141,15 @@ export function PrincipalImageApprovalControls({
       <section style={s.sectionStyle}>
         <p style={s.sectionTitleStyle}>Extra references</p>
         <div style={s.referenceListStyle} data-testid="principal-image-reference-list">
-          {sourceReferenceFileIds.map((fileId) => {
-            const src = buildAuthenticatedUrl(`${config.apiBaseUrl}/assets/${fileId}/stream`);
-            return (
-              <div
-                key={fileId}
-                style={s.referencePreviewStyle}
-                title={fileId}
-                data-testid="principal-image-reference-preview"
-              >
-                <button
-                  type="button"
-                  style={s.referencePreviewButtonStyle}
-                  onClick={() => onOpenLightbox({ src, alt: 'Extra reference preview' })}
-                  aria-label={`Open reference ${fileId}`}
-                  data-testid="principal-image-reference-preview-open"
-                >
-                  <img
-                    src={src}
-                    alt="Extra reference preview"
-                    style={s.referencePreviewImageStyle}
-                    data-testid="principal-image-reference-preview-img"
-                  />
-                </button>
-                <button
-                  type="button"
-                  style={s.removeChipButtonStyle}
-                  onClick={() => onRemoveReference(fileId)}
-                  aria-label={`Remove reference ${fileId}`}
-                  disabled={isBusy}
-                >
-                  <CloseIcon />
-                </button>
-              </div>
-            );
-          })}
+          {sourceReferenceFileIds.map((fileId) => (
+            <ReferencePreview
+              key={fileId}
+              fileId={fileId}
+              isBusy={isBusy}
+              onRemoveReference={onRemoveReference}
+              onOpenLightbox={onOpenLightbox}
+            />
+          ))}
         </div>
         <div style={s.actionRowStyle}>
           <button

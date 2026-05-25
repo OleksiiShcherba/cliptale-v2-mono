@@ -14,11 +14,16 @@ import { AssetThumbCard } from './AssetThumbCard';
 
 // ── Mock config and api-client so the component does not require env vars ────
 
+const { mockApiClientGet } = vi.hoisted(() => ({
+  mockApiClientGet: vi.fn(),
+}));
+
 vi.mock('@/lib/config', () => ({
   config: { apiBaseUrl: 'http://localhost:3001' },
 }));
 
 vi.mock('@/lib/api-client', () => ({
+  apiClient: { get: mockApiClientGet },
   buildAuthenticatedUrl: (url: string) => url,
 }));
 
@@ -71,6 +76,11 @@ describe('AssetThumbCard / drag-and-drop', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockApiClientGet.mockImplementation((path: string) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ url: `https://signed.test${path}` }),
+    }));
   });
 
   it('has draggable attribute set to true', () => {
@@ -156,6 +166,19 @@ describe('AssetThumbCard / drag-and-drop', () => {
     });
 
     expect(effectAllowed).toBe('copy');
+  });
+
+  it('uses a signed file stream URL when an image asset has no thumbnail', async () => {
+    render(
+      <AssetThumbCard
+        asset={makeImageAsset({ id: 'img-stream-1', thumbnailUrl: null })}
+        onAssetSelected={onAssetSelected}
+      />,
+    );
+
+    const image = await screen.findByAltText('photo.jpg') as HTMLImageElement;
+    expect(image.src).toBe('https://signed.test/files/img-stream-1/stream');
+    expect(mockApiClientGet).toHaveBeenCalledWith('/files/img-stream-1/stream');
   });
 
   it('still fires onAssetSelected on click (existing behavior preserved)', () => {

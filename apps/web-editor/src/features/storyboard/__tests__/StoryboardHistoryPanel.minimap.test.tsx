@@ -65,6 +65,7 @@ function makeBlock(overrides: Partial<StoryboardBlock> & { id: string }): Storyb
     blockType: overrides.blockType ?? 'scene',
     name: null,
     prompt: null,
+    videoPrompt: null,
     durationS: 5,
     positionX: overrides.positionX ?? 0,
     positionY: overrides.positionY ?? 0,

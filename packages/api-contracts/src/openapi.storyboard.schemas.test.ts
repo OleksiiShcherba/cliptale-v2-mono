@@ -30,6 +30,7 @@ describe('openApiSpec storyboard component schemas', () => {
     expect(required).toContain('id');
     expect(required).toContain('draftId');
     expect(required).toContain('blockType');
+    expect(required).toContain('videoPrompt');
     expect(required).toContain('mediaItems');
     expect(required).toContain('createdAt');
     expect(required).toContain('updatedAt');
@@ -39,6 +40,7 @@ describe('openApiSpec storyboard component schemas', () => {
     const schema = schemas['StoryboardBlock'] as Record<string, unknown>;
     const props = schema.properties as Record<string, Record<string, unknown>>;
     expect(props.blockType?.enum).toEqual(expect.arrayContaining(['start', 'end', 'scene']));
+    expect(props.videoPrompt?.type).toEqual(['string', 'null']);
   });
 
   it('defines StoryboardEdge schema with required fields', () => {
@@ -70,6 +72,15 @@ describe('openApiSpec storyboard component schemas', () => {
     expect(props.projectId?.format).toBe('uuid');
     expect(props.versionId?.type).toBe('integer');
     expect(props.versionId?.minimum).toBe(1);
+  });
+
+  it('defines CreateStoryboardProjectBody schema', () => {
+    const schema = schemas['CreateStoryboardProjectBody'] as Record<string, unknown>;
+    expect(schema).toBeDefined();
+    expect(schema.additionalProperties).toBe(false);
+    const props = schema.properties as Record<string, Record<string, unknown>>;
+    expect(props.mode?.enum).toEqual(['images', 'videos']);
+    expect(props.mode?.default).toBe('images');
   });
 
   it('defines StoryboardIllustrationStatusResponse schema', () => {
@@ -127,6 +138,37 @@ describe('openApiSpec storyboard component schemas', () => {
     expect(example.items).toHaveLength(1);
   });
 
+  it('defines storyboard video generation schemas', () => {
+    const body = schemas['StartStoryboardVideosBody'] as Record<string, unknown>;
+    expect(body).toBeDefined();
+    expect(body.required).toEqual(['modelId']);
+    expect(body.additionalProperties).toBe(false);
+    const bodyProps = body.properties as Record<string, Record<string, unknown>>;
+    expect(bodyProps.generateAudio?.default).toBe(false);
+
+    const item = schemas['StoryboardVideoStatusItem'] as Record<string, unknown>;
+    expect(item).toBeDefined();
+    expect(item.required).toEqual([
+      'blockId',
+      'status',
+      'jobId',
+      'modelId',
+      'generateAudio',
+      'outputFileId',
+      'errorMessage',
+    ]);
+    const itemProps = item.properties as Record<string, Record<string, unknown>>;
+    expect(itemProps.status?.enum).toEqual(['queued', 'running', 'ready', 'failed']);
+    expect(itemProps.generateAudio?.type).toBe('boolean');
+
+    const response = schemas['StoryboardVideoStatusResponse'] as Record<string, unknown>;
+    expect(response).toBeDefined();
+    expect(response.required).toEqual(['items']);
+    const responseProps = response.properties as Record<string, Record<string, unknown>>;
+    const items = responseProps.items?.items as Record<string, unknown>;
+    expect(items.$ref).toBe('#/components/schemas/StoryboardVideoStatusItem');
+  });
+
   it('defines principal image action body schemas', () => {
     const edit = schemas['EditPrincipalImageBody'] as Record<string, unknown>;
     expect(edit.required).toEqual(['prompt']);
@@ -177,6 +219,8 @@ describe('openApiSpec storyboard security coverage', () => {
     ['/storyboards/{draftId}/initialize', 'post'],
     ['/storyboards/{draftId}/apply-latest-plan', 'post'],
     ['/storyboards/{draftId}/project', 'post'],
+    ['/storyboards/{draftId}/videos', 'get'],
+    ['/storyboards/{draftId}/videos', 'post'],
     ['/storyboards/{draftId}/illustrations', 'get'],
     ['/storyboards/{draftId}/illustrations', 'post'],
     ['/storyboards/{draftId}/illustrations/principal-image/approve', 'post'],

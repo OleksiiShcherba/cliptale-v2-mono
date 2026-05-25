@@ -180,8 +180,10 @@ function getReferencePreviewFallback(
 
 function StoryboardReferencePreview({
   reference,
+  isSceneGenerationActive,
 }: {
   reference: StoryboardIllustrationReferenceStatus | null;
+  isSceneGenerationActive: boolean;
 }): React.ReactElement {
   const [failed, setFailed] = React.useState(false);
 
@@ -196,20 +198,31 @@ function StoryboardReferencePreview({
   const label = reference?.status === 'ready'
     ? 'Canonical visual style reference'
     : 'Canonical visual style reference status';
+  const showSceneLoader = isSceneGenerationActive && !showImage && !(reference?.status === 'ready' && failed);
+  const previewLabel = showSceneLoader ? 'Scene illustration generation in progress' : label;
 
   return (
     <div
       style={s.referencePreview}
-      aria-label={label}
-      title={label}
+      aria-label={showSceneLoader ? undefined : previewLabel}
+      title={previewLabel}
       data-testid="storyboard-reference-preview"
     >
-      {isWaiting ? (
+      {isWaiting || showSceneLoader ? (
         <style>
           {'@keyframes storyboard-reference-spin { to { transform: rotate(360deg); } }'}
         </style>
       ) : null}
-      {showImage ? (
+      {showSceneLoader ? (
+        <span
+          style={s.referencePreviewFallback}
+          data-testid="storyboard-reference-preview-fallback"
+          role="status"
+          aria-label="Scene illustration generation in progress"
+        >
+          <span style={s.referencePreviewSpinner} aria-hidden="true" data-testid="storyboard-reference-loader" />
+        </span>
+      ) : showImage ? (
         <img
           src={buildAuthenticatedUrl(`${config.apiBaseUrl}/assets/${reference.outputFileId}/thumbnail`)}
           alt="Canonical visual style reference"
@@ -243,6 +256,7 @@ export function StoryboardIllustrationControls({
   const copy = getStoryboardIllustrationCopy({ status, phase });
   const isSceneFailure = status === 'failed' && phase === 'scene';
   const isReferenceFailure = status === 'failed' && phase === 'reference';
+  const isSceneGenerationActive = phase === 'scene' && (status === 'queued' || status === 'running');
   const isDisabled = isBlocking || isSceneFailure;
 
   return (
@@ -256,10 +270,10 @@ export function StoryboardIllustrationControls({
           {status === 'failed' ? (error ?? copy.meta) : copy.meta}
         </span>
       </div>
-      <StoryboardReferencePreview reference={reference} />
+      <StoryboardReferencePreview reference={reference} isSceneGenerationActive={isSceneGenerationActive} />
       {status === 'completed' && (
         <span aria-label="Illustrations complete" style={{ color: SUCCESS, fontSize: '12px', fontWeight: 600 }}>
-          Ready
+          Done
         </span>
       )}
       {isReferenceFailure && (

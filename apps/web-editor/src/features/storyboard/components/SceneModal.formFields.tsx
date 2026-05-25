@@ -26,11 +26,13 @@ const fieldErrorStyle: React.CSSProperties = {
 interface SceneModalFormFieldsProps {
   name: string;
   prompt: string;
+  videoPrompt: string;
   duration: number;
   promptError: string;
   durationError: string;
   onNameChange: (value: string) => void;
   onPromptChange: (value: string) => void;
+  onVideoPromptChange: (value: string) => void;
   onDurationChange: (value: number) => void;
 }
 
@@ -42,11 +44,13 @@ interface SceneModalFormFieldsProps {
 export function SceneModalFormFields({
   name,
   prompt,
+  videoPrompt,
   duration,
   promptError,
   durationError,
   onNameChange,
   onPromptChange,
+  onVideoPromptChange,
   onDurationChange,
 }: SceneModalFormFieldsProps): React.ReactElement {
   return (
@@ -66,14 +70,14 @@ export function SceneModalFormFields({
       </section>
 
       {/* Prompt */}
-      <section aria-label="Scene prompt">
-        <p style={sectionLabelStyle}>Prompt *</p>
+      <section aria-label="Scene image prompt">
+        <p style={sectionLabelStyle}>Image Prompt *</p>
         <textarea
           style={textareaStyle}
           value={prompt}
           placeholder="Describe the scene content for AI generation…"
           onChange={(e) => onPromptChange(e.target.value)}
-          aria-label="Scene prompt"
+          aria-label="Scene image prompt"
           data-testid="prompt-input"
           aria-describedby={promptError ? 'prompt-error' : undefined}
         />
@@ -82,6 +86,18 @@ export function SceneModalFormFields({
             {promptError}
           </p>
         )}
+      </section>
+
+      <section aria-label="Scene video prompt">
+        <p style={sectionLabelStyle}>Video Prompt</p>
+        <textarea
+          style={textareaStyle}
+          value={videoPrompt}
+          placeholder="Describe subject motion, camera movement, and timing…"
+          onChange={(e) => onVideoPromptChange(e.target.value)}
+          aria-label="Scene video prompt"
+          data-testid="video-prompt-input"
+        />
       </section>
 
       {/* Duration */}

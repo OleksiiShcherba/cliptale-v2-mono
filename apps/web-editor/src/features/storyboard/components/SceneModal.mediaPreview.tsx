@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { AssetKind } from '@/features/generate-wizard/types';
+import { useFileStreamUrl } from '@/shared/hooks/useFileStreamUrl';
 import { buildAuthenticatedUrl } from '@/lib/api-client';
 import { config } from '@/lib/config';
 
@@ -108,9 +109,9 @@ function getMediaUrl(item: ModalMediaItem, mode: 'thumbnail' | 'full'): string {
   return buildAuthenticatedUrl(`${config.apiBaseUrl}/assets/${item.fileId}/${previewPath}`);
 }
 
-function AudioPreviewPlaceholder(): React.ReactElement {
+function MediaPreviewPlaceholder({ label = 'Audio media preview' }: { label?: string }): React.ReactElement {
   return (
-    <div style={previewFrameStyle} aria-label="Audio media preview" data-testid="media-preview-placeholder">
+    <div style={previewFrameStyle} aria-label={label} data-testid="media-preview-placeholder">
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
         <path
           d="M7 5H4.5C3.7 5 3 5.7 3 6.5v3C3 10.3 3.7 11 4.5 11H7l4 3V2L7 5Z"
@@ -136,14 +137,26 @@ function MediaPreviewThumbnail({
   item: ModalMediaItem;
   onOpen: (lightbox: MediaLightboxState) => void;
 }): React.ReactElement {
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const fileId = item.mediaType === 'image' ? item.fileId : null;
+  const { url: imageUrl } = useFileStreamUrl(fileId);
+
+  useEffect(() => {
+    setPreviewFailed(false);
+  }, [item.fileId, imageUrl]);
+
   if (!VISUAL_MEDIA_TYPES.has(item.mediaType)) {
-    return <AudioPreviewPlaceholder />;
+    return <MediaPreviewPlaceholder />;
   }
 
-  const previewUrl = getMediaUrl(item, 'thumbnail');
-  const fullUrl = getMediaUrl(item, 'full');
+  const previewUrl = item.mediaType === 'image' ? imageUrl : getMediaUrl(item, 'thumbnail');
+  const fullUrl = item.mediaType === 'image' ? imageUrl : getMediaUrl(item, 'full');
   const lightboxMediaType: MediaLightboxState['mediaType'] = item.mediaType === 'video' ? 'video' : 'image';
   const alt = `${item.mediaType} preview for ${item.filename}`;
+
+  if (!previewUrl || !fullUrl || previewFailed) {
+    return <MediaPreviewPlaceholder label={`${item.mediaType} preview unavailable`} />;
+  }
 
   return (
     <button
@@ -160,6 +173,7 @@ function MediaPreviewThumbnail({
         loading="lazy"
         crossOrigin="anonymous"
         data-testid="media-preview-image"
+        onError={() => setPreviewFailed(true)}
       />
     </button>
   );

@@ -42,6 +42,7 @@ const VALID_PLAN: StoryboardPlan = {
       sceneNumber: 1,
       prompt: 'Open with the product on a desk.',
       visualPrompt: 'Cinematic desk shot with soft morning light.',
+      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
       durationSeconds: 6,
       referencedMedia: [],
       transitionNotes: 'Cut on action.',
@@ -51,6 +52,7 @@ const VALID_PLAN: StoryboardPlan = {
       sceneNumber: 2,
       prompt: 'Show the user picking it up.',
       visualPrompt: 'Close handheld shot of the product in use.',
+      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
       durationSeconds: 6,
       referencedMedia: [],
       transitionNotes: 'Quick push transition.',
@@ -60,6 +62,7 @@ const VALID_PLAN: StoryboardPlan = {
       sceneNumber: 3,
       prompt: 'Highlight the key feature.',
       visualPrompt: 'Macro feature detail with crisp reflections.',
+      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
       durationSeconds: 6,
       referencedMedia: [],
       transitionNotes: 'Match cut.',
@@ -69,6 +72,7 @@ const VALID_PLAN: StoryboardPlan = {
       sceneNumber: 4,
       prompt: 'Show the benefit in context.',
       visualPrompt: 'Wide lifestyle scene showing the outcome.',
+      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
       durationSeconds: 6,
       referencedMedia: [],
       transitionNotes: 'Soft dissolve.',
@@ -78,6 +82,7 @@ const VALID_PLAN: StoryboardPlan = {
       sceneNumber: 5,
       prompt: 'End on a clean call to action.',
       visualPrompt: 'Hero product shot with simple background.',
+      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
       durationSeconds: 6,
       referencedMedia: [],
       transitionNotes: 'Fade out.',
@@ -262,6 +267,19 @@ describe('storyboardPlanJob.repository', () => {
     expect(job!.promptSnapshot).toEqual(PROMPT_SNAPSHOT);
     expect(job!.mediaContext).toEqual(MEDIA_CONTEXT);
     expect(job!.plan).toEqual(VALID_PLAN);
+  });
+
+  it('normalizes legacy persisted completed plans that predate videoPrompt', async () => {
+    const legacyPlan = {
+      ...VALID_PLAN,
+      scenes: VALID_PLAN.scenes.map(({ videoPrompt: _videoPrompt, ...scene }) => scene),
+    };
+    mockQuery.mockResolvedValueOnce([[makeRow({ plan_json: legacyPlan })]]);
+
+    const job = await findByJobId('job-1');
+
+    expect(job!.plan?.scenes[0]?.videoPrompt).toBe(VALID_PLAN.scenes[0]!.visualPrompt);
+    expect(job!.plan?.scenes[4]?.videoPrompt).toBe(VALID_PLAN.scenes[4]!.visualPrompt);
   });
 
   it('validates completed plan JSON before persisting', async () => {

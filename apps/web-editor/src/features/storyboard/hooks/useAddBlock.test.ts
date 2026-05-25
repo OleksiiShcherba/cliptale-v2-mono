@@ -36,6 +36,7 @@ function makeSceneNode(id: string, x: number, sortOrder: number): Node {
         blockType: 'scene',
         name: `SCENE ${sortOrder}`,
         prompt: null,
+        videoPrompt: null,
         durationS: 5,
         positionX: x,
         positionY: 200,

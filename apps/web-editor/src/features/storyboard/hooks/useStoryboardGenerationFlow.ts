@@ -158,7 +158,7 @@ export function useStoryboardGenerationFlow({
       });
       return changed ? next : prev;
     });
-  }, [illustrationGeneration.byBlockId, illustrationGeneration.retryBlock, setNodes]);
+  }, [illustrationGeneration.byBlockId, illustrationGeneration.retryBlock, nodes, setNodes]);
 
   useEffect(() => {
     if (!draftId || isLoading || error) return;

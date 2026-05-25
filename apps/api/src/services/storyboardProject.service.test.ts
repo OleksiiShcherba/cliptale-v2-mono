@@ -8,6 +8,7 @@ const {
   mockStoryboardRepo,
   mockReferenceRepo,
   mockIllustrationRepo,
+  mockVideoRepo,
   mockVersionRepo,
   mockStoryboardIllustrationService,
   mockStoryboardProjectDocService,
@@ -35,6 +36,7 @@ const {
       findActiveReferenceByDraftIdForUpdate: vi.fn(),
     },
     mockIllustrationRepo: { findLatestIllustrationJobsByDraftIdForUpdate: vi.fn() },
+    mockVideoRepo: { findLatestVideoJobsByDraftIdForUpdate: vi.fn() },
     mockVersionRepo: {
       getConnection: vi.fn(() => mockConn),
       insertVersionTransaction: vi.fn(),
@@ -52,6 +54,7 @@ vi.mock('@/repositories/project.repository.js', () => mockProjectRepo);
 vi.mock('@/repositories/storyboard.repository.js', () => mockStoryboardRepo);
 vi.mock('@/repositories/storyboardIllustrationReference.repository.js', () => mockReferenceRepo);
 vi.mock('@/repositories/storyboardSceneIllustration.repository.js', () => mockIllustrationRepo);
+vi.mock('@/repositories/storyboardSceneVideo.repository.js', () => mockVideoRepo);
 vi.mock('@/repositories/version.repository.js', () => mockVersionRepo);
 vi.mock('@/services/storyboardIllustration.service.js', () => mockStoryboardIllustrationService);
 vi.mock('@/services/storyboardProjectDoc.service.js', () => mockStoryboardProjectDocService);
@@ -132,6 +135,23 @@ function makeIllustrationJob(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function makeVideoJob(overrides: Record<string, unknown> = {}) {
+  return {
+    id: '00000000-0000-4000-8000-000000000031',
+    draftId: DRAFT_ID,
+    blockId: BLOCK_ID,
+    aiJobId: '00000000-0000-4000-8000-000000000032',
+    modelId: 'fal-ai/ltx-2-19b/image-to-video',
+    generateAudio: true,
+    status: 'ready',
+    outputFileId: '00000000-0000-4000-8000-000000000033',
+    errorMessage: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
+}
+
 function makeAssembly() {
   return {
     title: 'Storyboard project',
@@ -167,6 +187,7 @@ describe('createProjectFromStoryboard', () => {
     mockIllustrationRepo.findLatestIllustrationJobsByDraftIdForUpdate.mockResolvedValue([
       makeIllustrationJob(),
     ]);
+    mockVideoRepo.findLatestVideoJobsByDraftIdForUpdate.mockResolvedValue([makeVideoJob()]);
     mockStoryboardProjectDocService.buildStoryboardProjectDoc.mockReturnValue(makeAssembly());
     mockProjectRepo.createProjectTransaction.mockResolvedValue({ projectId: PROJECT_ID, createdAt: new Date() });
     mockFileLinksRepo.linkFileToProjectTransaction.mockResolvedValue(true);
@@ -215,6 +236,37 @@ describe('createProjectFromStoryboard', () => {
     expect(mockConn.release).toHaveBeenCalledOnce();
   });
 
+  it('assembles video mode from ready storyboard video jobs without requiring illustration readiness', async () => {
+    mockIllustrationRepo.findLatestIllustrationJobsByDraftIdForUpdate.mockResolvedValue([
+      makeIllustrationJob({ status: 'running', outputFileId: null }),
+    ]);
+
+    await createProjectFromStoryboard(USER_ID, DRAFT_ID, 'videos');
+
+    expect(mockVideoRepo.findLatestVideoJobsByDraftIdForUpdate).toHaveBeenCalledWith(mockConn, DRAFT_ID);
+    expect(mockStoryboardProjectDocService.buildStoryboardProjectDoc).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: 'videos',
+        videoJobs: [expect.objectContaining({ outputFileId: '00000000-0000-4000-8000-000000000033' })],
+      }),
+    );
+    expect(mockProjectRepo.createProjectTransaction).toHaveBeenCalledOnce();
+    expect(mockConn.commit).toHaveBeenCalledOnce();
+  });
+
+  it('rejects video mode when scene video outputs are not ready', async () => {
+    mockVideoRepo.findLatestVideoJobsByDraftIdForUpdate.mockResolvedValue([
+      makeVideoJob({ status: 'running', outputFileId: null }),
+    ]);
+
+    await expect(createProjectFromStoryboard(USER_ID, DRAFT_ID, 'videos')).rejects.toThrow(
+      UnprocessableEntityError,
+    );
+
+    expect(mockProjectRepo.createProjectTransaction).not.toHaveBeenCalled();
+    expect(mockConn.rollback).toHaveBeenCalledOnce();
+  });
+
   it('returns existing completion result without creating another project', async () => {
     mockDraftRepo.lockDraftForProjectAssembly.mockResolvedValue(makeDraft({
       status: 'completed',
@@ -256,6 +308,20 @@ describe('createProjectFromStoryboard', () => {
 
     await expect(createProjectFromStoryboard(USER_ID, DRAFT_ID)).rejects.toThrow('version insert failed');
 
+    expect(mockDraftRepo.markDraftProjectAssemblyComplete).not.toHaveBeenCalled();
+    expect(mockConn.rollback).toHaveBeenCalledOnce();
+    expect(mockConn.commit).not.toHaveBeenCalled();
+  });
+
+  it('rolls back and stops assembly when linking a file to the project fails', async () => {
+    mockFileLinksRepo.linkFileToProjectTransaction.mockRejectedValueOnce(new Error('file link failed'));
+
+    await expect(createProjectFromStoryboard(USER_ID, DRAFT_ID, 'videos')).rejects.toThrow('file link failed');
+
+    expect(mockProjectRepo.createProjectTransaction).toHaveBeenCalledOnce();
+    expect(mockFileLinksRepo.linkFileToProjectTransaction).toHaveBeenCalledWith(mockConn, expect.any(String), 'file-1');
+    expect(mockClipRepo.insertClipsTransaction).not.toHaveBeenCalled();
+    expect(mockVersionRepo.insertVersionTransaction).not.toHaveBeenCalled();
     expect(mockDraftRepo.markDraftProjectAssemblyComplete).not.toHaveBeenCalled();
     expect(mockConn.rollback).toHaveBeenCalledOnce();
     expect(mockConn.commit).not.toHaveBeenCalled();

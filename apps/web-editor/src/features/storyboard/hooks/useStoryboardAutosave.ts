@@ -79,6 +79,7 @@ function comparableBlocks(nodes: Node[], draftId: string): StoryboardState['bloc
       blockType: (node.type === 'start' ? 'start' : 'end') as 'start' | 'end',
       name: null,
       prompt: null,
+      videoPrompt: null,
       durationS: 5,
       positionX: node.position.x,
       positionY: node.position.y,

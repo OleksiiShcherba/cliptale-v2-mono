@@ -70,6 +70,7 @@ function makeBlock(overrides: Partial<StoryboardBlock> = {}): StoryboardBlock {
     blockType: 'scene',
     name: 'Intro Scene',
     prompt: 'A dramatic opening',
+    videoPrompt: null,
     durationS: 15,
     positionX: 100,
     positionY: 200,
@@ -97,7 +98,7 @@ describe('SceneModal', () => {
 
   describe('block mode — rendering', () => {
     it('renders modal with block field values populated', () => {
-      const block = makeBlock();
+      const block = makeBlock({ videoPrompt: 'Slow camera push toward the subject.' });
       render(
         <SceneModal
           mode="block"
@@ -113,6 +114,9 @@ describe('SceneModal', () => {
       expect(nameInput.value).toBe('Intro Scene');
       const promptInput = screen.getByTestId('prompt-input') as HTMLTextAreaElement;
       expect(promptInput.value).toBe('A dramatic opening');
+      expect(screen.getByText('Image Prompt *')).toBeTruthy();
+      const videoPromptInput = screen.getByTestId('video-prompt-input') as HTMLTextAreaElement;
+      expect(videoPromptInput.value).toBe('Slow camera push toward the subject.');
       const durationInput = screen.getByTestId('duration-input') as HTMLInputElement;
       expect(durationInput.value).toBe('15');
     });
@@ -233,13 +237,18 @@ describe('SceneModal', () => {
       );
 
       fireEvent.change(screen.getByTestId('name-input'), { target: { value: 'Updated Scene' } });
+      fireEvent.change(screen.getByTestId('video-prompt-input'), { target: { value: 'Track right as the scene animates.' } });
       fireEvent.click(screen.getByTestId('save-button'));
 
       expect(mockOnSave).toHaveBeenCalledOnce();
-      const [calledBlockId, calledPayload] = mockOnSave.mock.calls[0] as [string, { name: string; prompt: string; durationS: number }];
+      const [calledBlockId, calledPayload] = mockOnSave.mock.calls[0] as [
+        string,
+        { name: string; prompt: string; videoPrompt: string | null; durationS: number },
+      ];
       expect(calledBlockId).toBe('block-1');
       expect(calledPayload.name).toBe('Updated Scene');
       expect(calledPayload.prompt).toBe('A dramatic opening');
+      expect(calledPayload.videoPrompt).toBe('Track right as the scene animates.');
       expect(calledPayload.durationS).toBe(15);
       expect(mockOnClose).toHaveBeenCalledOnce();
     });

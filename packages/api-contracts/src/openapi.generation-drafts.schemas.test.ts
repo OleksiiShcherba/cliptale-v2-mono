@@ -83,8 +83,19 @@ describe('openApiSpec generation draft schemas', () => {
 
     const scene = schemas['StoryboardPlanScene'] as Record<string, unknown>;
     const sceneProps = scene.properties as Record<string, Record<string, unknown>>;
+    expect(scene.required).toEqual([
+      'sceneNumber',
+      'prompt',
+      'visualPrompt',
+      'videoPrompt',
+      'durationSeconds',
+      'referencedMedia',
+      'transitionNotes',
+      'style',
+    ]);
     expect(sceneProps.prompt?.minLength).toBe(1);
     expect(sceneProps.visualPrompt?.minLength).toBe(1);
+    expect(sceneProps.videoPrompt?.minLength).toBe(1);
     expect(sceneProps.style?.enum).toEqual([
       'cinematic',
       'documentary',

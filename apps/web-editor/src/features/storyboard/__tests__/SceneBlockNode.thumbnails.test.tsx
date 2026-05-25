@@ -18,11 +18,13 @@ import { render, screen, fireEvent } from '@testing-library/react';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────────
 
-const { mockBuildAuthenticatedUrl } = vi.hoisted(() => ({
+const { mockBuildAuthenticatedUrl, mockApiClientGet } = vi.hoisted(() => ({
   mockBuildAuthenticatedUrl: vi.fn((url: string) => `${url}?token=mock`),
+  mockApiClientGet: vi.fn(),
 }));
 
 vi.mock('@/lib/api-client', () => ({
+  apiClient: { get: mockApiClientGet },
   buildAuthenticatedUrl: mockBuildAuthenticatedUrl,
 }));
 
@@ -68,6 +70,7 @@ function makeBlock(mediaItems: BlockMediaItem[] = []): StoryboardBlock {
     blockType: 'scene',
     name: 'Test Scene',
     prompt: 'A test prompt',
+    videoPrompt: null,
     durationS: 10,
     positionX: 0,
     positionY: 0,
@@ -88,6 +91,12 @@ describe('SceneBlockNode thumbnails', () => {
   beforeEach(() => {
     mockOnRemove.mockClear();
     mockOnEdit.mockClear();
+    mockApiClientGet.mockReset();
+    mockApiClientGet.mockImplementation((path: string) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ url: `https://signed.test${path}` }),
+    }));
   });
 
   it('shows a single placeholder when there are no media items', () => {
@@ -105,7 +114,7 @@ describe('SceneBlockNode thumbnails', () => {
     expect(screen.queryByTestId('thumbnail-img')).toBeFalsy();
   });
 
-  it('renders a thumbnail img for 1 image media item', () => {
+  it('renders a thumbnail img for 1 image media item', async () => {
     const media = [makeMedia({ fileId: 'img-1', mediaType: 'image' })];
     render(
       <SceneBlockNode
@@ -116,11 +125,10 @@ describe('SceneBlockNode thumbnails', () => {
 
     const items = screen.getAllByTestId('thumbnail-item');
     expect(items).toHaveLength(1);
-    const img = screen.getByTestId('thumbnail-img') as HTMLImageElement;
+    const img = await screen.findByTestId('thumbnail-img') as HTMLImageElement;
     expect(img).toBeTruthy();
-    // URL contains fileId and token
-    expect(img.src).toContain('img-1/stream');
-    expect(img.src).toContain('token=mock');
+    expect(img.src).toContain('https://signed.test/files/img-1/stream');
+    expect(mockApiClientGet).toHaveBeenCalledWith('/files/img-1/stream');
   });
 
   it('uses the thumbnail endpoint for video media items', () => {
@@ -137,7 +145,7 @@ describe('SceneBlockNode thumbnails', () => {
     expect(img.src).toContain('token=mock');
   });
 
-  it('sets crossOrigin="anonymous" on thumbnail img for CORS fetching', () => {
+  it('sets crossOrigin="anonymous" on thumbnail img for CORS fetching', async () => {
     const media = [makeMedia({ fileId: 'img-1', mediaType: 'image' })];
     render(
       <SceneBlockNode
@@ -146,7 +154,7 @@ describe('SceneBlockNode thumbnails', () => {
       />,
     );
 
-    const img = screen.getByTestId('thumbnail-img') as HTMLImageElement;
+    const img = await screen.findByTestId('thumbnail-img') as HTMLImageElement;
     expect(img.crossOrigin).toBe('anonymous');
   });
 

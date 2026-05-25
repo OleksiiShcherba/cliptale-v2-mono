@@ -6,6 +6,7 @@ import { validateBody } from '@/middleware/validate.middleware.js';
 import * as storyboardController from '@/controllers/storyboard.controller.js';
 import * as storyboardIllustrationController from '@/controllers/storyboardIllustration.controller.js';
 import * as storyboardProjectController from '@/controllers/storyboardProject.controller.js';
+import * as storyboardVideoController from '@/controllers/storyboardVideo.controller.js';
 
 const router = Router();
 
@@ -47,7 +48,27 @@ router.post(
   '/storyboards/:draftId/project',
   authMiddleware,
   aclMiddleware('editor'),
+  validateBody(storyboardProjectController.createProjectFromStoryboardBodySchema),
   storyboardProjectController.createProjectFromStoryboard,
+);
+
+// GET /storyboards/:draftId/videos
+// Returns Image-to-Video generation status for every scene block.
+router.get(
+  '/storyboards/:draftId/videos',
+  authMiddleware,
+  aclMiddleware('editor'),
+  storyboardVideoController.listStoryboardVideos,
+);
+
+// POST /storyboards/:draftId/videos
+// Enqueues Image-to-Video generation jobs for eligible storyboard scenes.
+router.post(
+  '/storyboards/:draftId/videos',
+  authMiddleware,
+  aclMiddleware('editor'),
+  validateBody(storyboardVideoController.startStoryboardVideosBodySchema),
+  storyboardVideoController.startStoryboardVideos,
 );
 
 // GET /storyboards/:draftId/illustrations

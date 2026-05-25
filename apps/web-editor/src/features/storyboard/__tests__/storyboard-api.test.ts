@@ -45,6 +45,8 @@ import {
   replaceStoryboardPrincipalImage,
   setStoryboardPrincipalImageReferences,
   createProjectFromStoryboard,
+  startStoryboardVideos,
+  fetchStoryboardVideos,
 } from '../api';
 
 import type { SceneTemplate, CreateSceneTemplatePayload, UpdateSceneTemplatePayload } from '../types';
@@ -270,6 +272,7 @@ describe('addTemplateToStoryboard', () => {
       blockType: 'scene' as const,
       name: 'Intro Scene',
       prompt: 'A dramatic opening shot',
+      videoPrompt: null,
       durationS: 5,
       positionX: 100,
       positionY: 200,
@@ -301,6 +304,7 @@ describe('addTemplateToStoryboard', () => {
       blockType: 'scene' as const,
       name: null,
       prompt: null,
+      videoPrompt: null,
       durationS: 3,
       positionX: 50,
       positionY: 50,
@@ -501,7 +505,17 @@ describe('storyboard project API helper', () => {
 
     const result = await createProjectFromStoryboard('draft-abc');
 
-    expect(mockApiClient.post).toHaveBeenCalledWith('/storyboards/draft-abc/project', {});
+    expect(mockApiClient.post).toHaveBeenCalledWith('/storyboards/draft-abc/project', { mode: 'images' });
+    expect(result).toEqual(response);
+  });
+
+  it('creates a video project from a storyboard draft', async () => {
+    const response = { projectId: 'project-1', versionId: 10 };
+    mockApiClient.post.mockResolvedValue(mockOkResponse(response));
+
+    const result = await createProjectFromStoryboard('draft-abc', 'videos');
+
+    expect(mockApiClient.post).toHaveBeenCalledWith('/storyboards/draft-abc/project', { mode: 'videos' });
     expect(result).toEqual(response);
   });
 
@@ -511,5 +525,33 @@ describe('storyboard project API helper', () => {
     await expect(createProjectFromStoryboard('draft-abc')).rejects.toThrow(
       'POST /storyboards/draft-abc/project failed: 422',
     );
+  });
+});
+
+describe('storyboard video API helpers', () => {
+  it('starts storyboard video generation with the selected model', async () => {
+    const response = { items: [] };
+    mockApiClient.post.mockResolvedValue(mockOkResponse(response));
+
+    const result = await startStoryboardVideos('draft-abc', {
+      modelId: 'fal-ai/ltx-2-19b/image-to-video',
+      generateAudio: true,
+    });
+
+    expect(mockApiClient.post).toHaveBeenCalledWith('/storyboards/draft-abc/videos', {
+      modelId: 'fal-ai/ltx-2-19b/image-to-video',
+      generateAudio: true,
+    });
+    expect(result).toEqual(response);
+  });
+
+  it('fetches storyboard video generation status', async () => {
+    const response = { items: [{ blockId: 'scene-1', status: 'ready', outputFileId: 'file-1' }] };
+    mockApiClient.get.mockResolvedValue(mockOkResponse(response));
+
+    const result = await fetchStoryboardVideos('draft-abc');
+
+    expect(mockApiClient.get).toHaveBeenCalledWith('/storyboards/draft-abc/videos');
+    expect(result).toEqual(response);
   });
 });

@@ -38,6 +38,7 @@ function makeBlock(overrides: Partial<StoryboardBlock> = {}): StoryboardBlock {
     blockType: 'scene',
     name: 'Scene A',
     prompt: 'A dramatic opening',
+    videoPrompt: null,
     durationS: 15,
     positionX: 100,
     positionY: 200,
@@ -53,6 +54,7 @@ function makeBlock(overrides: Partial<StoryboardBlock> = {}): StoryboardBlock {
 function makeSavePayload(overrides: Partial<{
   name: string;
   prompt: string;
+  videoPrompt: string | null;
   durationS: number;
   style: string | null;
   mediaItems: Array<{ fileId: string; mediaType: 'image' | 'video' | 'audio'; filename: string; sortOrder: number }>;
@@ -60,6 +62,7 @@ function makeSavePayload(overrides: Partial<{
   return {
     name: 'Updated Scene',
     prompt: 'New prompt',
+    videoPrompt: null,
     durationS: 20,
     style: 'cyberpunk' as string | null,
     mediaItems: [] as Array<{ fileId: string; mediaType: 'image' | 'video' | 'audio'; filename: string; sortOrder: number }>,
@@ -81,7 +84,7 @@ function makeFlowNode(blockOverrides: Partial<StoryboardBlock> = {}): Node {
 
 describe('useSceneModal', () => {
   let mockSetNodes: ReturnType<typeof vi.fn>;
-  let mockSaveNow: ReturnType<typeof vi.fn>;
+  let mockSaveNow: () => Promise<void>;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -155,6 +158,7 @@ describe('useSceneModal', () => {
       expect(calledId).toBe('block-1');
       expect(patch.name).toBe('Updated Scene');
       expect(patch.prompt).toBe('New prompt');
+      expect(patch.videoPrompt).toBeNull();
       expect(patch.durationS).toBe(20);
       expect(result.current.editingBlock).toBeNull();
     });
@@ -168,7 +172,13 @@ describe('useSceneModal', () => {
       });
 
       act(() => {
-        result.current.handleSave('block-1', makeSavePayload({ prompt: 'Updated prompt' }));
+        result.current.handleSave(
+          'block-1',
+          makeSavePayload({
+            prompt: 'Updated prompt',
+            videoPrompt: 'Track right while foreground details animate.',
+          }),
+        );
       });
 
       // setNodes must be called exactly once with a mapper function.
@@ -181,6 +191,7 @@ describe('useSceneModal', () => {
       expect(nextNodes).toHaveLength(1);
       const updatedData = nextNodes[0].data as { block: StoryboardBlock };
       expect(updatedData.block.prompt).toBe('Updated prompt');
+      expect(updatedData.block.videoPrompt).toBe('Track right while foreground details animate.');
       expect(updatedData.block.name).toBe('Updated Scene');
       expect(updatedData.block.durationS).toBe(20);
     });

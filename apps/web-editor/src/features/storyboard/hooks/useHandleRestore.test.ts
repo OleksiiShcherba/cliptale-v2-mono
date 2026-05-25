@@ -35,6 +35,7 @@ function makeSceneNode(id: string): Node {
         blockType: 'scene',
         name: 'Scene',
         prompt: null,
+        videoPrompt: null,
         durationS: 5,
         positionX: 100,
         positionY: 200,

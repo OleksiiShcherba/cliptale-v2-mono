@@ -40,6 +40,7 @@ function makeBlock(overrides: Partial<StoryboardBlock> = {}): StoryboardBlock {
     blockType: 'scene',
     name: 'Scene 1',
     prompt: null,
+    videoPrompt: null,
     durationS: 5,
     positionX: 100,
     positionY: 200,
@@ -89,6 +90,9 @@ beforeEach(() => {
 describe('storyboard-store — restoreFromSnapshot', () => {
   it('reconstructs nodes as proper React Flow Node shapes from StoryboardBlock[]', () => {
     const snapshot = makeSnapshot();
+    snapshot.blocks[0] = makeBlock({
+      videoPrompt: 'Push in while the room lights come up.',
+    });
 
     restoreFromSnapshot(snapshot);
 
@@ -101,6 +105,9 @@ describe('storyboard-store — restoreFromSnapshot', () => {
       position: { x: 100, y: 200 },
     });
     expect(typeof nodes[0].data).toBe('object');
+    expect((nodes[0].data as { block: StoryboardBlock }).block.videoPrompt).toBe(
+      'Push in while the room lights come up.',
+    );
   });
 
   it('reconstructs edges with source/target from sourceBlockId/targetBlockId', () => {

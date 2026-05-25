@@ -21,6 +21,7 @@ export const blockInsertSchema = z.object({
   blockType: z.enum(['start', 'end', 'scene']),
   name: z.string().max(255).nullable(),
   prompt: z.string().nullable(),
+  videoPrompt: z.string().nullable().optional().default(null),
   durationS: z.number().int().min(1).default(5),
   positionX: z.number(),
   positionY: z.number(),

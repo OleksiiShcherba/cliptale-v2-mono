@@ -7,6 +7,7 @@ import {
   type ProjectDoc,
   type PromptBlock,
   type Track,
+  type VideoClip,
 } from '@ai-video-editor/project-schema';
 
 import { UnprocessableEntityError } from '@/lib/errors.js';
@@ -14,6 +15,7 @@ import type { ClipInsert } from '@/repositories/clip.repository.js';
 import type { GenerationDraft } from '@/repositories/generationDraft.repository.js';
 import type { StoryboardBlock, StoryboardEdge } from '@/repositories/storyboard.repository.js';
 import type { StoryboardSceneIllustrationJob } from '@/repositories/storyboardSceneIllustration.repository.js';
+import type { StoryboardSceneVideoJob } from '@/repositories/storyboardSceneVideo.repository.js';
 import { orderStoryboardSceneBlocks } from '@/services/storyboardGraph.service.js';
 
 const STORYBOARD_PROJECT_FPS = 30;
@@ -35,7 +37,9 @@ export type BuildStoryboardProjectDocParams = {
   draft: GenerationDraft;
   blocks: StoryboardBlock[];
   edges: StoryboardEdge[];
-  illustrationJobs: StoryboardSceneIllustrationJob[];
+  mode?: 'images' | 'videos';
+  illustrationJobs?: StoryboardSceneIllustrationJob[];
+  videoJobs?: StoryboardSceneVideoJob[];
   projectId?: string;
   now?: Date;
   createId?: () => string;
@@ -85,6 +89,34 @@ function getReadyOutputFileId(
   return job.outputFileId;
 }
 
+function latestVideoJobsByBlock(
+  jobs: StoryboardSceneVideoJob[],
+): Map<string, StoryboardSceneVideoJob> {
+  const byBlock = new Map<string, StoryboardSceneVideoJob>();
+  for (const job of jobs) {
+    const existing = byBlock.get(job.blockId);
+    if (
+      !existing ||
+      job.createdAt.getTime() > existing.createdAt.getTime() ||
+      (job.createdAt.getTime() === existing.createdAt.getTime() && job.id > existing.id)
+    ) {
+      byBlock.set(job.blockId, job);
+    }
+  }
+  return byBlock;
+}
+
+function getReadyVideoOutputFileId(
+  block: StoryboardBlock,
+  jobsByBlock: Map<string, StoryboardSceneVideoJob>,
+): string {
+  const job = jobsByBlock.get(block.id);
+  if (!job || job.status !== 'ready' || !job.outputFileId) {
+    throw new UnprocessableEntityError(`Scene ${block.name ?? block.id} is missing a ready generated video`);
+  }
+  return job.outputFileId;
+}
+
 function durationToFrames(block: StoryboardBlock): number {
   if (!Number.isFinite(block.durationS) || block.durationS <= 0) {
     throw new UnprocessableEntityError(`Scene ${block.name ?? block.id} must have a positive duration`);
@@ -95,6 +127,7 @@ function durationToFrames(block: StoryboardBlock): number {
 export function buildStoryboardProjectDoc(
   params: BuildStoryboardProjectDocParams,
 ): StoryboardProjectAssembly {
+  const mode = params.mode ?? 'images';
   const createId = params.createId ?? randomUUID;
   const sceneBlocks = orderStoryboardSceneBlocks(params.blocks, params.edges);
   if (sceneBlocks.length === 0) {
@@ -106,33 +139,48 @@ export function buildStoryboardProjectDoc(
   const title = deriveTitle(params.draft);
   const aspectRatio = getDraftAspectRatio(params.draft);
   const dimensions = DIMENSIONS_BY_ASPECT_RATIO[aspectRatio];
-  const jobsByBlock = latestJobsByBlock(params.illustrationJobs);
+  const imageJobsByBlock = latestJobsByBlock(params.illustrationJobs ?? []);
+  const videoJobsByBlock = latestVideoJobsByBlock(params.videoJobs ?? []);
   const createdAt = (params.now ?? new Date()).toISOString();
 
   let startFrame = 0;
-  const clips: ImageClip[] = [];
+  const clips: Array<ImageClip | VideoClip> = [];
   const clipInserts: ClipInsert[] = [];
   const usedFileIds: string[] = [];
 
   for (const block of sceneBlocks) {
-    const fileId = getReadyOutputFileId(block, jobsByBlock);
+    const fileId = mode === 'videos'
+      ? getReadyVideoOutputFileId(block, videoJobsByBlock)
+      : getReadyOutputFileId(block, imageJobsByBlock);
     const durationFrames = durationToFrames(block);
     const clipId = createId();
-    const clip: ImageClip = {
-      id: clipId,
-      type: 'image',
-      fileId,
-      trackId,
-      startFrame,
-      durationFrames,
-      opacity: 1,
-    };
+    const clip: ImageClip | VideoClip = mode === 'videos'
+      ? {
+          id: clipId,
+          type: 'video',
+          fileId,
+          trackId,
+          startFrame,
+          durationFrames,
+          trimInFrame: 0,
+          opacity: 1,
+          volume: 1,
+        }
+      : {
+          id: clipId,
+          type: 'image',
+          fileId,
+          trackId,
+          startFrame,
+          durationFrames,
+          opacity: 1,
+        };
     clips.push(clip);
     clipInserts.push({
       clipId,
       projectId,
       trackId,
-      type: 'image',
+      type: mode === 'videos' ? 'video' : 'image',
       fileId,
       startFrame,
       durationFrames,
@@ -145,7 +193,7 @@ export function buildStoryboardProjectDoc(
   const track: Track = {
     id: trackId,
     type: 'video',
-    name: 'Storyboard images',
+    name: mode === 'videos' ? 'Storyboard videos' : 'Storyboard images',
     muted: false,
     locked: false,
   };
@@ -171,4 +219,3 @@ export function buildStoryboardProjectDoc(
     title,
   };
 }
-

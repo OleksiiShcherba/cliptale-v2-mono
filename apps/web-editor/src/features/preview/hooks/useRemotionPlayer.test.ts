@@ -14,10 +14,13 @@ import { useRemotionPlayer } from './useRemotionPlayer.js';
 
 // useQueries is still used for the fallback path (orphan clips not in cache).
 // useQueryClient provides getQueryData for the cache-read path.
-const { mockGetQueryData, mockUseQueryClient } = vi.hoisted(() => ({
-  mockGetQueryData: vi.fn(),
-  mockUseQueryClient: vi.fn(() => ({ getQueryData: mockGetQueryData })),
-}));
+const { mockGetQueryData, mockUseQueryClient } = vi.hoisted(() => {
+  const getQueryData = vi.fn();
+  return {
+    mockGetQueryData: getQueryData,
+    mockUseQueryClient: vi.fn(() => ({ getQueryData })),
+  };
+});
 
 vi.mock('@tanstack/react-query', () => ({
   useQueries: vi.fn(),
@@ -71,7 +74,16 @@ function makeProjectDoc(overrides: Partial<ProjectDoc> = {}): ProjectDoc {
 }
 
 function makeEphemeralState(overrides = {}) {
-  return { playheadFrame: 0, selectedClipIds: [], zoom: 1, ...overrides };
+  return {
+    playheadFrame: 0,
+    selectedClipIds: [],
+    zoom: 1,
+    pxPerFrame: 4,
+    scrollOffsetX: 0,
+    volume: 1,
+    isMuted: false,
+    ...overrides,
+  };
 }
 
 function makeAssetItem(id: string, status = 'ready') {
@@ -206,7 +218,7 @@ describe('useRemotionPlayer', () => {
       const { result } = renderHook(() => useRemotionPlayer());
 
       expect(result.current.assetUrls).toEqual({
-        'asset-a': 'http://localhost:3001/assets/asset-a/stream',
+        'asset-a': 'https://example.com/asset-a.mp4',
       });
     });
   });
@@ -306,13 +318,13 @@ describe('useRemotionPlayer', () => {
       const { result } = renderHook(() => useRemotionPlayer());
 
       expect(result.current.assetUrls).toEqual({
-        'asset-a': 'http://localhost:3001/assets/asset-a/stream',
+        'asset-a': 'https://example.com/asset-a.mp4',
       });
     });
   });
 
   describe('assetUrls resolution', () => {
-    it('builds assetUrls map using the API stream URL (never a raw s3:// URI)', () => {
+    it('builds assetUrls map using API-provided signed downloadUrl', () => {
       const doc = makeProjectDoc({
         clips: [
           { id: 'c1', type: 'video', fileId: 'asset-a', trackId: 't1', startFrame: 0, durationFrames: 30 },
@@ -324,11 +336,11 @@ describe('useRemotionPlayer', () => {
       const { result } = renderHook(() => useRemotionPlayer());
 
       expect(result.current.assetUrls).toEqual({
-        'asset-a': 'http://localhost:3001/assets/asset-a/stream',
+        'asset-a': 'https://example.com/asset-a.mp4',
       });
     });
 
-    it('appends auth token to stream URL when token exists in localStorage', () => {
+    it('does not append local auth token to API-provided signed downloadUrl', () => {
       localStorage.setItem('auth_token', 'test-auth-token-123');
       const doc = makeProjectDoc({
         clips: [
@@ -340,10 +352,10 @@ describe('useRemotionPlayer', () => {
 
       const { result } = renderHook(() => useRemotionPlayer());
 
-      expect(result.current.assetUrls['asset-a']).toBe('http://localhost:3001/assets/asset-a/stream?token=test-auth-token-123');
+      expect(result.current.assetUrls['asset-a']).toBe('https://example.com/asset-a.mp4');
     });
 
-    it('appends auth token to image stream URLs for assembled storyboard clips', () => {
+    it('uses signed downloadUrls for assembled storyboard image clips', () => {
       localStorage.setItem('auth_token', 'storyboard-token-456');
       const doc = makeProjectDoc({
         clips: [
@@ -360,12 +372,12 @@ describe('useRemotionPlayer', () => {
       const { result } = renderHook(() => useRemotionPlayer());
 
       expect(result.current.assetUrls).toEqual({
-        'scene-file-a': 'http://localhost:3001/assets/scene-file-a/stream?token=storyboard-token-456',
-        'scene-file-b': 'http://localhost:3001/assets/scene-file-b/stream?token=storyboard-token-456',
+        'scene-file-a': 'https://example.com/scene-file-a.mp4',
+        'scene-file-b': 'https://example.com/scene-file-b.mp4',
       });
     });
 
-    it('does not append token when no token exists in localStorage', () => {
+    it('uses the same signed downloadUrl when no local token exists', () => {
       expect(localStorage.getItem('auth_token')).toBeNull();
 
       const doc = makeProjectDoc({
@@ -378,10 +390,10 @@ describe('useRemotionPlayer', () => {
 
       const { result } = renderHook(() => useRemotionPlayer());
 
-      expect(result.current.assetUrls['asset-a']).toBe('http://localhost:3001/assets/asset-a/stream');
+      expect(result.current.assetUrls['asset-a']).toBe('https://example.com/asset-a.mp4');
     });
 
-    it('stream URL uses the configured apiBaseUrl', () => {
+    it('uses the signed downloadUrl returned by the API', () => {
       const doc = makeProjectDoc({
         clips: [
           { id: 'c1', type: 'video', fileId: 'asset-xyz', trackId: 't1', startFrame: 0, durationFrames: 30 },
@@ -392,7 +404,7 @@ describe('useRemotionPlayer', () => {
 
       const { result } = renderHook(() => useRemotionPlayer());
 
-      expect(result.current.assetUrls['asset-xyz']).toBe('http://localhost:3001/assets/asset-xyz/stream');
+      expect(result.current.assetUrls['asset-xyz']).toBe('https://example.com/asset-xyz.mp4');
     });
 
     it('stream URL does not contain s3:// scheme', () => {

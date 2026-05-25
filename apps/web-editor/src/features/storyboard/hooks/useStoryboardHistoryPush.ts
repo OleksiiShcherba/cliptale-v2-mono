@@ -64,6 +64,7 @@ export function useStoryboardHistoryPush(draftId: string): {
                   blockType: 'scene';
                   name: string | null;
                   prompt: string | null;
+                  videoPrompt: string | null;
                   durationS: number;
                   positionX: number;
                   positionY: number;
@@ -85,6 +86,7 @@ export function useStoryboardHistoryPush(draftId: string): {
           blockType: n.type as 'start' | 'end',
           name: null as string | null,
           prompt: null as string | null,
+          videoPrompt: null,
           durationS: 0,
           positionX: n.position.x,
           positionY: n.position.y,

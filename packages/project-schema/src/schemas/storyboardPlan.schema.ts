@@ -28,6 +28,7 @@ export const storyboardPlanSceneSchema = z
     sceneNumber: z.number().int().positive(),
     prompt: nonEmptyStringSchema,
     visualPrompt: nonEmptyStringSchema,
+    videoPrompt: nonEmptyStringSchema,
     durationSeconds: z.number().finite().positive(),
     referencedMedia: z.array(storyboardPlanReferencedMediaSchema),
     transitionNotes: z.string(),

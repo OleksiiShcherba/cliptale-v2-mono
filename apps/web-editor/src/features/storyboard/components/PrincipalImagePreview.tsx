@@ -1,23 +1,30 @@
 import React from 'react';
 
+import { useFileStreamUrl } from '@/shared/hooks/useFileStreamUrl';
+
 import type { PrincipalImageLightboxState } from './PrincipalImageLightbox';
 import * as s from './PrincipalImageApprovalModal.styles';
 
 interface PrincipalImagePreviewProps {
-  previewUrl: string | null;
-  previewFailed: boolean;
+  fileId: string | null;
   isPreviewLoading: boolean;
-  onPreviewFailed: () => void;
   onOpenLightbox: (lightbox: PrincipalImageLightboxState) => void;
 }
 
 export function PrincipalImagePreview({
-  previewUrl,
-  previewFailed,
+  fileId,
   isPreviewLoading,
-  onPreviewFailed,
   onOpenLightbox,
 }: PrincipalImagePreviewProps): React.ReactElement {
+  const [previewFailed, setPreviewFailed] = React.useState(false);
+  const { url: previewUrl, isLoading: isUrlLoading, error } = useFileStreamUrl(fileId);
+
+  React.useEffect(() => {
+    setPreviewFailed(false);
+  }, [fileId, previewUrl]);
+
+  const showLoader = isPreviewLoading || isUrlLoading;
+
   return (
     <div style={s.previewShellStyle} data-testid="principal-image-preview">
       {previewUrl && !previewFailed ? (
@@ -32,16 +39,16 @@ export function PrincipalImagePreview({
             src={previewUrl}
             alt="Principal image preview"
             style={s.previewImageStyle}
-            onError={onPreviewFailed}
+            onError={() => setPreviewFailed(true)}
             data-testid="principal-image-preview-img"
           />
         </button>
-      ) : isPreviewLoading ? null : (
+      ) : showLoader ? null : (
         <span style={s.previewFallbackStyle} data-testid="principal-image-preview-fallback">
-          Preview unavailable
+          {error ?? 'Preview unavailable'}
         </span>
       )}
-      {isPreviewLoading && (
+      {showLoader && (
         <div
           style={s.previewLoadingOverlayStyle}
           role="status"

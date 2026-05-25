@@ -54,6 +54,7 @@ export function useSceneModal(
       const patch = {
         name: payload.name || null,
         prompt: payload.prompt,
+        videoPrompt: payload.videoPrompt,
         durationS: payload.durationS,
         style: payload.style,
         mediaItems: payload.mediaItems.map((m) => ({

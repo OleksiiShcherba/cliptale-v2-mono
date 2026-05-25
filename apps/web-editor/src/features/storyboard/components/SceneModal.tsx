@@ -75,6 +75,9 @@ export function SceneModal(props: SceneModalProps): React.ReactElement {
   const [prompt, setPrompt] = useState<string>(
     isBlock ? (props.block.prompt ?? '') : (props.initialValues?.prompt ?? ''),
   );
+  const [videoPrompt, setVideoPrompt] = useState<string>(
+    isBlock ? (props.block.videoPrompt ?? '') : (props.initialValues?.videoPrompt ?? ''),
+  );
   const [duration, setDuration] = useState<number>(
     isBlock ? props.block.durationS : (props.initialValues?.durationS ?? 10),
   );
@@ -141,6 +144,7 @@ export function SceneModal(props: SceneModalProps): React.ReactElement {
     const payload: SceneModalSavePayload = {
       name: name.trim(),
       prompt: prompt.trim(),
+      videoPrompt: videoPrompt.trim() || null,
       durationS: duration,
       style: selectedStyle,
       mediaItems,
@@ -148,7 +152,7 @@ export function SceneModal(props: SceneModalProps): React.ReactElement {
     if (props.mode === 'block') props.onSave(props.block.id, payload);
     else props.onSave(payload);
     props.onClose();
-  }, [name, prompt, duration, selectedStyle, mediaItems, props]);
+  }, [name, prompt, videoPrompt, duration, selectedStyle, mediaItems, props]);
 
   // ── Delete ───────────────────────────────────────────────────────────────────
 
@@ -185,11 +189,13 @@ export function SceneModal(props: SceneModalProps): React.ReactElement {
           <SceneModalFormFields
             name={name}
             prompt={prompt}
+            videoPrompt={videoPrompt}
             duration={duration}
             promptError={promptError}
             durationError={durationError}
             onNameChange={setName}
             onPromptChange={setPrompt}
+            onVideoPromptChange={setVideoPrompt}
             onDurationChange={setDuration}
           />
 

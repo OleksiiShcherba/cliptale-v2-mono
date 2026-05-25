@@ -33,6 +33,10 @@ import {
 // Mock dependencies
 // ---------------------------------------------------------------------------
 
+const { mockApiClientGet } = vi.hoisted(() => ({
+  mockApiClientGet: vi.fn(),
+}));
+
 vi.mock('@/features/generate-wizard/api', () => ({
   listAssets: vi.fn(),
 }));
@@ -41,7 +45,7 @@ vi.mock('@/lib/api-client', () => ({
   buildAuthenticatedUrl: (url: string) => `${url}?token=test-token`,
   getAuthToken: () => 'test-token',
   apiClient: {
-    get: vi.fn(),
+    get: mockApiClientGet,
     post: vi.fn(),
     patch: vi.fn(),
     delete: vi.fn(),
@@ -119,6 +123,11 @@ function mockFailure() {
 describe('AssetPickerModal', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mockApiClientGet.mockImplementation((path: string) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ url: `https://signed.test${path}` }),
+    }));
   });
 
   it('should render "Insert Video" title when mediaType is video', async () => {
@@ -143,7 +152,8 @@ describe('AssetPickerModal', () => {
     renderModal('image');
 
     const image = await screen.findByAltText(IMAGE_ASSET.label) as HTMLImageElement;
-    expect(image.src).toContain('http://api.test/assets/i1/stream?token=test-token');
+    expect(image.src).toBe('https://signed.test/files/i1/stream');
+    expect(mockApiClientGet).toHaveBeenCalledWith('/files/i1/stream');
   });
 
   it('should render "Insert Audio" title when mediaType is audio', async () => {

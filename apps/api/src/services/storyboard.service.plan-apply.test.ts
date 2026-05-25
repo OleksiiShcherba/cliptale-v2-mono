@@ -64,6 +64,7 @@ const PLAN: StoryboardPlan = {
       sceneNumber: 1,
       prompt: 'Introduce the problem.',
       visualPrompt: 'Wide shot of a cluttered desk.',
+      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
       durationSeconds: 5.4,
       referencedMedia: [
         {
@@ -84,6 +85,7 @@ const PLAN: StoryboardPlan = {
       sceneNumber: 2,
       prompt: 'Show the resolved state.',
       visualPrompt: 'Clean product hero frame.',
+      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
       durationSeconds: 6.6,
       referencedMedia: [],
       transitionNotes: '',
@@ -171,6 +173,7 @@ describe('storyboard.service — applyLatestCompletedPlan', () => {
     expect(blocks[1]).toMatchObject({
       name: 'Scene 01',
       prompt: 'Wide shot of a cluttered desk.',
+      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
       durationS: 5,
       sortOrder: 1,
       style: 'cinematic',
@@ -180,6 +183,7 @@ describe('storyboard.service — applyLatestCompletedPlan', () => {
     expect(blocks[2]).toMatchObject({
       name: 'Scene 02',
       prompt: 'Clean product hero frame.',
+      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
       durationS: 7,
       sortOrder: 2,
       style: 'minimal',

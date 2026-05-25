@@ -1,5 +1,141 @@
 # Development Log (compacted — 2026-03-29 to 2026-04-29)
 
+## Storyboard UX, Prompt, and Step 3 Video Generation Adjustments — STB-ADJ-1 (2026-05-25)
+- changed: active scene illustration controls now show a loader-only status preview instead of falling back to `Ref` while the title is `Generating scene illustrations`.
+- preserved: ready canonical reference thumbnails still render during scene generation, and failed/ready reference fallback behavior remains unchanged.
+- changed: completed illustration generation now displays `Done`, matching the completed scene-planning status.
+- tests: `npm --workspace apps/web-editor test -- StoryboardPage.plan StoryboardPlanControls` -> 1 file / 24 tests passed.
+- active task: removed only `STB-ADJ-1` from `docs/active_task.md`; `STB-ADJ-2` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Storyboard UX, Prompt, and Step 3 Video Generation Adjustments — STB-ADJ-2 (2026-05-25)
+- changed: drag state and original-node dimming now apply to scene blocks, START, and END sentinels.
+- changed: drag-stop opacity restoration now applies to all draggable storyboard node types while keeping scene-only edge auto-insert behavior unchanged.
+- changed: `GhostDragPortal` now renders disabled full-size previews for scene, START, and END nodes instead of the compact `Moving...` clone.
+- added: portal preview regression tests for scene and sentinel previews, plus hook coverage for START/END drag state and opacity restoration.
+- tests: `npm --workspace apps/web-editor test -- useStoryboardDrag SceneBlockNode StoryboardCanvas StoryboardPage.drag-filter GhostDragPortal` -> 9 files / 72 tests passed.
+- typecheck scan: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "GhostDragPortal|useStoryboardDrag|SceneBlockNode|StoryboardCanvas|StoryboardPage.drag-filter" || true` -> no new touched-file errors; existing `StoryboardCanvas.knife.test.tsx` TS2454 mock assignment debt remains.
+- active task: removed only `STB-ADJ-2` from `docs/active_task.md`; `STB-ADJ-3` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - COMMENTED
+
+## Storyboard UX, Prompt, and Step 3 Video Generation Adjustments — STB-ADJ-3 (2026-05-25)
+- changed: storyboard plan scenes now require non-empty `videoPrompt` alongside `prompt` and `visualPrompt`.
+- changed: OpenAPI generation-draft storyboard schemas document `videoPrompt` as a required Image-to-Video motion prompt.
+- changed: storyboard planning worker prompt now instructs OpenAI to return `videoPrompt` with subject motion, camera movement, depth cues, cinematic timing, continuity, and provider-neutral transitions.
+- changed: storyboard plan fixtures across project-schema, API, and media-worker tests now include `videoPrompt`.
+- build: `npm --workspace packages/project-schema run build` -> passed so media-worker tests consume the updated package export.
+- tests: `npm --workspace packages/project-schema test -- storyboardPlan` -> 1 file / 15 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- generation-drafts` -> 2 files / 7 tests passed.
+- tests: `npm --workspace apps/media-worker test -- storyboardPlan` -> 2 files / 23 tests passed.
+- changed: legacy persisted completed storyboard plans that predate `videoPrompt` are normalized on repository read by deriving `videoPrompt` from `visualPrompt`; new writes remain strict.
+- tests: `npm --workspace apps/api test -- storyboardPlan` -> 3 files / 32 tests passed.
+- active task: removed only `STB-ADJ-3` from `docs/active_task.md`; `STB-ADJ-4` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - COMMENTED
+- checked by playwright-reviewer - COMMENTED
+
+## Storyboard UX, Prompt, and Step 3 Video Generation Adjustments — STB-ADJ-4 (2026-05-25)
+- added: `storyboard_blocks.video_prompt` nullable persistence and threaded `videoPrompt` through storyboard repository rows, insert/replace validation, OpenAPI contracts, and frontend block types.
+- changed: applying completed storyboard plans now stores `visualPrompt` in the existing image `prompt` field and stores generated `videoPrompt` separately on each scene block; sentinels keep `videoPrompt: null`.
+- changed: scene edit modal now labels the existing prompt as `Image Prompt *` and adds a nullable `Video Prompt` textarea that saves with block edits.
+- preserved: image illustration generation, autosave, restore, history, and existing nullable/manual scene behavior continue using the existing image prompt path.
+- covered: API PUT/GET, plan-apply response/DB/history, autosave payload, history snapshot push, and restore tests now assert non-null `videoPrompt` preservation.
+- tests: `npm --workspace apps/api test -- storyboard storyboardPlanApply storyboardProjectDoc` -> 17 files / 176 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi.storyboard` -> 2 files / 86 tests passed.
+- tests: `npm --workspace apps/web-editor test -- SceneModal useSceneModal storyboard-api useStoryboardCanvas useStoryboardAutosave useStoryboardHistoryPush storyboard-store.restore` -> 9 files / 112 tests passed.
+- typecheck scan: `npm --workspace apps/api run typecheck 2>&1 | rg "storyboard|Storyboard|videoPrompt|storyboardPlanJob" || true` -> no touched-file errors.
+- typecheck scan: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "SceneModal|useSceneModal|storyboard/api|storyboard/types|Storyboard|GhostDragPortal|useAddBlock|LibraryPanel|useStoryboardGenerationFlow|useStoryboardHistoryPush" || true` -> no new `videoPrompt`/modal errors; existing `StoryboardCanvas.knife.test.tsx` and autosave test TypeScript debt remains.
+- hygiene: `git diff --check -- apps/api packages apps/web-editor/src/features/storyboard` -> passed.
+- active task: removed only `STB-ADJ-4` from `docs/active_task.md`; `STB-ADJ-5` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Storyboard UX, Prompt, and Step 3 Video Generation Adjustments — STB-ADJ-5 (2026-05-25)
+- added: `storyboard_scene_video_jobs` mapping table for per-scene Image-to-Video jobs with active-job dedupe, model id, audio flag, status, output file, and error tracking.
+- added: storyboard video repository/controller/routes for `GET /storyboards/:draftId/videos` and `POST /storyboards/:draftId/videos`.
+- added: storyboard video orchestration service that validates draft ownership, Image-to-Video model capability, principal-image approval, non-empty scene `videoPrompt`, ready scene illustration outputs, and audio support before enqueueing.
+- changed: video job submission reuses the unified `submitGeneration()` path with draft-scoped jobs, start image file ids, optional next-scene `end_image_url`, provider audio fields, and model duration fields.
+- covered: service tests for option building, audio support, duration clamping, active-job dedupe including active-lock race loss, multi-scene missing prompt/image preflight, and completed/failed AI job status refresh.
+- covered: endpoint integration tests for `GET/POST /storyboards/:draftId/videos`, persisted mapping rows, repeated-start dedupe, full status fields, and failed AI job error exposure.
+- tests: `npm --workspace apps/api test -- storyboardVideo storyboard-video aiGeneration falOptions` -> 8 files / 76 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi.storyboard` -> 2 files / 93 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- hygiene: `git diff --check -- apps/api packages/api-contracts` -> passed.
+- active task: removed only `STB-ADJ-5` from `docs/active_task.md`; `STB-ADJ-6` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - COMMENTED
+- checked by playwright-reviewer - COMMENTED
+
+## Storyboard UX, Prompt, and Step 3 Video Generation Adjustments — STB-ADJ-6 (2026-05-25)
+- changed: `POST /storyboards/:draftId/project` now accepts optional `{ mode: 'images' | 'videos' }`, defaulting to the existing image-only behavior for empty/missing bodies.
+- changed: project assembly can now build `VideoClip` timelines from ready storyboard scene video outputs while preserving image clip assembly for skip mode.
+- preserved: completed-draft idempotency still returns the existing project/version instead of creating a second project.
+- added: transaction-scoped lookup of latest storyboard video jobs for video assembly readiness checks.
+- covered: project-doc tests for valid video clips, volume/trim defaults, video file linking, duration ordering, and missing ready video failure.
+- covered: service and integration tests for video mode project creation, video clip rows, project file links, idempotent video-mode retry, write rollback, version doc hydration, and 422 readiness failure.
+- tests: `npm --workspace apps/api test -- storyboardProject storyboardProjectDoc storyboard-project` -> 3 files / 24 tests passed.
+- tests: `npm --workspace packages/project-schema test -- project-doc clip` -> 2 files / 65 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi.storyboard` -> 2 files / 94 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- hygiene: `git diff --check -- apps/api packages` -> passed.
+- active task: removed only `STB-ADJ-6` from `docs/active_task.md`; `STB-ADJ-7` and later remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - COMMENTED
+- checked by playwright-reviewer - COMMENTED
+
+## Storyboard UX, Prompt, and Step 3 Video Generation Adjustments — STB-ADJ-7 (2026-05-25)
+- added: Step 3 modal for choosing Image-to-Video generation or skipping to the existing image-only project path.
+- changed: `StoryboardPage.handleNext` opens the modal when Step 3 is enabled; skip routes to `/generate/road-map?draftId=<id>&mode=images`.
+- added: modal model loading from the existing AI model catalog, filtered to `image_to_video`, with an audio checkbox only when the selected model exposes `generate_audio` or `generate_audio_switch`.
+- added: frontend API helpers and types for `GET/POST /storyboards/:draftId/videos`, plus mode-aware storyboard project creation.
+- changed: `GenerateProjectFromStoryboardPage` now dedupes by draft plus mode; `mode=images` assembles immediately, while `mode=videos` polls storyboard video status, surfaces failures with retry, and creates the project with video clips once all outputs are ready.
+- changed: extracted Step 3 modal state/start logic into `useStep3Generation` so `StoryboardPage.tsx` remains under the 300-line architecture limit.
+- changed: Step 3 modal close control now uses the storyboard SVG close icon pattern, and the generate CTA shows `Starting...` while busy.
+- covered: queued/running video polling to ready, video-mode Strict Mode dedupe, skip routing, API payloads, and audio toggle support.
+- tests: `npm --workspace apps/web-editor test -- StoryboardPage.navigation StoryboardPage.plan GenerateProjectFromStoryboardPage storyboard-api Step3GenerationModal` -> 5 files / 81 tests passed.
+- typecheck scan: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "StoryboardPage|GenerateProjectFromStoryboardPage|Step3|useStep3Generation|storyboard/api|storyboard/types" || true` -> no touched-file errors.
+- e2e typecheck: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-project.spec.ts e2e/storyboard-illustrations.spec.ts e2e/helpers/storyboard.ts` -> passed.
+- hygiene: `git diff --check -- apps/web-editor/src/features/storyboard apps/web-editor/src/features/generate-wizard e2e/storyboard-project.spec.ts` -> passed.
+- active task: removed only `STB-ADJ-7` from `docs/active_task.md`; `STB-ADJ-8` remains.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - COMMENTED
+
+## Storyboard UX, Prompt, and Step 3 Video Generation Adjustments — STB-ADJ-8 (2026-05-25)
+- added: mocked Playwright coverage for the Step 3 modal skip path, asserting image-mode assembly and ordered image clips in the editor.
+- added: mocked Playwright coverage for the Step 3 Image-to-Video model path, including audio-capable model selection, video job start payload, video-status polling/readiness gating, video-mode project assembly, and ordered video clips in the editor.
+- added: mocked Playwright coverage for video generation failure retry before video-mode project assembly.
+- updated: storyboard project E2E mocks now include storyboard video endpoints, Image-to-Video model catalog responses, video assets, and asset captions requests.
+- fixed: scene illustration status badges are reapplied after storyboard reloads that add ready media, preserving failed/running retry UI after canvas hydration.
+- validation prep: restored the local E2E user password hash in the target DB to match `apps/web-editor/e2e/seed-test-user.sql`.
+- tests: `npm --workspace packages/project-schema test -- storyboardPlan project-doc clip` -> 3 files / 80 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi` -> 5 files / 143 tests passed.
+- tests: `npm --workspace apps/api test -- storyboard storyboardPlan storyboardIllustration storyboardVideo storyboardProject storyboard-project aiGeneration` -> 24 files / 248 tests passed.
+- tests: `npm --workspace apps/media-worker test -- storyboardPlan ai-generate` -> 7 files / 60 tests passed.
+- tests: `npm --workspace apps/web-editor test -- StoryboardPage GenerateProjectFromStoryboardPage SceneModal useStoryboardDrag storyboard-api` -> 15 files / 165 tests passed.
+- focused tests: `npm --workspace apps/web-editor test -- StoryboardPage.plan StoryboardPage GenerateProjectFromStoryboardPage` -> 8 files / 73 tests passed after the reload-status fix.
+- typecheck scan: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "StoryboardPage|GenerateProjectFromStoryboardPage|Step3|useStep3Generation|useStoryboardGenerationFlow|storyboard/api|storyboard/types" || true` -> no touched-file errors.
+- e2e typecheck: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-project.spec.ts e2e/storyboard-illustrations.spec.ts e2e/helpers/storyboard.ts` -> passed.
+- e2e: `VITE_PUBLIC_API_BASE_URL=http://localhost:3001 E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/storyboard-project.spec.ts e2e/storyboard-illustrations.spec.ts --project=chromium` -> 8 tests passed.
+- hygiene: `git diff --check` -> passed.
+- active task: removed `STB-ADJ-8` from `docs/active_task.md`; no active subtasks remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - COMMENTED
+- checked by playwright-reviewer - APPROVED
+
 ## Monorepo + DB Migrations
 - added: root config, apps/packages scaffold; migrations 001–036 (projects, assets, captions, versions, render_jobs, clips, users/auth, ai_generation_jobs, files/pivots, soft-delete, thumbnails, storyboard tables, scene_templates/media)
 - fixed: APP_ env prefix; Zod startup validation; workspace→file paths; in-process migration runner + sha256

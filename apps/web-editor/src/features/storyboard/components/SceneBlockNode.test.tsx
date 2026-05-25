@@ -40,6 +40,19 @@ vi.mock('@xyflow/react', () => ({
   useReactFlow: () => ({ getNodes: vi.fn(() => []) }),
 }));
 
+const { mockApiClientGet } = vi.hoisted(() => ({
+  mockApiClientGet: vi.fn(),
+}));
+
+vi.mock('@/lib/api-client', () => ({
+  apiClient: { get: mockApiClientGet },
+  buildAuthenticatedUrl: (url: string) => `${url}?token=test`,
+}));
+
+vi.mock('@/lib/config', () => ({
+  config: { apiBaseUrl: 'http://localhost:3001' },
+}));
+
 // ---------------------------------------------------------------------------
 // Import after mocks
 // ---------------------------------------------------------------------------
@@ -57,6 +70,7 @@ function makeBlock(overrides: Partial<StoryboardBlock> = {}): StoryboardBlock {
     blockType: 'scene',
     name: 'Scene One',
     prompt: 'A cinematic shot of mountains at dawn.',
+    videoPrompt: null,
     durationS: 5,
     positionX: 100,
     positionY: 200,
@@ -100,6 +114,11 @@ function renderNode(
 describe('SceneBlockNode', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockApiClientGet.mockImplementation((path: string) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ url: `https://signed.test${path}` }),
+    }));
   });
 
   // ── Scene name ─────────────────────────────────────────────────────────────

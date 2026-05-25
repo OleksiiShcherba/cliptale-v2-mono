@@ -43,6 +43,9 @@ let sessionB: string;
 let draftReady: string;
 let draftPendingReference: string;
 let draftMissingOutput: string;
+let draftVideoReady: string;
+let draftVideoRetry: string;
+let draftVideoMissingOutput: string;
 let draftOther: string;
 
 function authA(): string {
@@ -172,12 +175,58 @@ async function seedSceneOutput(params: {
   return outputFileId;
 }
 
+async function seedSceneVideoOutput(params: {
+  draftId: string;
+  userId: string;
+  blockId: string;
+  status?: 'queued' | 'running' | 'ready' | 'failed';
+  output?: boolean;
+}): Promise<string | null> {
+  const jobId = randomUUID();
+  const outputFileId = params.output === false ? null : randomUUID();
+  if (outputFileId) {
+    await conn.execute(
+      `INSERT INTO files (file_id, user_id, kind, storage_uri, mime_type, display_name, status)
+       VALUES (?, ?, 'video', ?, 'video/mp4', 'scene-video.mp4', 'ready')`,
+      [outputFileId, params.userId, `s3://test-bucket/${outputFileId}.mp4`],
+    );
+  }
+  await conn.execute(
+    `INSERT INTO ai_generation_jobs
+       (job_id, user_id, model_id, capability, prompt, options, status, progress, output_file_id, draft_id)
+     VALUES (?, ?, 'fal-ai/ltx-2-19b/image-to-video', 'image_to_video', 'scene video', JSON_OBJECT(), ?, 100, ?, ?)`,
+    [
+      jobId,
+      params.userId,
+      params.status === 'ready' || params.status === undefined ? 'completed' : 'queued',
+      outputFileId,
+      params.draftId,
+    ],
+  );
+  await conn.execute(
+    `INSERT INTO storyboard_scene_video_jobs
+       (id, draft_id, block_id, ai_job_id, model_id, generate_audio, status, output_file_id, active_lock)
+     VALUES (?, ?, ?, ?, 'fal-ai/ltx-2-19b/image-to-video', 1, ?, ?, 1)`,
+    [
+      randomUUID(),
+      params.draftId,
+      params.blockId,
+      jobId,
+      params.status ?? 'ready',
+      outputFileId,
+    ],
+  );
+  return outputFileId;
+}
+
 async function seedStoryboard(params: {
   draftId: string;
   userId: string;
   approvedReference?: boolean;
   missingOutput?: boolean;
-}): Promise<void> {
+  videoOutputs?: boolean;
+  missingVideoOutput?: boolean;
+}): Promise<string[]> {
   const start = randomUUID();
   const sceneA = randomUUID();
   const sceneB = randomUUID();
@@ -236,7 +285,30 @@ async function seedStoryboard(params: {
     status: 'ready',
     output: true,
   });
+  const videoOutputFileIds: string[] = [];
+  if (params.videoOutputs) {
+    const videoA = await seedSceneVideoOutput({
+      draftId: params.draftId,
+      userId: params.userId,
+      blockId: sceneA,
+      status: params.missingVideoOutput ? 'queued' : 'ready',
+      output: !params.missingVideoOutput,
+    });
+    if (videoA) videoOutputFileIds.push(videoA);
+    const videoB = await seedSceneVideoOutput({
+      draftId: params.draftId,
+      userId: params.userId,
+      blockId: sceneB,
+      status: 'ready',
+      output: true,
+    });
+    if (videoB) videoOutputFileIds.push(videoB);
+  }
+  return videoOutputFileIds;
 }
+
+let draftVideoReadyFileIds: string[] = [];
+let draftVideoRetryFileIds: string[] = [];
 
 beforeAll(async () => {
   const mod = await import('../../index.js');
@@ -261,6 +333,9 @@ beforeAll(async () => {
   draftReady = randomUUID();
   draftPendingReference = randomUUID();
   draftMissingOutput = randomUUID();
+  draftVideoReady = randomUUID();
+  draftVideoRetry = randomUUID();
+  draftVideoMissingOutput = randomUUID();
   draftOther = randomUUID();
 
   for (const [uid, email] of [
@@ -285,10 +360,21 @@ beforeAll(async () => {
   await seedDraft(draftReady, userA);
   await seedDraft(draftPendingReference, userA);
   await seedDraft(draftMissingOutput, userA);
+  await seedDraft(draftVideoReady, userA);
+  await seedDraft(draftVideoRetry, userA);
+  await seedDraft(draftVideoMissingOutput, userA);
   await seedDraft(draftOther, userB);
   await seedStoryboard({ draftId: draftReady, userId: userA });
   await seedStoryboard({ draftId: draftPendingReference, userId: userA, approvedReference: false });
   await seedStoryboard({ draftId: draftMissingOutput, userId: userA, missingOutput: true });
+  draftVideoReadyFileIds = await seedStoryboard({ draftId: draftVideoReady, userId: userA, videoOutputs: true });
+  draftVideoRetryFileIds = await seedStoryboard({ draftId: draftVideoRetry, userId: userA, videoOutputs: true });
+  await seedStoryboard({
+    draftId: draftVideoMissingOutput,
+    userId: userA,
+    videoOutputs: true,
+    missingVideoOutput: true,
+  });
   await seedStoryboard({ draftId: draftOther, userId: userB });
 });
 
@@ -315,33 +401,38 @@ afterAll(async () => {
   }
   await conn.query(
     `DELETE FROM storyboard_illustration_references
-      WHERE draft_id IN (?, ?, ?, ?)`,
-    [draftReady, draftPendingReference, draftMissingOutput, draftOther],
+      WHERE draft_id IN (?, ?, ?, ?, ?, ?, ?)`,
+    [draftReady, draftPendingReference, draftMissingOutput, draftVideoReady, draftVideoRetry, draftVideoMissingOutput, draftOther],
+  );
+  await conn.query(
+    `DELETE FROM storyboard_scene_video_jobs
+      WHERE draft_id IN (?, ?, ?, ?, ?, ?, ?)`,
+    [draftReady, draftPendingReference, draftMissingOutput, draftVideoReady, draftVideoRetry, draftVideoMissingOutput, draftOther],
   );
   await conn.query(
     `DELETE FROM storyboard_scene_illustration_jobs
-      WHERE draft_id IN (?, ?, ?, ?)`,
-    [draftReady, draftPendingReference, draftMissingOutput, draftOther],
+      WHERE draft_id IN (?, ?, ?, ?, ?, ?, ?)`,
+    [draftReady, draftPendingReference, draftMissingOutput, draftVideoReady, draftVideoRetry, draftVideoMissingOutput, draftOther],
   );
   await conn.query(
     `DELETE FROM ai_generation_jobs
-      WHERE draft_id IN (?, ?, ?, ?)`,
-    [draftReady, draftPendingReference, draftMissingOutput, draftOther],
+      WHERE draft_id IN (?, ?, ?, ?, ?, ?, ?)`,
+    [draftReady, draftPendingReference, draftMissingOutput, draftVideoReady, draftVideoRetry, draftVideoMissingOutput, draftOther],
   );
   await conn.query(
     `DELETE FROM storyboard_edges
-      WHERE draft_id IN (?, ?, ?, ?)`,
-    [draftReady, draftPendingReference, draftMissingOutput, draftOther],
+      WHERE draft_id IN (?, ?, ?, ?, ?, ?, ?)`,
+    [draftReady, draftPendingReference, draftMissingOutput, draftVideoReady, draftVideoRetry, draftVideoMissingOutput, draftOther],
   );
   await conn.query(
     `DELETE FROM storyboard_blocks
-      WHERE draft_id IN (?, ?, ?, ?)`,
-    [draftReady, draftPendingReference, draftMissingOutput, draftOther],
+      WHERE draft_id IN (?, ?, ?, ?, ?, ?, ?)`,
+    [draftReady, draftPendingReference, draftMissingOutput, draftVideoReady, draftVideoRetry, draftVideoMissingOutput, draftOther],
   );
   await conn.query(
     `DELETE FROM generation_drafts
-      WHERE id IN (?, ?, ?, ?)`,
-    [draftReady, draftPendingReference, draftMissingOutput, draftOther],
+      WHERE id IN (?, ?, ?, ?, ?, ?, ?)`,
+    [draftReady, draftPendingReference, draftMissingOutput, draftVideoReady, draftVideoRetry, draftVideoMissingOutput, draftOther],
   );
   await conn.query('DELETE FROM files WHERE user_id IN (?, ?)', [userA, userB]);
   await conn.query('DELETE FROM sessions WHERE session_id IN (?, ?)', [sessionA, sessionB]);
@@ -463,6 +554,81 @@ describe('POST /storyboards/:draftId/project', () => {
       .send({});
     expect(missingOutput.status).toBe(422);
     expect(missingOutput.body.error).toContain('not ready');
+  });
+
+  it('creates a video project when mode=videos and all scene videos are ready', async () => {
+    const res = await request(app)
+      .post(`/storyboards/${draftVideoReady}/project`)
+      .set('Authorization', authA())
+      .send({ mode: 'videos' });
+
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+
+    const [clipRows] = await conn.query<mysql.RowDataPacket[]>(
+      `SELECT type, file_id, start_frame, duration_frames
+         FROM project_clips_current
+        WHERE project_id = ?
+        ORDER BY start_frame ASC`,
+      [res.body.projectId],
+    );
+    expect(clipRows).toHaveLength(2);
+    expect(clipRows.map((row) => row['type'])).toEqual(['video', 'video']);
+    expect(clipRows.map((row) => row['file_id'])).toEqual(draftVideoReadyFileIds);
+    expect(clipRows.map((row) => Number(row['start_frame']))).toEqual([0, 60]);
+    expect(clipRows.map((row) => Number(row['duration_frames']))).toEqual([60, 90]);
+
+    const [projectFileRows] = await conn.query<mysql.RowDataPacket[]>(
+      `SELECT file_id FROM project_files WHERE project_id = ? ORDER BY file_id ASC`,
+      [res.body.projectId],
+    );
+    expect(projectFileRows.map((row) => row['file_id']).sort()).toEqual([...draftVideoReadyFileIds].sort());
+
+    const latest = await request(app)
+      .get(`/projects/${res.body.projectId}/versions/latest`)
+      .set('Authorization', authA());
+    expect(latest.status, JSON.stringify(latest.body)).toBe(200);
+    expect(latest.body.docJson.clips).toEqual([
+      expect.objectContaining({ type: 'video', startFrame: 0, durationFrames: 60, volume: 1 }),
+      expect.objectContaining({ type: 'video', startFrame: 60, durationFrames: 90, volume: 1 }),
+    ]);
+  });
+
+  it('returns the same project on repeated video-mode assembly without duplicating clips', async () => {
+    const first = await request(app)
+      .post(`/storyboards/${draftVideoRetry}/project`)
+      .set('Authorization', authA())
+      .send({ mode: 'videos' });
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+
+    const second = await request(app)
+      .post(`/storyboards/${draftVideoRetry}/project`)
+      .set('Authorization', authA())
+      .send({ mode: 'videos' });
+    expect(second.status, JSON.stringify(second.body)).toBe(201);
+    expect(second.body).toEqual(first.body);
+
+    const [clipRows] = await conn.query<mysql.RowDataPacket[]>(
+      'SELECT file_id FROM project_clips_current WHERE project_id = ? ORDER BY start_frame ASC',
+      [first.body.projectId],
+    );
+    expect(clipRows).toHaveLength(2);
+    expect(clipRows.map((row) => row['file_id'])).toEqual(draftVideoRetryFileIds);
+
+    const [projectRows] = await conn.query<mysql.RowDataPacket[]>(
+      'SELECT COUNT(*) AS cnt FROM projects WHERE project_id = ?',
+      [first.body.projectId],
+    );
+    expect(Number(projectRows[0]!['cnt'])).toBe(1);
+  });
+
+  it('returns 422 in video mode when any scene video is not ready', async () => {
+    const res = await request(app)
+      .post(`/storyboards/${draftVideoMissingOutput}/project`)
+      .set('Authorization', authA())
+      .send({ mode: 'videos' });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain('ready generated video');
   });
 
   it('preserves auth, wrong-owner, and missing draft semantics', async () => {

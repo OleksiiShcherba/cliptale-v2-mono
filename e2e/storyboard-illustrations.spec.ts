@@ -756,6 +756,7 @@ test.describe("Storyboard Step 2 scene illustrations", () => {
       illustrationMocks.completeRetry();
       await expect(page.getByText("Image ready")).toHaveCount(3, { timeout: 15_000 });
       await expect(nextButton).toBeEnabled();
+      await expect(page.getByLabel("Illustrations complete")).toHaveText("Done");
       await expect(page.getByTestId("thumbnail-img")).toHaveCount(3, { timeout: 15_000 });
     } finally {
       if (planJobId) await deleteStoryboardPlanJob(conn, planJobId).catch(() => {});

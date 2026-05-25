@@ -11,7 +11,9 @@ import type {
   StoryboardBlock,
   StoryboardState,
   StoryboardIllustrationStatusResponse,
+  StoryboardProjectAssemblyMode,
   StoryboardProjectCreateResponse,
+  StoryboardVideoStatusResponse,
   SceneTemplate,
   CreateSceneTemplatePayload,
   UpdateSceneTemplatePayload,
@@ -237,12 +239,34 @@ export async function setStoryboardPrincipalImageReferences(
 
 export async function createProjectFromStoryboard(
   draftId: string,
+  mode: StoryboardProjectAssemblyMode = 'images',
 ): Promise<StoryboardProjectCreateResponse> {
-  const res = await apiClient.post(`/storyboards/${draftId}/project`, {});
+  const res = await apiClient.post(`/storyboards/${draftId}/project`, { mode });
   if (!res.ok) {
     throw new Error(`POST /storyboards/${draftId}/project failed: ${res.status}`);
   }
   return res.json() as Promise<StoryboardProjectCreateResponse>;
+}
+
+export async function startStoryboardVideos(
+  draftId: string,
+  payload: { modelId: string; generateAudio: boolean },
+): Promise<StoryboardVideoStatusResponse> {
+  const res = await apiClient.post(`/storyboards/${draftId}/videos`, payload);
+  if (!res.ok) {
+    throw new Error(`POST /storyboards/${draftId}/videos failed: ${res.status}`);
+  }
+  return res.json() as Promise<StoryboardVideoStatusResponse>;
+}
+
+export async function fetchStoryboardVideos(
+  draftId: string,
+): Promise<StoryboardVideoStatusResponse> {
+  const res = await apiClient.get(`/storyboards/${draftId}/videos`);
+  if (!res.ok) {
+    throw new Error(`GET /storyboards/${draftId}/videos failed: ${res.status}`);
+  }
+  return res.json() as Promise<StoryboardVideoStatusResponse>;
 }
 
 // ── Scene Template API functions ───────────────────────────────────────────────

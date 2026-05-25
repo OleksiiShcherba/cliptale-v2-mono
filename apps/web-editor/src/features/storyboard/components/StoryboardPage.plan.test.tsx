@@ -19,6 +19,9 @@ const {
   mockEditPrincipalImage,
   mockReplacePrincipalImage,
   mockSetPrincipalImageReferences,
+  mockStartStoryboardVideos,
+  mockListModels,
+  mockApiClientGet,
 } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
   mockUseStoryboardCanvas: vi.fn(),
@@ -34,6 +37,9 @@ const {
   mockEditPrincipalImage: vi.fn(),
   mockReplacePrincipalImage: vi.fn(),
   mockSetPrincipalImageReferences: vi.fn(),
+  mockStartStoryboardVideos: vi.fn(),
+  mockListModels: vi.fn(),
+  mockApiClientGet: vi.fn(),
 }));
 
 vi.mock('react-router-dom', async (importOriginal) => {
@@ -81,6 +87,11 @@ vi.mock('@/features/storyboard/api', () => ({
   editStoryboardPrincipalImage: mockEditPrincipalImage,
   replaceStoryboardPrincipalImage: mockReplacePrincipalImage,
   setStoryboardPrincipalImageReferences: mockSetPrincipalImageReferences,
+  startStoryboardVideos: mockStartStoryboardVideos,
+}));
+
+vi.mock('@/shared/ai-generation/api', () => ({
+  listModels: mockListModels,
 }));
 
 vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
@@ -88,7 +99,7 @@ vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
 }));
 
 vi.mock('@/lib/api-client', () => ({
-  apiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
+  apiClient: { get: mockApiClientGet, post: vi.fn(), put: vi.fn(), delete: vi.fn() },
   buildAuthenticatedUrl: (url: string) => `${url}?token=test`,
 }));
 
@@ -191,6 +202,13 @@ describe('StoryboardPage / storyboard plan generation', () => {
     mockEditPrincipalImage.mockResolvedValue(undefined);
     mockReplacePrincipalImage.mockResolvedValue(undefined);
     mockSetPrincipalImageReferences.mockResolvedValue(undefined);
+    mockStartStoryboardVideos.mockResolvedValue({ items: [] });
+    mockListModels.mockResolvedValue({ image_to_video: [] });
+    mockApiClientGet.mockImplementation((path: string) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ url: `https://signed.test${path}` }),
+    }));
     setCanvasMock();
     setPlanMock();
     setIllustrationMock();
@@ -301,6 +319,48 @@ describe('StoryboardPage / storyboard plan generation', () => {
     const image = screen.getByTestId('storyboard-reference-preview-image') as HTMLImageElement;
     expect(image.alt).toBe('Canonical visual style reference');
     expect(image.src).toContain('http://api.test/assets/ref-file-1/thumbnail?token=test');
+  });
+
+  it('shows a loader-only preview while scene illustrations are active', () => {
+    setIllustrationMock({
+      status: 'running',
+      phase: 'scene',
+      isBlocking: true,
+      reference: {
+        status: 'ready',
+        jobId: 'ref-job-1',
+        outputFileId: null,
+        sourceReferenceFileIds: [],
+        approvalStatus: 'approved',
+        errorMessage: null,
+      },
+    });
+
+    renderPage();
+
+    expect(screen.getByText('Generating scene illustrations')).toBeTruthy();
+    expect(screen.getByTestId('storyboard-reference-loader')).toBeTruthy();
+    expect(screen.getByTestId('storyboard-reference-preview-fallback').textContent).toBe('');
+    expect(screen.getByLabelText('Scene illustration generation in progress')).toBeTruthy();
+  });
+
+  it('labels completed scene illustrations as done', () => {
+    setIllustrationMock({
+      status: 'completed',
+      phase: 'completed',
+      reference: {
+        status: 'ready',
+        jobId: 'ref-job-1',
+        outputFileId: 'principal-file-1',
+        sourceReferenceFileIds: [],
+        approvalStatus: 'approved',
+        errorMessage: null,
+      },
+    });
+
+    renderPage();
+
+    expect(screen.getByLabelText('Illustrations complete').textContent).toBe('Done');
   });
 
   it('falls back gracefully when the canonical reference thumbnail fails', () => {
@@ -472,7 +532,7 @@ describe('StoryboardPage / storyboard plan generation', () => {
     expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('enables Step 3 after all scene illustrations are completed', () => {
+  it('opens Step 3 options after all scene illustrations are completed', async () => {
     setIllustrationMock({
       status: 'completed',
       phase: 'completed',
@@ -499,7 +559,10 @@ describe('StoryboardPage / storyboard plan generation', () => {
 
     expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByTestId('next-step3-button'));
-    expect(mockNavigate).toHaveBeenCalledWith('/generate/road-map?draftId=test-draft-abc');
+    expect(screen.getByTestId('step3-generation-modal')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('No Image to Video models are available.')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('step3-skip-videos-button'));
+    expect(mockNavigate).toHaveBeenCalledWith('/generate/road-map?draftId=test-draft-abc&mode=images');
   });
 
   it('opens the principal image approval modal and continues after approval', async () => {

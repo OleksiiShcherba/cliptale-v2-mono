@@ -61,6 +61,7 @@ function makeSceneNode(id: string, x = 100, y = 200): Node {
         blockType: 'scene' as const,
         name: 'Scene 1',
         prompt: null,
+        videoPrompt: null,
         durationS: 5,
         positionX: x,
         positionY: y,
@@ -235,6 +236,8 @@ describe('useStoryboardHistoryPush — snapshot structure', () => {
 
   it('(4) extracts scene block data from scene-block nodes', async () => {
     const sceneNode = makeSceneNode('scene-1', 150, 250);
+    const sceneBlock = sceneNode.data.block as { videoPrompt: string | null };
+    sceneBlock.videoPrompt = 'Tilt down as the character enters the frame.';
     const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
 
     await act(async () => {
@@ -242,11 +245,12 @@ describe('useStoryboardHistoryPush — snapshot structure', () => {
     });
 
     const snapshot = mockPush.mock.calls[0][0] as {
-      blocks: Array<{ id: string; blockType: string }>;
+      blocks: Array<{ id: string; blockType: string; videoPrompt: string | null }>;
     };
     expect(snapshot.blocks).toHaveLength(1);
     expect(snapshot.blocks[0].id).toBe('scene-1');
     expect(snapshot.blocks[0].blockType).toBe('scene');
+    expect(snapshot.blocks[0].videoPrompt).toBe('Tilt down as the character enters the frame.');
   });
 
   it('(5) builds sentinel blocks from start and end nodes', async () => {

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
-import { createProjectFromStoryboard } from '@/features/storyboard/api';
+import { createProjectFromStoryboard, fetchStoryboardVideos } from '@/features/storyboard/api';
+import type { StoryboardProjectAssemblyMode, StoryboardVideoStatusResponse } from '@/features/storyboard/types';
 
 const SURFACE = '#0D0D14';
 const SURFACE_ALT = '#16161F';
@@ -15,24 +16,58 @@ const ERROR = '#EF4444';
 type AssemblyStatus = 'loading' | 'error';
 
 const inFlightByDraft = new Map<string, Promise<string>>();
+const VIDEO_POLL_INTERVAL_MS = 2000;
 
 export function resetStoryboardProjectAssemblyRequestsForTests(): void {
   inFlightByDraft.clear();
 }
 
-function startAssembly(draftId: string): Promise<string> {
-  const existing = inFlightByDraft.get(draftId);
+function getInFlightKey(draftId: string, mode: StoryboardProjectAssemblyMode): string {
+  return `${draftId}:${mode}`;
+}
+
+function videosAreReady(status: StoryboardVideoStatusResponse): boolean {
+  return status.items.length > 0 && status.items.every((item) => item.status === 'ready' && item.outputFileId);
+}
+
+function getVideoFailure(status: StoryboardVideoStatusResponse): string | null {
+  const failed = status.items.find((item) => item.status === 'failed');
+  return failed?.errorMessage ?? (failed ? 'Storyboard video generation failed.' : null);
+}
+
+async function waitForStoryboardVideos(draftId: string): Promise<void> {
+  while (true) {
+    const status = await fetchStoryboardVideos(draftId);
+    const failure = getVideoFailure(status);
+    if (failure) {
+      throw new Error(failure);
+    }
+    if (videosAreReady(status)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, VIDEO_POLL_INTERVAL_MS));
+  }
+}
+
+function startAssembly(draftId: string, mode: StoryboardProjectAssemblyMode): Promise<string> {
+  const key = getInFlightKey(draftId, mode);
+  const existing = inFlightByDraft.get(key);
   if (existing) {
     return existing;
   }
 
-  const promise = createProjectFromStoryboard(draftId)
+  const promise = (async () => {
+    if (mode === 'videos') {
+      await waitForStoryboardVideos(draftId);
+    }
+    return createProjectFromStoryboard(draftId, mode);
+  })()
     .then((result) => result.projectId)
     .catch((err: unknown) => {
-      inFlightByDraft.delete(draftId);
+      inFlightByDraft.delete(key);
       throw err;
     });
-  inFlightByDraft.set(draftId, promise);
+  inFlightByDraft.set(key, promise);
   return promise;
 }
 
@@ -40,6 +75,7 @@ export function GenerateProjectFromStoryboardPage(): React.ReactElement {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const draftId = searchParams.get('draftId');
+  const mode: StoryboardProjectAssemblyMode = searchParams.get('mode') === 'videos' ? 'videos' : 'images';
   const [status, setStatus] = useState<AssemblyStatus>('loading');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -60,7 +96,7 @@ export function GenerateProjectFromStoryboardPage(): React.ReactElement {
     setStatus('loading');
     setErrorMessage(null);
 
-    startAssembly(draftId)
+    startAssembly(draftId, mode)
       .then((projectId) => {
         if (!cancelled) {
           navigate(`/editor?projectId=${encodeURIComponent(projectId)}`, { replace: true });
@@ -76,14 +112,14 @@ export function GenerateProjectFromStoryboardPage(): React.ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [attempt, draftId, navigate]);
+  }, [attempt, draftId, mode, navigate]);
 
   const handleRetry = useCallback(() => {
     if (draftId) {
-      inFlightByDraft.delete(draftId);
+      inFlightByDraft.delete(getInFlightKey(draftId, mode));
     }
     setAttempt((value) => value + 1);
-  }, [draftId]);
+  }, [draftId, mode]);
 
   return (
     <main style={styles.page}>
@@ -91,7 +127,9 @@ export function GenerateProjectFromStoryboardPage(): React.ReactElement {
         <div style={styles.statusDot} data-state={status} />
         <h1 style={styles.heading}>Step 3</h1>
         {status === 'loading' ? (
-          <p style={styles.message}>Creating your editor project...</p>
+          <p style={styles.message}>
+            {mode === 'videos' ? 'Generating storyboard videos...' : 'Creating your editor project...'}
+          </p>
         ) : (
           <>
             <p style={styles.error}>{errorMessage ?? 'Project assembly failed.'}</p>

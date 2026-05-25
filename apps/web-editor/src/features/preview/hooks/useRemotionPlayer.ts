@@ -8,8 +8,6 @@ import { getSnapshot as getProjectSnapshot, subscribe as subscribeProject } from
 import { getSnapshot as getEphemeralSnapshot, subscribe as subscribeEphemeral } from '@/store/ephemeral-store.js';
 import { getAsset, getAssets } from '@/features/asset-manager/api.js';
 import type { Asset } from '@/features/asset-manager/types.js';
-import { config } from '@/lib/config.js';
-import { buildAuthenticatedUrl } from '@/lib/api-client.js';
 
 type AssetUrls = Record<string, string>;
 
@@ -28,8 +26,8 @@ type UseRemotionPlayerResult = {
  * 1. Read the project-assets list from the React Query cache key
  *    `['assets', projectId, 'project']` — this cache is populated by
  *    `AssetBrowserPanel` / `useProjectAssets` via a single list fetch.
- * 2. For each clip fileId found in the cached list, build the stream URL
- *    directly from in-cache data — zero extra HTTP requests.
+ * 2. For each clip fileId found in the cached list, use the API-provided
+ *    signed downloadUrl directly from in-cache data — zero extra HTTP requests.
  * 3. For any fileId NOT in the list (orphan clip), fall back to a targeted
  *    `getAsset(fileId)` query via `useQueries`. When all fileIds are in cache
  *    the `useQueries` array is empty and no requests are made.
@@ -98,21 +96,29 @@ export function useRemotionPlayer(): UseRemotionPlayerResult {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cachedByFileId, ...fallbackResults.map((r) => r.data)]);
 
-  // Stable key: changes only when the set of ready file IDs changes.
+  // Stable key: changes only when the set of ready file IDs or signed URLs changes.
   // Prevents assetUrls from getting a new reference on every unrelated render.
-  const readyFileIds = fileIds
-    .filter((id) => resolvedByFileId.get(id)?.status === 'ready')
-    .join(',');
+  const readyAssetKey = fileIds
+    .map((id) => {
+      const asset = resolvedByFileId.get(id);
+      return asset?.status === 'ready' && asset.downloadUrl ? `${id}:${asset.downloadUrl}` : '';
+    })
+    .filter(Boolean)
+    .join('|');
 
-  // Build the fileId → stream URL map from successfully-loaded, ready assets.
+  // Build the fileId → signed stream URL map from successfully-loaded, ready assets.
   // Assets still loading or not-ready are omitted — the layer gets an empty src.
   const assetUrls = useMemo(() => {
     const urls: AssetUrls = {};
-    readyFileIds.split(',').filter(Boolean).forEach((fileId) => {
-      urls[fileId] = buildAuthenticatedUrl(`${config.apiBaseUrl}/assets/${fileId}/stream`);
+    fileIds.forEach((fileId) => {
+      const asset = resolvedByFileId.get(fileId);
+      if (asset?.status === 'ready' && asset.downloadUrl) {
+        urls[fileId] = asset.downloadUrl;
+      }
     });
     return urls;
-  }, [readyFileIds]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readyAssetKey]);
 
   return {
     projectDoc,

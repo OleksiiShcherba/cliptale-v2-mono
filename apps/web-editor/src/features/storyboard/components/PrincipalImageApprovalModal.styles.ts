@@ -201,6 +201,17 @@ export const referencePreviewImageStyle: React.CSSProperties = {
   display: 'block',
 };
 
+export const referencePreviewFallbackStyle: React.CSSProperties = {
+  width: '100%',
+  height: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: TEXT_SECONDARY,
+  fontSize: '11px',
+  fontWeight: 600,
+};
+
 export const referencePreviewButtonStyle: React.CSSProperties = {
   border: 'none',
   padding: 0,

@@ -1,14 +1,16 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
-const { mockCreateProjectFromStoryboard } = vi.hoisted(() => ({
+const { mockCreateProjectFromStoryboard, mockFetchStoryboardVideos } = vi.hoisted(() => ({
   mockCreateProjectFromStoryboard: vi.fn(),
+  mockFetchStoryboardVideos: vi.fn(),
 }));
 
 vi.mock('@/features/storyboard/api', () => ({
   createProjectFromStoryboard: mockCreateProjectFromStoryboard,
+  fetchStoryboardVideos: mockFetchStoryboardVideos,
 }));
 
 import {
@@ -36,6 +38,7 @@ describe('GenerateProjectFromStoryboardPage', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     resetStoryboardProjectAssemblyRequestsForTests();
   });
 
@@ -46,7 +49,7 @@ describe('GenerateProjectFromStoryboardPage', () => {
 
     expect(screen.getByText(/creating your editor project/i)).toBeTruthy();
     await waitFor(() => expect(screen.getByTestId('editor-page')).toBeTruthy());
-    expect(mockCreateProjectFromStoryboard).toHaveBeenCalledWith('draft-123');
+    expect(mockCreateProjectFromStoryboard).toHaveBeenCalledWith('draft-123', 'images');
     expect(mockCreateProjectFromStoryboard).toHaveBeenCalledTimes(1);
   });
 
@@ -66,6 +69,79 @@ describe('GenerateProjectFromStoryboardPage', () => {
 
     await waitFor(() => expect(screen.getByTestId('editor-page')).toBeTruthy());
     expect(mockCreateProjectFromStoryboard).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for ready videos before assembling a video project', async () => {
+    mockFetchStoryboardVideos.mockResolvedValue({
+      items: [{ blockId: 'scene-1', status: 'ready', outputFileId: 'video-file-1' }],
+    });
+    mockCreateProjectFromStoryboard.mockResolvedValue({ projectId: 'project-video', versionId: 9 });
+
+    renderPage('/generate/road-map?draftId=draft-123&mode=videos');
+
+    expect(screen.getByText(/generating storyboard videos/i)).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId('editor-page')).toBeTruthy());
+    expect(mockFetchStoryboardVideos).toHaveBeenCalledWith('draft-123');
+    expect(mockCreateProjectFromStoryboard).toHaveBeenCalledWith('draft-123', 'videos');
+  });
+
+  it('polls queued video status until videos are ready before assembly', async () => {
+    vi.useFakeTimers();
+    mockFetchStoryboardVideos
+      .mockResolvedValueOnce({
+        items: [{ blockId: 'scene-1', status: 'running', outputFileId: null }],
+      })
+      .mockResolvedValueOnce({
+        items: [{ blockId: 'scene-1', status: 'ready', outputFileId: 'video-file-1' }],
+      });
+    mockCreateProjectFromStoryboard.mockResolvedValue({ projectId: 'project-video', versionId: 9 });
+
+    renderPage('/generate/road-map?draftId=draft-123&mode=videos');
+
+    await vi.waitFor(() => expect(mockFetchStoryboardVideos).toHaveBeenCalledTimes(1));
+    expect(mockCreateProjectFromStoryboard).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    await vi.waitFor(() => expect(mockCreateProjectFromStoryboard).toHaveBeenCalledWith('draft-123', 'videos'));
+    expect(mockFetchStoryboardVideos).toHaveBeenCalledTimes(2);
+  });
+
+  it('dedupes video assembly under React Strict Mode double effects', async () => {
+    mockFetchStoryboardVideos.mockResolvedValue({
+      items: [{ blockId: 'scene-1', status: 'ready', outputFileId: 'video-file-1' }],
+    });
+    mockCreateProjectFromStoryboard.mockResolvedValue({ projectId: 'project-video', versionId: 9 });
+
+    render(
+      <React.StrictMode>
+        <MemoryRouter initialEntries={['/generate/road-map?draftId=draft-123&mode=videos']}>
+          <Routes>
+            <Route path="/generate/road-map" element={<GenerateProjectFromStoryboardPage />} />
+            <Route path="/editor" element={<div data-testid="editor-page" />} />
+          </Routes>
+        </MemoryRouter>
+      </React.StrictMode>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('editor-page')).toBeTruthy());
+    expect(mockFetchStoryboardVideos).toHaveBeenCalledTimes(1);
+    expect(mockCreateProjectFromStoryboard).toHaveBeenCalledTimes(1);
+    expect(mockCreateProjectFromStoryboard).toHaveBeenCalledWith('draft-123', 'videos');
+  });
+
+  it('shows retry when video generation fails before assembly', async () => {
+    mockFetchStoryboardVideos.mockResolvedValue({
+      items: [{ blockId: 'scene-1', status: 'failed', outputFileId: null, errorMessage: 'Video failed' }],
+    });
+
+    renderPage('/generate/road-map?draftId=draft-123&mode=videos');
+
+    await waitFor(() => expect(screen.getByText(/video failed/i)).toBeTruthy());
+    expect(mockCreateProjectFromStoryboard).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /retry/i })).toBeTruthy();
   });
 
   it('does not call the API when draftId is missing and links back to generate', () => {

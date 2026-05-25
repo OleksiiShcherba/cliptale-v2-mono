@@ -130,6 +130,7 @@ function makeValidPlan(): StoryboardPlan {
       sceneNumber: index + 1,
       prompt: `Scene ${index + 1} narration beat`,
       visualPrompt: `Product-focused visual beat ${index + 1}`,
+      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
       durationSeconds: 6,
       referencedMedia: index === 0
         ? [{ fileId: IMAGE_ID, mediaType: 'image', label: 'Product photo' }]
@@ -149,6 +150,7 @@ function makeCustomLengthPlan(): StoryboardPlan {
       sceneNumber: index + 1,
       prompt: `Custom length scene ${index + 1}`,
       visualPrompt: `Custom length visual beat ${index + 1}`,
+      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
       durationSeconds: 5.625,
       referencedMedia: index === 0
         ? [
@@ -227,6 +229,13 @@ describe('processStoryboardPlanJob', () => {
     expect(callArg.model).toBe('gpt-4o');
     expect(callArg.response_format).toEqual({ type: 'json_object' });
     expect(callArg.messages[0]).toEqual({ role: 'system', content: STORYBOARD_PLAN_SYSTEM_PROMPT });
+    expect(STORYBOARD_PLAN_SYSTEM_PROMPT).toContain('videoPrompt');
+    expect(STORYBOARD_PLAN_SYSTEM_PROMPT).toContain('main subject motion');
+    expect(STORYBOARD_PLAN_SYSTEM_PROMPT).toContain('camera movement');
+    expect(STORYBOARD_PLAN_SYSTEM_PROMPT).toContain('foreground/background depth cues');
+    expect(STORYBOARD_PLAN_SYSTEM_PROMPT).toContain('cinematic timing');
+    expect(STORYBOARD_PLAN_SYSTEM_PROMPT).toContain('previous scene and into the next scene');
+    expect(STORYBOARD_PLAN_SYSTEM_PROMPT).toContain('without provider-specific jargon');
 
     const userContent = callArg.messages[1]!.content as Array<unknown>;
     expect(userContent).toHaveLength(3);

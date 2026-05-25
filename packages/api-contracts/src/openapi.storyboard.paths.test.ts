@@ -121,6 +121,12 @@ describe('openApiSpec storyboard paths', () => {
 
     it('documents idempotent project creation and response schema', () => {
       expect(op.description).toContain('idempotent');
+      const requestBody = op.requestBody as Record<string, unknown>;
+      const bodySchema = (
+        ((requestBody.content as Record<string, unknown>)['application/json'] as Record<string, unknown>)
+          .schema as Record<string, unknown>
+      );
+      expect(bodySchema.$ref).toBe('#/components/schemas/CreateStoryboardProjectBody');
       const responses = op.responses as Record<string, unknown>;
       const created = responses[201] as Record<string, unknown>;
       const schema = (
@@ -132,6 +138,39 @@ describe('openApiSpec storyboard paths', () => {
   });
 
   describe('storyboard illustration paths', () => {
+    it('defines GET /storyboards/{draftId}/videos', () => {
+      const op = paths['/storyboards/{draftId}/videos']?.['get'] as Record<string, unknown>;
+      expect(op.operationId).toBe('listStoryboardVideos');
+      expect(op.description).toContain('Image-to-Video generation status');
+      const responses = op.responses as Record<string, unknown>;
+      const ok = responses[200] as Record<string, unknown>;
+      const schema = (
+        (ok.content as Record<string, unknown>)['application/json'] as Record<string, unknown>
+      ).schema as Record<string, unknown>;
+      expect(schema.$ref).toBe('#/components/schemas/StoryboardVideoStatusResponse');
+    });
+
+    it('defines POST /storyboards/{draftId}/videos', () => {
+      const op = paths['/storyboards/{draftId}/videos']?.['post'] as Record<string, unknown>;
+      expect(op.operationId).toBe('startStoryboardVideos');
+      expect(op.description).toContain('scene videoPrompt');
+      expect(op.requestBody).toBeDefined();
+      const requestBody = op.requestBody as Record<string, unknown>;
+      const bodySchema = (
+        ((requestBody.content as Record<string, unknown>)['application/json'] as Record<string, unknown>)
+          .schema as Record<string, unknown>
+      );
+      expect(bodySchema.$ref).toBe('#/components/schemas/StartStoryboardVideosBody');
+      const responses = op.responses as Record<string, unknown>;
+      const accepted = responses[202] as Record<string, unknown>;
+      const schema = (
+        (accepted.content as Record<string, unknown>)['application/json'] as Record<string, unknown>
+      ).schema as Record<string, unknown>;
+      expect(schema.$ref).toBe('#/components/schemas/StoryboardVideoStatusResponse');
+      expect(responses[400]).toBeDefined();
+      expect(responses[422]).toBeDefined();
+    });
+
     it('defines GET /storyboards/{draftId}/illustrations', () => {
       const op = paths['/storyboards/{draftId}/illustrations']?.['get'] as Record<string, unknown>;
       expect(op.operationId).toBe('listStoryboardIllustrations');

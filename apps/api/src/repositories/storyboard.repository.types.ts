@@ -25,6 +25,7 @@ export type StoryboardBlock = {
   blockType: BlockType;
   name: string | null;
   prompt: string | null;
+  videoPrompt: string | null;
   durationS: number;
   positionX: number;
   positionY: number;
@@ -58,6 +59,7 @@ export type BlockInsert = {
   blockType: BlockType;
   name: string | null;
   prompt: string | null;
+  videoPrompt: string | null;
   durationS: number;
   positionX: number;
   positionY: number;
@@ -82,6 +84,7 @@ export type BlockRow = RowDataPacket & {
   block_type: BlockType;
   name: string | null;
   prompt: string | null;
+  video_prompt: string | null;
   duration_s: number;
   position_x: number;
   position_y: number;
@@ -122,6 +125,7 @@ export function mapBlockRow(row: BlockRow, media: BlockMediaItem[]): StoryboardB
     blockType: row.block_type,
     name: row.name,
     prompt: row.prompt,
+    videoPrompt: row.video_prompt,
     durationS: row.duration_s,
     positionX: row.position_x,
     positionY: row.position_y,

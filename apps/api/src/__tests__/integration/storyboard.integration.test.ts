@@ -196,6 +196,7 @@ function makeCompletedStoryboardPlan() {
         sceneNumber: 1,
         prompt: 'Introduce the workflow problem.',
         visualPrompt: 'Wide shot of a cluttered creator desk.',
+        videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
         durationSeconds: 6,
         referencedMedia: [
           {
@@ -216,6 +217,7 @@ function makeCompletedStoryboardPlan() {
         sceneNumber: 2,
         prompt: 'Show the finished video.',
         visualPrompt: 'Clean product hero frame with exported video preview.',
+        videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
         durationSeconds: 6,
         referencedMedia: [],
         transitionNotes: '',
@@ -300,7 +302,9 @@ describe('PUT /storyboards/:draftId', () => {
   it('round-trips a full block graph: PUT then GET returns the same data', async () => {
     const blockId1 = randomUUID();
     const blockId2 = randomUUID();
-    const edgeId = randomUUID();
+    const blockId3 = randomUUID();
+    const edgeId1 = randomUUID();
+    const edgeId2 = randomUUID();
 
     const blocks = [
       {
@@ -318,6 +322,19 @@ describe('PUT /storyboards/:draftId', () => {
       {
         id: blockId2,
         draftId: draftAId,
+        blockType: 'scene',
+        name: 'Scene with motion',
+        prompt: 'Still image prompt',
+        videoPrompt: 'Push in while the subject turns toward camera.',
+        durationS: 6,
+        positionX: 300,
+        positionY: 300,
+        sortOrder: 1,
+        style: 'cinematic',
+      },
+      {
+        id: blockId3,
+        draftId: draftAId,
         blockType: 'end',
         name: null,
         prompt: null,
@@ -331,10 +348,16 @@ describe('PUT /storyboards/:draftId', () => {
 
     const edges = [
       {
-        id: edgeId,
+        id: edgeId1,
         draftId: draftAId,
         sourceBlockId: blockId1,
         targetBlockId: blockId2,
+      },
+      {
+        id: edgeId2,
+        draftId: draftAId,
+        sourceBlockId: blockId2,
+        targetBlockId: blockId3,
       },
     ];
 
@@ -343,17 +366,25 @@ describe('PUT /storyboards/:draftId', () => {
       .set('Authorization', authA())
       .send({ blocks, edges });
     expect(putRes.status).toBe(200);
-    expect(putRes.body.blocks).toHaveLength(2);
-    expect(putRes.body.edges).toHaveLength(1);
+    expect(putRes.body.blocks).toHaveLength(3);
+    expect(putRes.body.edges).toHaveLength(2);
+    expect(putRes.body.blocks[0].videoPrompt).toBeNull();
+    expect(putRes.body.blocks[1].videoPrompt).toBe('Push in while the subject turns toward camera.');
+    expect(putRes.body.blocks[2].videoPrompt).toBeNull();
 
     // Verify persistence via GET.
     const getRes = await request(app)
       .get(`/storyboards/${draftAId}`)
       .set('Authorization', authA());
     expect(getRes.status).toBe(200);
-    expect(getRes.body.blocks).toHaveLength(2);
-    expect(getRes.body.edges).toHaveLength(1);
-    expect(getRes.body.edges[0].id).toBe(edgeId);
+    expect(getRes.body.blocks).toHaveLength(3);
+    expect(getRes.body.edges).toHaveLength(2);
+    expect(getRes.body.blocks[0].videoPrompt).toBeNull();
+    expect(getRes.body.blocks[1].videoPrompt).toBe('Push in while the subject turns toward camera.');
+    expect(getRes.body.blocks[2].videoPrompt).toBeNull();
+    expect(getRes.body.edges.map((edge: { id: string }) => edge.id)).toEqual(
+      expect.arrayContaining([edgeId1, edgeId2]),
+    );
   });
 
   it('replaces previous content on second PUT', async () => {
@@ -685,12 +716,14 @@ describe('POST /storyboards/:draftId/apply-latest-plan', () => {
     const firstScene = res.body.blocks[1] as {
       name: string;
       prompt: string;
+      videoPrompt: string;
       sortOrder: number;
       mediaItems: Array<{ fileId: string; mediaType: string; sortOrder: number }>;
     };
     expect(firstScene).toMatchObject({
       name: 'Scene 01',
       prompt: 'Wide shot of a cluttered creator desk.',
+      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
       sortOrder: 1,
     });
     expect(firstScene.mediaItems).toEqual([
@@ -699,7 +732,7 @@ describe('POST /storyboards/:draftId/apply-latest-plan', () => {
     ]);
 
     const [blockRows] = await conn.execute<import('mysql2/promise').RowDataPacket[]>(
-      `SELECT block_type, name, prompt, sort_order
+      `SELECT block_type, name, prompt, video_prompt, sort_order
        FROM storyboard_blocks
        WHERE draft_id = ?
        ORDER BY sort_order ASC`,
@@ -707,6 +740,9 @@ describe('POST /storyboards/:draftId/apply-latest-plan', () => {
     );
     expect(blockRows).toHaveLength(4);
     expect(blockRows.map((row) => row['block_type'])).toEqual(['start', 'scene', 'scene', 'end']);
+    expect(blockRows[1]!['video_prompt']).toBe(
+      'Animate the scene with natural subject motion and a smooth camera move.',
+    );
 
     const [edgeRows] = await conn.execute<import('mysql2/promise').RowDataPacket[]>(
       'SELECT COUNT(*) AS cnt FROM storyboard_edges WHERE draft_id = ?',
@@ -725,10 +761,16 @@ describe('POST /storyboards/:draftId/apply-latest-plan', () => {
     expect(mediaRows.map((row) => row['file_id'])).toEqual([planMediaImageId, planMediaVideoId]);
 
     const [historyRows] = await conn.execute<import('mysql2/promise').RowDataPacket[]>(
-      'SELECT COUNT(*) AS cnt FROM storyboard_history WHERE draft_id = ?',
+      'SELECT snapshot FROM storyboard_history WHERE draft_id = ?',
       [draftAId],
     );
-    expect(Number((historyRows[0] as { cnt: number }).cnt)).toBe(1);
+    expect(historyRows).toHaveLength(1);
+    const historySnapshot = typeof historyRows[0]!['snapshot'] === 'string'
+      ? JSON.parse(historyRows[0]!['snapshot'] as string)
+      : historyRows[0]!['snapshot'];
+    expect(historySnapshot.blocks[1].videoPrompt).toBe(
+      'Animate the scene with natural subject motion and a smooth camera move.',
+    );
   });
 
   it('returns 403 when applying another user-owned draft', async () => {

@@ -68,10 +68,40 @@ function assertNoSignedUrls(value: unknown): void {
   }
 }
 
+function normalizePersistedStoryboardPlan(rawPlan: unknown): unknown {
+  if (!rawPlan || typeof rawPlan !== 'object' || Array.isArray(rawPlan)) {
+    return rawPlan;
+  }
+
+  const plan = rawPlan as { scenes?: unknown };
+  if (!Array.isArray(plan.scenes)) {
+    return rawPlan;
+  }
+
+  return {
+    ...rawPlan,
+    scenes: plan.scenes.map((scene) => {
+      if (!scene || typeof scene !== 'object' || Array.isArray(scene) || 'videoPrompt' in scene) {
+        return scene;
+      }
+
+      const sceneRecord = scene as { visualPrompt?: unknown; prompt?: unknown };
+      const fallbackVideoPrompt = typeof sceneRecord.visualPrompt === 'string' && sceneRecord.visualPrompt.trim()
+        ? sceneRecord.visualPrompt
+        : sceneRecord.prompt;
+
+      return {
+        ...scene,
+        videoPrompt: fallbackVideoPrompt,
+      };
+    }),
+  };
+}
+
 function mapRow(row: StoryboardPlanJobRow): StoryboardPlanJob {
   const status = storyboardPlanJobStatusSchema.parse(row.status);
   const rawPlan = row.plan_json === null ? null : parseJsonColumn(row.plan_json);
-  const plan = rawPlan === null ? null : storyboardPlanSchema.parse(rawPlan);
+  const plan = rawPlan === null ? null : storyboardPlanSchema.parse(normalizePersistedStoryboardPlan(rawPlan));
 
   return {
     jobId: row.job_id,

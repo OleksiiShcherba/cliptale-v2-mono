@@ -27,6 +27,7 @@ const validPlan: StoryboardPlan = {
       sceneNumber: 1,
       prompt: 'Open on the product in use.',
       visualPrompt: 'Close shot with natural light.',
+      videoPrompt: 'Slow push-in as the product catches morning light.',
       durationSeconds: 6,
       referencedMedia: [validReferencedMedia],
       transitionNotes: 'Cut in from black.',
@@ -36,6 +37,7 @@ const validPlan: StoryboardPlan = {
       sceneNumber: 2,
       prompt: 'Show the result and closing message.',
       visualPrompt: 'Wide shot with calm motion.',
+      videoPrompt: 'Gentle camera drift toward the final outcome and brand moment.',
       durationSeconds: 6,
       referencedMedia: [],
       transitionNotes: '',
@@ -83,7 +85,7 @@ describe('storyboardPlanSchema', () => {
     expect(result.success === false && JSON.stringify(result.error.issues)).toContain('expected 2');
   });
 
-  it('rejects empty prompt and visualPrompt values', () => {
+  it('rejects empty prompt, visualPrompt, and videoPrompt values', () => {
     expect(
       storyboardPlanSchema.safeParse({
         ...validPlan,
@@ -106,6 +108,19 @@ describe('storyboardPlanSchema', () => {
             ...validPlan.scenes[1],
             visualPrompt: '',
           },
+        ],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      storyboardPlanSchema.safeParse({
+        ...validPlan,
+        scenes: [
+          {
+            ...validPlan.scenes[0],
+            videoPrompt: '   ',
+          },
+          validPlan.scenes[1],
         ],
       }).success,
     ).toBe(false);

@@ -3,17 +3,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 
 import { useQueryClient } from '@tanstack/react-query';
 import { addEdge, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
-import type {
-  NodeTypes,
-  OnNodesChange,
-  OnEdgesChange,
-  NodeChange,
-  EdgeChange,
-  Connection,
-  Edge as FlowEdge,
-  Node,
-  NodeMouseHandler,
-} from '@xyflow/react';
+import type { NodeTypes, OnNodesChange, OnEdgesChange, NodeChange, EdgeChange, Connection, Edge as FlowEdge, Node, NodeMouseHandler } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { useAddBlock } from '@/features/storyboard/hooks/useAddBlock';
@@ -29,11 +19,8 @@ import { useStoryboardHistoryPush } from '@/features/storyboard/hooks/useStorybo
 import { useStoryboardKeyboard } from '@/features/storyboard/hooks/useStoryboardKeyboard';
 import { useStoryboardKnifeTool } from '@/features/storyboard/hooks/useStoryboardKnifeTool';
 import { useStoryboardGenerationFlow } from '@/features/storyboard/hooks/useStoryboardGenerationFlow';
-import {
-  storyboardHistoryStore,
-  initHistoryStore,
-  destroyHistoryStore,
-} from '@/features/storyboard/store/storyboard-history-store';
+import { useStep3Generation } from '@/features/storyboard/hooks/useStep3Generation';
+import { storyboardHistoryStore, initHistoryStore, destroyHistoryStore } from '@/features/storyboard/store/storyboard-history-store';
 import { setSelectedBlock, useStoryboardStore } from '@/features/storyboard/store/storyboard-store';
 import type { StoryboardSidebarTab, SceneBlockNodeData } from '@/features/storyboard/types';
 import { EndNode } from './EndNode';
@@ -62,6 +49,7 @@ export function StoryboardPage(): React.ReactElement {
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
 
   const safeDraftId = draftId ?? '';
+  const { openStep3Modal, step3Modal } = useStep3Generation(safeDraftId);
   const { nodes, edges, isLoading, error, setNodes, setEdges, removeNode, reload } =
     useStoryboardCanvas(safeDraftId);
   const reloadStoryboard = useCallback(async (): Promise<void> => {
@@ -244,7 +232,7 @@ export function StoryboardPage(): React.ReactElement {
   const handleBack = (): void => { navigate(draftId ? `/generate?draftId=${draftId}` : '/generate'); };
   const handleNext = (): void => {
     if (isStep3Disabled) return;
-    navigate(`/generate/road-map?draftId=${encodeURIComponent(safeDraftId)}`);
+    openStep3Modal();
   };
 
   return (
@@ -295,6 +283,8 @@ export function StoryboardPage(): React.ReactElement {
           onSetReferences={principalImageModal.onSetReferences}
         />
       )}
+
+      {step3Modal}
     </div>
   );
 }

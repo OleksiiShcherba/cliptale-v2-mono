@@ -15,8 +15,9 @@ import { render, screen, fireEvent } from '@testing-library/react';
 // ── Hoisted mocks ──────────────────────────────────────────────────────────────
 
 // Capture the props passed to the last AssetPickerModal render.
-const { capturedPickerProps } = vi.hoisted(() => ({
+const { capturedPickerProps, mockApiClientGet } = vi.hoisted(() => ({
   capturedPickerProps: { current: null as Record<string, unknown> | null },
+  mockApiClientGet: vi.fn(),
 }));
 
 vi.mock('@/features/generate-wizard/components/AssetPickerModal', () => ({
@@ -29,6 +30,7 @@ vi.mock('@/features/generate-wizard/components/AssetPickerModal', () => ({
 }));
 
 vi.mock('@/lib/api-client', () => ({
+  apiClient: { get: mockApiClientGet },
   buildAuthenticatedUrl: (url: string) => `${url}?token=test`,
 }));
 
@@ -82,6 +84,12 @@ function openPicker(): void {
 describe('SceneModalMediaSection — uploadDraftId threading', () => {
   beforeEach(() => {
     capturedPickerProps.current = null;
+    mockApiClientGet.mockReset();
+    mockApiClientGet.mockImplementation((path: string) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ url: `https://signed.test${path}` }),
+    }));
   });
 
   it('(a) passes uploadTarget with kind=draft when uploadDraftId is provided', () => {
@@ -111,7 +119,7 @@ describe('SceneModalMediaSection — uploadDraftId threading', () => {
     expect(uploadTarget).toBeUndefined();
   });
 
-  it('renders image media as a preview thumbnail instead of filename only', () => {
+  it('renders image media as a preview thumbnail instead of filename only', async () => {
     renderSectionWithItems([
       {
         fileId: 'asset-image-1',
@@ -121,13 +129,14 @@ describe('SceneModalMediaSection — uploadDraftId threading', () => {
       },
     ]);
 
-    const preview = screen.getByTestId('media-preview-image') as HTMLImageElement;
-    expect(preview.src).toBe('http://localhost:3001/assets/asset-image-1/stream?token=test');
+    const preview = await screen.findByTestId('media-preview-image') as HTMLImageElement;
+    expect(preview.src).toBe('https://signed.test/files/asset-image-1/stream');
+    expect(mockApiClientGet).toHaveBeenCalledWith('/files/asset-image-1/stream');
     expect(preview.alt).toBe('image preview for Product image');
     expect(screen.getByText('IMAGE CLIP')).toBeTruthy();
   });
 
-  it('opens a full image preview modal from an image media thumbnail', () => {
+  it('opens a full image preview modal from an image media thumbnail', async () => {
     renderSectionWithItems([
       {
         fileId: 'asset-image-1',
@@ -137,17 +146,17 @@ describe('SceneModalMediaSection — uploadDraftId threading', () => {
       },
     ]);
 
-    fireEvent.click(screen.getByTestId('media-preview-button'));
+    fireEvent.click(await screen.findByTestId('media-preview-button'));
 
     const lightboxImage = screen.getByTestId('media-lightbox-image') as HTMLImageElement;
-    expect(lightboxImage.src).toBe('http://localhost:3001/assets/asset-image-1/stream?token=test');
+    expect(lightboxImage.src).toBe('https://signed.test/files/asset-image-1/stream');
     expect(lightboxImage.alt).toBe('image preview for Product image');
 
     fireEvent.click(screen.getByTestId('media-lightbox-close'));
     expect(screen.queryByTestId('media-lightbox')).toBeNull();
   });
 
-  it('keeps keyboard focus inside the media preview modal', () => {
+  it('keeps keyboard focus inside the media preview modal', async () => {
     renderSectionWithItems([
       {
         fileId: 'asset-image-1',
@@ -157,7 +166,7 @@ describe('SceneModalMediaSection — uploadDraftId threading', () => {
       },
     ]);
 
-    fireEvent.click(screen.getByTestId('media-preview-button'));
+    fireEvent.click(await screen.findByTestId('media-preview-button'));
 
     const lightbox = screen.getByTestId('media-lightbox');
     const closeButton = screen.getByTestId('media-lightbox-close');

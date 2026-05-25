@@ -145,6 +145,7 @@ export function useAddBlock({
           blockType: 'scene',
           name: `SCENE ${sceneIndex}`,
           prompt: null,
+          videoPrompt: null,
           durationS: 5,
           positionX: newX,
           positionY: newY,

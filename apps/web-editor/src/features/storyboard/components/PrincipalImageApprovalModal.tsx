@@ -3,8 +3,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AssetPickerModal } from '@/features/generate-wizard/components/AssetPickerModal';
 import type { AssetSummary } from '@/features/generate-wizard/types';
 import type { StoryboardIllustrationReferenceStatus } from '@/features/storyboard/types';
-import { buildAuthenticatedUrl } from '@/lib/api-client';
-import { config } from '@/lib/config';
 
 import {
   PrincipalImageLightbox,
@@ -75,7 +73,6 @@ export function PrincipalImageApprovalModal({
   const [prompt, setPrompt] = useState('');
   const [sourceReferenceFileIds, setSourceReferenceFileIds] = useState(reference.sourceReferenceFileIds);
   const [pickerMode, setPickerMode] = useState<'replace' | 'references' | null>(null);
-  const [previewFailed, setPreviewFailed] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [isCompact, setIsCompact] = useState(false);
   const [lightbox, setLightbox] = useState<PrincipalImageLightboxState | null>(null);
@@ -97,10 +94,6 @@ export function PrincipalImageApprovalModal({
     window.addEventListener('resize', updateCompact);
     return () => window.removeEventListener('resize', updateCompact);
   }, []);
-
-  useEffect(() => {
-    setPreviewFailed(false);
-  }, [reference.outputFileId]);
 
   useEffect(() => {
     setSourceReferenceFileIds(reference.sourceReferenceFileIds);
@@ -198,9 +191,6 @@ export function PrincipalImageApprovalModal({
     if (event.target === event.currentTarget && onClose) onClose();
   }, [onClose]);
 
-  const previewUrl = reference.outputFileId
-    ? buildAuthenticatedUrl(`${config.apiBaseUrl}/assets/${reference.outputFileId}/stream`)
-    : null;
   const statusError = localError ?? error;
   const isPreviewLoading = isBusy || reference.status === 'queued' || reference.status === 'running';
 
@@ -228,10 +218,8 @@ export function PrincipalImageApprovalModal({
 
           <div style={isCompact ? s.bodyCompactStyle : s.bodyStyle}>
             <PrincipalImagePreview
-              previewUrl={previewUrl}
-              previewFailed={previewFailed}
+              fileId={reference.outputFileId}
               isPreviewLoading={isPreviewLoading}
-              onPreviewFailed={() => setPreviewFailed(true)}
               onOpenLightbox={setLightbox}
             />
             <PrincipalImageApprovalControls

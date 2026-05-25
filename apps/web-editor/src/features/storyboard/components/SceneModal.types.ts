@@ -23,6 +23,7 @@ export type SceneModalMode = 'block' | 'template';
 export type SceneModalSavePayload = {
   name: string;
   prompt: string;
+  videoPrompt: string | null;
   durationS: number;
   style: string | null;
   mediaItems: ModalMediaItem[];

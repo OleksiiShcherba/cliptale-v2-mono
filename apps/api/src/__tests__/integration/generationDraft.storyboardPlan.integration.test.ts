@@ -60,6 +60,7 @@ const VALID_PLAN = {
     sceneNumber: index + 1,
     prompt: `Scene ${index + 1} prompt`,
     visualPrompt: `Scene ${index + 1} visual prompt`,
+    videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
     durationSeconds: 6,
     referencedMedia: [],
     transitionNotes: '',

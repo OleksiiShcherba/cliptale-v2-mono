@@ -232,6 +232,8 @@ describe('useStoryboardAutosave — edge cases', () => {
 
   it('builds StoryboardState with correct draftId in blocks and edges', async () => {
     const scene = makeSceneNode('scene-xyz');
+    const sceneBlock = scene.data.block as { videoPrompt: string | null };
+    sceneBlock.videoPrompt = 'Slow dolly toward the desk while screens flicker.';
     const edge: Edge = {
       id: 'e1',
       source: 'start',
@@ -255,7 +257,12 @@ describe('useStoryboardAutosave — edge cases', () => {
     expect(saveStoryboard).toHaveBeenCalledWith(
       DRAFT_ID,
       expect.objectContaining({
-        blocks: expect.any(Array),
+        blocks: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'scene-xyz',
+            videoPrompt: 'Slow dolly toward the desk while screens flicker.',
+          }),
+        ]),
         edges: expect.arrayContaining([
           expect.objectContaining({
             draftId: DRAFT_ID,
