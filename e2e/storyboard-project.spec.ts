@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Route } from "@playwright/test";
+import { E2E_API_URL } from "./helpers/env";
 
 const DRAFT_ID = "00000000-0000-4000-8000-00000000e201";
 const PROJECT_ID = "00000000-0000-4000-8000-00000000e301";
@@ -9,6 +10,7 @@ const FILE_A_ID = "00000000-0000-4000-8000-00000000f201";
 const FILE_B_ID = "00000000-0000-4000-8000-00000000f202";
 const VIDEO_A_ID = "00000000-0000-4000-8000-00000000v201";
 const VIDEO_B_ID = "00000000-0000-4000-8000-00000000v202";
+const E2E_API_ORIGIN = new URL(E2E_API_URL).origin;
 
 const PNG_1X1 = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lwV0WQAAAABJRU5ErkJggg==",
@@ -230,6 +232,8 @@ async function installStoryboardProjectMocks(
   getVideoStatusPolls: () => number;
   getProjectModes: () => string[];
   getVideoStartPayloads: () => unknown[];
+  getFileStreamUrls: () => string[];
+  getSignedImageRequests: () => string[];
   getUnexpectedApiRequests: () => string[];
 }> {
   let illustrationsReady = options.initiallyReady === true;
@@ -241,12 +245,40 @@ async function installStoryboardProjectMocks(
   let assembledMode: "images" | "videos" = "images";
   const projectModes: string[] = [];
   const videoStartPayloads: unknown[] = [];
+  const fileStreamUrls: string[] = [];
+  const signedImageRequests: string[] = [];
   const unexpectedApiRequests: string[] = [];
 
   await page.route("**/*", async (route: Route) => {
     const request = route.request();
     const url = new URL(request.url());
     const path = url.pathname;
+
+    if (
+      request.method() === "GET" &&
+      url.origin === "https://signed.test" &&
+      path.match(/^\/files\/[^/]+\/stream$/)
+    ) {
+      signedImageRequests.push(path);
+      await route.fulfill({
+        status: 200,
+        contentType: "image/png",
+        headers: { "access-control-allow-origin": "*" },
+        body: PNG_1X1,
+      });
+      return;
+    }
+
+    if (
+      request.method() === "GET" &&
+      url.origin === E2E_API_ORIGIN &&
+      path.match(/^\/files\/[^/]+\/stream$/)
+    ) {
+      const signedUrl = `https://signed.test${path}`;
+      fileStreamUrls.push(signedUrl);
+      await route.fulfill(jsonResponse({ url: signedUrl }));
+      return;
+    }
 
     if (
       request.method() === "GET" &&
@@ -475,7 +507,7 @@ async function installStoryboardProjectMocks(
       return;
     }
 
-    if (url.origin === "http://localhost:3001") {
+    if (url.origin === E2E_API_ORIGIN) {
       unexpectedApiRequests.push(`${request.method()} ${path}`);
       await route.fulfill(
         jsonResponse(
@@ -497,6 +529,8 @@ async function installStoryboardProjectMocks(
     getVideoStatusPolls: () => videoStatusPolls,
     getProjectModes: () => [...projectModes],
     getVideoStartPayloads: () => [...videoStartPayloads],
+    getFileStreamUrls: () => [...fileStreamUrls],
+    getSignedImageRequests: () => [...signedImageRequests],
     getUnexpectedApiRequests: () => [...unexpectedApiRequests],
   };
 }
@@ -549,6 +583,15 @@ test.describe("Storyboard Step 3 project handoff", () => {
     await expect(imageClips.nth(1)).toHaveAccessibleName(/Clip: image, starts at frame 60/);
     await expect(page.getByLabel("Current frame")).toContainText("/ 150");
     expect(mocks.getProjectModes()).toEqual(["images"]);
+    expect(mocks.getFileStreamUrls()).toEqual(
+      expect.arrayContaining([
+        `https://signed.test/files/${FILE_A_ID}/stream`,
+        `https://signed.test/files/${FILE_B_ID}/stream`,
+      ]),
+    );
+    expect(mocks.getSignedImageRequests()).toEqual(
+      expect.arrayContaining([`/files/${FILE_A_ID}/stream`, `/files/${FILE_B_ID}/stream`]),
+    );
     expect(mocks.getUnexpectedApiRequests()).toEqual([]);
   });
 

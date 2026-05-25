@@ -11,7 +11,7 @@ vi.mock('@/shared/ai-generation/api', () => ({
   listModels: mockListModels,
 }));
 
-import { Step3GenerationModal } from './Step3GenerationModal';
+import { getModelDurationBehavior, Step3GenerationModal } from './Step3GenerationModal';
 
 function makeModel(id: string, fields: Array<{ name: string }> = []): AiModel {
   return {
@@ -45,10 +45,67 @@ describe('Step3GenerationModal', () => {
     );
 
     await waitFor(() => expect(screen.getByDisplayValue('fal-ai/first')).toBeTruthy());
+    expect(screen.getByTestId('step3-duration-behavior').textContent).toBe(
+      'No recognized duration control; provider default duration may apply.',
+    );
     fireEvent.change(screen.getByTestId('step3-video-model-select'), { target: { value: 'fal-ai/second' } });
     fireEvent.click(screen.getByTestId('step3-start-videos-button'));
 
     expect(onGenerate).toHaveBeenCalledWith({ modelId: 'fal-ai/second', generateAudio: false });
+  });
+
+  it('describes direct duration and frame-count duration behavior', async () => {
+    mockListModels.mockResolvedValue({
+      image_to_video: [
+        makeModel('fal-ai/direct', [{ name: 'duration' }]),
+        makeModel('fal-ai/ltx-2-19b/image-to-video', [{ name: 'num_frames' }, { name: 'fps' }]),
+      ],
+    });
+
+    render(
+      <Step3GenerationModal
+        isBusy={false}
+        error={null}
+        onClose={vi.fn()}
+        onSkip={vi.fn()}
+        onGenerate={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByDisplayValue('fal-ai/direct')).toBeTruthy());
+    expect(screen.getByTestId('step3-duration-behavior').textContent).toBe('Uses each scene duration directly.');
+
+    fireEvent.change(screen.getByTestId('step3-video-model-select'), {
+      target: { value: 'fal-ai/ltx-2-19b/image-to-video' },
+    });
+    expect(screen.getByTestId('step3-duration-behavior').textContent).toBe(
+      'Uses each scene duration by converting it to generated frames.',
+    );
+  });
+
+  it('keeps generation enabled when the model has no recognized duration control', async () => {
+    const onGenerate = vi.fn();
+    const model = makeModel('fal-ai/provider-default');
+    mockListModels.mockResolvedValue({ image_to_video: [model] });
+
+    render(
+      <Step3GenerationModal
+        isBusy={false}
+        error={null}
+        onClose={vi.fn()}
+        onSkip={vi.fn()}
+        onGenerate={onGenerate}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByDisplayValue('fal-ai/provider-default')).toBeTruthy());
+    expect(getModelDurationBehavior(model)).toEqual({
+      copy: 'No recognized duration control; provider default duration may apply.',
+      tone: 'warning',
+    });
+
+    fireEvent.click(screen.getByTestId('step3-start-videos-button'));
+    expect(onGenerate).toHaveBeenCalledWith({ modelId: 'fal-ai/provider-default', generateAudio: false });
   });
 
   it('enables audio only when the selected model supports an audio field', async () => {

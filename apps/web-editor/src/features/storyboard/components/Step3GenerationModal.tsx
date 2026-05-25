@@ -4,18 +4,11 @@ import type { AiModel } from '@/shared/ai-generation/types';
 import { listModels } from '@/shared/ai-generation/api';
 import {
   backdropStyle,
-  BORDER,
   closeButtonStyle,
-  dialogStyle,
-  ERROR,
   headerStyle,
   headerTitleStyle,
-  PRIMARY,
-  SURFACE_ALT,
-  SURFACE_ELEVATED,
-  TEXT_PRIMARY,
-  TEXT_SECONDARY,
 } from './SceneModal.styles';
+import { step3Styles as styles } from './Step3GenerationModal.styles';
 
 type Step3GenerationModalProps = {
   isBusy: boolean;
@@ -37,6 +30,30 @@ function supportsAudio(model: AiModel): boolean {
   return model.inputSchema.fields.some(
     (field) => field.name === 'generate_audio' || field.name === 'generate_audio_switch',
   );
+}
+
+type DurationBehavior = {
+  copy: string;
+  tone: 'default' | 'warning';
+};
+
+/**
+ * Describes how Step 3 will map storyboard scene duration to the selected
+ * Image-to-Video model's supported input fields.
+ */
+export function getModelDurationBehavior(model: AiModel | null): DurationBehavior | null {
+  if (!model) return null;
+
+  const fieldNames = new Set(model.inputSchema.fields.map((field) => field.name));
+  if (fieldNames.has('duration')) {
+    return { copy: 'Uses each scene duration directly.', tone: 'default' };
+  }
+
+  if (fieldNames.has('num_frames') && (fieldNames.has('fps') || fieldNames.has('frames_per_second'))) {
+    return { copy: 'Uses each scene duration by converting it to generated frames.', tone: 'default' };
+  }
+
+  return { copy: 'No recognized duration control; provider default duration may apply.', tone: 'warning' };
 }
 
 export function Step3GenerationModal({
@@ -80,6 +97,7 @@ export function Step3GenerationModal({
     [models, selectedModelId],
   );
   const selectedSupportsAudio = selectedModel ? supportsAudio(selectedModel) : false;
+  const durationBehavior = getModelDurationBehavior(selectedModel);
 
   useEffect(() => {
     if (!selectedSupportsAudio) {
@@ -133,6 +151,14 @@ export function Step3GenerationModal({
                 <option key={model.id} value={model.id}>{model.label}</option>
               ))}
             </select>
+            {durationBehavior ? (
+              <p
+                style={durationBehavior.tone === 'warning' ? styles.durationNoteWarning : styles.durationNote}
+                data-testid="step3-duration-behavior"
+              >
+                {durationBehavior.copy}
+              </p>
+            ) : null}
           </section>
 
           {selectedSupportsAudio ? (
@@ -172,125 +198,3 @@ export function Step3GenerationModal({
     </div>
   );
 }
-
-const styles = {
-  dialog: {
-    ...dialogStyle,
-    width: 'min(560px, calc(100vw - 32px))',
-  } as React.CSSProperties,
-  body: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 16,
-    padding: 20,
-    overflowY: 'auto',
-  } as React.CSSProperties,
-  section: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 8,
-  } as React.CSSProperties,
-  optionButton: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    gap: 4,
-    width: '100%',
-    padding: 12,
-    border: `1px solid ${BORDER}`,
-    borderRadius: 8,
-    background: SURFACE_ALT,
-    color: TEXT_PRIMARY,
-    fontFamily: 'Inter, sans-serif',
-    cursor: 'pointer',
-    textAlign: 'left',
-  } as React.CSSProperties,
-  optionTitle: {
-    fontSize: 14,
-    lineHeight: '20px',
-    fontWeight: 600,
-  } as React.CSSProperties,
-  optionDescription: {
-    fontSize: 12,
-    lineHeight: '18px',
-    color: TEXT_SECONDARY,
-  } as React.CSSProperties,
-  label: {
-    fontSize: 12,
-    lineHeight: '18px',
-    color: TEXT_SECONDARY,
-    fontWeight: 500,
-    textTransform: 'uppercase',
-  } as React.CSSProperties,
-  select: {
-    width: '100%',
-    height: 38,
-    border: `1px solid ${BORDER}`,
-    borderRadius: 8,
-    background: SURFACE_ALT,
-    color: TEXT_PRIMARY,
-    fontFamily: 'Inter, sans-serif',
-    fontSize: 14,
-    padding: '0 10px',
-  } as React.CSSProperties,
-  checkboxRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    minHeight: 28,
-    fontSize: 14,
-    lineHeight: '20px',
-    color: TEXT_PRIMARY,
-  } as React.CSSProperties,
-  muted: {
-    margin: 0,
-    fontSize: 13,
-    lineHeight: '18px',
-    color: TEXT_SECONDARY,
-  } as React.CSSProperties,
-  error: {
-    margin: 0,
-    fontSize: 13,
-    lineHeight: '18px',
-    color: ERROR,
-  } as React.CSSProperties,
-  footer: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: 8,
-    padding: '14px 20px',
-    borderTop: `1px solid ${BORDER}`,
-    background: SURFACE_ELEVATED,
-  } as React.CSSProperties,
-  secondaryButton: {
-    height: 36,
-    padding: '0 14px',
-    border: `1px solid ${BORDER}`,
-    borderRadius: 8,
-    background: SURFACE_ALT,
-    color: TEXT_PRIMARY,
-    fontFamily: 'Inter, sans-serif',
-    cursor: 'pointer',
-  } as React.CSSProperties,
-  primaryButton: {
-    height: 36,
-    padding: '0 14px',
-    border: 0,
-    borderRadius: 8,
-    background: PRIMARY,
-    color: '#FFFFFF',
-    fontFamily: 'Inter, sans-serif',
-    cursor: 'pointer',
-  } as React.CSSProperties,
-  primaryButtonDisabled: {
-    height: 36,
-    padding: '0 14px',
-    border: 0,
-    borderRadius: 8,
-    background: PRIMARY,
-    color: '#FFFFFF',
-    fontFamily: 'Inter, sans-serif',
-    cursor: 'not-allowed',
-    opacity: 0.5,
-  } as React.CSSProperties,
-} as const;

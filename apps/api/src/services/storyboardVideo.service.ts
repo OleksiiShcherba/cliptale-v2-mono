@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { AI_MODELS, type AiModel, type FalFieldSchema } from '@ai-video-editor/api-contracts';
+import { AI_MODELS, type AiModel } from '@ai-video-editor/api-contracts';
 
 import {
   ForbiddenError,
@@ -22,6 +22,15 @@ import type {
 } from '@/repositories/storyboardSceneVideo.repository.js';
 import { submitGeneration } from '@/services/aiGeneration.service.js';
 import { orderStoryboardSceneBlocks } from '@/services/storyboardGraph.service.js';
+import {
+  buildStoryboardVideoOptions,
+  modelSupportsAudio,
+} from '@/services/storyboardVideoOptions.service.js';
+
+export {
+  buildStoryboardVideoOptions,
+  modelSupportsAudio,
+} from '@/services/storyboardVideoOptions.service.js';
 
 export type StoryboardVideoStatusItem = {
   blockId: string;
@@ -53,86 +62,6 @@ function getModel(modelId: string): AiModel {
     throw new ValidationError(`Model '${modelId}' is not an Image to Video model`);
   }
   return model;
-}
-
-function findField(model: AiModel, name: string): FalFieldSchema | undefined {
-  return model.inputSchema.fields.find((field) => field.name === name);
-}
-
-export function modelSupportsAudio(model: AiModel): boolean {
-  return Boolean(findField(model, 'generate_audio') ?? findField(model, 'generate_audio_switch'));
-}
-
-function getAudioFieldName(model: AiModel): 'generate_audio' | 'generate_audio_switch' | null {
-  if (findField(model, 'generate_audio')) return 'generate_audio';
-  if (findField(model, 'generate_audio_switch')) return 'generate_audio_switch';
-  return null;
-}
-
-function chooseDurationEnumValue(field: FalFieldSchema, durationS: number): string | undefined {
-  const numericValues = (field.enum ?? [])
-    .map((value) => ({ raw: value, numeric: Number(value) }))
-    .filter((value) => Number.isFinite(value.numeric));
-  if (!numericValues.length) {
-    return undefined;
-  }
-  const target = Math.round(durationS);
-  numericValues.sort((a, b) => Math.abs(a.numeric - target) - Math.abs(b.numeric - target));
-  return numericValues[0]!.raw;
-}
-
-function chooseDurationNumberValue(field: FalFieldSchema, durationS: number): number {
-  const rounded = Math.max(1, Math.round(durationS));
-  const min = field.min ?? rounded;
-  const max = field.max ?? rounded;
-  return Math.min(max, Math.max(min, rounded));
-}
-
-function setDurationOption(model: AiModel, options: Record<string, unknown>, durationS: number): void {
-  const field = findField(model, 'duration');
-  if (!field) return;
-  if (field.type === 'enum') {
-    const value = chooseDurationEnumValue(field, durationS);
-    if (value !== undefined) options['duration'] = value;
-    return;
-  }
-  if (field.type === 'number') {
-    options['duration'] = chooseDurationNumberValue(field, durationS);
-  }
-}
-
-export function buildStoryboardVideoOptions(params: {
-  model: AiModel;
-  block: StoryboardBlock;
-  imageFileId: string;
-  nextImageFileId?: string | null;
-  generateAudio: boolean;
-}): Record<string, unknown> {
-  const prompt = params.block.videoPrompt?.trim();
-  if (!prompt) {
-    throw new UnprocessableEntityError(`Scene block ${params.block.id} has no video prompt`);
-  }
-
-  const options: Record<string, unknown> = {
-    prompt,
-    image_url: params.imageFileId,
-  };
-
-  if (params.nextImageFileId && findField(params.model, 'end_image_url')) {
-    options['end_image_url'] = params.nextImageFileId;
-  }
-
-  setDurationOption(params.model, options, params.block.durationS);
-
-  const audioField = getAudioFieldName(params.model);
-  if (params.generateAudio && !audioField) {
-    throw new ValidationError(`Model '${params.model.id}' does not support audio generation`);
-  }
-  if (audioField) {
-    options[audioField] = params.generateAudio;
-  }
-
-  return options;
 }
 
 function isActiveStatus(status: StoryboardSceneVideoStatus | undefined): boolean {

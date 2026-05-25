@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AI_MODELS } from '@ai-video-editor/api-contracts';
 
 const {
   mockAiGenerationService,
@@ -37,114 +36,22 @@ vi.mock('@/repositories/storyboardSceneIllustration.repository.js', () => mockIl
 vi.mock('@/repositories/storyboardIllustrationReference.repository.js', () => mockReferenceRepo);
 vi.mock('@/repositories/storyboardSceneVideo.repository.js', () => mockVideoRepo);
 
-import { ValidationError, UnprocessableEntityError } from '@/lib/errors.js';
-import type { StoryboardBlock, StoryboardEdge } from '@/repositories/storyboard.repository.js';
+import { UnprocessableEntityError } from '@/lib/errors.js';
 import {
-  buildStoryboardVideoOptions,
-  modelSupportsAudio,
+  DRAFT_ID,
+  LTX_MODEL_ID,
+  makeBlock,
+  makeDraft,
+  makeEdge,
+  makeIllustration,
+  makeReference,
+  makeVideoMapping,
+  USER_ID,
+} from '@/services/storyboardVideo.fixtures.js';
+import {
   startStoryboardVideos,
   listStoryboardVideos,
 } from './storyboardVideo.service.js';
-
-const USER_ID = 'user-1';
-const DRAFT_ID = 'draft-1';
-const LTX_MODEL_ID = 'fal-ai/ltx-2-19b/image-to-video';
-const PIXVERSE_MODEL_ID = 'fal-ai/pixverse/v6/image-to-video';
-const WAN_MODEL_ID = 'fal-ai/wan/v2.2-a14b/image-to-video';
-
-function getModel(id: string) {
-  return AI_MODELS.find((model) => model.id === id)!;
-}
-
-function makeDraft(overrides: Record<string, unknown> = {}) {
-  return {
-    id: DRAFT_ID,
-    userId: USER_ID,
-    promptDoc: { schemaVersion: 1, blocks: [] },
-    status: 'step2',
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    deletedAt: null,
-    ...overrides,
-  };
-}
-
-function makeBlock(overrides: Partial<StoryboardBlock> = {}): StoryboardBlock {
-  return {
-    id: 'block-1',
-    draftId: DRAFT_ID,
-    blockType: 'scene',
-    name: 'Scene 01',
-    prompt: 'A still image prompt.',
-    videoPrompt: 'Push in while the subject turns toward camera.',
-    durationS: 6,
-    positionX: 0,
-    positionY: 0,
-    sortOrder: 1,
-    style: null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    mediaItems: [],
-    ...overrides,
-  };
-}
-
-function makeEdge(sourceBlockId: string, targetBlockId: string): StoryboardEdge {
-  return {
-    id: `${sourceBlockId}-${targetBlockId}`,
-    draftId: DRAFT_ID,
-    sourceBlockId,
-    targetBlockId,
-  };
-}
-
-function makeIllustration(blockId: string, outputFileId: string) {
-  return {
-    id: `illustration-${blockId}`,
-    draftId: DRAFT_ID,
-    blockId,
-    aiJobId: `image-job-${blockId}`,
-    status: 'ready',
-    outputFileId,
-    errorMessage: null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-}
-
-function makeVideoMapping(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'video-map-1',
-    draftId: DRAFT_ID,
-    blockId: 'block-1',
-    aiJobId: 'video-job-1',
-    modelId: LTX_MODEL_ID,
-    generateAudio: false,
-    status: 'queued',
-    outputFileId: null,
-    errorMessage: null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    ...overrides,
-  };
-}
-
-function makeReference(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'ref-1',
-    draftId: DRAFT_ID,
-    aiJobId: 'ref-job-1',
-    status: 'ready',
-    outputFileId: 'ref-file-1',
-    sourceReferenceFileIds: [],
-    approvalStatus: 'approved',
-    approvedAt: new Date(),
-    errorMessage: null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    ...overrides,
-  };
-}
 
 describe('storyboardVideo.service', () => {
   beforeEach(() => {
@@ -167,51 +74,6 @@ describe('storyboardVideo.service', () => {
         return { jobId: 'video-job-new', status: 'queued' };
       },
     );
-  });
-
-  it('builds model options with prompt, start/end images, audio, and enum duration', () => {
-    const model = getModel(LTX_MODEL_ID);
-    const block = makeBlock({ durationS: 7 });
-
-    const options = buildStoryboardVideoOptions({
-      model,
-      block,
-      imageFileId: 'image-file-1',
-      nextImageFileId: 'image-file-2',
-      generateAudio: true,
-    });
-
-    expect(options).toMatchObject({
-      prompt: 'Push in while the subject turns toward camera.',
-      image_url: 'image-file-1',
-      end_image_url: 'image-file-2',
-      generate_audio: true,
-    });
-    expect(options).not.toHaveProperty('duration');
-    expect(modelSupportsAudio(model)).toBe(true);
-  });
-
-  it('clamps numeric duration fields and uses generate_audio_switch when present', () => {
-    const options = buildStoryboardVideoOptions({
-      model: getModel(PIXVERSE_MODEL_ID),
-      block: makeBlock({ durationS: 30 }),
-      imageFileId: 'image-file-1',
-      generateAudio: true,
-    });
-
-    expect(options).toMatchObject({
-      duration: 15,
-      generate_audio_switch: true,
-    });
-  });
-
-  it('rejects audio when the selected model does not support it', () => {
-    expect(() => buildStoryboardVideoOptions({
-      model: getModel(WAN_MODEL_ID),
-      block: makeBlock(),
-      imageFileId: 'image-file-1',
-      generateAudio: true,
-    })).toThrow(ValidationError);
   });
 
   it('enqueues one Image-to-Video job per scene without duplicating active jobs', async () => {
@@ -246,6 +108,8 @@ describe('storyboardVideo.service', () => {
         image_url: 'image-file-1',
         end_image_url: 'image-file-2',
         generate_audio: true,
+        fps: 25,
+        num_frames: 150,
       }),
     });
     expect(result.items).toHaveLength(2);

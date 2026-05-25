@@ -1097,6 +1097,66 @@
 - check: `git diff --check` -> passed.
 - note: `npm --workspace apps/web-editor run typecheck` still fails on pre-existing unrelated test/type debt in App, asset-manager, timeline, AI generation, and related test fixtures; a touched-file scan confirmed no remaining new assembled-project fixture type error, but pre-existing touched test files still contain older fixture debt in `useProjectInit` and `useRemotionPlayer`.
 
+## Storyboard Step 3 LTX-2 Duration Mapping — STB-LTX-DUR-1 (2026-05-25)
+- implemented: `buildStoryboardVideoOptions()` now keeps existing `duration` enum/number mapping when the selected model exposes `duration`, and falls back to schema-present frame controls only when `duration` is absent.
+- implemented: LTX-2 receives `fps` from the schema default and derives `num_frames` from storyboard `durationS`, so a 6-second scene produces `fps: 25` and `num_frames: 150`.
+- implemented: models with `num_frames` plus `frames_per_second` use the same duration-to-frame helper, with derived numeric values clamped by each target field's `min`/`max`.
+- covered: focused service tests assert LTX-2 frame options validate against `validateFalOptions()`, Kling/PixVerse duration behavior is preserved, unsupported audio still rejects, and active-job dedupe/preflight behavior remains covered.
+- review fix: extracted storyboard video option/duration mapping into `storyboardVideoOptions.service.ts` and split option-builder coverage into `storyboardVideo.options.test.ts` with shared fixtures, bringing touched files under the 300-line cap.
+- tests: `npm --workspace apps/api test -- storyboardVideo falOptions` -> 3 files / 23 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- active task: removed only `STB-LTX-DUR-1` from `docs/active_task.md`; `STB-LTX-DUR-2` remains next.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Storyboard Step 3 LTX-2 Duration Mapping — STB-LTX-DUR-2 (2026-05-25)
+- covered: focused option tests now document that storyboard `durationS` is converted by selected model schema, not by one universal provider option.
+- covered: LTX-2 `durationS: 6` explicitly asserts `fps: 25`, `num_frames: 150`, and no `duration` field.
+- covered: duration-field models keep using `duration`; Kling keeps enum duration output and PixVerse clamps numeric duration to `15` without frame fields.
+- covered: Wan exercises the existing catalog `num_frames` + `frames_per_second` path and clamps a 20-second scene to `num_frames: 161` at `frames_per_second: 16`.
+- integration scope: did not touch `apps/api/src/__tests__/integration/storyboard-video-endpoints.test.ts` because it is already 389 lines and focused service tests cover both option building and the `submitGeneration()` options pass-through without worsening an over-cap file.
+- tests: `npm --workspace apps/api test -- storyboardVideo storyboard-video aiGeneration falOptions` -> 9 files / 78 tests passed; BullMQ printed the existing Redis 6.2 recommendation for local Redis 6.0.16.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- check: `git diff --check` -> passed.
+- active task: removed only `STB-LTX-DUR-2` from `docs/active_task.md`; `STB-LTX-DUR-3` remains next.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Storyboard Step 3 LTX-2 Duration Mapping — STB-LTX-DUR-3 (2026-05-25)
+- implemented: `Step3GenerationModal` now classifies selected model duration behavior from schema fields: direct `duration`, frame-count `num_frames` plus `fps`/`frames_per_second`, or no recognized duration control.
+- implemented: Step 3 shows concise duration behavior copy under the Image to Video model selector using the existing dark modal style, 8px radius, and warning-colored text for provider-default duration cases.
+- preserved: generation remains enabled for models without recognized duration controls, and audio checkbox behavior is unchanged.
+- refactor: moved Step 3 modal styles to `Step3GenerationModal.styles.ts` so the touched TS/TSX files stay under the 300-line cap.
+- review fix: added JSDoc for exported duration behavior helper and changed Step 3 styles to preserve exact keys with `satisfies Record<string, React.CSSProperties>`.
+- tests: `npm --workspace apps/web-editor test -- Step3GenerationModal` -> 1 file / 4 tests passed.
+- typecheck: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "Step3GenerationModal|useStep3Generation|storyboard/types" || true` -> no matching output.
+- active task: removed only `STB-LTX-DUR-3` from `docs/active_task.md`; `STB-LTX-DUR-4` remains next.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## Storyboard Step 3 LTX-2 Duration Mapping — STB-LTX-DUR-4 (2026-05-25)
+- validated: LTX-2 storyboard duration mapping regression coverage after implementation subtasks, including backend option mapping, Step 3 modal behavior, and focused project-handoff E2E.
+- review fix: updated `e2e/storyboard-project.spec.ts` so only the configured API origin handles `GET /files/:id/stream` with the real `{ url }` JSON contract, while frontend-relative stream requests remain unexpected and `https://signed.test/files/:id/stream` is fulfilled separately as `image/png` when the browser loads the signed URL.
+- review fix: aligned the unexpected API request guard with `E2E_API_ORIGIN` so non-default `E2E_API_URL` runs still collect unexpected API requests after the stream mock moved to the configured origin.
+- covered: the image handoff E2E now asserts both signed URLs are returned by the API mock and subsequently requested as signed image loads, keeping the `useFileStreamUrl` JSON contract covered while preserving the unexpected API request guard.
+- tests: `npm --workspace apps/api test -- storyboardVideo storyboard-video aiGeneration falOptions` -> 9 files / 78 tests passed; BullMQ printed the existing Redis 6.2 recommendation for local Redis 6.0.16.
+- tests: `npm --workspace apps/web-editor test -- Step3GenerationModal StoryboardPage.plan GenerateProjectFromStoryboardPage` -> 3 files / 37 tests passed.
+- typecheck: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-project.spec.ts` -> passed after the corrected stream mock contract.
+- e2e: `VITE_PUBLIC_API_BASE_URL=http://localhost:3001 E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/storyboard-project.spec.ts --project=chromium` -> 4 tests passed with the corrected API JSON plus signed image mock split.
+- check: `git diff --check` -> passed.
+- services: local API `http://localhost:3001` initially returned 429 in Playwright global setup due to the in-memory login limiter; restarted the existing `cliptalecom-v2-api-1` container, then the requested E2E command passed against API `3001` and Vite `5173`.
+- active task: removed `STB-LTX-DUR-4` from `docs/active_task.md`; no active task remains.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
 ---
 
 ## Architectural Decisions
