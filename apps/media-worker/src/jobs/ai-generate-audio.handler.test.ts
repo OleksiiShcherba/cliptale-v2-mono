@@ -5,6 +5,7 @@ import {
   BUCKET,
   JOB_ID,
   AUDIO_BYTES,
+  COMPOSITION_PLAN,
   USER_ID,
   makeMocks,
   makeDeps,
@@ -133,19 +134,99 @@ describe('processElevenLabsCapability / music_generation', () => {
     expect(progressCall![1]).toEqual([30, JOB_ID]);
   });
 
-  it('calls musicGeneration with prompt and optional duration', async () => {
+  it('calls musicGeneration with a composition plan and no prompt', async () => {
     const m = makeMocks();
 
     await processElevenLabsCapability(
-      makeData({ capability: 'music_generation', options: { prompt: 'epic drums', duration: 45 } }),
+      makeData({
+        capability: 'music_generation',
+        options: {
+          composition_plan: COMPOSITION_PLAN,
+          respect_sections_durations: false,
+          model_id: 'music_v1',
+        },
+      }),
       makeDeps(m),
     );
 
     expect(m.musicGeneration).toHaveBeenCalledOnce();
     const [params] = m.musicGeneration.mock.calls[0]!;
-    expect(params.prompt).toBe('epic drums');
-    expect(params.durationSeconds).toBe(45);
+    expect(params.prompt).toBeUndefined();
+    expect(params.compositionPlan).toEqual(COMPOSITION_PLAN);
+    expect(params.respectSectionsDurations).toBe(false);
+    expect(params.modelId).toBe('music_v1');
     expect(params.apiKey).toBe('el-test-key');
+  });
+
+  it('creates, stores, and composes from an instrumental plan for prompt-only fallback', async () => {
+    const m = makeMocks();
+
+    await processElevenLabsCapability(
+      makeData({
+        capability: 'music_generation',
+        options: { prompt: 'epic drums', music_length_ms: 45_000 },
+      }),
+      makeDeps(m),
+    );
+
+    expect(m.createMusicCompositionPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        apiKey: 'el-test-key',
+        prompt: 'epic drums',
+        musicLengthMs: 45_000,
+      }),
+    );
+
+    const optionsUpdateCall = m.execute.mock.calls.find(
+      (c) => typeof c[0] === 'string' && c[0].includes('SET options = ?'),
+    );
+    expect(optionsUpdateCall).toBeTruthy();
+    const storedOptions = JSON.parse(optionsUpdateCall![1][0] as string) as Record<string, unknown>;
+    expect(storedOptions['composition_plan']).toBeDefined();
+    expect(storedOptions['regenerate_composition_plan']).toBe(false);
+
+    expect(m.musicGeneration).toHaveBeenCalledOnce();
+    const [params] = m.musicGeneration.mock.calls[0]!;
+    expect(params.prompt).toBeUndefined();
+    expect(params.compositionPlan).toEqual(
+      expect.objectContaining({
+        negative_global_styles: expect.arrayContaining(['vocals', 'lyrics', 'singing']),
+      }),
+    );
+    const plan = params.compositionPlan!;
+    expect(plan.sections[0]!.lines).toEqual([]);
+    expect(plan.sections[0]!.negative_local_styles).toEqual(
+      expect.arrayContaining(['vocals', 'lyrics', 'singing']),
+    );
+  });
+
+  it('regenerates a source composition plan from prompt before composing', async () => {
+    const m = makeMocks();
+
+    await processElevenLabsCapability(
+      makeData({
+        capability: 'music_generation',
+        options: {
+          prompt: 'more urgent piano pulse',
+          source_composition_plan: COMPOSITION_PLAN,
+          music_length_ms: 30_000,
+          regenerate_composition_plan: true,
+        },
+      }),
+      makeDeps(m),
+    );
+
+    expect(m.createMusicCompositionPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: 'more urgent piano pulse',
+        sourceCompositionPlan: COMPOSITION_PLAN,
+        musicLengthMs: 30_000,
+      }),
+    );
+    expect(m.musicGeneration).toHaveBeenCalledOnce();
+    const [params] = m.musicGeneration.mock.calls[0]!;
+    expect(params.prompt).toBeUndefined();
+    expect(params.compositionPlan).toBeDefined();
   });
 
   it('uploads audio with correct S3 key format and calls filesRepo.createFile', async () => {

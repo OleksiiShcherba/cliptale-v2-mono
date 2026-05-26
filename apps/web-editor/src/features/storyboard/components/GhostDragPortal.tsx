@@ -9,6 +9,7 @@ import ReactDOM from 'react-dom';
 import type { GhostDragState } from '@/features/storyboard/hooks/useStoryboardDrag';
 import type {
   BlockMediaItem,
+  MusicBlockNodeData,
   SentinelNodeData,
   StoryboardBlock,
   StoryboardIllustrationStatus,
@@ -18,6 +19,7 @@ import { buildAuthenticatedUrl } from '@/lib/api-client';
 import { config } from '@/lib/config';
 
 import { storyboardPageStyles as s } from './storyboardPageStyles';
+import { MusicBlockNode } from './MusicBlockNode';
 import {
   BORDER,
   ERROR,
@@ -218,10 +220,25 @@ function SentinelPreview({ type, data }: { type: 'start' | 'end'; data: Sentinel
   );
 }
 
+function MusicBlockPreview({ id, data }: { id: string; data: MusicBlockNodeData }): React.ReactElement {
+  return (
+    <MusicBlockNode
+      id={id}
+      data={{
+        ...data,
+        isActive: false,
+        onEdit: () => {},
+        onHover: () => {},
+      }}
+    />
+  );
+}
+
 interface GhostDragPortalProps {
   dragState: GhostDragState;
 }
 
+/** Renders the fixed, inert drag preview clone for supported storyboard nodes. */
 export function GhostDragPortal({ dragState }: GhostDragPortalProps): React.ReactElement | null {
   if (dragState.clientX === 0 && dragState.clientY === 0) return null;
 
@@ -236,12 +253,19 @@ export function GhostDragPortal({ dragState }: GhostDragPortalProps): React.Reac
   const nodeType = dragState.node.type;
   const nodeData = dragState.node.data;
   const portal = (
-    <div style={cloneStyle} data-testid="ghost-drag-clone" aria-hidden="true">
+    <div
+      style={cloneStyle}
+      data-testid="ghost-drag-clone"
+      aria-hidden="true"
+      {...{ inert: '' }}
+    >
       {nodeType === 'scene-block' && (nodeData as { block?: StoryboardBlock }).block ? (
         <SceneBlockPreview
           block={(nodeData as { block: StoryboardBlock }).block}
           illustration={(nodeData as { illustration?: StoryboardIllustrationStatusItem }).illustration}
         />
+      ) : nodeType === 'music-block' && (nodeData as Partial<MusicBlockNodeData>).musicBlock ? (
+        <MusicBlockPreview id={dragState.node.id} data={nodeData as MusicBlockNodeData} />
       ) : nodeType === 'start' || nodeType === 'end' ? (
         <SentinelPreview type={nodeType} data={nodeData as SentinelNodeData} />
       ) : null}

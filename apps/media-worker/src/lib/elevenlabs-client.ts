@@ -24,14 +24,19 @@
  *     multipart/form-data: audio (binary), model_id, voice_settings (JSON str)
  *     → audio/mpeg binary
  *
- *   Music / Sound Generation:
- *     POST /v1/sound-generation
- *     { text, duration_seconds }
+ *   Music:
+ *     POST /v1/music/plan
+ *     { prompt, music_length_ms?, model_id? }
+ *     → composition plan JSON
+ *
+ *     POST /v1/music?output_format=mp3_44100_128
+ *     { prompt | composition_plan, model_id, force_instrumental?, respect_sections_durations? }
  *     → audio/mpeg binary
  */
 
 const BASE_URL = 'https://api.elevenlabs.io';
 const DEFAULT_MODEL_ID = 'eleven_multilingual_v2';
+const DEFAULT_MUSIC_MODEL_ID = 'music_v1';
 const DEFAULT_VOICE_ID = 'pNInz6obpgDQGcFmaJgB'; // ElevenLabs "Adam" voice
 const OUTPUT_FORMAT = 'mp3_44100_128';
 
@@ -75,13 +80,47 @@ export type SpeechToSpeechParams = {
   stability?: number;
 };
 
-/** Parameters for the `musicGeneration` (sound generation) function. */
+export type ElevenLabsCompositionPlanSection = {
+  section_name: string;
+  positive_local_styles: string[];
+  negative_local_styles: string[];
+  duration_ms: number;
+  lines: string[];
+};
+
+export type ElevenLabsCompositionPlan = {
+  positive_global_styles: string[];
+  negative_global_styles: string[];
+  sections: ElevenLabsCompositionPlanSection[];
+};
+
+/** Parameters for `createMusicCompositionPlan`. */
+export type CreateMusicCompositionPlanParams = {
+  apiKey: string;
+  prompt: string;
+  /** Target duration in milliseconds; omit to let ElevenLabs choose. */
+  musicLengthMs?: number;
+  /** ElevenLabs Music model id; defaults to `music_v1`. */
+  modelId?: string;
+  /** Optional source plan for plan regeneration/refinement. */
+  sourceCompositionPlan?: ElevenLabsCompositionPlan;
+};
+
+/** Parameters for the `musicGeneration` function. */
 export type MusicGenerationParams = {
   apiKey: string;
-  /** Text prompt describing the desired music or sound effect. */
-  prompt: string;
-  /** Target duration in seconds; omit to use ElevenLabs default. */
-  durationSeconds?: number;
+  /** Text prompt describing the desired music. Mutually exclusive with `compositionPlan`. */
+  prompt?: string;
+  /** Structured ElevenLabs composition plan. Mutually exclusive with `prompt`. */
+  compositionPlan?: ElevenLabsCompositionPlan;
+  /** Target duration in milliseconds. Used by ElevenLabs only with prompt-based compose. */
+  musicLengthMs?: number;
+  /** Controls section timing strictness. Used by ElevenLabs only with composition plans. */
+  respectSectionsDurations?: boolean;
+  /** ElevenLabs Music model id; defaults to `music_v1`. */
+  modelId?: string;
+  /** Used by ElevenLabs only with prompt-based compose. */
+  forceInstrumental?: boolean;
 };
 
 /** Typed representation of a single ElevenLabs voice from `GET /v1/voices`. */
@@ -199,17 +238,25 @@ export async function speechToSpeech(params: SpeechToSpeechParams): Promise<Buff
   return Buffer.from(await response.arrayBuffer());
 }
 
-/**
- * Generates music or sound effects from a text prompt.
- * Returns raw MP3 bytes (or whatever format ElevenLabs returns).
- */
-export async function musicGeneration(params: MusicGenerationParams): Promise<Buffer> {
-  const { apiKey, prompt, durationSeconds } = params;
-  const url = `${BASE_URL}/v1/sound-generation`;
+/** Creates a structured ElevenLabs Music composition plan from a prompt. */
+export async function createMusicCompositionPlan(
+  params: CreateMusicCompositionPlanParams,
+): Promise<ElevenLabsCompositionPlan> {
+  const {
+    apiKey,
+    prompt,
+    musicLengthMs,
+    modelId = DEFAULT_MUSIC_MODEL_ID,
+    sourceCompositionPlan,
+  } = params;
+  const url = `${BASE_URL}/v1/music/plan`;
 
-  const body: Record<string, unknown> = { text: prompt };
-  if (durationSeconds !== undefined) {
-    body.duration_seconds = durationSeconds;
+  const body: Record<string, unknown> = { prompt, model_id: modelId };
+  if (musicLengthMs !== undefined) {
+    body.music_length_ms = musicLengthMs;
+  }
+  if (sourceCompositionPlan !== undefined) {
+    body.source_composition_plan = sourceCompositionPlan;
   }
 
   const response = await fetch(url, {
@@ -217,6 +264,70 @@ export async function musicGeneration(params: MusicGenerationParams): Promise<Bu
     headers: {
       'xi-api-key': apiKey,
       'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new ElevenLabsError(response.status, await response.text(), 'music-plan');
+  }
+
+  const bodyJson = await response.json();
+  assertCompositionPlan(bodyJson, 'music-plan');
+  return bodyJson;
+}
+
+/**
+ * Generates music from either a prompt or a composition plan.
+ * Returns raw MP3 bytes.
+ */
+export async function musicGeneration(params: MusicGenerationParams): Promise<Buffer> {
+  const {
+    apiKey,
+    prompt,
+    compositionPlan,
+    musicLengthMs,
+    respectSectionsDurations,
+    modelId = DEFAULT_MUSIC_MODEL_ID,
+    forceInstrumental,
+  } = params;
+  const hasPrompt = typeof prompt === 'string' && prompt.length > 0;
+  const hasCompositionPlan = compositionPlan !== undefined;
+
+  if (hasPrompt === hasCompositionPlan) {
+    throw new ElevenLabsError(
+      400,
+      '',
+      'music-generation',
+      "provide exactly one of 'prompt' or 'compositionPlan'",
+    );
+  }
+
+  const url = `${BASE_URL}/v1/music?output_format=${OUTPUT_FORMAT}`;
+  const body: Record<string, unknown> = { model_id: modelId };
+
+  if (hasPrompt) {
+    body.prompt = prompt;
+    if (musicLengthMs !== undefined) {
+      body.music_length_ms = musicLengthMs;
+    }
+    if (forceInstrumental !== undefined) {
+      body.force_instrumental = forceInstrumental;
+    }
+  } else {
+    assertCompositionPlan(compositionPlan, 'music-generation');
+    body.composition_plan = compositionPlan;
+    if (respectSectionsDurations !== undefined) {
+      body.respect_sections_durations = respectSectionsDurations;
+    }
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'xi-api-key': apiKey,
+      'Content-Type': 'application/json',
+      Accept: 'audio/mpeg',
     },
     body: JSON.stringify(body),
   });
@@ -282,5 +393,22 @@ export class ElevenLabsError extends Error {
     const suffix = detail ? ` — ${detail}` : `: ${rawBody.slice(0, 200)}`;
     super(`ElevenLabs ${operation} error (HTTP ${statusCode})${suffix}`);
     this.name = 'ElevenLabsError';
+  }
+}
+
+function assertCompositionPlan(
+  value: unknown,
+  operation: string,
+): asserts value is ElevenLabsCompositionPlan {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ElevenLabsError(400, JSON.stringify(value), operation, 'invalid composition_plan');
+  }
+  const plan = value as Record<string, unknown>;
+  if (
+    !Array.isArray(plan['positive_global_styles']) ||
+    !Array.isArray(plan['negative_global_styles']) ||
+    !Array.isArray(plan['sections'])
+  ) {
+    throw new ElevenLabsError(400, JSON.stringify(value), operation, 'invalid composition_plan');
   }
 }

@@ -34,7 +34,7 @@ import { useStoryboardPlanGeneration } from './useStoryboardPlanGeneration';
 const DRAFT_ID = 'draft-abc';
 const JOB_ID = 'job-123';
 
-function makeState(): StoryboardState {
+function makeState(options: { withMusic?: boolean } = {}): StoryboardState {
   return {
     blocks: [
       {
@@ -100,6 +100,34 @@ function makeState(): StoryboardState {
         targetBlockId: 'end-1',
       },
     ],
+    musicBlocks: options.withMusic
+      ? [
+          {
+            id: 'music-1',
+            draftId: DRAFT_ID,
+            name: 'Opening music',
+            sourceMode: 'generate_on_step3',
+            prompt: 'Soft pulse',
+            compositionPlan: null,
+            existingFileId: null,
+            startSceneBlockId: 'scene-1',
+            endSceneBlockId: 'scene-1',
+            positionX: 320,
+            positionY: 520,
+            sortOrder: 0,
+            volume: 0.8,
+            fadeInS: 0,
+            fadeOutS: 1,
+            loopMode: 'trim',
+            generationStatus: null,
+            generationJobId: null,
+            outputFileId: null,
+            errorMessage: null,
+            createdAt: '2026-05-14T00:00:00.000Z',
+            updatedAt: '2026-05-14T00:00:00.000Z',
+          },
+        ]
+      : [],
   };
 }
 
@@ -161,7 +189,7 @@ describe('useStoryboardPlanGeneration', () => {
       .mockResolvedValueOnce({ jobId: JOB_ID, status: 'queued', plan: null, errorMessage: null })
       .mockResolvedValueOnce({ jobId: JOB_ID, status: 'running', plan: null, errorMessage: null })
       .mockResolvedValueOnce({ jobId: JOB_ID, status: 'completed', plan: { scenes: [] }, errorMessage: null });
-    mockApplyLatestStoryboardPlan.mockResolvedValue(makeState());
+    mockApplyLatestStoryboardPlan.mockResolvedValue(makeState({ withMusic: true }));
 
     const { result, invalidateSpy } = renderPlanHook();
 
@@ -193,7 +221,9 @@ describe('useStoryboardPlanGeneration', () => {
       'start-1',
       'scene-1',
       'end-1',
+      'music-1',
     ]);
+    expect(result.current.canvasState?.nodes.find((node) => node.id === 'music-1')?.type).toBe('music-block');
     expect(result.current.canvasState?.edges.map((edge) => `${edge.source}->${edge.target}`)).toEqual([
       'start-1->scene-1',
       'scene-1->end-1',

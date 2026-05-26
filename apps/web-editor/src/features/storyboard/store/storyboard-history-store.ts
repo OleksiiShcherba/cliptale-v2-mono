@@ -1,70 +1,29 @@
-/**
- * storyboard-history-store — undo/redo stack for the storyboard canvas.
- *
- * Holds up to MAX_HISTORY_SIZE snapshots of the canvas state. Each snapshot
- * contains only the graph structure (blocks and edges — NOT React Flow node
- * metadata or thumbnail data) to keep the payload small.
- *
- * Server persistence:
- * - Snapshots are pushed to `POST /storyboards/:draftId/history` asynchronously
- *   with a 1s debounce (fire-and-forget; errors are logged, never surfaced).
- * - On mount, `loadServerHistory` is called to seed the in-memory stack so
- *   undo works across browser sessions.
- *
- * Interface:
- * - `push(snapshot, options?)` — add a new snapshot; drop oldest when cap exceeded.
- * - `undo()` — revert canvas to the previous snapshot.
- * - `redo()` — re-apply the next snapshot after an undo.
- * - `loadServerHistory(snapshots)` — seeds the stack from server data on mount.
- *
- */
+/** Undo/redo stack plus debounced server history persistence for storyboard canvas snapshots. */
 
 import type { Node, Edge } from '@xyflow/react';
 
-import { persistHistorySnapshot } from '../api';
-import type { StoryboardHistorySnapshot, StoryboardHistoryPayload } from '../api';
-import type { StoryboardState } from '../types';
-import { BORDER } from '../components/nodeStyles';
+import { persistHistorySnapshot } from '@/features/storyboard/api';
+import type {
+  StoryboardHistorySnapshot,
+  StoryboardHistoryPayload,
+} from '@/features/storyboard/api';
+import { BORDER } from '@/features/storyboard/components/nodeStyles';
+import type { StoryboardState } from '@/features/storyboard/types';
+import {
+  musicBlockToNode,
+  orderStoryboardSceneBlocks,
+} from '@/features/storyboard/hooks/useStoryboardMusic';
+
 import { setNodes, setEdges, getSnapshot } from './storyboard-store';
+import type { AppliedCanvasSnapshot, CanvasSnapshot } from './storyboard-history-types';
+
+export type { AppliedCanvasSnapshot, CanvasSnapshot } from './storyboard-history-types';
 
 export const MAX_HISTORY_SIZE = 50;
 
 const SERVER_PERSIST_DEBOUNCE_MS = 1000;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-
-/**
- * A lightweight canvas snapshot — graph structure only.
- * Excludes React Flow metadata (handles, measured dimensions, etc.) to stay small.
- *
- * `positions` is optional: local undo/redo snapshots carry it, but server history
- * snapshots do not (the server persists positions per-block via `positionX/Y`).
- * Consumers must fall back to `block.positionX / block.positionY` when absent.
- *
- * `thumbnail` is an optional JPEG data URL captured at the moment of the push.
- * Absent for server-sourced snapshots created before this feature was introduced.
- */
-export type CanvasSnapshot = {
-  /** Serializable block data extracted from React Flow nodes. */
-  blocks: StoryboardState['blocks'];
-  /** Serializable edge data extracted from React Flow edges. */
-  edges: StoryboardState['edges'];
-  /**
-   * Node positions at the time of the snapshot.
-   * Absent for server-sourced snapshots — use `block.positionX/Y` as fallback.
-   */
-  positions?: Record<string, { x: number; y: number }>;
-  /**
-   * JPEG data URL thumbnail of the React Flow canvas at push time (160×90 display size).
-   * Absent when capture failed or for snapshots created before this feature.
-   */
-  thumbnail?: string;
-};
-
-export type AppliedCanvasSnapshot = {
-  nodes: Node[];
-  edges: Edge[];
-};
 
 /** Public interface that `useStoryboardKeyboard` and other consumers depend on. */
 export type StoryboardHistoryStore = {
@@ -95,6 +54,7 @@ function persistSnapshot(id: string, snapshot: CanvasSnapshot): Promise<void> {
   const payload: StoryboardHistoryPayload = {
     blocks: snapshot.blocks,
     edges: snapshot.edges,
+    ...(snapshot.musicBlocks !== undefined && { musicBlocks: snapshot.musicBlocks }),
     ...(snapshot.thumbnail !== undefined && { thumbnail: snapshot.thumbnail }),
   };
 
@@ -126,7 +86,7 @@ function applySnapshot(snapshot: CanvasSnapshot): AppliedCanvasSnapshot {
   const { nodes: currentNodes } = getSnapshot();
 
   // Rebuild nodes: preserve all React Flow node metadata but override position.
-  const restoredNodes: Node[] = snapshot.blocks.map((block) => {
+  const restoredBlockNodes: Node[] = snapshot.blocks.map((block) => {
     const existing = currentNodes.find((n) => n.id === block.id);
     const pos = snapshot.positions?.[block.id] ?? { x: block.positionX, y: block.positionY };
 
@@ -159,10 +119,20 @@ function applySnapshot(snapshot: CanvasSnapshot): AppliedCanvasSnapshot {
     style: { stroke: BORDER, strokeWidth: 2 },
   }));
 
+  const orderedScenes = orderStoryboardSceneBlocks(snapshot.blocks, snapshot.edges);
+  const restoredMusicNodes = (snapshot.musicBlocks ?? []).map((musicBlock) =>
+    musicBlockToNode(musicBlock, orderedScenes as StoryboardState['blocks']),
+  );
+  const restoredNodes = [...restoredBlockNodes, ...restoredMusicNodes];
+
   setNodes(restoredNodes);
   setEdges(restoredEdges);
 
-  return { nodes: restoredNodes, edges: restoredEdges };
+  return {
+    nodes: restoredNodes,
+    edges: restoredEdges,
+    ...(snapshot.musicBlocks !== undefined && { musicBlocks: snapshot.musicBlocks }),
+  };
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────
@@ -212,6 +182,7 @@ export function loadServerHistory(snapshots: StoryboardHistorySnapshot[]): void 
     return {
       blocks: s.snapshot.blocks,
       edges: s.snapshot.edges,
+      ...(s.snapshot.musicBlocks !== undefined && { musicBlocks: s.snapshot.musicBlocks }),
       positions,
     };
   });

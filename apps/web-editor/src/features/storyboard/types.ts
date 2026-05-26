@@ -4,6 +4,11 @@
  * Covers the page shell, sidebar state, and canvas primitives.
  */
 
+import type {
+  StoryboardMusicBlock,
+  StoryboardMusicBlockSaveInput,
+} from './storyboardMusicTypes';
+
 /** The three sidebar tabs available on the StoryboardPage. */
 export type StoryboardSidebarTab = 'storyboard' | 'library' | 'effects';
 
@@ -49,10 +54,29 @@ export type StoryboardEdge = {
   targetBlockId: string;
 };
 
+export type {
+  ElevenLabsCompositionPlan,
+  ElevenLabsCompositionPlanSection,
+  StoryboardMusicBlock,
+  StoryboardMusicBlockSaveInput,
+  StoryboardMusicBlockUpdatePayload,
+  StoryboardMusicGenerationStatus,
+  StoryboardMusicResponse,
+  StoryboardMusicSourceMode,
+} from './storyboardMusicTypes';
+
 /** Shape returned by GET /storyboards/:draftId and POST /storyboards/:draftId/initialize. */
 export type StoryboardState = {
   blocks: StoryboardBlock[];
   edges: StoryboardEdge[];
+  musicBlocks: StoryboardMusicBlock[];
+};
+
+/** PUT /storyboards/:draftId payload. musicBlocks is optional to preserve current music. */
+export type StoryboardSavePayload = {
+  blocks: StoryboardBlock[];
+  edges: StoryboardEdge[];
+  musicBlocks?: StoryboardMusicBlockSaveInput[];
 };
 
 /** Frontend-owned lifecycle for generating and applying a storyboard plan. */
@@ -151,8 +175,23 @@ export type SceneBlockNodeData = {
   onRemove: (nodeId: string) => void;
   illustration?: StoryboardIllustrationStatusItem;
   onRetryIllustration?: (blockId: string) => void;
+  musicCoverage?: {
+    count: number;
+    isHighlighted: boolean;
+  };
   /** Optional callback fired when the user clicks the block to open SceneModal. */
   onEdit?: (nodeId: string) => void;
+};
+
+/** React Flow node data for storyboard background music blocks. */
+export type MusicBlockNodeData = {
+  musicBlock: StoryboardMusicBlock;
+  rangeLabel: string;
+  sourceLabel: string;
+  statusLabel: string;
+  isActive: boolean;
+  onEdit: (nodeId: string) => void;
+  onHover: (nodeId: string | null) => void;
 };
 
 /** React Flow node data for START/END sentinel nodes. */

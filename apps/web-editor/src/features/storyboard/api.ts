@@ -4,12 +4,18 @@
  * All HTTP calls go through `apiClient` — never call `fetch` directly.
  */
 
-import { apiClient } from '@/lib/api-client';
 import type { StoryboardPlanJobResult } from '@ai-video-editor/project-schema';
+
+import { toStoryboardMusicBlockSaveInputs } from '@/features/storyboard/utils/musicBlockSaveInput';
+import { apiClient } from '@/lib/api-client';
 
 import type {
   StoryboardBlock,
   StoryboardState,
+  StoryboardSavePayload,
+  StoryboardMusicBlock,
+  StoryboardMusicBlockUpdatePayload,
+  StoryboardMusicResponse,
   StoryboardIllustrationStatusResponse,
   StoryboardProjectAssemblyMode,
   StoryboardProjectCreateResponse,
@@ -19,7 +25,13 @@ import type {
   UpdateSceneTemplatePayload,
 } from './types';
 
-export type { StoryboardState, SceneTemplate, CreateSceneTemplatePayload, UpdateSceneTemplatePayload };
+export type {
+  StoryboardState,
+  StoryboardSavePayload,
+  SceneTemplate,
+  CreateSceneTemplatePayload,
+  UpdateSceneTemplatePayload,
+};
 
 export type StartStoryboardPlanResponse = {
   jobId: string;
@@ -50,9 +62,16 @@ export async function fetchStoryboard(draftId: string): Promise<StoryboardState>
  */
 export async function saveStoryboard(
   draftId: string,
-  state: StoryboardState,
+  state: StoryboardSavePayload,
 ): Promise<void> {
-  const res = await apiClient.put(`/storyboards/${draftId}`, state);
+  const { musicBlocks, ...stateWithoutMusic } = state;
+  const saveState: StoryboardSavePayload = musicBlocks === undefined
+    ? state
+    : {
+        ...stateWithoutMusic,
+        musicBlocks: toStoryboardMusicBlockSaveInputs(musicBlocks) ?? [],
+      };
+  const res = await apiClient.put(`/storyboards/${draftId}`, saveState);
   if (!res.ok) {
     throw new Error(`PUT /storyboards/${draftId} failed: ${res.status}`);
   }
@@ -67,8 +86,9 @@ export async function saveStoryboard(
  * The server stores this as JSON in the `snapshot` column (accepts `z.unknown()`).
  */
 export type StoryboardHistoryPayload = {
-  blocks: StoryboardState['blocks'];
-  edges: StoryboardState['edges'];
+  blocks: StoryboardSavePayload['blocks'];
+  edges: StoryboardSavePayload['edges'];
+  musicBlocks?: StoryboardMusicBlock[];
   /** JPEG data URL thumbnail of the canvas at push time, captured via html-to-image. */
   thumbnail?: string;
 };
@@ -267,6 +287,49 @@ export async function fetchStoryboardVideos(
     throw new Error(`GET /storyboards/${draftId}/videos failed: ${res.status}`);
   }
   return res.json() as Promise<StoryboardVideoStatusResponse>;
+}
+
+export async function fetchStoryboardMusic(draftId: string): Promise<StoryboardMusicResponse> {
+  const res = await apiClient.get(`/storyboards/${draftId}/music`);
+  if (!res.ok) {
+    throw new Error(`GET /storyboards/${draftId}/music failed: ${res.status}`);
+  }
+  return res.json() as Promise<StoryboardMusicResponse>;
+}
+
+export async function updateStoryboardMusicBlock(
+  draftId: string,
+  musicBlockId: string,
+  payload: StoryboardMusicBlockUpdatePayload,
+): Promise<StoryboardMusicBlock> {
+  const res = await apiClient.patch(`/storyboards/${draftId}/music/${musicBlockId}`, payload);
+  if (!res.ok) {
+    throw new Error(`PATCH /storyboards/${draftId}/music/${musicBlockId} failed: ${res.status}`);
+  }
+  return res.json() as Promise<StoryboardMusicBlock>;
+}
+
+export async function generateStoryboardMusicBlock(
+  draftId: string,
+  musicBlockId: string,
+): Promise<StoryboardMusicResponse> {
+  const res = await apiClient.post(`/storyboards/${draftId}/music/${musicBlockId}/generate`, {});
+  if (!res.ok) {
+    throw new Error(
+      `POST /storyboards/${draftId}/music/${musicBlockId}/generate failed: ${res.status}`,
+    );
+  }
+  return res.json() as Promise<StoryboardMusicResponse>;
+}
+
+export async function generatePendingStoryboardMusic(
+  draftId: string,
+): Promise<StoryboardMusicResponse> {
+  const res = await apiClient.post(`/storyboards/${draftId}/music/generate-pending`, {});
+  if (!res.ok) {
+    throw new Error(`POST /storyboards/${draftId}/music/generate-pending failed: ${res.status}`);
+  }
+  return res.json() as Promise<StoryboardMusicResponse>;
 }
 
 // ── Scene Template API functions ───────────────────────────────────────────────

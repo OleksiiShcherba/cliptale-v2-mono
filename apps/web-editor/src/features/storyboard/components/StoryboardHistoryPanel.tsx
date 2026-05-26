@@ -24,12 +24,11 @@ import React, { useCallback } from 'react';
 import type { Node, Edge } from '@xyflow/react';
 
 import { formatRelativeDate } from '@/shared/utils/formatRelativeDate';
-
-import type { StoryboardHistorySnapshot } from '../api';
-import { useStoryboardHistoryFetch } from '../hooks/useStoryboardHistoryFetch';
-import { restoreFromSnapshot, getSnapshot } from '../store/storyboard-store';
-import type { CanvasSnapshot } from '../store/storyboard-history-store';
-import type { StoryboardBlock } from '../types';
+import type { StoryboardHistorySnapshot } from '@/features/storyboard/api';
+import { useStoryboardHistoryFetch } from '@/features/storyboard/hooks/useStoryboardHistoryFetch';
+import type { CanvasSnapshot } from '@/features/storyboard/store/storyboard-history-store';
+import { restoreFromSnapshot, getSnapshot } from '@/features/storyboard/store/storyboard-store';
+import type { StoryboardBlock, StoryboardMusicBlock } from '@/features/storyboard/types';
 import {
   panelStyle,
   headerStyle,
@@ -61,7 +60,11 @@ export interface StoryboardHistoryPanelProps {
    * and edges read back from the external store. StoryboardPage uses this to
    * sync React state (setNodes / setEdges) and trigger an immediate save.
    */
-  onRestore: (nodes: Node[], edges: Edge[]) => void;
+  onRestore: (
+    nodes: Node[],
+    edges: Edge[],
+    options?: { deferSave?: boolean; musicBlocks?: StoryboardMusicBlock[] },
+  ) => void;
 }
 
 // ── SnapshotMinimap ────────────────────────────────────────────────────────────
@@ -243,7 +246,7 @@ export function StoryboardHistoryPanel({
       // syncing React state (setNodes/setEdges), pushing the history snapshot, and
       // triggering an immediate save — keeping component concerns separated.
       const { nodes: storeNodes, edges: storeEdges } = getSnapshot();
-      onRestore(storeNodes, storeEdges);
+      onRestore(storeNodes, storeEdges, { deferSave: true, musicBlocks: snapshot.musicBlocks });
 
       onClose();
     },

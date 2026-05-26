@@ -34,6 +34,31 @@ import type { StoryboardHistoryPayload } from '../api';
 import { persistHistorySnapshot } from '../api';
 import { setNodes } from './storyboard-store';
 
+const MUSIC_BLOCK = {
+  id: '00000000-0000-4000-8000-000000000001',
+  draftId: '00000000-0000-4000-8000-000000000010',
+  name: 'Opening music',
+  sourceMode: 'generate_on_step3' as const,
+  prompt: null,
+  compositionPlan: null,
+  existingFileId: null,
+  startSceneBlockId: '00000000-0000-4000-8000-000000000020',
+  endSceneBlockId: '00000000-0000-4000-8000-000000000021',
+  positionX: 120,
+  positionY: 520,
+  sortOrder: 0,
+  volume: 0.8,
+  fadeInS: 0,
+  fadeOutS: 1,
+  loopMode: 'trim' as const,
+  generationStatus: null,
+  generationJobId: null,
+  outputFileId: null,
+  errorMessage: null,
+  createdAt: '2026-05-26T00:00:00Z',
+  updatedAt: '2026-05-26T00:00:00Z',
+};
+
 // ── Setup / teardown ───────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -175,6 +200,43 @@ describe('CanvasSnapshot thumbnail field (ST2)', () => {
       StoryboardHistoryPayload,
     ];
     expect(calledPayload.thumbnail).toBe(thumbnail);
+  });
+
+  it('forwards music blocks to persistHistorySnapshot payload when present', async () => {
+    const snapWithMusic: CanvasSnapshot = {
+      blocks: [],
+      edges: [],
+      musicBlocks: [MUSIC_BLOCK],
+    };
+
+    push(snapWithMusic);
+    await vi.advanceTimersByTimeAsync(1001);
+
+    const [, calledPayload] = vi.mocked(persistHistorySnapshot).mock.calls[0] as [
+      string,
+      StoryboardHistoryPayload,
+    ];
+    expect(calledPayload.musicBlocks?.[0]?.name).toBe('Opening music');
+  });
+
+  it('returns snapshot music blocks when undo applies a snapshot', () => {
+    const snapWithMusic: CanvasSnapshot = {
+      blocks: [],
+      edges: [],
+      musicBlocks: [MUSIC_BLOCK],
+    };
+    const snapWithoutMusic: CanvasSnapshot = {
+      blocks: [],
+      edges: [],
+      musicBlocks: [],
+    };
+
+    push(snapWithMusic);
+    push(snapWithoutMusic);
+
+    const applied = undo();
+
+    expect(applied?.musicBlocks).toEqual([MUSIC_BLOCK]);
   });
 
   it('omits thumbnail from persistHistorySnapshot payload when absent', async () => {

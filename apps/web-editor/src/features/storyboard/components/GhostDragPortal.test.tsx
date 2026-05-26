@@ -1,11 +1,11 @@
 import React from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 import type { Node } from '@xyflow/react';
 
 import type { GhostDragState } from '@/features/storyboard/hooks/useStoryboardDrag';
-import type { StoryboardBlock } from '@/features/storyboard/types';
+import type { MusicBlockNodeData, StoryboardBlock, StoryboardMusicBlock } from '@/features/storyboard/types';
 
 import { GhostDragPortal } from './GhostDragPortal';
 
@@ -36,6 +36,47 @@ function makeDragState(node: Node): GhostDragState {
     clientY: 180,
     nodeWidth: 220,
     nodeHeight: 120,
+  };
+}
+
+function makeMusicBlock(overrides: Partial<StoryboardMusicBlock> = {}): StoryboardMusicBlock {
+  return {
+    id: 'music-1',
+    draftId: 'draft-1',
+    name: 'Opening pulse',
+    sourceMode: 'generate_now',
+    prompt: 'Soft pulse',
+    compositionPlan: null,
+    existingFileId: null,
+    startSceneBlockId: 'scene-1',
+    endSceneBlockId: 'scene-2',
+    positionX: 120,
+    positionY: 520,
+    sortOrder: 0,
+    volume: 0.8,
+    fadeInS: 0,
+    fadeOutS: 1,
+    loopMode: 'trim',
+    generationStatus: 'running',
+    generationJobId: 'job-1',
+    outputFileId: null,
+    errorMessage: null,
+    createdAt: '2026-05-26T00:00:00.000Z',
+    updatedAt: '2026-05-26T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function makeMusicData(overrides: Partial<MusicBlockNodeData> = {}): MusicBlockNodeData {
+  return {
+    musicBlock: makeMusicBlock(),
+    rangeLabel: 'Opening - Close',
+    sourceLabel: 'Generate now',
+    statusLabel: 'Running',
+    isActive: true,
+    onEdit: () => {},
+    onHover: () => {},
+    ...overrides,
   };
 }
 
@@ -88,6 +129,38 @@ describe('GhostDragPortal', () => {
     );
 
     expect(screen.getByText('Image running')).toBeTruthy();
+  });
+
+  it('renders an inert disabled music block preview without opening the modal', () => {
+    const onEdit = vi.fn();
+    const onHover = vi.fn();
+
+    render(
+      <GhostDragPortal
+        dragState={makeDragState({
+          id: 'music-1',
+          type: 'music-block',
+          position: { x: 120, y: 520 },
+          data: makeMusicData({ onEdit, onHover }),
+        })}
+      />,
+    );
+
+    const clone = screen.getByTestId('ghost-drag-clone');
+    expect(clone.getAttribute('aria-hidden')).toBe('true');
+    expect(clone.hasAttribute('inert')).toBe(true);
+    expect(clone.style.pointerEvents).toBe('none');
+    expect(screen.getByTestId('music-block-title').textContent).toBe('Opening pulse');
+    expect(screen.getByTestId('music-source-badge').textContent).toBe('Generate now');
+    expect(screen.getByTestId('music-status-badge').textContent).toBe('Running');
+    expect(screen.getByTestId('music-range-label').textContent).toBe('Opening - Close');
+    expect(screen.getByTestId('music-preview-affordance')).toBeTruthy();
+
+    fireEvent.mouseEnter(screen.getByTestId('music-block-node'));
+    fireEvent.click(screen.getByTestId('music-block-node'));
+
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(onHover).not.toHaveBeenCalled();
   });
 
   it('renders START and END sentinel previews', () => {

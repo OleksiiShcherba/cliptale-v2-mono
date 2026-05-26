@@ -14,6 +14,19 @@ export const BUCKET = 'test-bucket';
 export const JOB_ID = 'job-1';
 export const USER_ID = 'user-1';
 export const AUDIO_BYTES = Buffer.from([0x49, 0x44, 0x33]); // fake mp3 bytes
+export const COMPOSITION_PLAN = {
+  positive_global_styles: ['cinematic', 'warm strings'],
+  negative_global_styles: ['harsh'],
+  sections: [
+    {
+      section_name: 'Main',
+      positive_local_styles: ['gentle piano'],
+      negative_local_styles: [],
+      duration_ms: 30_000,
+      lines: [],
+    },
+  ],
+};
 
 export function makeMocks() {
   const execute = vi.fn().mockResolvedValue([]);
@@ -28,6 +41,7 @@ export function makeMocks() {
   const textToSpeech = vi.fn().mockResolvedValue(AUDIO_BYTES);
   const voiceClone = vi.fn().mockResolvedValue({ voiceId: 'el-voice-abc' });
   const speechToSpeech = vi.fn().mockResolvedValue(AUDIO_BYTES);
+  const createMusicCompositionPlan = vi.fn().mockResolvedValue(COMPOSITION_PLAN);
   const musicGeneration = vi.fn().mockResolvedValue(AUDIO_BYTES);
 
   const fetchMock = vi.fn().mockResolvedValue({
@@ -52,6 +66,7 @@ export function makeMocks() {
     textToSpeech,
     voiceClone,
     speechToSpeech,
+    createMusicCompositionPlan,
     musicGeneration,
     fetchMock,
     filesRepoCreateFile,
@@ -69,6 +84,7 @@ export function makeDeps(m: ReturnType<typeof makeMocks>): AudioHandlerDeps {
       textToSpeech: m.textToSpeech as unknown as AudioHandlerDeps['elevenlabs']['textToSpeech'],
       voiceClone: m.voiceClone as unknown as AudioHandlerDeps['elevenlabs']['voiceClone'],
       speechToSpeech: m.speechToSpeech as unknown as AudioHandlerDeps['elevenlabs']['speechToSpeech'],
+      createMusicCompositionPlan: m.createMusicCompositionPlan as unknown as AudioHandlerDeps['elevenlabs']['createMusicCompositionPlan'],
       musicGeneration: m.musicGeneration as unknown as AudioHandlerDeps['elevenlabs']['musicGeneration'],
     },
     ingestQueue: m.ingestQueue,

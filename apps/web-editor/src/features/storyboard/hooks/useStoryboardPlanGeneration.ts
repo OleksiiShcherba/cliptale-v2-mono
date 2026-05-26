@@ -16,20 +16,23 @@ import {
   startStoryboardPlan,
 } from '@/features/storyboard/api';
 import type {
+  MusicBlockNodeData,
   SceneBlockNodeData,
   SentinelNodeData,
   StoryboardBlock,
   StoryboardEdge,
+  StoryboardMusicBlock,
   StoryboardPlanGenerationStatus,
 } from '@/features/storyboard/types';
+import { musicBlockToNode, orderStoryboardSceneBlocks } from './useStoryboardMusic';
 
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 
 export type StoryboardPlanFlowNode = {
   id: string;
-  type: 'start' | 'end' | 'scene-block';
+  type: 'start' | 'end' | 'scene-block' | 'music-block';
   position: { x: number; y: number };
-  data: SceneBlockNodeData | SentinelNodeData;
+  data: SceneBlockNodeData | SentinelNodeData | MusicBlockNodeData;
   draggable: boolean;
   deletable: boolean;
 };
@@ -117,10 +120,17 @@ function edgeToFlowEdge(edge: StoryboardEdge): StoryboardPlanFlowEdge {
 function toCanvasState(
   blocks: StoryboardBlock[],
   edges: StoryboardEdge[],
+  musicBlocks: StoryboardMusicBlock[],
   onRemoveNode: (nodeId: string) => void,
 ): StoryboardPlanCanvasState {
+  const orderedScenes = orderStoryboardSceneBlocks(blocks, edges);
   return {
-    nodes: blocks.map((block) => blockToNode(block, onRemoveNode)),
+    nodes: [
+      ...blocks.map((block) => blockToNode(block, onRemoveNode)),
+      ...musicBlocks.map((musicBlock) =>
+        musicBlockToNode(musicBlock, orderedScenes as StoryboardBlock[]) as StoryboardPlanFlowNode,
+      ),
+    ],
     edges: edges.map(edgeToFlowEdge),
   };
 }
@@ -205,7 +215,12 @@ export function useStoryboardPlanGeneration(
       const appliedState = await applyLatestStoryboardPlan(draftIdForGeneration);
       if (!isCurrentGeneration(draftIdForGeneration, token)) return;
 
-      setCanvasState(toCanvasState(appliedState.blocks, appliedState.edges, onRemoveNode));
+      setCanvasState(toCanvasState(
+        appliedState.blocks,
+        appliedState.edges,
+        appliedState.musicBlocks,
+        onRemoveNode,
+      ));
       await queryClient.invalidateQueries({ queryKey: ['storyboard-history', draftIdForGeneration] });
       if (!isCurrentGeneration(draftIdForGeneration, token)) return;
 

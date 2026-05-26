@@ -58,6 +58,7 @@ export type Mocks = {
   elevenLabsTextToSpeech: ReturnType<typeof vi.fn>;
   elevenLabsVoiceClone: ReturnType<typeof vi.fn>;
   elevenLabsSpeechToSpeech: ReturnType<typeof vi.fn>;
+  elevenLabsCreateMusicCompositionPlan: ReturnType<typeof vi.fn>;
   elevenLabsMusicGeneration: ReturnType<typeof vi.fn>;
   ingestQueue: Queue<MediaIngestJobPayload>;
   ingestAdd: ReturnType<typeof vi.fn>;
@@ -96,6 +97,19 @@ export function makeMocks(output: unknown): Mocks {
   const elevenLabsTextToSpeech = vi.fn().mockResolvedValue(Buffer.from([0x49, 0x44, 0x33]));
   const elevenLabsVoiceClone = vi.fn().mockResolvedValue({ voiceId: 'el-voice-123' });
   const elevenLabsSpeechToSpeech = vi.fn().mockResolvedValue(Buffer.from([0x49, 0x44, 0x33]));
+  const elevenLabsCreateMusicCompositionPlan = vi.fn().mockResolvedValue({
+    positive_global_styles: ['ambient'],
+    negative_global_styles: [],
+    sections: [
+      {
+        section_name: 'Main',
+        positive_local_styles: ['soft piano'],
+        negative_local_styles: [],
+        duration_ms: 30_000,
+        lines: [],
+      },
+    ],
+  });
   const elevenLabsMusicGeneration = vi.fn().mockResolvedValue(Buffer.from([0x49, 0x44, 0x33]));
 
   // filesRepo.createFile resolves with the fileId that was passed in
@@ -117,6 +131,7 @@ export function makeMocks(output: unknown): Mocks {
     elevenLabsTextToSpeech,
     elevenLabsVoiceClone,
     elevenLabsSpeechToSpeech,
+    elevenLabsCreateMusicCompositionPlan,
     elevenLabsMusicGeneration,
     ingestQueue,
     ingestAdd,
@@ -143,6 +158,7 @@ export function makeDeps(m: Mocks): AiGenerateJobDeps {
       textToSpeech: m.elevenLabsTextToSpeech as unknown as AiGenerateJobDeps['elevenlabs']['textToSpeech'],
       voiceClone: m.elevenLabsVoiceClone as unknown as AiGenerateJobDeps['elevenlabs']['voiceClone'],
       speechToSpeech: m.elevenLabsSpeechToSpeech as unknown as AiGenerateJobDeps['elevenlabs']['speechToSpeech'],
+      createMusicCompositionPlan: m.elevenLabsCreateMusicCompositionPlan as unknown as AiGenerateJobDeps['elevenlabs']['createMusicCompositionPlan'],
       musicGeneration: m.elevenLabsMusicGeneration as unknown as AiGenerateJobDeps['elevenlabs']['musicGeneration'],
     },
     ingestQueue: m.ingestQueue,

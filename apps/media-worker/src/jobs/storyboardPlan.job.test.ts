@@ -7,6 +7,7 @@ import type {
   StoryboardPlan,
   StoryboardPlanJobPayload,
 } from '@ai-video-editor/project-schema';
+import { STORYBOARD_PLAN_SCHEMA_VERSION } from '@ai-video-editor/project-schema';
 
 import {
   resolveStoryboardPlanContext,
@@ -123,7 +124,7 @@ function makeContext(modelPreference: string | null = 'gpt-4o'): StoryboardPlanR
 
 function makeValidPlan(): StoryboardPlan {
   return {
-    schemaVersion: 1,
+    schemaVersion: STORYBOARD_PLAN_SCHEMA_VERSION,
     videoLengthSeconds: 30,
     sceneCount: 5,
     scenes: Array.from({ length: 5 }, (_, index) => ({
@@ -138,12 +139,13 @@ function makeValidPlan(): StoryboardPlan {
       transitionNotes: index === 4 ? 'End cleanly.' : 'Cut on motion.',
       style: 'product',
     })),
+    musicSegments: [],
   };
 }
 
 function makeCustomLengthPlan(): StoryboardPlan {
   return {
-    schemaVersion: 1,
+    schemaVersion: STORYBOARD_PLAN_SCHEMA_VERSION,
     videoLengthSeconds: 45,
     sceneCount: 8,
     scenes: Array.from({ length: 8 }, (_, index) => ({
@@ -162,6 +164,35 @@ function makeCustomLengthPlan(): StoryboardPlan {
       transitionNotes: 'Cut cleanly.',
       style: 'product',
     })),
+    musicSegments: [],
+  };
+}
+
+function makeValidPlanWithMusic(): StoryboardPlan {
+  return {
+    ...makeValidPlan(),
+    musicSegments: [
+      {
+        name: 'Main background music',
+        prompt: 'Warm instrumental cue with gentle product-launch momentum.',
+        compositionPlan: {
+          positive_global_styles: ['cinematic', 'instrumental', 'warm pulse'],
+          negative_global_styles: ['vocals', 'lyrics', 'singing'],
+          sections: [
+            {
+              section_name: 'Full story cue',
+              positive_local_styles: ['steady lift'],
+              negative_local_styles: ['spoken word'],
+              duration_ms: 30_000,
+              lines: [],
+            },
+          ],
+        },
+        startSceneNumber: 1,
+        endSceneNumber: 5,
+        sourceMode: 'generate_on_step3',
+      },
+    ],
   };
 }
 
@@ -236,6 +267,10 @@ describe('processStoryboardPlanJob', () => {
     expect(STORYBOARD_PLAN_SYSTEM_PROMPT).toContain('cinematic timing');
     expect(STORYBOARD_PLAN_SYSTEM_PROMPT).toContain('previous scene and into the next scene');
     expect(STORYBOARD_PLAN_SYSTEM_PROMPT).toContain('without provider-specific jargon');
+    expect(STORYBOARD_PLAN_SYSTEM_PROMPT).toContain('musicSegments');
+    expect(STORYBOARD_PLAN_SYSTEM_PROMPT).toContain('generate_on_step3');
+    expect(STORYBOARD_PLAN_SYSTEM_PROMPT).toContain('instrumental');
+    expect(STORYBOARD_PLAN_SYSTEM_PROMPT).toContain('section durations must total');
 
     const userContent = callArg.messages[1]!.content as Array<unknown>;
     expect(userContent).toHaveLength(3);
@@ -425,7 +460,12 @@ describe('processStoryboardPlanJob', () => {
     const createSpy = openai.chat.completions.create as ReturnType<typeof vi.fn>;
     const userContent = createSpy.mock.calls[0]![0].messages[1].content as Array<{ text?: string }>;
     const userPrompt = JSON.parse(userContent[0]!.text ?? '{}') as {
-      constraints: { videoLengthSeconds: number; sceneCount: number; aspectRatio: string };
+      constraints: {
+        videoLengthSeconds: number;
+        sceneCount: number;
+        aspectRatio: string;
+        musicPlanning: { sourceMode: string; instrumentalDefault: string };
+      };
       media: Array<{ fileId: string; transcript: string | null; contextStrategy: string }>;
     };
     expect(userPrompt.constraints).toMatchObject({
@@ -433,6 +473,10 @@ describe('processStoryboardPlanJob', () => {
       sceneCount: 8,
       aspectRatio: '9:16',
     });
+    expect(userPrompt.constraints.musicPlanning).toMatchObject({
+      sourceMode: 'generate_on_step3',
+    });
+    expect(userPrompt.constraints.musicPlanning.instrumentalDefault).toContain('empty lines arrays');
     expect(userPrompt.media).toEqual(expect.arrayContaining([
       expect.objectContaining({ fileId: VIDEO_ID, transcript: 'The demo clip opens on the product.' }),
       expect.objectContaining({ fileId: AUDIO_ID, transcript: 'Meet the faster way to launch.' }),
@@ -506,6 +550,62 @@ describe('processStoryboardPlanJob', () => {
     };
     const repository = makeRepository();
     const openai = makeOpenAiMock(JSON.stringify(invalidPlan));
+
+    await expect(processStoryboardPlanJob(makeJob(), {
+      openai,
+      pool,
+      repository,
+      resolveContext: vi.fn(async () => makeContext()),
+    })).rejects.toBeInstanceOf(UnrecoverableError);
+
+    expect(repository.markFailed).toHaveBeenCalledWith(
+      JOB_ID,
+      expect.objectContaining({ name: 'StoryboardPlanSchemaValidationError' }),
+    );
+    expect(repository.markCompleted).not.toHaveBeenCalled();
+  });
+
+  it('persists valid v2 music plans with instrumental composition plans', async () => {
+    const repository = makeRepository();
+    const musicPlan = makeValidPlanWithMusic();
+    const openai = makeOpenAiMock(JSON.stringify(musicPlan));
+
+    const result = await processStoryboardPlanJob(makeJob(), {
+      openai,
+      pool,
+      repository,
+      resolveContext: vi.fn(async () => makeContext()),
+    });
+
+    expect(result.musicSegments).toHaveLength(1);
+    expect(result.musicSegments[0]).toMatchObject({
+      sourceMode: 'generate_on_step3',
+      startSceneNumber: 1,
+      endSceneNumber: 5,
+    });
+    expect(result.musicSegments[0]!.compositionPlan.sections[0]!.lines).toEqual([]);
+    expect(repository.markCompleted).toHaveBeenCalledWith(expect.objectContaining({
+      plan: musicPlan,
+    }));
+  });
+
+  it('marks failed for planner music segments that are not default instrumental auto-generation', async () => {
+    const repository = makeRepository();
+    const nonInstrumentalPlan = makeValidPlanWithMusic();
+    nonInstrumentalPlan.musicSegments[0] = {
+      ...nonInstrumentalPlan.musicSegments[0]!,
+      sourceMode: 'generate_now',
+      compositionPlan: {
+        ...nonInstrumentalPlan.musicSegments[0]!.compositionPlan,
+        sections: [
+          {
+            ...nonInstrumentalPlan.musicSegments[0]!.compositionPlan.sections[0]!,
+            lines: ['Launch with us tonight'],
+          },
+        ],
+      },
+    };
+    const openai = makeOpenAiMock(JSON.stringify(nonInstrumentalPlan));
 
     await expect(processStoryboardPlanJob(makeJob(), {
       openai,

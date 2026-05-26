@@ -147,12 +147,13 @@ describe('FalFieldType union', () => {
       'audio_url',
       'audio_upload',
       'voice_picker',
+      'composition_plan',
     ];
     // Verify each expected type is assignable (compile-time check covered by TypeScript;
     // this runtime loop documents the full set for readers).
     for (const t of expectedTypes) {
       expect(typeof t).toBe('string');
     }
-    expect(expectedTypes).toHaveLength(11);
+    expect(expectedTypes).toHaveLength(12);
   });
 });

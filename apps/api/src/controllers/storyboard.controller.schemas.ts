@@ -5,6 +5,7 @@
  */
 
 import { z } from 'zod';
+import { storyboardMusicBlockSchema } from '@ai-video-editor/project-schema';
 
 /** A single media attachment within a block (used in PUT body). */
 const blockMediaItemSchema = z.object({
@@ -38,10 +39,31 @@ export const edgeInsertSchema = z.object({
   targetBlockId: z.string().uuid(),
 });
 
+/** A storyboard background music block in the PUT body. */
+export const musicBlockInsertSchema = storyboardMusicBlockSchema.pick({
+  id: true,
+  draftId: true,
+  name: true,
+  sourceMode: true,
+  prompt: true,
+  compositionPlan: true,
+  existingFileId: true,
+  startSceneBlockId: true,
+  endSceneBlockId: true,
+  positionX: true,
+  positionY: true,
+  sortOrder: true,
+  volume: true,
+  fadeInS: true,
+  fadeOutS: true,
+  loopMode: true,
+});
+
 /** PUT /storyboards/:draftId body schema. */
 export const saveStoryboardBodySchema = z.object({
   blocks: z.array(blockInsertSchema),
   edges: z.array(edgeInsertSchema),
+  musicBlocks: z.array(musicBlockInsertSchema).optional(),
 });
 
 /** POST /storyboards/:draftId/history body schema. */

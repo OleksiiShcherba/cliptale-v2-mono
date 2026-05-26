@@ -1157,6 +1157,359 @@
 - checked by design-reviewer - APPROVED
 - checked by playwright-reviewer - APPROVED
 
+## Storyboard Music Blocks with ElevenLabs Composition Plans — STB-MUSIC-1 (2026-05-26)
+- implemented: added shared project-schema contracts for ElevenLabs Music composition plans, composition plan sections, storyboard music source modes, generation statuses, and fully hydrated storyboard music blocks.
+- implemented: extended storyboard plans to schema version 2 with `musicSegments`, scene-number music ranges, default `generate_on_step3` source mode, and legacy v1 normalization to v2 with an empty music list.
+- implemented: documented OpenAPI schemas for `StoryboardMusicBlock`, `StoryboardPlanMusicSegment`, `ElevenLabsCompositionPlan`, composition plan sections, and optional `StoryboardState.musicBlocks` until STB-MUSIC-2 persistence hydrates runtime storyboard responses.
+- implemented: added matching frontend-local storyboard music and composition-plan types.
+- tests: `npm --workspace packages/project-schema test -- storyboardPlan storyboardMusic` -> 2 files / 25 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- openapi.storyboard openapi.generation-drafts` -> 4 files / 103 tests passed.
+- typecheck: `npm --workspace packages/project-schema run typecheck` -> passed.
+- typecheck: `npm --workspace packages/api-contracts run typecheck` -> passed.
+- active task: removed only `STB-MUSIC-1` from `docs/active_task.md`; `STB-MUSIC-2` remains next.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - COMMENTED
+- checked by playwright-reviewer - COMMENTED
+
+## Storyboard Music Blocks with ElevenLabs Composition Plans — STB-MUSIC-2 (2026-05-26)
+- implemented: added `storyboard_music_blocks` and `storyboard_music_generation_jobs` migrations with music range columns on music blocks and active-lock generation mappings.
+- implemented: added storyboard music repository support for listing, replacing, updating, locking active jobs, preserving mappings, status updates, and output-file linking.
+- implemented: threaded `musicBlocks` through storyboard load/save responses, save validation, full-replace persistence, history snapshots, and frontend history payload contracts.
+- implemented: preserved existing music blocks when autosave omits `musicBlocks`, preserved active music jobs when retained block ids survive a full replace, and rejected music ranges that reference deleted/missing scene blocks.
+- implemented: updated OpenAPI storyboard schemas so responses include required `musicBlocks` and PUT bodies can optionally provide music blocks.
+- tests: `npm --workspace apps/api test -- storyboardMusic storyboard.integration` -> 4 files / 28 tests passed.
+- tests: `npm --workspace apps/api run typecheck` -> passed.
+- tests: `npm --workspace apps/web-editor test -- storyboard-history-store useStoryboardAutosave` -> 4 files / 37 tests passed (existing React `act(...)` warnings emitted by autosave save-now tests).
+- tests: `npm --workspace packages/api-contracts test -- openapi.storyboard` -> 2 files / 95 tests passed.
+- typecheck: `npm --workspace packages/api-contracts run typecheck` -> passed.
+- active task: removed only `STB-MUSIC-2` from `docs/active_task.md`; `STB-MUSIC-3` remains next.
+- fix loop: normalized submitted music block `draftId`s to the route draft, enforced same-draft scene refs in service and repository guards, and covered omitted-`musicBlocks` PUT preservation with active music job hydration.
+- fix loop: replaced duplicated API composition-plan validation with shared `@ai-video-editor/project-schema` music schemas and added regression tests for section names, lyric limits, and total duration limits.
+- fix loop: made frontend `StoryboardState.musicBlocks` required, added explicit save/history payload types where omission is intentional, and carried snapshot music blocks through undo/redo/manual restore persistence.
+- fix loop: added the missing OpenAPI `StoryboardMusicSourceMode` component referenced by music insert schemas.
+- fix loop tests: `npm --workspace packages/project-schema run build` -> passed.
+- fix loop tests: `npm --workspace apps/api test -- storyboard.controller.schemas storyboardMusic.service storyboard.service` -> 5 files / 31 tests passed.
+- fix loop tests: `npm --workspace apps/api test -- storyboardMusic.integration` -> 1 file / 6 tests passed.
+- fix loop tests: `npm --workspace packages/api-contracts test -- openapi.storyboard.schemas` -> 1 file / 47 tests passed.
+- fix loop tests: `npm --workspace apps/web-editor test -- storyboard-history-store.snapshot-payload useHandleRestore StoryboardHistoryPanel useStoryboardAutosave.save-now useStoryboardAutosave useStoryboardCanvas useStoryboardPlanGeneration` -> 8 files / 69 tests passed (existing React `act(...)` warnings emitted by autosave save-now tests).
+- fix loop typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- fix loop typecheck: `npm --workspace packages/api-contracts run typecheck` -> passed.
+- fix loop typecheck: `npm --workspace apps/web-editor run typecheck` -> failed on existing unrelated web-editor type debt; filtered storyboard output only showed pre-existing `StoryboardCanvas.knife.test.tsx` definite-assignment errors.
+- fix loop: added frontend `StoryboardMusicBlockSaveInput` and a music save serializer so PUT/autosave payloads exclude hydrated generation/job/output/error/timestamp fields even when given full snapshot blocks.
+- fix loop: restore keeps hydrated music blocks in history snapshots but maps restored music to the save shape before calling `saveNow`.
+- fix loop tests: `npm --workspace apps/web-editor test -- storyboard-api useStoryboardAutosave.music-save useHandleRestore` -> 3 files / 54 tests passed.
+- fix loop tests: `npm --workspace apps/web-editor test -- useStoryboardAutosave storyboard-history-store.snapshot-payload StoryboardHistoryPanel` -> 6 files / 44 tests passed (existing React `act(...)` warnings emitted by autosave save-now tests).
+- fix loop typecheck: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "storyboard/(api|types|hooks/useStoryboardAutosave|hooks/useHandleRestore|hooks/useStoryboardHistoryPush|utils/musicBlockSaveInput|__tests__/storyboard-api|hooks/useStoryboardAutosave\\.music-save|store/storyboard-history-store|__tests__/StoryboardHistoryPanel)" || true` -> no matching output.
+- fix loop: queued autosave retries now retain the latest explicit music override while another save is in flight and replay the sanitized save shape without hydrated generation/job/output/error/timestamp fields.
+- fix loop: split autosave payload dedupe from canvas dirty-check keys so a successful save with a music override no longer makes `beforeunload` compare against mismatched key semantics.
+- fix loop tests: `npm --workspace apps/web-editor test -- useStoryboardAutosave.music-save useStoryboardAutosave.save-now useStoryboardAutosave` -> 3 files / 19 tests passed (existing React `act(...)` warnings emitted by autosave save-now tests).
+- fix loop typecheck: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "storyboard/hooks/useStoryboardAutosave(\\.music-save|\\.save-now)?|storyboard/utils/musicBlockSaveInput" || true` -> no matching output.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - COMMENTED
+- checked by playwright-reviewer - COMMENTED
+
+## 2026-05-26 - STB-MUSIC-3 Generate default music plans during Step 1 -> Step 2 storyboard planning
+- implemented: expanded storyboard planner system/user prompts so v2 plans include default `musicSegments` with `generate_on_step3`, instrumental composition-plan guidance, 1-3 cue guidance, and duration matching from covered scene ranges.
+- implemented: added planner validation for default auto-generated music segments so non-`generate_on_step3` planner output or lyric lines fail deterministically before persistence.
+- implemented: validated storyboard plan music composition duration against covered scene durations while keeping legacy v1 no-music plans normalized to v2 with an empty music list.
+- implemented: applied completed plans now creates music blocks in the same storyboard replace transaction, maps `startSceneNumber/endSceneNumber` to generated scene block ids, uses readable `Music NN - ...` names, places blocks below the scene row, and includes them in the apply history snapshot.
+- tests: `npm --workspace packages/project-schema test -- storyboardPlan` -> 1 file / 20 tests passed.
+- tests: `npm --workspace apps/media-worker test -- storyboardPlan` -> 2 files / 25 tests passed.
+- tests: `npm --workspace apps/api test -- storyboardPlanApply storyboardGraph` -> 1 file / 4 tests passed; local filter did not match the plan-apply filename.
+- tests: `npm --workspace apps/api test -- storyboard.service.plan-apply storyboardGraph` -> 2 files / 11 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- typecheck: `npm --workspace apps/media-worker run typecheck` -> passed.
+- typecheck: `npm --workspace packages/project-schema run typecheck` -> passed.
+- active task: removed only `STB-MUSIC-3` from `docs/active_task.md`; `STB-MUSIC-4` remains next.
+- code-quality fix: normalized the touched web-editor storyboard music save/history imports to `@/features/storyboard/...` for cross-folder feature references; no behavior changes.
+- code-quality fix validation: focused import scan returned no cross-folder relative matches in the named files, filtered web-editor typecheck returned no matching touched-file output, and `git diff --check` passed for the touched files.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - COMMENTED
+- checked by playwright-reviewer - COMMENTED
+
+## 2026-05-26 - STB-MUSIC-4 ElevenLabs music composition-plan execution support
+- implemented: replaced the ElevenLabs music generation worker path with Music API support for `POST /v1/music` composition and `POST /v1/music/plan` prompt-based plan creation.
+- implemented: added typed Music API client params for composition plans, music length in milliseconds, section-duration respect, `music_v1` model id, and prompt-only instrumental forcing.
+- implemented: updated the audio handler so composition-plan jobs compose directly to MP3 through the existing Files-as-Root upload, file row, media-ingest, and output-file linkage flow.
+- implemented: prompt-only music jobs now create a composition plan first, normalize it to instrumental by default, store the resolved plan back on `ai_generation_jobs.options`, and compose from the plan without sending prompt and composition_plan together.
+- implemented: extended the AI catalog, options validator, and submit guard so structured `composition_plan` jobs validate safely while TTS, speech-to-speech, and voice-cloning paths remain unchanged.
+- tests: `npm --workspace apps/media-worker test -- elevenlabs-client ai-generate-audio` -> 6 files / 52 tests passed.
+- tests: `npm --workspace packages/api-contracts test -- elevenlabs-models` -> 1 file / 19 tests passed.
+- build: `npm --workspace packages/api-contracts run build` -> passed; required so API workspace tests import the updated local contracts dist.
+- tests: `npm --workspace apps/api test -- aiGeneration falOptions` -> 6 files / 69 tests passed; BullMQ emitted existing Redis 6.2 recommendation warnings against local Redis 6.0.16.
+- typecheck: `npm --workspace apps/media-worker run typecheck` -> passed.
+- tests: `npm --workspace apps/web-editor test -- SchemaFieldInput types` -> 3 files / 24 tests passed.
+- typecheck: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "SchemaFieldInput|types\\.test|composition_plan|FalFieldType" || true` -> no matching output for touched shared AI-generation files.
+- active task: removed only `STB-MUSIC-4` from `docs/active_task.md`; `STB-MUSIC-5` remains next.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - COMMENTED
+- checked by playwright-reviewer - COMMENTED
+
+## 2026-05-26 - STB-MUSIC-5 Backend music APIs, status, and idempotent generation orchestration
+- implemented: added storyboard music endpoints for listing, updating, generate-now, and generate-pending orchestration under `/storyboards/:draftId/music`.
+- implemented: added backend music service ownership checks, range validation by storyboard order, existing ready-audio validation, ElevenLabs Music job submission through `submitGeneration`, latest AI job status refresh, draft-file output linkage, and existing-track immediate `ready` resolution.
+- implemented: adjusted music generation job locks so only queued/running jobs hold the active lock; ready/failed jobs release it to support retry/regenerate without allowing duplicate active jobs.
+- implemented: split storyboard music generation-job SQL into a dedicated repository module to keep the music block repository under the 300-line cap.
+- implemented: added OpenAPI contract coverage and frontend storyboard API helpers for the new music endpoints.
+- tests: `npm --workspace apps/api test -- storyboardMusic storyboard-music aiGeneration` -> 9 files / 77 tests passed; BullMQ emitted existing Redis 6.2 recommendation warnings against local Redis 6.0.16.
+- tests: `npm --workspace packages/api-contracts test -- openapi.storyboard` -> 3 files / 100 tests passed.
+- tests: `npm --workspace apps/web-editor test -- storyboard-api.music` -> 1 file / 5 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- typecheck: `npm --workspace packages/api-contracts run typecheck` -> passed.
+- typecheck: `npm --workspace apps/web-editor run typecheck` -> failed on pre-existing broad web-editor test/type issues outside touched storyboard music files.
+- typecheck: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "features/storyboard/(api|types|__tests__/storyboard-api\\.music)" || true` -> no matching output for touched storyboard music helper files.
+- active task: removed only `STB-MUSIC-5` from `docs/active_task.md`; `STB-MUSIC-6` remains next.
+- fix loop: full storyboard `PUT /storyboards/:draftId` now validates every existing-mode music block against the shared ready-audio ownership/kind/status check before replacing rows.
+- fix loop: full storyboard save validation now interprets music scene ranges through `orderStoryboardSceneBlocks(blocks, edges)` and rejects reversed start/end ranges before the destructive replace.
+- fix loop: added PUT integration coverage for cross-user, non-audio, non-ready existing files, and reversed graph-order music ranges preserving the previous persisted music rows.
+- fix loop: added music endpoint coverage for completed output refresh into ready status with draft-file linking, failed retry/dedupe, generate-pending null/queued/running/ready/failed states, and foreign draft access rejection on list/update/generate routes.
+- fix loop tests: `npm --workspace apps/api test -- storyboardMusic storyboard-music storyboardGraph` -> 5 files / 35 tests passed; BullMQ emitted the existing Redis 6.2 recommendation for local Redis 6.0.16.
+- fix loop typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- fix loop hygiene: `git diff --check -- apps/api/src/services/storyboard.service.ts apps/api/src/services/storyboardMusic.service.ts apps/api/src/services/storyboardMusicRange.service.ts apps/api/src/services/storyboardGraph.service.ts apps/api/src/__tests__/integration/storyboardMusic.integration.test.ts apps/api/src/__tests__/integration/storyboard-music-endpoints.test.ts docs/development_logs.md` -> passed.
+- code-quality fix: split oversized storyboard music integration fixtures into `storyboardMusic.fixtures.ts` and `storyboard-music-endpoints.fixtures.ts`, and moved generate-pending/access endpoint scenarios into `storyboard-music-generate-pending.test.ts`; production behavior unchanged.
+- code-quality fix: preserved STB-MUSIC-5 integration coverage for full PUT validation, generated output refresh/linking, failed retry/dedupe, generate-pending filtering, ownership, and foreign file rejection while bringing touched API test/helper files under the 300-line cap.
+- code-quality fix line count: `storyboardMusic.integration.test.ts` 296L, `storyboardMusic.fixtures.ts` 214L, `storyboard-music-endpoints.test.ts` 190L, `storyboard-music-endpoints.fixtures.ts` 232L, `storyboard-music-generate-pending.test.ts` 196L.
+- code-quality fix tests: `npm --workspace apps/api test -- storyboardMusic storyboard-music` -> 5 files / 31 tests passed; BullMQ emitted the existing Redis 6.2 recommendation for local Redis 6.0.16.
+- code-quality fix typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- code-quality fix hygiene: `git diff --check -- apps/api/src/__tests__/integration/storyboardMusic.integration.test.ts apps/api/src/__tests__/integration/storyboardMusic.fixtures.ts apps/api/src/__tests__/integration/storyboard-music-endpoints.test.ts apps/api/src/__tests__/integration/storyboard-music-endpoints.fixtures.ts apps/api/src/__tests__/integration/storyboard-music-generate-pending.test.ts docs/development_logs.md` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - COMMENTED
+- checked by playwright-reviewer - COMMENTED
+
+## 2026-05-26 - STB-MUSIC-6 Include resolved storyboard music in Step 3 project assembly
+- implemented: `buildStoryboardProjectDoc()` now creates a storyboard music audio track and audio clips from resolved music blocks while preserving image-only and video project visual tracks.
+- implemented: music clip start/duration frames are computed from `orderStoryboardSceneBlocks()` order and fail with actionable validation when saved ranges reference missing scenes or reverse current story order.
+- implemented: music file resolution supports existing audio file ids and ready generated outputs for `generate_now` / `generate_on_step3`; resolved music file ids are included in `usedFileIds`, project file links, and inserted clip rows.
+- implemented: Step 3 backend assembly now loads locked music blocks and blocks project creation until all required music is resolved and range-valid.
+- implemented: Step 3 frontend starts pending music generation, polls music readiness in both image and video modes, waits for videos and music in video mode, and shows retry/back behavior for music failures.
+- tests: `npm --workspace apps/api test -- storyboardProjectDoc storyboardProject storyboard-music` -> 8 files / 33 tests passed.
+- tests: `npm --workspace apps/web-editor test -- GenerateProjectFromStoryboardPage storyboard-api` -> 3 files / 56 tests passed.
+- tests: `npm --workspace packages/project-schema test -- project-doc` -> 1 file / 13 tests passed.
+- typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- hygiene: split focused storyboard project doc/service tests by video, music, and persistence groups so touched files stay under the 300-line cap.
+- active task: removed only `STB-MUSIC-6` from `docs/active_task.md`; `STB-MUSIC-7` remains next.
+- fix loop: Step 3 pending music generation now fails unresolved `generate_now` music blocks fast with an actionable Step 3 response instead of surfacing them as active queued work.
+- fix loop: Step 3 UI now maps music generation/provider/API failures to product-level copy and no longer renders raw provider text from music status or music request errors.
+- fix loop tests: `npm --workspace apps/api test -- storyboard-music-generate-pending storyboardMusic storyboardProject` -> 10 files / 52 tests passed; BullMQ emitted the existing Redis 6.2 recommendation for local Redis 6.0.16.
+- fix loop tests: `npm --workspace apps/web-editor test -- GenerateProjectFromStoryboardPage` -> 1 file / 13 tests passed.
+- fix loop typecheck: `npm --workspace apps/api run typecheck 2>&1 | rg "storyboardMusic\\.service|storyboard-music-generate-pending|storyboardProject" || true` -> no matching output for touched API files.
+- fix loop typecheck: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "GenerateProjectFromStoryboardPage|features/storyboard/(api|types)" || true` -> no matching output for touched web files.
+- fix loop hygiene: `git diff --check -- docs/development_logs.md apps/api/src/services/storyboardMusic.service.ts apps/api/src/__tests__/integration/storyboard-music-generate-pending.test.ts apps/web-editor/src/features/generate-wizard/components/GenerateProjectFromStoryboardPage.tsx apps/web-editor/src/features/generate-wizard/components/GenerateProjectFromStoryboardPage.test.tsx` -> passed.
+- design fix: Step 3 now maps endpoint-shaped storyboard music polling failures to the product-level background music retry/back copy and does not render route, draft id, status, or provider details.
+- design fix tests: `npm --workspace apps/web-editor test -- GenerateProjectFromStoryboardPage` -> 1 file / 14 tests passed.
+- design fix hygiene: `git diff --check -- apps/web-editor/src/features/generate-wizard/components/GenerateProjectFromStoryboardPage.tsx apps/web-editor/src/features/generate-wizard/components/GenerateProjectFromStoryboardPage.test.tsx docs/development_logs.md` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - COMMENTED
+
+## 2026-05-26 - STB-MUSIC-7 Frontend music block canvas, inspector, and source controls
+- implemented: Step 2 now hydrates storyboard `musicBlocks` as React Flow `music-block` nodes via `MusicBlockNode`, including compact source, status, range label, and preview affordance.
+- implemented: music inspector modal supports Existing track / Generate now / Auto later modes, audio-only asset selection, prompt editing, composition plan summary, generate/regenerate/retry action, ordered scene range selectors, range mini-lane, volume, fade in/out, and loop/trim controls.
+- implemented: scene blocks show covered-music indicators and highlight covered scenes when a music block is selected or hovered; coverage is derived from `startSceneBlockId/endSceneBlockId` through graph order, not canvas position.
+- implemented: autosave/history conversion now serializes music nodes to `musicBlocks` while keeping scene/start/end nodes in `blocks`; moving a music node persists only its canvas position.
+- implemented: auto-applied storyboard plans include music nodes in returned canvas state, and Step 3 navigation remains gated for unresolved `generate_now` or incomplete existing-track selections while allowing pending `generate_on_step3`.
+- tests: `npm --workspace apps/web-editor test -- MusicBlockNode MusicBlockModal useStoryboardCanvas useStoryboardAutosave StoryboardPage` -> 14 files / 109 tests passed; existing React act warnings from `useStoryboardAutosave.save-now.test.ts` were emitted.
+- tests: `npm --workspace apps/web-editor test -- useStoryboardPlanGeneration SceneBlockNode` -> 3 files / 40 tests passed.
+- typecheck: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "MusicBlock|SceneBlockNode|storyboard/types|useStoryboardCanvas|useStoryboardAutosave|StoryboardPage|GenerateProjectFromStoryboardPage" || true` -> no matching output.
+- typecheck note: full `npm --workspace apps/web-editor run typecheck` still fails on pre-existing unrelated App/timeline/asset-manager/shared-ai-generation/config test and type issues documented in Known Issues.
+- active task: removed only `STB-MUSIC-7` from `docs/active_task.md`; `STB-MUSIC-8` remains.
+- fix loop: selected/editing music blocks now keep covered scenes highlighted after hover clears while the inspector remains open; React Flow scene root border styling no longer mixes `border` shorthand with `borderColor`.
+- fix loop: extracted storyboard node types, page canvas handlers, autosave payload helpers, history snapshot types, storyboard music types, and Step 3 music gating helpers so formerly oversized files are under the 300-line cap.
+- fix loop: converted cross-directory storyboard imports in music modal/node, canvas hook, and storyboard store to `@/features/storyboard/...`; reordered `StoryboardPageWorkspace` imports and converted music React prop shapes to interfaces.
+- fix loop coverage: added Step 3 music-mode availability tests, story-order range/coverage regression, selected music highlight regression, existing-audio/source-control tests, and history restore/undo music-node preservation coverage.
+- fix loop tests: `npm --workspace apps/web-editor test -- MusicBlockModal MusicBlockNode useStoryboardMusicDecorations useStoryboardMusic.story-order storyboardMusicStep3Gate storyboard-history-store.snapshot-payload storyboard-history-store.music-restore useHandleRestore useStoryboardAutosave.save-now StoryboardPage useStoryboardCanvas` -> 18 files / 130 tests passed; existing React act warnings from `useStoryboardAutosave.save-now.test.ts` were emitted.
+- fix loop typecheck: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "MusicBlock|storyboardMusic|useStoryboardMusic|useStoryboardCanvas|useStoryboardAutosave|StoryboardPage|storyboard-history|storyboard-store|storyboardNodeTypes|nodeStyles|GenerateProjectFromStoryboardPage" || true` -> no matching output.
+- fix loop line counts: `StoryboardPage.tsx` 288, `useStoryboardAutosave.ts` 280, `storyboard-history-store.ts` 275, `types.ts` 257.
+- fix loop hygiene: cross-directory relative import check for the four reviewer-named files returned no matches.
+- final fix loop: storyboard autosave now treats `sourceMode: existing` without an `existingFileId` as a local incomplete picker state and skips the full storyboard save until an audio asset is selected, preserving Step 3 gating without producing the 400 autosave error.
+- final fix loop: added regression coverage for deferring an existing-track save before selection and persisting `existingFileId` after selection.
+- final fix loop: added reviewer-requested blank import grouping in the music modal/node/workspace files and converted non-React API integration harness/state interfaces to type aliases.
+- final fix loop tests: `npm --workspace apps/web-editor test -- MusicBlockModal useStoryboardMusic useStoryboardAutosave` -> 6 files / 27 tests passed; existing React `act(...)` warnings from `useStoryboardAutosave.save-now.test.ts` were emitted.
+- final fix loop tests: `npm --workspace apps/api test -- storyboardMusic storyboard-music` -> 5 files / 33 tests passed; BullMQ emitted the existing Redis 6.2 recommendation for local Redis 6.0.16.
+- final fix loop typecheck: `npm --workspace apps/api run typecheck` -> passed.
+- final fix loop typecheck: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "storyboard/(components/MusicBlockModal|components/MusicBlockNode|components/StoryboardPageWorkspace|hooks/useStoryboardAutosave|hooks/useStoryboardMusic|utils/musicBlockSaveInput)" || true` -> no matching output.
+- final fix loop line counts: `useStoryboardAutosave.ts` 293, `MusicBlockModal.tsx` 271, `MusicBlockNode.tsx` 89, `StoryboardPageWorkspace.tsx` 172, `storyboardMusic.fixtures.ts` 214, `storyboard-music-endpoints.fixtures.ts` 232.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+## 2026-05-26 - STB-MUSIC-8 End-to-end coverage and final regression gate
+- implemented: added focused Playwright E2E coverage for the storyboard music flow with API/provider calls mocked, including auto-planned `generate_on_step3` music blocks, existing-track edit, generate-now edit/readiness, unresolved Step 3 auto music generation, image-mode assembly, video-mode assembly, and editor timeline audio clip hydration.
+- implemented: E2E now moves a scene block before Step 3 and asserts music ranges still resolve by story order rather than freeform canvas position.
+- implemented: E2E mock guard records and fails unexpected ElevenLabs/OpenAI/fal provider requests; the passing run recorded no provider calls.
+- implemented: strengthened history restore regression coverage for active music jobs by asserting restored music nodes keep running status and job ids through undo.
+- validation: `npm --workspace packages/project-schema test -- storyboardPlan storyboardMusic project-doc` -> 3 files / 39 tests passed.
+- validation: `npm --workspace packages/api-contracts test -- openapi.storyboard openapi.generation-drafts` -> 5 files / 108 tests passed.
+- validation: `npm --workspace apps/api test -- storyboardMusic storyboard-music storyboardProject storyboardProjectDoc aiGeneration` -> 16 files / 112 tests passed; BullMQ emitted existing Redis 6.2 recommendation warnings against local Redis 6.0.16.
+- validation: `npm --workspace apps/media-worker test -- elevenlabs-client ai-generate-audio storyboardPlan` -> 8 files / 77 tests passed.
+- validation: `npm --workspace apps/web-editor test -- MusicBlock StoryboardPage GenerateProjectFromStoryboardPage storyboard-api storyboard-history-store.music-restore` -> 13 files / 132 tests passed.
+- validation: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-music.spec.ts e2e/helpers/storyboard.ts` -> passed.
+- validation: `VITE_PUBLIC_API_BASE_URL=http://localhost:3001 E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/storyboard-music.spec.ts --project=chromium` -> 2 tests passed.
+- active task: removed only `STB-MUSIC-8` from `docs/active_task.md`; no active subtasks remain.
+- fix loop: strengthened `e2e/storyboard-music.spec.ts` so mocked project creation fails if Step 3 auto music has not reached `ready` with `AUTO_AUDIO_ID`, and video project assembly also requires at least one video-ready poll; both tests now assert readiness flags and poll counts before final editor URL/timeline assertions.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - COMMENTED
+- checked by playwright-reviewer - APPROVED
+
+## 2026-05-26 - Storyboard Plan OpenAI Output Normalization
+- fixed: storyboard plan worker now normalizes common OpenAI JSON variants before validation, including wrapped `storyboard_plan`/`plan` objects, snake_case root fields, snake_case scene fields, snake_case music segments, and camelCase/snake_case ElevenLabs composition-plan fields.
+- fixed: schema validation errors now unwrap nested union issues, so future failures identify concrete paths such as `musicSegments.0.compositionPlan.sections.0.section_name` instead of only `root: Invalid input`.
+- covered: added a focused media-worker regression for live-like planner JSON using `schema_version`, `music_segments`, `composition_plan`, `sectionName`, and `durationMs`.
+- tests: `npm --workspace apps/media-worker test -- storyboardPlan` -> 3 files / 27 tests passed.
+- tests: `npm --workspace packages/project-schema test -- storyboardPlan storyboardMusic` -> 2 files / 26 tests passed.
+- typecheck: `npm --workspace apps/media-worker run typecheck` -> passed.
+- hygiene: `git diff --check -- apps/media-worker/src/jobs/storyboardPlan.job.ts apps/media-worker/src/jobs/storyboardPlan.output.ts apps/media-worker/src/jobs/storyboardPlan.job.normalization.test.ts apps/media-worker/src/jobs/storyboardPlan.job.test.ts` -> passed.
+- follow-up fix: storyboard plan output normalization now derives a safe single-section instrumental composition plan when OpenAI returns a music segment `compositionPlan` without `sections`, using the covered scene range duration.
+- follow-up fix: validation error formatting now suppresses irrelevant legacy v1 union-branch noise such as `schemaVersion: Invalid literal value, expected 1` when validating v2 plans.
+- follow-up tests: `npm --workspace apps/media-worker test -- storyboardPlan` -> 3 files / 28 tests passed.
+- follow-up tests: `npm --workspace packages/project-schema test -- storyboardPlan storyboardMusic` -> 2 files / 26 tests passed.
+- follow-up typecheck: `npm --workspace apps/media-worker run typecheck` -> passed.
+- follow-up hygiene: `git diff --check -- apps/media-worker/src/jobs/storyboardPlan.output.ts apps/media-worker/src/jobs/storyboardPlan.job.normalization.test.ts apps/media-worker/src/jobs/storyboardPlan.job.ts docs/development_logs.md` -> passed.
+
+---
+
+## 2026-05-26 - STB-MUSIC-ADJ-1 Manual Add Music Block
+- implemented: added a dedicated Add Music action to the storyboard canvas toolbar and wired it through StoryboardCanvas, StoryboardPageWorkspace, and StoryboardPage.
+- implemented: added `useAddMusicBlock` to create local `music-block` nodes with UUID ids, draft id, `generate_on_step3` source mode, null generation fields, first-to-last scene range, non-overlap placement below the first covered scene, default mix settings, autosave override, history snapshot persistence, and immediate modal selection.
+- covered: added focused toolbar tests for the Add Music enabled/disabled action and hook tests for no-scene no-op, generated block defaults, placement, save payload, and history callback.
+- validation: `npm --workspace apps/web-editor test -- CanvasToolbar useAddMusicBlock StoryboardCanvas.knife` -> 3 files / 23 tests passed.
+- validation: `npm --workspace apps/web-editor test -- StoryboardPage.save-on-add useStoryboardMusic useStoryboardAutosave MusicBlock` -> 9 files / 37 tests passed; existing React act warnings emitted by `useStoryboardAutosave.save-now.test.ts`.
+- validation: `npm --workspace apps/web-editor test -- CanvasToolbar useAddMusicBlock StoryboardPage.save-on-add useStoryboardMusic useStoryboardAutosave MusicBlock` -> 10 files / 51 tests passed; existing React act warnings emitted by `useStoryboardAutosave.save-now.test.ts`.
+- validation: `npm --workspace apps/web-editor test -- StoryboardCanvas.knife CanvasToolbar useAddMusicBlock StoryboardPage.save-on-add useStoryboardMusic useStoryboardAutosave MusicBlock` -> 11 files / 58 tests passed; existing React act warnings emitted by `useStoryboardAutosave.save-now.test.ts`.
+- validation: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "features/storyboard/(components/(CanvasToolbar|StoryboardCanvas|StoryboardPage|StoryboardPageWorkspace)|hooks/useAddMusicBlock)" || true` -> no touched-file output.
+- validation: `git diff --check -- apps/web-editor/src/features/storyboard docs/active_task.md docs/development_logs.md` -> passed.
+- validation: `npm --workspace apps/web-editor run typecheck` -> failed on pre-existing unrelated workspace errors in App/timeline/asset-manager/version-history/shared AI generation tests and config typing; no storyboard touched-file errors were reported.
+- active task: removed only `STB-MUSIC-ADJ-1` from `docs/active_task.md`.
+- fix loop: added JSDoc for the new manual music helpers, converted the StoryboardCanvas drag type import to the storyboard alias, added MusicBlockModal mount focus/Escape close behavior, and made the canvas toolbar wrap within available width for mobile breakpoints.
+- fix loop coverage: added MusicBlockModal focus/Escape coverage, CanvasToolbar wrap-style coverage, and a StoryboardPage integration test proving Add Music opens the music modal and sends the created `generate_on_step3` block through save/history persistence from the page click path.
+- fix loop validation: `npm --workspace apps/web-editor test -- CanvasToolbar MusicBlockModal StoryboardPage.save-on-add useAddMusicBlock StoryboardCanvas.knife` -> 5 files / 37 tests passed.
+- fix loop validation: `npm --workspace apps/web-editor test -- StoryboardCanvas.knife CanvasToolbar MusicBlockModal useAddMusicBlock StoryboardPage.save-on-add useStoryboardMusic useStoryboardAutosave MusicBlock` -> 11 files / 61 tests passed; existing React act warnings emitted by `useStoryboardAutosave.save-now.test.ts`.
+- fix loop validation: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "features/storyboard/(components/(CanvasToolbar|MusicBlockModal|StoryboardCanvas|StoryboardPage|storyboardPageStyles)|hooks/useAddMusicBlock)" || true` -> no touched-file output.
+- fix loop validation: `git diff --check -- apps/web-editor/src/features/storyboard/components/CanvasToolbar.test.tsx apps/web-editor/src/features/storyboard/components/MusicBlockModal.test.tsx apps/web-editor/src/features/storyboard/components/MusicBlockModal.tsx apps/web-editor/src/features/storyboard/components/StoryboardCanvas.tsx apps/web-editor/src/features/storyboard/components/StoryboardPage.save-on-add.test.tsx apps/web-editor/src/features/storyboard/components/storyboardPageStyles.ts apps/web-editor/src/features/storyboard/hooks/useAddMusicBlock.ts docs/development_logs.md` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+---
+
+## 2026-05-26 - STB-MUSIC-ADJ-2 Auto Music Below Scene Row
+- implemented: replaced the auto plan music baseline with scene-aware music placement that aligns `positionX` to the first covered scene and places generated music lanes below the rendered scene row.
+- implemented: added shared frontend music layout constants/helper for manual Add Music placement, keeping manual blocks in the same below-scene lane model as auto-applied plan blocks.
+- covered: updated plan-apply service coverage for two generated music segments, first-scene X alignment, below-scene Y placement, vertical lane stacking, and history snapshots containing corrected music coordinates.
+- covered: added manual Add Music hook coverage proving a second manual music block is placed in the next non-overlapping lane below the scene row.
+- validation: `npm --workspace apps/api test -- storyboard.service.plan-apply` -> 1 file / 7 tests passed; Redis 6.2 recommendation warnings only.
+- validation: `npm --workspace apps/web-editor test -- useAddMusicBlock useStoryboardCanvas useStoryboardMusic` -> 4 files / 12 tests passed.
+- validation: `npm --workspace apps/api run typecheck` -> passed.
+- validation: `npm --workspace apps/web-editor run typecheck` -> failed on pre-existing unrelated App/timeline/asset-manager/version-history/shared AI generation/config typing errors.
+- validation: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "features/storyboard/(hooks/useAddMusicBlock|utils/musicBlockLayout|hooks/useStoryboardCanvas|hooks/useStoryboardMusic)" || true` -> no touched-file output.
+- validation: `git diff --check -- apps/api/src/services/storyboardPlanApply.service.ts apps/api/src/services/storyboard.service.plan-apply.test.ts apps/web-editor/src/features/storyboard/hooks/useAddMusicBlock.ts apps/web-editor/src/features/storyboard/hooks/useAddMusicBlock.test.ts apps/web-editor/src/features/storyboard/utils/musicBlockLayout.ts` -> passed.
+- active task: removed only `STB-MUSIC-ADJ-2` from `docs/active_task.md`.
+- fix loop: increased API and frontend music lane height from 120px to 132px so stacked rendered music nodes keep visible 4px-system spacing.
+- fix loop: changed auto plan scene spacing from 30px to 32px and updated generated scene/music X expectations.
+- fix loop: fixed `storyboardPlanApply.service.ts` import grouping and split music plan-apply coverage into `storyboard.service.plan-apply.music.test.ts`, keeping both plan-apply test files under 300 lines.
+- fix loop validation: `npm --workspace apps/api test -- storyboard.service.plan-apply` -> 2 files / 7 tests passed; Redis 6.2 recommendation warnings only.
+- fix loop validation: `npm --workspace apps/web-editor test -- useAddMusicBlock useStoryboardCanvas useStoryboardMusic` -> 4 files / 12 tests passed.
+- fix loop validation: `npm --workspace apps/api run typecheck` -> passed.
+- fix loop validation: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "features/storyboard/(hooks/useAddMusicBlock|utils/musicBlockLayout|hooks/useStoryboardCanvas|hooks/useStoryboardMusic)" || true` -> no touched-file output.
+- fix loop validation: line-count check confirmed `storyboard.service.plan-apply.test.ts` is 253 lines and `storyboard.service.plan-apply.music.test.ts` is 286 lines.
+- final fix: reordered the split music plan-apply test imports so external `vitest` imports are separated from the internal project-schema type import.
+- final fix validation: `npm --workspace apps/api test -- storyboard.service.plan-apply` -> 2 files / 7 tests passed; Redis 6.2 recommendation warnings only.
+- final fix validation: `git diff --check -- apps/api/src/services/storyboard.service.plan-apply.music.test.ts docs/development_logs.md` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+---
+
+## 2026-05-26 - STB-MUSIC-ADJ-3 Per-Block Music Prompts
+- implemented: kept `StoryboardMusicBlock.prompt` as the per-block source of truth and added modal coverage proving prompt edits patch only the active music block while keeping existing composition-plan context visible.
+- implemented: added storyboard music generation option building so blocks with both an edited prompt and an existing composition plan enqueue `/v1/music/plan` regeneration options with `prompt`, `source_composition_plan`, `music_length_ms`, and `regenerate_composition_plan: true`, without sending `composition_plan` on that enqueue path.
+- implemented: preserved composition-plan-only generation for blocks without prompts, preserved existing-track saves without requiring generation prompts, and refreshed stored music block composition plans from completed AI job options when available.
+- covered: added API service coverage for prompt-driven plan regeneration, promptless plan compose, existing-track save behavior, and refreshed regenerated plans; added worker/client coverage for source-plan regeneration.
+- validation: `npm --workspace apps/web-editor test -- MusicBlockModal useStoryboardMusic useStoryboardAutosave` -> 6 files / 29 tests passed; existing React act warnings emitted by `useStoryboardAutosave.save-now.test.ts`.
+- validation: `npm --workspace apps/api test -- storyboardMusic storyboard-music aiGeneration` -> 10 files / 87 tests passed; Redis 6.2 recommendation warnings only.
+- validation: `npm --workspace apps/media-worker test -- ai-generate-audio elevenlabs-client` -> 6 files / 54 tests passed.
+- validation: `npm --workspace apps/api run typecheck` -> passed.
+- validation: `npm --workspace apps/media-worker run typecheck` -> passed.
+- validation: `npm --workspace apps/web-editor run typecheck` -> failed on pre-existing unrelated App/timeline/asset-manager/version-history/shared AI generation/config typing errors.
+- validation: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "features/storyboard/(components/MusicBlockModal|hooks/useStoryboardMusic|hooks/useStoryboardAutosave)" || true` -> no touched-file output.
+- validation: scoped `git diff --check` for touched STB-MUSIC-ADJ-3 files -> passed.
+- active task: removed only `STB-MUSIC-ADJ-3` from `docs/active_task.md`.
+- fix loop: added JSDoc for exported storyboard music API service types/functions and repository functions, preserving the existing composition-plan update documentation.
+- fix loop: separated MusicBlockModal test imports into app-internal and same-folder relative groups.
+- fix loop coverage: added a real `useStoryboardMusic.commitMusicBlock` hook-path regression with two music nodes, proving an active prompt edit updates only that block and the deferred save payload preserves the other block.
+- fix loop validation: `npm --workspace apps/web-editor test -- MusicBlockModal useStoryboardMusic useStoryboardAutosave` -> 6 files / 30 tests passed; existing React act warnings emitted by `useStoryboardAutosave.save-now.test.ts`.
+- fix loop validation: `npm --workspace apps/api test -- storyboardMusic storyboard-music aiGeneration` -> 10 files / 87 tests passed; Redis 6.2 recommendation warnings only.
+- fix loop validation: line-count check confirmed `storyboardMusic.service.ts` is 278 lines, `storyboardMusic.repository.ts` is 224 lines, `MusicBlockModal.test.tsx` is 207 lines, and `useStoryboardMusic.story-order.test.ts` is 182 lines.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+---
+
+## 2026-05-26 - STB-MUSIC-ADJ-4 Music Drag Ghost Preview
+- implemented: extended `GhostDragPortal` to render an inert `MusicBlockNode` ghost clone for `music-block` nodes, preserving title, source/status badges, range label, and preview bar while replacing edit/hover callbacks with no-ops.
+- implemented: kept the ghost wrapper `aria-hidden`, pointer-event disabled, and marked it `inert` so the preview cannot open the music modal.
+- covered: added portal coverage for the music ghost contents and inert/no-callback behavior while keeping scene/start/end preview coverage intact.
+- covered: added focused `useStoryboardDrag` music coverage proving music drags create ghost state, dim the original node, restore opacity on drop, persist the new position through snapshot/save, and do not alter scene graph edges.
+- validation: `npm --workspace apps/web-editor test -- GhostDragPortal useStoryboardDrag MusicBlockNode` -> 6 files / 28 tests passed.
+- validation: `npm --workspace apps/web-editor run typecheck` -> failed on pre-existing unrelated App/timeline/asset-manager/version-history/shared AI generation/config typing errors.
+- validation: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "features/storyboard/(components/GhostDragPortal|hooks/useStoryboardDrag)" || true` -> no touched-file output.
+- validation: `git diff --check -- apps/web-editor/src/features/storyboard/components/GhostDragPortal.tsx apps/web-editor/src/features/storyboard/components/GhostDragPortal.test.tsx apps/web-editor/src/features/storyboard/hooks/useStoryboardDrag.fixtures.ts apps/web-editor/src/features/storyboard/hooks/useStoryboardDrag.music.test.ts docs/active_task.md` -> passed.
+- active task: removed only `STB-MUSIC-ADJ-4` from `docs/active_task.md`.
+- fix loop: added JSDoc to the exported music drag fixture helpers used by the new tests.
+- fix loop validation: `npm --workspace apps/web-editor test -- GhostDragPortal useStoryboardDrag MusicBlockNode` -> 6 files / 28 tests passed on rerun; first run also reported 28/28 passed before a transient Node/V8 teardown abort.
+- fix loop validation: `git diff --check -- apps/web-editor/src/features/storyboard/hooks/useStoryboardDrag.fixtures.ts docs/development_logs.md` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+---
+
+## 2026-05-26 - STB-MUSIC-ADJ-5 Center Music Block Modal
+- implemented: changed the music block modal backdrop from right-aligned to centered while preserving the existing dark backdrop, max-width, 16px viewport margin, max-height, and internal panel scrolling behavior.
+- covered: added focused `MusicBlockModal` coverage asserting the backdrop centers the dialog and the panel keeps narrow-screen width, viewport-height, margin, and overflow safeguards.
+- validation: `npm --workspace apps/web-editor test -- MusicBlockModal` -> 1 file / 8 tests passed.
+- validation: `npm --workspace apps/web-editor run typecheck` -> failed on pre-existing unrelated App/timeline/asset-manager/version-history/shared AI generation/config typing errors.
+- validation: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "features/storyboard/components/MusicBlockModal(\\.styles|\\.test)?" || true` -> no touched-file output.
+- validation: `git diff --check -- apps/web-editor/src/features/storyboard/components/MusicBlockModal.styles.ts apps/web-editor/src/features/storyboard/components/MusicBlockModal.test.tsx docs/active_task.md docs/development_logs.md` -> passed.
+- active task: removed only `STB-MUSIC-ADJ-5` from `docs/active_task.md`.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+---
+
+## 2026-05-26 - STB-MUSIC-ADJ-6 Music Adjustment E2E Regression
+- implemented: extended `e2e/storyboard-music.spec.ts` with a focused regression covering manual Add Music persistence, auto-applied music placement below scene blocks, per-block prompt save/generate routing, music drag ghost visibility, and centered music modal positioning.
+- implemented: updated the storyboard music E2E mocks to use below-scene, token-aligned music coordinates and to retain newly persisted manual music blocks in the mocked storyboard state.
+- covered: used DOM bounding boxes for the scene/music non-overlap assertion and viewport-center modal assertion, and asserted provider/API mocks saw no unexpected calls.
+- validation: `npm --workspace apps/web-editor test -- MusicBlock StoryboardPage useStoryboardMusic useStoryboardDrag` -> 17 files / 117 tests passed.
+- validation: `npx playwright test e2e/storyboard-music.spec.ts --list` -> passed; listed 3 storyboard music E2E tests including the new regression.
+- validation: `npm run e2e -- e2e/storyboard-music.spec.ts` -> blocked in global setup by existing local E2E seed auth issue: `E2E login failed (401): {"error":"Invalid email or password"}` for `http://localhost:3001`.
+- active task: removed only `STB-MUSIC-ADJ-6` from `docs/active_task.md`; no active subtasks remain.
+- fix loop: added rendered music-node bounding-box overlap coverage after plan apply, strengthened drag ghost assertions for visible/inert/aria-hidden/pointer-events behavior, and made the Generate Now assertion wait for the edited block's real `/storyboards/:draftId/music/:musicId/generate` call with the edited prompt.
+- fix loop validation: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-music.spec.ts` -> passed.
+- fix loop validation: `npx playwright test e2e/storyboard-music.spec.ts --list` -> passed; listed 3 Chromium tests.
+- fix loop validation: `E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/storyboard-music.spec.ts --project=chromium` -> 3 passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
 ---
 
 ## Architectural Decisions

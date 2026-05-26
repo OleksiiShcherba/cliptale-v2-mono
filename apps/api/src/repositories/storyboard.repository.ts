@@ -12,6 +12,8 @@ import {
   restoreIllustrationJobsForRetainedBlocks,
   snapshotIllustrationJobsForDraft,
 } from '@/repositories/storyboardIllustrationMapping.repository.js';
+import * as storyboardMusicRepository from '@/repositories/storyboardMusic.repository.js';
+import type { StoryboardMusicBlockInsert } from '@/repositories/storyboardMusic.repository.js';
 import type {
   BlockRow,
   BlockMediaRow,
@@ -211,13 +213,25 @@ export async function replaceStoryboard(
   draftId: string,
   blocks: BlockInsert[],
   edges: EdgeInsert[],
+  musicBlocks?: StoryboardMusicBlockInsert[],
 ): Promise<void> {
   const illustrationJobs = await snapshotIllustrationJobsForDraft(conn, draftId);
+  const musicJobs = await storyboardMusicRepository.snapshotMusicGenerationJobsForDraft(conn, draftId);
+  const existingMusicBlocks = musicBlocks === undefined
+    ? await storyboardMusicRepository.findMusicBlocksByDraftIdForUpdate(conn, draftId)
+    : [];
   const retainedBlockIds = new Set(blocks.map((block) => block.id));
+  const nextMusicBlocks = (musicBlocks ?? existingMusicBlocks).filter((block) =>
+    retainedBlockIds.has(block.startSceneBlockId) && retainedBlockIds.has(block.endSceneBlockId),
+  );
 
   // Delete edges first (FK: storyboard_edges → storyboard_blocks).
   await conn.execute<ResultSetHeader>(
     'DELETE FROM storyboard_edges WHERE draft_id = ?',
+    [draftId],
+  );
+  await conn.execute<ResultSetHeader>(
+    'DELETE FROM storyboard_music_blocks WHERE draft_id = ?',
     [draftId],
   );
   // Delete blocks (cascades to storyboard_block_media).
@@ -258,6 +272,13 @@ export async function replaceStoryboard(
       [e.id, e.draftId, e.sourceBlockId, e.targetBlockId],
     );
   }
+
+  await storyboardMusicRepository.replaceMusicBlocksInTx(conn, draftId, nextMusicBlocks);
+  await storyboardMusicRepository.restoreMusicGenerationJobsForRetainedBlocks(
+    conn,
+    musicJobs,
+    new Set(nextMusicBlocks.map((block) => block.id)),
+  );
 }
 
 /**

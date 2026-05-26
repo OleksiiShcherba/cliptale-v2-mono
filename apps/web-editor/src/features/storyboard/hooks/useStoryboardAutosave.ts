@@ -28,8 +28,20 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 
 import type { Node, Edge } from '@xyflow/react';
 
-import { saveStoryboard } from '../api';
-import type { StoryboardState } from '../types';
+import { saveStoryboard } from '@/features/storyboard/api';
+import type { StoryboardSavePayload } from '@/features/storyboard/types';
+import {
+  toStoryboardMusicBlockSaveInputs,
+  type StoryboardMusicBlockSaveCandidate,
+} from '@/features/storyboard/utils/musicBlockSaveInput';
+
+import {
+  comparableBlocks,
+  comparableEdges,
+  formatElapsed,
+  musicBlocksForSave,
+  stateKey,
+} from './useStoryboardAutosavePayload';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -47,62 +59,21 @@ export type UseStoryboardAutosaveResult = {
   /** Human-readable autosave indicator text for the top-bar. */
   saveLabel: string;
   /** Triggers an immediate save bypassing the debounce timer. */
-  saveNow: () => Promise<void>;
+  saveNow: (override?: StoryboardMusicSaveOverride) => Promise<void>;
+};
+
+export type StoryboardMusicSaveOverride = {
+  musicBlocks?: StoryboardMusicBlockSaveCandidate[];
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-/**
- * Converts the current state to a minimal serialisable object for comparison.
- * Uses JSON.stringify for a simple deep-equality check — acceptable for the
- * canvas graph structure which is at most a few hundred nodes/edges.
- */
-function stateKey(nodes: StoryboardState['blocks'], edges: StoryboardState['edges']): string {
-  return JSON.stringify({ nodes, edges });
-}
-
-function comparableBlocks(nodes: Node[], draftId: string): StoryboardState['blocks'] {
-  return nodes.map((node) => {
-    if (node.type === 'scene-block') {
-      const data = node.data as { block: StoryboardState['blocks'][number] };
-      return {
-        ...data.block,
-        draftId,
-        positionX: node.position.x,
-        positionY: node.position.y,
-      };
-    }
-
-    return {
-      id: node.id,
-      draftId,
-      blockType: (node.type === 'start' ? 'start' : 'end') as 'start' | 'end',
-      name: null,
-      prompt: null,
-      videoPrompt: null,
-      durationS: 5,
-      positionX: node.position.x,
-      positionY: node.position.y,
-      sortOrder: 0,
-      style: null,
-      createdAt: '',
-      updatedAt: '',
-      mediaItems: [],
-    };
-  });
-}
-
-/**
- * Converts elapsed seconds into a human-readable "X ago" string.
- */
-function formatElapsed(seconds: number): string {
-  if (seconds < 60) return 'just now';
-  const minutes = Math.floor(seconds / 60);
-  if (minutes === 1) return '1 minute ago';
-  if (minutes < 60) return `${minutes} minutes ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours === 1) return '1 hour ago';
-  return `${hours} hours ago`;
+function hasIncompleteExistingMusicSelection(
+  musicBlocks: StoryboardSavePayload['musicBlocks'],
+): boolean {
+  return musicBlocks?.some((block) => (
+    block.sourceMode === 'existing' && !block.existingFileId?.trim()
+  )) ?? false;
 }
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -127,8 +98,11 @@ export function useStoryboardAutosave(
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSavingRef = useRef(false);
   const pendingSaveRef = useRef(false);
-  // Key of the last state successfully saved — used to detect changes.
-  const savedStateKeyRef = useRef<string | null>(null);
+  const pendingMusicBlocksRef = useRef<StoryboardSavePayload['musicBlocks'] | undefined>(
+    undefined,
+  );
+  // Key of the last payload successfully saved — used to dedupe explicit music saves.
+  const savedPayloadKeyRef = useRef<string | null>(null);
   // Key of the state at last save — used to detect "unsaved changes" for beforeunload.
   const lastSavedCheckRef = useRef<string | null>(null);
 
@@ -151,70 +125,83 @@ export function useStoryboardAutosave(
 
   // ── Core save function ────────────────────────────────────────────────────────
 
-  const performSave = useCallback(async (): Promise<void> => {
-    const currentDraftId = draftIdRef.current;
-    if (!currentDraftId) return;
-    if (isSavingRef.current) {
-      pendingSaveRef.current = true;
-      return;
-    }
-
-    const currentNodes = nodesRef.current;
-    const currentEdges = edgesRef.current;
-
-    const currentKey = stateKey(
-      comparableBlocks(currentNodes, currentDraftId),
-      currentEdges.map((e) => ({
-        id: e.id,
-        sourceBlockId: e.source,
-        targetBlockId: e.target,
-        draftId: currentDraftId,
-      })) as StoryboardState['edges'],
-    );
-
-    // Skip save when state has not changed since last save.
-    if (currentKey === savedStateKeyRef.current) return;
-
-    isSavingRef.current = true;
-    setStatus('saving');
-
-    // Build a StoryboardState from the current React Flow state.
-    const stateToSave: StoryboardState = {
-      blocks: comparableBlocks(currentNodes, currentDraftId),
-      edges: currentEdges.map((e) => ({
-        id: e.id,
-        draftId: currentDraftId,
-        sourceBlockId: e.source,
-        targetBlockId: e.target,
-      })),
-    };
-
-    try {
-      await saveStoryboard(currentDraftId, stateToSave);
-      savedStateKeyRef.current = currentKey;
-      lastSavedCheckRef.current = currentKey;
-      setLastSavedAt(new Date());
-      setStatus('saved');
-    } catch (err: unknown) {
-      console.error('[useStoryboardAutosave] Save failed:', err);
-      setStatus('idle');
-    } finally {
-      isSavingRef.current = false;
-      if (pendingSaveRef.current) {
-        pendingSaveRef.current = false;
-        void performSave();
+  const performSave = useCallback(
+    async (override: StoryboardMusicSaveOverride = {}): Promise<void> => {
+      const currentDraftId = draftIdRef.current;
+      if (!currentDraftId) return;
+      const overrideMusicBlocks = toStoryboardMusicBlockSaveInputs(override.musicBlocks);
+      if (isSavingRef.current) {
+        pendingSaveRef.current = true;
+        if (overrideMusicBlocks !== undefined) {
+          pendingMusicBlocksRef.current = overrideMusicBlocks;
+        }
+        return;
       }
-    }
-  }, []);
+
+      const currentNodes = nodesRef.current;
+      const currentEdges = edgesRef.current;
+      const blocksToSave = comparableBlocks(currentNodes, currentDraftId);
+      const edgesToSave = comparableEdges(currentEdges, currentDraftId);
+      const currentMusicBlocks = musicBlocksForSave(currentNodes);
+      const saveMusicBlocks = overrideMusicBlocks ?? currentMusicBlocks;
+
+      // Switching to "Existing track" is a local editing state until an asset is chosen.
+      // A full storyboard save with sourceMode=existing and no file id fails server validation.
+      if (hasIncompleteExistingMusicSelection(saveMusicBlocks)) return;
+
+      const currentPayloadKey = stateKey(blocksToSave, edgesToSave, saveMusicBlocks);
+      const currentCheckKey = stateKey(blocksToSave, edgesToSave, currentMusicBlocks);
+
+      // Skip save when state has not changed since last save.
+      if (overrideMusicBlocks === undefined && currentPayloadKey === savedPayloadKeyRef.current) return;
+      if (overrideMusicBlocks !== undefined && currentPayloadKey === savedPayloadKeyRef.current) return;
+
+      isSavingRef.current = true;
+      setStatus('saving');
+
+      // Build a StoryboardState from the current React Flow state.
+      const stateToSave: StoryboardSavePayload = {
+        blocks: blocksToSave,
+        edges: edgesToSave,
+        musicBlocks: saveMusicBlocks,
+      };
+
+      try {
+        await saveStoryboard(currentDraftId, stateToSave);
+        savedPayloadKeyRef.current = currentPayloadKey;
+        lastSavedCheckRef.current = currentCheckKey;
+        setLastSavedAt(new Date());
+        setStatus('saved');
+      } catch (err: unknown) {
+        console.error('[useStoryboardAutosave] Save failed:', err);
+        setStatus('idle');
+      } finally {
+        isSavingRef.current = false;
+        if (pendingSaveRef.current) {
+          const pendingMusicBlocks = pendingMusicBlocksRef.current;
+          pendingSaveRef.current = false;
+          pendingMusicBlocksRef.current = undefined;
+          void performSave(
+            pendingMusicBlocks !== undefined
+              ? { musicBlocks: pendingMusicBlocks }
+              : {},
+          );
+        }
+      }
+    },
+    [],
+  );
 
   // ── Manual save trigger ───────────────────────────────────────────────────────
 
-  const saveNow = useCallback(async (): Promise<void> => {
+  const saveNow = useCallback(async (
+    override: StoryboardMusicSaveOverride = {},
+  ): Promise<void> => {
     if (debounceTimerRef.current !== null) {
       clearTimeout(debounceTimerRef.current);
       debounceTimerRef.current = null;
     }
-    await performSave();
+    await performSave(override);
   }, [performSave]);
 
   // ── React state subscription + debounce ───────────────────────────────────────
@@ -261,12 +248,8 @@ export function useStoryboardAutosave(
 
       const currentKey = stateKey(
         comparableBlocks(currentNodes, currentDraftId),
-        currentEdges.map((e) => ({
-          id: e.id,
-          sourceBlockId: e.source,
-          targetBlockId: e.target,
-          draftId: currentDraftId,
-        })) as StoryboardState['edges'],
+        comparableEdges(currentEdges, currentDraftId),
+        musicBlocksForSave(currentNodes),
       );
       const hasUnsaved = lastSavedCheckRef.current !== null
         ? currentKey !== lastSavedCheckRef.current

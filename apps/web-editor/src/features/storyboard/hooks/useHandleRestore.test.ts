@@ -66,6 +66,50 @@ function makeEdge(id: string, source: string, target: string): Edge {
   return { id, source, target };
 }
 
+const MUSIC_BLOCK = {
+  id: '00000000-0000-4000-8000-000000000001',
+  draftId: '00000000-0000-4000-8000-000000000010',
+  name: 'Opening music',
+  sourceMode: 'generate_on_step3' as const,
+  prompt: null,
+  compositionPlan: null,
+  existingFileId: null,
+  startSceneBlockId: '00000000-0000-4000-8000-000000000020',
+  endSceneBlockId: '00000000-0000-4000-8000-000000000021',
+  positionX: 120,
+  positionY: 520,
+  sortOrder: 0,
+  volume: 0.8,
+  fadeInS: 0,
+  fadeOutS: 1,
+  loopMode: 'trim' as const,
+  generationStatus: null,
+  generationJobId: null,
+  outputFileId: null,
+  errorMessage: null,
+  createdAt: '2026-05-26T00:00:00Z',
+  updatedAt: '2026-05-26T00:00:00Z',
+};
+
+const MUSIC_BLOCK_SAVE_INPUT = {
+  id: MUSIC_BLOCK.id,
+  draftId: MUSIC_BLOCK.draftId,
+  name: MUSIC_BLOCK.name,
+  sourceMode: MUSIC_BLOCK.sourceMode,
+  prompt: MUSIC_BLOCK.prompt,
+  compositionPlan: MUSIC_BLOCK.compositionPlan,
+  existingFileId: MUSIC_BLOCK.existingFileId,
+  startSceneBlockId: MUSIC_BLOCK.startSceneBlockId,
+  endSceneBlockId: MUSIC_BLOCK.endSceneBlockId,
+  positionX: MUSIC_BLOCK.positionX,
+  positionY: MUSIC_BLOCK.positionY,
+  sortOrder: MUSIC_BLOCK.sortOrder,
+  volume: MUSIC_BLOCK.volume,
+  fadeInS: MUSIC_BLOCK.fadeInS,
+  fadeOutS: MUSIC_BLOCK.fadeOutS,
+  loopMode: MUSIC_BLOCK.loopMode,
+};
+
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
 describe('useHandleRestore', () => {
@@ -333,5 +377,24 @@ describe('useHandleRestore', () => {
     });
 
     expect(saveNow).toHaveBeenCalledTimes(1);
+  });
+
+  it('(13) keeps hydrated music in history and strips read-only fields for saveNow', () => {
+    const removeNode = vi.fn();
+    const setNodes = vi.fn();
+    const setEdges = vi.fn();
+    const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+    const saveNow = vi.fn().mockResolvedValue(undefined);
+
+    const { result } = renderHook(() =>
+      useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow }),
+    );
+
+    act(() => {
+      result.current.handleRestore([], [], { musicBlocks: [MUSIC_BLOCK] });
+    });
+
+    expect(pushSnapshot).toHaveBeenCalledWith([], [], { musicBlocks: [MUSIC_BLOCK] });
+    expect(saveNow).toHaveBeenCalledWith({ musicBlocks: [MUSIC_BLOCK_SAVE_INPUT] });
   });
 });

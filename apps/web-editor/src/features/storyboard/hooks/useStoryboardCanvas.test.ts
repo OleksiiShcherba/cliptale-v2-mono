@@ -67,6 +67,7 @@ function makeState(overrides?: Partial<StoryboardState>): StoryboardState {
       },
     ],
     edges: [],
+    musicBlocks: [],
     ...overrides,
   };
 }
@@ -171,6 +172,7 @@ describe('useStoryboardCanvas', () => {
         },
       ],
       edges: [],
+      musicBlocks: [],
     };
     mockFetchStoryboard.mockResolvedValue(stateWithDuplicates);
 
@@ -262,6 +264,7 @@ describe('useStoryboardCanvas', () => {
         },
       ],
       edges: [],
+      musicBlocks: [],
     };
     mockFetchStoryboard.mockResolvedValue(stateWithScenes);
 
@@ -271,6 +274,111 @@ describe('useStoryboardCanvas', () => {
 
     // 1 start + 2 scenes + 1 end = 4 nodes.
     expect(result.current.nodes).toHaveLength(4);
+  });
+
+  it('maps hydrated music blocks to music React Flow nodes', async () => {
+    const stateWithMusic: StoryboardState = {
+      blocks: [
+        {
+          id: '00000000-0000-4000-8000-000000000001',
+          draftId: 'draft-1',
+          blockType: 'start',
+          name: null,
+          prompt: null,
+          videoPrompt: null,
+          durationS: 5,
+          positionX: 50,
+          positionY: 300,
+          sortOrder: 0,
+          style: null,
+          mediaItems: [],
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          id: '00000000-0000-4000-8000-000000000002',
+          draftId: 'draft-1',
+          blockType: 'scene',
+          name: 'Opening',
+          prompt: null,
+          videoPrompt: null,
+          durationS: 10,
+          positionX: 320,
+          positionY: 300,
+          sortOrder: 1,
+          style: null,
+          mediaItems: [],
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+        {
+          id: '00000000-0000-4000-8000-000000000003',
+          draftId: 'draft-1',
+          blockType: 'end',
+          name: null,
+          prompt: null,
+          videoPrompt: null,
+          durationS: 5,
+          positionX: 900,
+          positionY: 300,
+          sortOrder: 9999,
+          style: null,
+          mediaItems: [],
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+      edges: [
+        {
+          id: '00000000-0000-4000-8000-000000000010',
+          draftId: 'draft-1',
+          sourceBlockId: '00000000-0000-4000-8000-000000000001',
+          targetBlockId: '00000000-0000-4000-8000-000000000002',
+        },
+        {
+          id: '00000000-0000-4000-8000-000000000011',
+          draftId: 'draft-1',
+          sourceBlockId: '00000000-0000-4000-8000-000000000002',
+          targetBlockId: '00000000-0000-4000-8000-000000000003',
+        },
+      ],
+      musicBlocks: [
+        {
+          id: '00000000-0000-4000-8000-000000000020',
+          draftId: 'draft-1',
+          name: 'Opening music',
+          sourceMode: 'generate_on_step3',
+          prompt: 'Warm pulse',
+          compositionPlan: null,
+          existingFileId: null,
+          startSceneBlockId: '00000000-0000-4000-8000-000000000002',
+          endSceneBlockId: '00000000-0000-4000-8000-000000000002',
+          positionX: 320,
+          positionY: 520,
+          sortOrder: 0,
+          volume: 0.8,
+          fadeInS: 0,
+          fadeOutS: 1,
+          loopMode: 'trim',
+          generationStatus: null,
+          generationJobId: null,
+          outputFileId: null,
+          errorMessage: null,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+    };
+    mockFetchStoryboard.mockResolvedValue(stateWithMusic);
+
+    const { result } = renderHook(() => useStoryboardCanvas('draft-1'));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    const musicNode = result.current.nodes.find((node) => node.type === 'music-block');
+    expect(musicNode).toBeDefined();
+    expect(musicNode?.position).toEqual({ x: 320, y: 520 });
+    expect((musicNode?.data as { rangeLabel: string }).rangeLabel).toBe('Opening');
   });
 
   it('sets error state when fetchStoryboard throws', async () => {

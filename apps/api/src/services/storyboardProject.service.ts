@@ -8,6 +8,8 @@ import * as projectRepository from '@/repositories/project.repository.js';
 import * as storyboardRepository from '@/repositories/storyboard.repository.js';
 import type { StoryboardBlock } from '@/repositories/storyboard.repository.js';
 import * as referenceRepository from '@/repositories/storyboardIllustrationReference.repository.js';
+import * as musicRepository from '@/repositories/storyboardMusic.repository.js';
+import type { StoryboardMusicBlock } from '@/repositories/storyboardMusic.repository.js';
 import * as illustrationRepository from '@/repositories/storyboardSceneIllustration.repository.js';
 import type { StoryboardSceneIllustrationJob } from '@/repositories/storyboardSceneIllustration.repository.js';
 import * as videoRepository from '@/repositories/storyboardSceneVideo.repository.js';
@@ -66,6 +68,36 @@ function assertReadyForVideoProjectAssembly(params: {
   }
 }
 
+function assertReadyForMusicProjectAssembly(params: {
+  sceneBlocks: StoryboardBlock[];
+  musicBlocks: StoryboardMusicBlock[];
+}): void {
+  const sceneOrder = params.sceneBlocks.map((block) => block.id);
+  for (const musicBlock of params.musicBlocks) {
+    const startIndex = sceneOrder.indexOf(musicBlock.startSceneBlockId);
+    const endIndex = sceneOrder.indexOf(musicBlock.endSceneBlockId);
+    if (startIndex < 0 || endIndex < 0) {
+      throw new UnprocessableEntityError(
+        `Music block ${musicBlock.name || musicBlock.id} references a scene that is no longer in the storyboard`,
+      );
+    }
+    if (startIndex > endIndex) {
+      throw new UnprocessableEntityError(
+        `Music block ${musicBlock.name || musicBlock.id} has an invalid scene range`,
+      );
+    }
+    if (musicBlock.sourceMode === 'existing') {
+      if (!musicBlock.existingFileId) {
+        throw new UnprocessableEntityError(`Music block ${musicBlock.name || musicBlock.id} is missing an audio file`);
+      }
+      continue;
+    }
+    if (musicBlock.generationStatus !== 'ready' || !musicBlock.outputFileId) {
+      throw new UnprocessableEntityError(`Music block ${musicBlock.name || musicBlock.id} is not ready yet`);
+    }
+  }
+}
+
 export async function createProjectFromStoryboard(
   userId: string,
   draftId: string,
@@ -92,6 +124,7 @@ export async function createProjectFromStoryboard(
 
     const blocks = await storyboardRepository.findBlocksByDraftIdForUpdate(conn, draftId);
     const edges = await storyboardRepository.findEdgesByDraftIdForUpdate(conn, draftId);
+    const musicBlocks = await musicRepository.findMusicBlocksByDraftIdForUpdate(conn, draftId);
     const reference = await referenceRepository.findActiveReferenceByDraftIdForUpdate(conn, draftId);
     const illustrationJobs = await illustrationRepository.findLatestIllustrationJobsByDraftIdForUpdate(
       conn,
@@ -106,6 +139,7 @@ export async function createProjectFromStoryboard(
     } else {
       assertReadyForProjectAssembly({ sceneBlocks, reference, illustrationJobs });
     }
+    assertReadyForMusicProjectAssembly({ sceneBlocks, musicBlocks });
 
     const projectId = randomUUID();
     const assembly = buildStoryboardProjectDoc({
@@ -115,6 +149,7 @@ export async function createProjectFromStoryboard(
       mode,
       illustrationJobs,
       videoJobs,
+      musicBlocks,
       projectId,
     });
 

@@ -17,8 +17,18 @@ import { CanvasToolbar } from './CanvasToolbar';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function renderToolbar(onAddBlock = vi.fn()) {
-  return render(<CanvasToolbar onAddBlock={onAddBlock} />);
+function renderToolbar({
+  onAddBlock = vi.fn(),
+  onAddMusicBlock = vi.fn(),
+  canAddMusicBlock = true,
+} = {}) {
+  return render(
+    <CanvasToolbar
+      onAddBlock={onAddBlock}
+      onAddMusicBlock={onAddMusicBlock}
+      canAddMusicBlock={canAddMusicBlock}
+    />,
+  );
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -28,6 +38,15 @@ describe('CanvasToolbar', () => {
     it('renders a container with data-testid="canvas-toolbar"', () => {
       renderToolbar();
       expect(screen.getByTestId('canvas-toolbar')).not.toBeNull();
+    });
+
+    it('wraps actions within the available canvas width', () => {
+      renderToolbar();
+      const toolbar = screen.getByTestId('canvas-toolbar');
+
+      expect(toolbar.style.flexWrap).toBe('wrap');
+      expect(toolbar.style.maxWidth).toBe('calc(100% - 32px)');
+      expect(toolbar.style.justifyContent).toBe('flex-end');
     });
   });
 
@@ -52,7 +71,7 @@ describe('CanvasToolbar', () => {
 
     it('calls onAddBlock exactly once when clicked', () => {
       const onAddBlock = vi.fn();
-      renderToolbar(onAddBlock);
+      renderToolbar({ onAddBlock });
 
       fireEvent.click(screen.getByTestId('add-block-button'));
 
@@ -61,7 +80,7 @@ describe('CanvasToolbar', () => {
 
     it('calls onAddBlock on each subsequent click', () => {
       const onAddBlock = vi.fn();
-      renderToolbar(onAddBlock);
+      renderToolbar({ onAddBlock });
 
       fireEvent.click(screen.getByTestId('add-block-button'));
       fireEvent.click(screen.getByTestId('add-block-button'));
@@ -98,7 +117,7 @@ describe('CanvasToolbar', () => {
 
     it('does not call onAddBlock when the Auto-Arrange button is clicked (disabled)', () => {
       const onAddBlock = vi.fn();
-      renderToolbar(onAddBlock);
+      renderToolbar({ onAddBlock });
 
       // Disabled buttons do not fire click events in the browser, but fireEvent
       // does not enforce that; we verify by ensuring click on disabled button
@@ -107,6 +126,36 @@ describe('CanvasToolbar', () => {
       fireEvent.click(btn);
 
       expect(onAddBlock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Add Music button', () => {
+    it('renders as an enabled action when scenes are available', () => {
+      renderToolbar({ canAddMusicBlock: true });
+      const btn = screen.getByTestId('add-music-block-button') as HTMLButtonElement;
+      expect(btn.textContent).toContain('Add Music');
+      expect(btn.disabled).toBe(false);
+      expect(btn.getAttribute('aria-label')).toBe('Add music block');
+    });
+
+    it('calls onAddMusicBlock when clicked', () => {
+      const onAddMusicBlock = vi.fn();
+      renderToolbar({ onAddMusicBlock, canAddMusicBlock: true });
+
+      fireEvent.click(screen.getByTestId('add-music-block-button'));
+
+      expect(onAddMusicBlock).toHaveBeenCalledTimes(1);
+    });
+
+    it('is disabled when no scene block can anchor the range', () => {
+      const onAddMusicBlock = vi.fn();
+      renderToolbar({ onAddMusicBlock, canAddMusicBlock: false });
+
+      const btn = screen.getByTestId('add-music-block-button') as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+      expect(btn.getAttribute('aria-disabled')).toBe('true');
+      fireEvent.click(btn);
+      expect(onAddMusicBlock).not.toHaveBeenCalled();
     });
   });
 });

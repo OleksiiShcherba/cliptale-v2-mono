@@ -15,7 +15,9 @@ import type {
 
 import type { UseStoryboardPlanGenerationResult } from '@/features/storyboard/hooks/useStoryboardPlanGeneration';
 import type { GhostDragState } from '@/features/storyboard/hooks/useStoryboardDrag';
-import type { StoryboardSidebarTab } from '@/features/storyboard/types';
+import type { UseStoryboardIllustrationsResult } from '@/features/storyboard/hooks/useStoryboardIllustrations';
+import type { StoryboardMusicBlock, StoryboardSidebarTab } from '@/features/storyboard/types';
+
 import { EffectsPanel } from './EffectsPanel';
 import { LibraryPanel } from './LibraryPanel';
 import { SidebarTab } from './SidebarTab';
@@ -28,7 +30,6 @@ import {
   StoryboardPlanControls,
 } from './StoryboardPlanControls';
 import { storyboardPageStyles as s, ERROR } from './storyboardPageStyles';
-import type { UseStoryboardIllustrationsResult } from '@/features/storyboard/hooks/useStoryboardIllustrations';
 
 interface StoryboardPageWorkspaceProps {
   activeTab: StoryboardSidebarTab;
@@ -50,12 +51,23 @@ interface StoryboardPageWorkspaceProps {
   onNodeDragStop: OnNodeDrag;
   dragState: GhostDragState | null;
   onAddBlock: () => void;
+  onAddMusicBlock: () => void;
+  canAddMusicBlock: boolean;
   onNodeClick: NodeMouseHandler<Node>;
   isKnifeActive: boolean;
   onCutEdge: (edgeId: string) => void;
   isHistoryOpen: boolean;
   onCloseHistory: () => void;
-  onRestore: (nodes: Node[], edges: Edge[], options?: { skipSave?: boolean; skipSnapshot?: boolean; deferSave?: boolean }) => void;
+  onRestore: (
+    nodes: Node[],
+    edges: Edge[],
+    options?: {
+      skipSave?: boolean;
+      skipSnapshot?: boolean;
+      deferSave?: boolean;
+      musicBlocks?: StoryboardMusicBlock[];
+    },
+  ) => void;
   planGeneration: UseStoryboardPlanGenerationResult;
   illustrationGeneration: UseStoryboardIllustrationsResult;
   isPlanBlocking: boolean;
@@ -81,6 +93,8 @@ export function StoryboardPageWorkspace({
   onNodeDragStop,
   dragState,
   onAddBlock,
+  onAddMusicBlock,
+  canAddMusicBlock,
   onNodeClick,
   isKnifeActive,
   onCutEdge,
@@ -141,6 +155,8 @@ export function StoryboardPageWorkspace({
             onNodeDragStop={onNodeDragStop}
             dragState={dragState}
             onAddBlock={onAddBlock}
+            onAddMusicBlock={onAddMusicBlock}
+            canAddMusicBlock={canAddMusicBlock}
             onNodeClick={onNodeClick}
             cursorMode={isKnifeActive ? 'knife' : 'grab'}
             onCutEdge={onCutEdge}

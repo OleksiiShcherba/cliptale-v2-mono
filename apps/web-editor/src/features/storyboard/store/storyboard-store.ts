@@ -14,8 +14,17 @@ import { useSyncExternalStore } from 'react';
 
 import type { Node, Edge } from '@xyflow/react';
 
+import {
+  musicBlockToNode,
+  orderStoryboardSceneBlocks,
+} from '@/features/storyboard/hooks/useStoryboardMusic';
+import type {
+  SceneBlockNodeData,
+  StoryboardBlock,
+  StoryboardEdge,
+} from '@/features/storyboard/types';
+
 import type { CanvasSnapshot } from './storyboard-history-store';
-import type { StoryboardBlock, StoryboardEdge } from '../types';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -122,7 +131,7 @@ export function restoreFromSnapshot(snapshot: CanvasSnapshot): void {
   // Reconstruct React Flow nodes from serialisable StoryboardBlock records.
   // Position is resolved from the snapshot map first; falls back to the
   // per-block coordinates stored in the DB when the map is absent (server path).
-  const nodes: Node[] = restorableBlocks.map((block) => {
+  const blockNodes: Node[] = restorableBlocks.map((block) => {
     const position = payload.positions?.[block.id] ?? {
       x: block.positionX ?? 0,
       y: block.positionY ?? 0,
@@ -157,6 +166,11 @@ export function restoreFromSnapshot(snapshot: CanvasSnapshot): void {
     if (!source || !target || !blockIds.has(source) || !blockIds.has(target)) return [];
     return [{ id: edge.id, source, target }];
   });
+  const orderedScenes = orderStoryboardSceneBlocks(restorableBlocks, payload.edges ?? []);
+  const musicNodes = (payload.musicBlocks ?? []).map((musicBlock) =>
+    musicBlockToNode(musicBlock, orderedScenes as StoryboardBlock[]),
+  );
+  const nodes = [...blockNodes, ...musicNodes];
 
   // Rebuild the positions map from the reconstructed nodes so the store
   // remains consistent regardless of whether snapshot.positions was present.
@@ -213,7 +227,7 @@ export function setCanvasState(nodes: Node[], edges: Edge[]): void {
  */
 export function updateBlock(
   blockId: string,
-  patch: Partial<import('../types').StoryboardBlock>,
+  patch: Partial<StoryboardBlock>,
 ): void {
   const nodes = state.nodes.map((n) => {
     if (n.id !== blockId) return n;
@@ -221,7 +235,7 @@ export function updateBlock(
       ...n,
       data: {
         ...n.data,
-        block: { ...(n.data as { block: import('../types').StoryboardBlock }).block, ...patch },
+        block: { ...(n.data as { block: StoryboardBlock }).block, ...patch },
       },
     };
   });
@@ -262,14 +276,14 @@ export function removeBlock(blockId: string): void {
  * @param onRemove - The remove callback to wire into the node's data.
  */
 export function addBlockNode(
-  block: import('../types').StoryboardBlock,
+  block: StoryboardBlock,
   onRemove: (nodeId: string) => void,
 ): void {
-  const newNode: import('@xyflow/react').Node = {
+  const newNode: Node = {
     id: block.id,
     type: 'scene-block',
     position: { x: block.positionX, y: block.positionY },
-    data: { block, onRemove } as import('../types').SceneBlockNodeData,
+    data: { block, onRemove } as SceneBlockNodeData,
     draggable: true,
     deletable: true,
   };
@@ -309,7 +323,7 @@ export function applyStyleToBlock(blockId: string, styleId: string): void {
       data: {
         ...n.data,
         block: {
-          ...(n.data as { block: import('../types').StoryboardBlock }).block,
+          ...(n.data as { block: StoryboardBlock }).block,
           style: styleId,
         },
       },
@@ -337,7 +351,7 @@ export function applyStyleToAllBlocks(styleId: string): void {
       data: {
         ...n.data,
         block: {
-          ...(n.data as { block: import('../types').StoryboardBlock }).block,
+          ...(n.data as { block: StoryboardBlock }).block,
           style: styleId,
         },
       },

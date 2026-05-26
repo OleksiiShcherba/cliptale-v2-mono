@@ -87,6 +87,36 @@ const numberField = (
   max,
 });
 
+const booleanField = (
+  name: string,
+  label: string,
+  description: string,
+  defaultValue?: boolean,
+): FalFieldSchema => ({
+  name,
+  type: 'boolean',
+  label,
+  required: false,
+  description,
+  default: defaultValue,
+});
+
+const enumField = (
+  name: string,
+  label: string,
+  description: string,
+  values: readonly string[],
+  defaultValue: string,
+): FalFieldSchema => ({
+  name,
+  type: 'enum',
+  label,
+  required: false,
+  description,
+  enum: values,
+  default: defaultValue,
+});
+
 const voicePickerField = (
   name: string,
   label: string,
@@ -97,6 +127,18 @@ const voicePickerField = (
   type: 'voice_picker',
   label,
   required,
+  description,
+});
+
+const compositionPlanField = (
+  name: string,
+  label: string,
+  description: string,
+): FalFieldSchema => ({
+  name,
+  type: 'composition_plan',
+  label,
+  required: false,
   description,
 });
 
@@ -205,21 +247,68 @@ export const ELEVENLABS_MODELS: readonly ElevenLabsModel[] = [
     group: 'audio',
     label: 'Music Generation',
     description:
-      'Generate background music or sound effects from a text description.',
+      'Generate background music from an ElevenLabs Music composition plan.',
     inputSchema: {
       fields: [
-        textField(
-          'prompt',
-          'Prompt',
-          'Describe the music you want — genre, mood, instruments, tempo.',
+        {
+          ...textField(
+            'prompt',
+            'Prompt',
+            'Describe the music to plan when no composition plan is supplied.',
+          ),
+          required: false,
+        },
+        compositionPlanField(
+          'composition_plan',
+          'Composition Plan',
+          'Structured ElevenLabs Music composition plan for planned storyboard music.',
         ),
+        numberField(
+          'music_length_ms',
+          'Music Length (ms)',
+          'Length for prompt-based plan creation, from 3,000 to 600,000 ms.',
+          30_000,
+          3_000,
+          600_000,
+        ),
+        // Legacy prompt-based duration field retained so existing callers keep validating.
         numberField(
           'duration',
           'Duration (seconds)',
-          'Length of the generated audio clip.',
+          'Legacy length field; converted to music_length_ms for plan creation.',
           30,
-          1,
-          240,
+          3,
+          600,
+        ),
+        booleanField(
+          'respect_sections_durations',
+          'Respect Section Durations',
+          'Whether ElevenLabs should strictly follow composition plan section durations.',
+          true,
+        ),
+        enumField(
+          'model_id',
+          'Model',
+          'ElevenLabs Music model id.',
+          ['music_v1'],
+          'music_v1',
+        ),
+        booleanField(
+          'force_instrumental',
+          'Force Instrumental',
+          'For prompt-based plan creation, strip lyrics and avoid vocals by default.',
+          true,
+        ),
+        booleanField(
+          'regenerate_composition_plan',
+          'Regenerate Plan',
+          'When true, create a fresh composition plan from prompt before composing.',
+          false,
+        ),
+        compositionPlanField(
+          'source_composition_plan',
+          'Source Composition Plan',
+          'Optional source plan for prompt-based plan regeneration.',
         ),
       ],
     },

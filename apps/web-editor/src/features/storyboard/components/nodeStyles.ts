@@ -24,7 +24,9 @@ export const WARNING = '#F59E0B';
 export const sentinelNodeStyles = {
   root: {
     background: SURFACE_ELEVATED,
-    border: `1.5px solid ${BORDER}`,
+    borderColor: BORDER,
+    borderStyle: 'solid',
+    borderWidth: '1.5px',
     borderRadius: '8px',
     padding: '10px 20px',
     color: TEXT_PRIMARY,
@@ -87,6 +89,11 @@ export const sceneBlockNodeStyles = {
     position: 'relative',
     overflow: 'visible',
     userSelect: 'none',
+  } as React.CSSProperties,
+
+  rootMusicHighlighted: {
+    borderColor: SUCCESS,
+    boxShadow: `0 0 0 1px ${SUCCESS}`,
   } as React.CSSProperties,
 
   header: {
@@ -255,5 +262,30 @@ export const sceneBlockNodeStyles = {
     display: 'flex',
     gap: '4px',
     flexWrap: 'wrap',
+  } as React.CSSProperties,
+
+  musicIndicator: {
+    position: 'absolute',
+    top: '0',
+    left: '0',
+    right: '0',
+    height: '4px',
+    background: SUCCESS,
+  } as React.CSSProperties,
+
+  musicBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: '4px',
+    minHeight: '22px',
+    border: `1px solid ${SUCCESS}`,
+    borderRadius: '4px',
+    background: SURFACE,
+    color: SUCCESS,
+    padding: '3px 8px',
+    fontSize: '10px',
+    lineHeight: '14px',
+    fontWeight: 600,
   } as React.CSSProperties,
 } as const;

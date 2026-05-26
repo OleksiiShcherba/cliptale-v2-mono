@@ -5,6 +5,7 @@ import { aclMiddleware } from '@/middleware/acl.middleware.js';
 import { validateBody } from '@/middleware/validate.middleware.js';
 import * as storyboardController from '@/controllers/storyboard.controller.js';
 import * as storyboardIllustrationController from '@/controllers/storyboardIllustration.controller.js';
+import * as storyboardMusicController from '@/controllers/storyboardMusic.controller.js';
 import * as storyboardProjectController from '@/controllers/storyboardProject.controller.js';
 import * as storyboardVideoController from '@/controllers/storyboardVideo.controller.js';
 
@@ -69,6 +70,51 @@ router.post(
   aclMiddleware('editor'),
   validateBody(storyboardVideoController.startStoryboardVideosBodySchema),
   storyboardVideoController.startStoryboardVideos,
+);
+
+// GET /storyboards/:draftId/music
+// Returns storyboard background music blocks with resolved source/generation status.
+router.get(
+  '/storyboards/:draftId/music',
+  authMiddleware,
+  aclMiddleware('editor'),
+  storyboardMusicController.listStoryboardMusic,
+);
+
+// PUT/PATCH /storyboards/:draftId/music/:musicBlockId
+// Updates source mode, prompts, range, and playback settings for one music block.
+router.put(
+  '/storyboards/:draftId/music/:musicBlockId',
+  authMiddleware,
+  aclMiddleware('editor'),
+  validateBody(storyboardMusicController.updateStoryboardMusicBlockBodySchema),
+  storyboardMusicController.updateStoryboardMusicBlock,
+);
+
+router.patch(
+  '/storyboards/:draftId/music/:musicBlockId',
+  authMiddleware,
+  aclMiddleware('editor'),
+  validateBody(storyboardMusicController.updateStoryboardMusicBlockBodySchema),
+  storyboardMusicController.updateStoryboardMusicBlock,
+);
+
+// POST /storyboards/:draftId/music/:musicBlockId/generate
+// Starts Generate now for one music block without duplicating active jobs.
+router.post(
+  '/storyboards/:draftId/music/:musicBlockId/generate',
+  authMiddleware,
+  aclMiddleware('editor'),
+  storyboardMusicController.generateStoryboardMusicBlock,
+);
+
+// POST /storyboards/:draftId/music/generate-pending
+// Starts unresolved generate_on_step3 music blocks for Step 3 assembly.
+router.post(
+  '/storyboards/:draftId/music/generate-pending',
+  authMiddleware,
+  aclMiddleware('editor'),
+  storyboardMusicController.generatePendingStoryboardMusic,
 );
 
 // GET /storyboards/:draftId/illustrations

@@ -16,8 +16,14 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 import type { Node, Edge } from '@xyflow/react';
 
-import { fetchStoryboard } from '../api';
-import type { StoryboardBlock, StoryboardEdge, SceneBlockNodeData, SentinelNodeData } from '../types';
+import { fetchStoryboard } from '@/features/storyboard/api';
+import type {
+  SceneBlockNodeData,
+  SentinelNodeData,
+  StoryboardBlock,
+  StoryboardEdge,
+} from '@/features/storyboard/types';
+import { musicBlockToNode, orderStoryboardSceneBlocks } from './useStoryboardMusic';
 
 // ── Canvas layout constants ────────────────────────────────────────────────────
 
@@ -208,9 +214,11 @@ export function useStoryboardCanvas(draftId: string): UseStoryboardCanvasResult 
       // Apply default positions on first visit, then convert to React Flow.
       const positionedBlocks = applyDefaultPositions(dedupedBlocks);
 
-      const flowNodes = positionedBlocks.map((block) =>
-        blockToNode(block, removeNode),
-      );
+      const orderedScenes = orderStoryboardSceneBlocks(positionedBlocks, state.edges);
+      const flowNodes = [
+        ...positionedBlocks.map((block) => blockToNode(block, removeNode)),
+        ...state.musicBlocks.map((musicBlock) => musicBlockToNode(musicBlock, orderedScenes as StoryboardBlock[])),
+      ];
       const flowEdges = state.edges.map(edgeToFlowEdge);
 
       if (

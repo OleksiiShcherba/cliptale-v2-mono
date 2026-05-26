@@ -74,6 +74,31 @@ function makeEntry(id: number) {
   };
 }
 
+const MUSIC_BLOCK = {
+  id: '00000000-0000-4000-8000-000000000001',
+  draftId: '00000000-0000-4000-8000-000000000010',
+  name: 'Opening music',
+  sourceMode: 'generate_on_step3' as const,
+  prompt: null,
+  compositionPlan: null,
+  existingFileId: null,
+  startSceneBlockId: '00000000-0000-4000-8000-000000000020',
+  endSceneBlockId: '00000000-0000-4000-8000-000000000021',
+  positionX: 120,
+  positionY: 520,
+  sortOrder: 0,
+  volume: 0.8,
+  fadeInS: 0,
+  fadeOutS: 1,
+  loopMode: 'trim' as const,
+  generationStatus: null,
+  generationJobId: null,
+  outputFileId: null,
+  errorMessage: null,
+  createdAt: '2026-05-26T00:00:00Z',
+  updatedAt: '2026-05-26T00:00:00Z',
+};
+
 // ── Setup ──────────────────────────────────────────────────────────────────────
 
 let mockOnRestore: ReturnType<typeof vi.fn>;
@@ -226,7 +251,35 @@ describe('StoryboardHistoryPanel', () => {
     fireEvent.click(screen.getByTestId('history-restore-button'));
 
     expect(mockOnRestore).toHaveBeenCalledTimes(1);
-    expect(mockOnRestore).toHaveBeenCalledWith(reconstructedNodes, reconstructedEdges);
+    expect(mockOnRestore).toHaveBeenCalledWith(
+      reconstructedNodes,
+      reconstructedEdges,
+      { deferSave: true, musicBlocks: undefined },
+    );
+  });
+
+  it('(7b) clicking Restore carries snapshot music blocks to onRestore', () => {
+    const entry = {
+      ...makeEntry(1),
+      snapshot: { blocks: [], edges: [], musicBlocks: [MUSIC_BLOCK] },
+    };
+    mockUseStoryboardHistoryFetch.mockReturnValue({
+      entries: [entry],
+      isLoading: false,
+      isError: false,
+    });
+
+    render(
+      <StoryboardHistoryPanel draftId="d1" onClose={mockOnClose} onRestore={mockOnRestore} />,
+    );
+
+    fireEvent.click(screen.getByTestId('history-restore-button'));
+
+    expect(mockOnRestore).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.any(Array),
+      { deferSave: true, musicBlocks: [MUSIC_BLOCK] },
+    );
   });
 
   it('(8) clicking Restore calls onClose after onRestore', () => {

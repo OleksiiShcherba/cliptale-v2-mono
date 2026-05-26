@@ -16,6 +16,7 @@ import {
   textToSpeech,
   voiceClone,
   speechToSpeech,
+  createMusicCompositionPlan,
   musicGeneration,
 } from '@/lib/elevenlabs-client.js';
 import { processIngestJob } from '@/jobs/ingest.job.js';
@@ -106,7 +107,7 @@ const aiGenerateWorker = new Worker<AiGenerateJobPayload>(
     falKey: config.fal.key,
     fal: { submitFalJob, getFalJobStatus },
     elevenlabsKey: config.elevenlabs.apiKey,
-    elevenlabs: { textToSpeech, voiceClone, speechToSpeech, musicGeneration },
+    elevenlabs: { textToSpeech, voiceClone, speechToSpeech, createMusicCompositionPlan, musicGeneration },
     ingestQueue: mediaIngestQueue,
     filesRepo,
     aiGenerationJobRepo,

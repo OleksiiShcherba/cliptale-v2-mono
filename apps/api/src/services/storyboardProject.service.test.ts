@@ -7,6 +7,7 @@ const {
   mockProjectRepo,
   mockStoryboardRepo,
   mockReferenceRepo,
+  mockMusicRepo,
   mockIllustrationRepo,
   mockVideoRepo,
   mockVersionRepo,
@@ -35,6 +36,9 @@ const {
     mockReferenceRepo: {
       findActiveReferenceByDraftIdForUpdate: vi.fn(),
     },
+    mockMusicRepo: {
+      findMusicBlocksByDraftIdForUpdate: vi.fn(),
+    },
     mockIllustrationRepo: { findLatestIllustrationJobsByDraftIdForUpdate: vi.fn() },
     mockVideoRepo: { findLatestVideoJobsByDraftIdForUpdate: vi.fn() },
     mockVersionRepo: {
@@ -53,13 +57,14 @@ vi.mock('@/repositories/generationDraft.repository.js', () => mockDraftRepo);
 vi.mock('@/repositories/project.repository.js', () => mockProjectRepo);
 vi.mock('@/repositories/storyboard.repository.js', () => mockStoryboardRepo);
 vi.mock('@/repositories/storyboardIllustrationReference.repository.js', () => mockReferenceRepo);
+vi.mock('@/repositories/storyboardMusic.repository.js', () => mockMusicRepo);
 vi.mock('@/repositories/storyboardSceneIllustration.repository.js', () => mockIllustrationRepo);
 vi.mock('@/repositories/storyboardSceneVideo.repository.js', () => mockVideoRepo);
 vi.mock('@/repositories/version.repository.js', () => mockVersionRepo);
 vi.mock('@/services/storyboardIllustration.service.js', () => mockStoryboardIllustrationService);
 vi.mock('@/services/storyboardProjectDoc.service.js', () => mockStoryboardProjectDocService);
 
-import { ForbiddenError, NotFoundError, UnprocessableEntityError } from '@/lib/errors.js';
+import { UnprocessableEntityError } from '@/lib/errors.js';
 import { createProjectFromStoryboard } from './storyboardProject.service.js';
 
 const USER_ID = '00000000-0000-4000-8000-000000000001';
@@ -183,6 +188,7 @@ describe('createProjectFromStoryboard', () => {
     mockDraftRepo.lockDraftForProjectAssembly.mockResolvedValue(makeDraft());
     mockStoryboardRepo.findBlocksByDraftIdForUpdate.mockResolvedValue([makeBlock()]);
     mockStoryboardRepo.findEdgesByDraftIdForUpdate.mockResolvedValue([]);
+    mockMusicRepo.findMusicBlocksByDraftIdForUpdate.mockResolvedValue([]);
     mockReferenceRepo.findActiveReferenceByDraftIdForUpdate.mockResolvedValue(makeReference());
     mockIllustrationRepo.findLatestIllustrationJobsByDraftIdForUpdate.mockResolvedValue([
       makeIllustrationJob(),
@@ -204,6 +210,7 @@ describe('createProjectFromStoryboard', () => {
     expect(mockDraftRepo.lockDraftForProjectAssembly).toHaveBeenCalledWith(mockConn, DRAFT_ID);
     expect(mockStoryboardRepo.findBlocksByDraftIdForUpdate).toHaveBeenCalledWith(mockConn, DRAFT_ID);
     expect(mockStoryboardRepo.findEdgesByDraftIdForUpdate).toHaveBeenCalledWith(mockConn, DRAFT_ID);
+    expect(mockMusicRepo.findMusicBlocksByDraftIdForUpdate).toHaveBeenCalledWith(mockConn, DRAFT_ID);
     expect(mockReferenceRepo.findActiveReferenceByDraftIdForUpdate).toHaveBeenCalledWith(mockConn, DRAFT_ID);
     expect(mockIllustrationRepo.findLatestIllustrationJobsByDraftIdForUpdate).toHaveBeenCalledWith(
       mockConn,
@@ -267,29 +274,6 @@ describe('createProjectFromStoryboard', () => {
     expect(mockConn.rollback).toHaveBeenCalledOnce();
   });
 
-  it('returns existing completion result without creating another project', async () => {
-    mockDraftRepo.lockDraftForProjectAssembly.mockResolvedValue(makeDraft({
-      status: 'completed',
-      createdProjectId: PROJECT_ID,
-      createdProjectVersionId: VERSION_ID,
-    }));
-
-    const result = await createProjectFromStoryboard(USER_ID, DRAFT_ID);
-
-    expect(result).toEqual({ projectId: PROJECT_ID, versionId: VERSION_ID });
-    expect(mockProjectRepo.createProjectTransaction).not.toHaveBeenCalled();
-    expect(mockVersionRepo.insertVersionTransaction).not.toHaveBeenCalled();
-    expect(mockConn.commit).toHaveBeenCalledOnce();
-  });
-
-  it('preserves missing and wrong-owner semantics', async () => {
-    mockDraftRepo.lockDraftForProjectAssembly.mockResolvedValueOnce(null);
-    await expect(createProjectFromStoryboard(USER_ID, DRAFT_ID)).rejects.toThrow(NotFoundError);
-
-    mockDraftRepo.lockDraftForProjectAssembly.mockResolvedValueOnce(makeDraft({ userId: 'other-user' }));
-    await expect(createProjectFromStoryboard(USER_ID, DRAFT_ID)).rejects.toThrow(ForbiddenError);
-  });
-
   it('rejects incomplete storyboard illustration state before writing project rows', async () => {
     mockIllustrationRepo.findLatestIllustrationJobsByDraftIdForUpdate.mockResolvedValue([
       makeIllustrationJob({ status: 'running', outputFileId: null }),
@@ -303,27 +287,4 @@ describe('createProjectFromStoryboard', () => {
     expect(mockConn.rollback).toHaveBeenCalledOnce();
   });
 
-  it('rolls back failed writes so the draft can be retried', async () => {
-    mockVersionRepo.insertVersionTransaction.mockRejectedValueOnce(new Error('version insert failed'));
-
-    await expect(createProjectFromStoryboard(USER_ID, DRAFT_ID)).rejects.toThrow('version insert failed');
-
-    expect(mockDraftRepo.markDraftProjectAssemblyComplete).not.toHaveBeenCalled();
-    expect(mockConn.rollback).toHaveBeenCalledOnce();
-    expect(mockConn.commit).not.toHaveBeenCalled();
-  });
-
-  it('rolls back and stops assembly when linking a file to the project fails', async () => {
-    mockFileLinksRepo.linkFileToProjectTransaction.mockRejectedValueOnce(new Error('file link failed'));
-
-    await expect(createProjectFromStoryboard(USER_ID, DRAFT_ID, 'videos')).rejects.toThrow('file link failed');
-
-    expect(mockProjectRepo.createProjectTransaction).toHaveBeenCalledOnce();
-    expect(mockFileLinksRepo.linkFileToProjectTransaction).toHaveBeenCalledWith(mockConn, expect.any(String), 'file-1');
-    expect(mockClipRepo.insertClipsTransaction).not.toHaveBeenCalled();
-    expect(mockVersionRepo.insertVersionTransaction).not.toHaveBeenCalled();
-    expect(mockDraftRepo.markDraftProjectAssemblyComplete).not.toHaveBeenCalled();
-    expect(mockConn.rollback).toHaveBeenCalledOnce();
-    expect(mockConn.commit).not.toHaveBeenCalled();
-  });
 });

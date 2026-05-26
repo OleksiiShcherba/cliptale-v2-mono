@@ -107,7 +107,12 @@ function dist(a: XYPosition, b: XYPosition): number {
 }
 
 function isGhostPreviewNode(node: Node): boolean {
-  return node.type === 'scene-block' || node.type === 'start' || node.type === 'end';
+  return (
+    node.type === 'scene-block' ||
+    node.type === 'music-block' ||
+    node.type === 'start' ||
+    node.type === 'end'
+  );
 }
 
 function restoreNodeOpacity(node: Node): Node {

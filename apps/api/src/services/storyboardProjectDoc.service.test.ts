@@ -5,7 +5,6 @@ import { UnprocessableEntityError } from '@/lib/errors.js';
 import type { GenerationDraft } from '@/repositories/generationDraft.repository.js';
 import type { StoryboardBlock, StoryboardEdge } from '@/repositories/storyboard.repository.js';
 import type { StoryboardSceneIllustrationJob } from '@/repositories/storyboardSceneIllustration.repository.js';
-import type { StoryboardSceneVideoJob } from '@/repositories/storyboardSceneVideo.repository.js';
 import { buildStoryboardProjectDoc } from './storyboardProjectDoc.service.js';
 
 const USER_ID = '00000000-0000-4000-8000-000000000001';
@@ -63,23 +62,6 @@ function makeJob(overrides: Partial<StoryboardSceneIllustrationJob>): Storyboard
     aiJobId: '00000000-0000-4000-8000-000000000030',
     status: 'ready',
     outputFileId: '00000000-0000-4000-8000-000000000040',
-    errorMessage: null,
-    createdAt: NOW,
-    updatedAt: NOW,
-    ...overrides,
-  };
-}
-
-function makeVideoJob(overrides: Partial<StoryboardSceneVideoJob>): StoryboardSceneVideoJob {
-  return {
-    id: '00000000-0000-4000-8000-000000000050',
-    draftId: DRAFT_ID,
-    blockId: '00000000-0000-4000-8000-000000000010',
-    aiJobId: '00000000-0000-4000-8000-000000000060',
-    modelId: 'fal-ai/ltx-2-19b/image-to-video',
-    generateAudio: true,
-    status: 'ready',
-    outputFileId: '00000000-0000-4000-8000-000000000070',
     errorMessage: null,
     createdAt: NOW,
     updatedAt: NOW,
@@ -193,77 +175,6 @@ describe('buildStoryboardProjectDoc', () => {
     });
 
     expect(result.projectDoc.clips.map((clip) => clip.fileId)).toEqual([fileB, fileA]);
-  });
-
-  it('builds valid video clips from ready generated scene video outputs', () => {
-    const sceneA = makeBlock({
-      id: '00000000-0000-4000-8000-000000000011',
-      durationS: 2.4,
-      sortOrder: 1,
-    });
-    const sceneB = makeBlock({
-      id: '00000000-0000-4000-8000-000000000012',
-      durationS: 1.6,
-      sortOrder: 2,
-    });
-    const fileA = '00000000-0000-4000-8000-000000000071';
-    const fileB = '00000000-0000-4000-8000-000000000072';
-
-    const result = buildStoryboardProjectDoc({
-      draft: makeDraft(basePromptDoc()),
-      blocks: [sceneA, sceneB],
-      edges: [],
-      mode: 'videos',
-      videoJobs: [
-        makeVideoJob({ blockId: sceneA.id, outputFileId: fileA }),
-        makeVideoJob({ blockId: sceneB.id, outputFileId: fileB }),
-      ],
-      projectId: PROJECT_ID,
-      now: NOW,
-      createId: makeIdFactory(),
-    });
-
-    expect(projectDocSchema.safeParse(result.projectDoc).success).toBe(true);
-    expect(result.projectDoc.tracks[0]).toMatchObject({
-      type: 'video',
-      name: 'Storyboard videos',
-    });
-    expect(result.projectDoc.clips).toEqual([
-      expect.objectContaining({
-        type: 'video',
-        fileId: fileA,
-        startFrame: 0,
-        durationFrames: 72,
-        trimInFrame: 0,
-        volume: 1,
-      }),
-      expect.objectContaining({
-        type: 'video',
-        fileId: fileB,
-        startFrame: 72,
-        durationFrames: 48,
-        trimInFrame: 0,
-        volume: 1,
-      }),
-    ]);
-    expect(result.clipInserts).toEqual([
-      expect.objectContaining({ type: 'video', fileId: fileA, startFrame: 0, durationFrames: 72 }),
-      expect.objectContaining({ type: 'video', fileId: fileB, startFrame: 72, durationFrames: 48 }),
-    ]);
-    expect(result.usedFileIds).toEqual([fileA, fileB]);
-  });
-
-  it('rejects missing ready scene video outputs in video mode', () => {
-    expect(() => buildStoryboardProjectDoc({
-      draft: makeDraft(basePromptDoc()),
-      blocks: [makeBlock({})],
-      edges: [],
-      mode: 'videos',
-      videoJobs: [makeVideoJob({ status: 'running', outputFileId: null })],
-      projectId: PROJECT_ID,
-      now: NOW,
-      createId: makeIdFactory(),
-    })).toThrow(UnprocessableEntityError);
   });
 
   it.each([

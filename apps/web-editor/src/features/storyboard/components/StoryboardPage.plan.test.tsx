@@ -20,6 +20,9 @@ const {
   mockReplacePrincipalImage,
   mockSetPrincipalImageReferences,
   mockStartStoryboardVideos,
+  mockFetchStoryboardMusic,
+  mockUpdateStoryboardMusicBlock,
+  mockGenerateStoryboardMusicBlock,
   mockListModels,
   mockApiClientGet,
 } = vi.hoisted(() => ({
@@ -38,6 +41,9 @@ const {
   mockReplacePrincipalImage: vi.fn(),
   mockSetPrincipalImageReferences: vi.fn(),
   mockStartStoryboardVideos: vi.fn(),
+  mockFetchStoryboardMusic: vi.fn(),
+  mockUpdateStoryboardMusicBlock: vi.fn(),
+  mockGenerateStoryboardMusicBlock: vi.fn(),
   mockListModels: vi.fn(),
   mockApiClientGet: vi.fn(),
 }));
@@ -88,6 +94,9 @@ vi.mock('@/features/storyboard/api', () => ({
   replaceStoryboardPrincipalImage: mockReplacePrincipalImage,
   setStoryboardPrincipalImageReferences: mockSetPrincipalImageReferences,
   startStoryboardVideos: mockStartStoryboardVideos,
+  fetchStoryboardMusic: mockFetchStoryboardMusic,
+  updateStoryboardMusicBlock: mockUpdateStoryboardMusicBlock,
+  generateStoryboardMusicBlock: mockGenerateStoryboardMusicBlock,
 }));
 
 vi.mock('@/shared/ai-generation/api', () => ({
@@ -203,6 +212,9 @@ describe('StoryboardPage / storyboard plan generation', () => {
     mockReplacePrincipalImage.mockResolvedValue(undefined);
     mockSetPrincipalImageReferences.mockResolvedValue(undefined);
     mockStartStoryboardVideos.mockResolvedValue({ items: [] });
+    mockFetchStoryboardMusic.mockResolvedValue({ items: [] });
+    mockUpdateStoryboardMusicBlock.mockResolvedValue({});
+    mockGenerateStoryboardMusicBlock.mockResolvedValue({ items: [] });
     mockListModels.mockResolvedValue({ image_to_video: [] });
     mockApiClientGet.mockImplementation((path: string) => Promise.resolve({
       ok: true,

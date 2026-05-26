@@ -1,4 +1,5 @@
 import * as storyboardRepository from '@/repositories/storyboard.repository.js';
+import * as storyboardMusicRepository from '@/repositories/storyboardMusic.repository.js';
 import type {
   StoryboardBlock,
   StoryboardEdge,
@@ -6,9 +7,12 @@ import type {
   BlockInsert,
   EdgeInsert,
 } from '@/repositories/storyboard.repository.js';
+import type { StoryboardMusicBlock, StoryboardMusicBlockInsert } from '@/repositories/storyboardMusic.repository.js';
 import * as generationDraftRepository from '@/repositories/generationDraft.repository.js';
 import type { GenerationDraft } from '@/repositories/generationDraft.repository.js';
 import { ForbiddenError, NotFoundError } from '@/lib/errors.js';
+import { validateMusicBlockRanges } from '@/services/storyboardMusicRange.service.js';
+import { assertReadyAudioFile } from '@/services/storyboardMusic.service.js';
 
 /** Maximum history entries retained per draft (both in-memory and DB). */
 const HISTORY_CAP = 50;
@@ -23,6 +27,7 @@ const END_POSITION = { x: 900, y: 300 };
 export type StoryboardState = {
   blocks: StoryboardBlock[];
   edges: StoryboardEdge[];
+  musicBlocks: StoryboardMusicBlock[];
 };
 
 export { applyLatestCompletedPlan } from './storyboardPlanApply.service.js';
@@ -47,6 +52,24 @@ async function assertOwnership(userId: string, draftId: string): Promise<Generat
     throw new ForbiddenError(`You do not own storyboard draft ${draftId}`);
   }
   return draft;
+}
+
+function normalizeMusicBlocksForDraft(
+  draftId: string,
+  musicBlocks: StoryboardMusicBlockInsert[],
+): StoryboardMusicBlockInsert[] {
+  return musicBlocks.map((block) => ({ ...block, draftId }));
+}
+
+async function validateExistingMusicFiles(
+  userId: string,
+  musicBlocks: StoryboardMusicBlockInsert[],
+): Promise<void> {
+  for (const musicBlock of musicBlocks) {
+    if (musicBlock.sourceMode === 'existing') {
+      await assertReadyAudioFile(userId, musicBlock.existingFileId);
+    }
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -149,12 +172,13 @@ export async function loadStoryboard(
   // Seed sentinels atomically on every load — no-op if they already exist.
   await insertSentinelsAtomically(draftId);
 
-  const [blocks, edges] = await Promise.all([
+  const [blocks, edges, musicBlocks] = await Promise.all([
     storyboardRepository.findBlocksByDraftId(draftId),
     storyboardRepository.findEdgesByDraftId(draftId),
+    storyboardMusicRepository.listMusicBlocksByDraftId(draftId),
   ]);
 
-  return { blocks, edges };
+  return { blocks, edges, musicBlocks };
 }
 
 /**
@@ -176,13 +200,20 @@ export async function saveStoryboard(
   draftId: string,
   blocks: BlockInsert[],
   edges: EdgeInsert[],
+  musicBlocks?: StoryboardMusicBlockInsert[],
 ): Promise<StoryboardState> {
   await assertOwnership(userId, draftId);
 
   const conn = await storyboardRepository.getConnection();
   try {
     await conn.beginTransaction();
-    await storyboardRepository.replaceStoryboard(conn, draftId, blocks, edges);
+    const blocksToSave = normalizeMusicBlocksForDraft(
+      draftId,
+      musicBlocks ?? await storyboardMusicRepository.findMusicBlocksByDraftIdForUpdate(conn, draftId),
+    );
+    validateMusicBlockRanges(draftId, blocks, edges, blocksToSave);
+    await validateExistingMusicFiles(userId, blocksToSave);
+    await storyboardRepository.replaceStoryboard(conn, draftId, blocks, edges, blocksToSave);
     await conn.commit();
   } catch (err) {
     await conn.rollback();
@@ -192,12 +223,13 @@ export async function saveStoryboard(
   }
 
   // Re-load the persisted state to return the authoritative saved snapshot.
-  const [savedBlocks, savedEdges] = await Promise.all([
+  const [savedBlocks, savedEdges, savedMusicBlocks] = await Promise.all([
     storyboardRepository.findBlocksByDraftId(draftId),
     storyboardRepository.findEdgesByDraftId(draftId),
+    storyboardMusicRepository.listMusicBlocksByDraftId(draftId),
   ]);
 
-  return { blocks: savedBlocks, edges: savedEdges };
+  return { blocks: savedBlocks, edges: savedEdges, musicBlocks: savedMusicBlocks };
 }
 
 /**
@@ -254,12 +286,13 @@ export async function initializeStoryboard(
     await storyboardRepository.insertBlock(endBlock);
   }
 
-  const [blocks, edges] = await Promise.all([
+  const [blocks, edges, musicBlocks] = await Promise.all([
     storyboardRepository.findBlocksByDraftId(draftId),
     storyboardRepository.findEdgesByDraftId(draftId),
+    storyboardMusicRepository.listMusicBlocksByDraftId(draftId),
   ]);
 
-  return { blocks, edges };
+  return { blocks, edges, musicBlocks };
 }
 
 /**

@@ -15,9 +15,11 @@ import { useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Node, Edge } from '@xyflow/react';
 
-import type { StoryboardHistorySnapshot } from '../api';
-import { push as pushHistory } from '../store/storyboard-history-store';
-import { captureCanvasThumbnail } from '../utils/captureCanvasThumbnail';
+import type { StoryboardHistorySnapshot } from '@/features/storyboard/api';
+import { push as pushHistory } from '@/features/storyboard/store/storyboard-history-store';
+import type { StoryboardState } from '@/features/storyboard/types';
+import { captureCanvasThumbnail } from '@/features/storyboard/utils/captureCanvasThumbnail';
+import { getMusicBlocksFromNodes } from './useStoryboardMusic';
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 
@@ -35,7 +37,10 @@ export function useStoryboardHistoryPush(draftId: string): {
   pushSnapshot: (
     nodes: Node[],
     edges: Edge[],
-    options?: { persistImmediately?: boolean },
+    options?: {
+      persistImmediately?: boolean;
+      musicBlocks?: StoryboardState['musicBlocks'];
+    },
   ) => Promise<void>;
 } {
   const queryClient = useQueryClient();
@@ -44,7 +49,10 @@ export function useStoryboardHistoryPush(draftId: string): {
     async (
       currentNodes: Node[],
       currentEdges: Edge[],
-      options: { persistImmediately?: boolean } = {},
+      options: {
+        persistImmediately?: boolean;
+        musicBlocks?: StoryboardState['musicBlocks'];
+      } = {},
     ): Promise<void> => {
       const positions: Record<string, { x: number; y: number }> = {};
       for (const node of currentNodes) {
@@ -106,6 +114,7 @@ export function useStoryboardHistoryPush(draftId: string): {
           sourceBlockId: e.source,
           targetBlockId: e.target,
         })),
+        musicBlocks: options.musicBlocks ?? getMusicBlocksFromNodes(currentNodes),
         positions,
       };
 
@@ -140,7 +149,7 @@ export function useStoryboardHistoryPush(draftId: string): {
         );
       }
 
-      await pushHistory(snapshotWithThumbnail, options);
+      await pushHistory(snapshotWithThumbnail, { persistImmediately: options.persistImmediately });
     },
     [draftId, queryClient],
   );

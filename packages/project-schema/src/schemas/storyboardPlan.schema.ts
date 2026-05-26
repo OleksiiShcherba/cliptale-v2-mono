@@ -2,8 +2,13 @@ import { z } from 'zod';
 
 import { draftStyleKeySchema, draftVideoLengthSecondsSchema } from './promptDoc.schema.js';
 import type { DraftStyleKey, DraftVideoLengthSeconds } from './promptDoc.schema.js';
+import {
+  elevenLabsCompositionPlanSchema,
+  storyboardMusicSourceModeSchema,
+} from './storyboardMusic.schema.js';
 
-export const STORYBOARD_PLAN_SCHEMA_VERSION = 1;
+export const STORYBOARD_PLAN_SCHEMA_VERSION = 2;
+export const STORYBOARD_PLAN_LEGACY_SCHEMA_VERSION = 1;
 export const STORYBOARD_PLAN_TARGET_SCENE_DURATION_SECONDS = 6;
 export const STORYBOARD_PLAN_MIN_SCENE_COUNT = 1;
 export const STORYBOARD_PLAN_MAX_SCENE_COUNT = 40;
@@ -38,12 +43,30 @@ export const storyboardPlanSceneSchema = z
 
 export const storyboardPlanJobStatusSchema = z.enum(['queued', 'running', 'completed', 'failed']);
 
-export const storyboardPlanSchema = z
+export const storyboardPlanMusicSegmentSchema = z
+  .object({
+    name: z.string().max(255).refine((value) => value.trim().length > 0, {
+      message: 'Required string cannot be empty',
+    }),
+    prompt: nonEmptyStringSchema,
+    compositionPlan: elevenLabsCompositionPlanSchema,
+    startSceneNumber: z.number().int().positive(),
+    endSceneNumber: z.number().int().positive(),
+    sourceMode: storyboardMusicSourceModeSchema.default('generate_on_step3'),
+  })
+  .strict();
+
+function getCompositionPlanDurationMs(plan: z.infer<typeof elevenLabsCompositionPlanSchema>): number {
+  return plan.sections.reduce((sum, section) => sum + section.duration_ms, 0);
+}
+
+const storyboardPlanBaseSchema = z
   .object({
     schemaVersion: z.literal(STORYBOARD_PLAN_SCHEMA_VERSION),
     videoLengthSeconds: draftVideoLengthSecondsSchema,
     sceneCount: z.number().int().min(STORYBOARD_PLAN_MIN_SCENE_COUNT).max(STORYBOARD_PLAN_MAX_SCENE_COUNT),
     scenes: z.array(storyboardPlanSceneSchema).min(STORYBOARD_PLAN_MIN_SCENE_COUNT).max(STORYBOARD_PLAN_MAX_SCENE_COUNT),
+    musicSegments: z.array(storyboardPlanMusicSegmentSchema).default([]),
   })
   .strict()
   .superRefine((plan, ctx) => {
@@ -75,6 +98,39 @@ export const storyboardPlanSchema = z
       }
     }
 
+    for (const [index, musicSegment] of plan.musicSegments.entries()) {
+      if (musicSegment.startSceneNumber > musicSegment.endSceneNumber) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['musicSegments', index, 'startSceneNumber'],
+          message: 'startSceneNumber must be less than or equal to endSceneNumber',
+        });
+      }
+
+      if (musicSegment.endSceneNumber > plan.sceneCount) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['musicSegments', index, 'endSceneNumber'],
+          message: 'endSceneNumber must reference an existing scene',
+        });
+      }
+
+      const coveredDurationMs = plan.scenes
+        .slice(musicSegment.startSceneNumber - 1, musicSegment.endSceneNumber)
+        .reduce((sum, scene) => sum + scene.durationSeconds * 1_000, 0);
+      const compositionDurationMs = getCompositionPlanDurationMs(musicSegment.compositionPlan);
+      if (
+        Number.isFinite(coveredDurationMs) &&
+        Math.abs(compositionDurationMs - coveredDurationMs) > STORYBOARD_PLAN_DURATION_TOLERANCE_SECONDS * 1_000
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['musicSegments', index, 'compositionPlan', 'sections'],
+          message: 'composition plan duration must match the covered scene range',
+        });
+      }
+    }
+
     const totalDurationSeconds = plan.scenes.reduce((sum, scene) => sum + scene.durationSeconds, 0);
     if (Math.abs(totalDurationSeconds - plan.videoLengthSeconds) > STORYBOARD_PLAN_DURATION_TOLERANCE_SECONDS) {
       ctx.addIssue({
@@ -84,6 +140,22 @@ export const storyboardPlanSchema = z
       });
     }
   });
+
+const storyboardPlanLegacySchema = z
+  .object({
+    schemaVersion: z.literal(STORYBOARD_PLAN_LEGACY_SCHEMA_VERSION),
+    videoLengthSeconds: draftVideoLengthSecondsSchema,
+    sceneCount: z.number().int().min(STORYBOARD_PLAN_MIN_SCENE_COUNT).max(STORYBOARD_PLAN_MAX_SCENE_COUNT),
+    scenes: z.array(storyboardPlanSceneSchema).min(STORYBOARD_PLAN_MIN_SCENE_COUNT).max(STORYBOARD_PLAN_MAX_SCENE_COUNT),
+  })
+  .strict()
+  .transform((plan) => ({
+    ...plan,
+    schemaVersion: STORYBOARD_PLAN_SCHEMA_VERSION,
+    musicSegments: [],
+  }));
+
+export const storyboardPlanSchema = z.union([storyboardPlanBaseSchema, storyboardPlanLegacySchema]).pipe(storyboardPlanBaseSchema);
 
 const storyboardPlanQueuedJobResultSchema = z
   .object({
@@ -141,6 +213,7 @@ export function resolveStoryboardPlanStyleKey(styleKey: unknown): DraftStyleKey 
 
 export type StoryboardPlanReferencedMedia = z.infer<typeof storyboardPlanReferencedMediaSchema>;
 export type StoryboardPlanScene = z.infer<typeof storyboardPlanSceneSchema>;
+export type StoryboardPlanMusicSegment = z.infer<typeof storyboardPlanMusicSegmentSchema>;
 export type StoryboardPlan = z.infer<typeof storyboardPlanSchema>;
 export type StoryboardPlanJobStatus = z.infer<typeof storyboardPlanJobStatusSchema>;
 export type StoryboardPlanJobResult = z.infer<typeof storyboardPlanJobResultSchema>;

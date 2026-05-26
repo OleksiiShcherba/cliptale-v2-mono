@@ -47,9 +47,15 @@ import {
   createProjectFromStoryboard,
   startStoryboardVideos,
   fetchStoryboardVideos,
+  saveStoryboard,
 } from '../api';
 
-import type { SceneTemplate, CreateSceneTemplatePayload, UpdateSceneTemplatePayload } from '../types';
+import type {
+  SceneTemplate,
+  CreateSceneTemplatePayload,
+  UpdateSceneTemplatePayload,
+  StoryboardMusicBlock,
+} from '../types';
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
 
@@ -406,6 +412,69 @@ describe('storyboard plan API helpers', () => {
     await expect(applyLatestStoryboardPlan('draft-abc')).rejects.toThrow(
       'POST /storyboards/draft-abc/apply-latest-plan failed: 422',
     );
+  });
+});
+
+describe('storyboard save API helper', () => {
+  it('strips hydrated music job fields before PUT /storyboards/:draftId', async () => {
+    const hydratedMusicBlock: StoryboardMusicBlock = {
+      id: '00000000-0000-4000-8000-000000000001',
+      draftId: '00000000-0000-4000-8000-000000000010',
+      name: 'Opening music',
+      sourceMode: 'generate_on_step3',
+      prompt: 'Soft ambient pulse',
+      compositionPlan: null,
+      existingFileId: null,
+      startSceneBlockId: '00000000-0000-4000-8000-000000000020',
+      endSceneBlockId: '00000000-0000-4000-8000-000000000021',
+      positionX: 120,
+      positionY: 520,
+      sortOrder: 0,
+      volume: 0.8,
+      fadeInS: 0,
+      fadeOutS: 1,
+      loopMode: 'trim',
+      generationStatus: 'queued',
+      generationJobId: '00000000-0000-4000-8000-000000000030',
+      outputFileId: null,
+      errorMessage: null,
+      createdAt: '2026-05-26T00:00:00Z',
+      updatedAt: '2026-05-26T00:00:00Z',
+    };
+    mockApiClient.put.mockResolvedValue(mockOkResponse({}));
+
+    await saveStoryboard(hydratedMusicBlock.draftId, {
+      blocks: [],
+      edges: [],
+      musicBlocks: [hydratedMusicBlock],
+    });
+
+    const [, payload] = mockApiClient.put.mock.calls[0]!;
+    const sentMusicBlock = payload.musicBlocks[0] as Record<string, unknown>;
+    expect(sentMusicBlock).toEqual({
+      id: hydratedMusicBlock.id,
+      draftId: hydratedMusicBlock.draftId,
+      name: hydratedMusicBlock.name,
+      sourceMode: hydratedMusicBlock.sourceMode,
+      prompt: hydratedMusicBlock.prompt,
+      compositionPlan: hydratedMusicBlock.compositionPlan,
+      existingFileId: hydratedMusicBlock.existingFileId,
+      startSceneBlockId: hydratedMusicBlock.startSceneBlockId,
+      endSceneBlockId: hydratedMusicBlock.endSceneBlockId,
+      positionX: hydratedMusicBlock.positionX,
+      positionY: hydratedMusicBlock.positionY,
+      sortOrder: hydratedMusicBlock.sortOrder,
+      volume: hydratedMusicBlock.volume,
+      fadeInS: hydratedMusicBlock.fadeInS,
+      fadeOutS: hydratedMusicBlock.fadeOutS,
+      loopMode: hydratedMusicBlock.loopMode,
+    });
+    expect(sentMusicBlock).not.toHaveProperty('generationStatus');
+    expect(sentMusicBlock).not.toHaveProperty('generationJobId');
+    expect(sentMusicBlock).not.toHaveProperty('outputFileId');
+    expect(sentMusicBlock).not.toHaveProperty('errorMessage');
+    expect(sentMusicBlock).not.toHaveProperty('createdAt');
+    expect(sentMusicBlock).not.toHaveProperty('updatedAt');
   });
 });
 

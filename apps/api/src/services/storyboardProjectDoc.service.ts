@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   projectDocSchema,
+  type Clip,
   type DraftAspectRatio,
   type ImageClip,
   type ProjectDoc,
@@ -14,9 +15,11 @@ import { UnprocessableEntityError } from '@/lib/errors.js';
 import type { ClipInsert } from '@/repositories/clip.repository.js';
 import type { GenerationDraft } from '@/repositories/generationDraft.repository.js';
 import type { StoryboardBlock, StoryboardEdge } from '@/repositories/storyboard.repository.js';
+import type { StoryboardMusicBlock } from '@/repositories/storyboardMusic.repository.js';
 import type { StoryboardSceneIllustrationJob } from '@/repositories/storyboardSceneIllustration.repository.js';
 import type { StoryboardSceneVideoJob } from '@/repositories/storyboardSceneVideo.repository.js';
 import { orderStoryboardSceneBlocks } from '@/services/storyboardGraph.service.js';
+import { appendStoryboardMusicClips } from '@/services/storyboardProjectMusicAssembly.service.js';
 
 const STORYBOARD_PROJECT_FPS = 30;
 
@@ -40,6 +43,7 @@ export type BuildStoryboardProjectDocParams = {
   mode?: 'images' | 'videos';
   illustrationJobs?: StoryboardSceneIllustrationJob[];
   videoJobs?: StoryboardSceneVideoJob[];
+  musicBlocks?: StoryboardMusicBlock[];
   projectId?: string;
   now?: Date;
   createId?: () => string;
@@ -144,9 +148,10 @@ export function buildStoryboardProjectDoc(
   const createdAt = (params.now ?? new Date()).toISOString();
 
   let startFrame = 0;
-  const clips: Array<ImageClip | VideoClip> = [];
+  const clips: Clip[] = [];
   const clipInserts: ClipInsert[] = [];
   const usedFileIds: string[] = [];
+  const sceneFrameRanges = new Map<string, { startFrame: number; durationFrames: number }>();
 
   for (const block of sceneBlocks) {
     const fileId = mode === 'videos'
@@ -187,16 +192,29 @@ export function buildStoryboardProjectDoc(
       layer: 0,
     });
     usedFileIds.push(fileId);
+    sceneFrameRanges.set(block.id, { startFrame, durationFrames });
     startFrame += durationFrames;
   }
 
-  const track: Track = {
+  const tracks: Track[] = [{
     id: trackId,
     type: 'video',
     name: mode === 'videos' ? 'Storyboard videos' : 'Storyboard images',
     muted: false,
     locked: false,
-  };
+  }];
+
+  appendStoryboardMusicClips({
+    musicBlocks: params.musicBlocks ?? [],
+    sceneFrameRanges,
+    sceneOrder: sceneBlocks.map((block) => block.id),
+    projectId,
+    tracks,
+    clips,
+    clipInserts,
+    usedFileIds,
+    createId,
+  });
 
   const projectDoc: ProjectDoc = projectDocSchema.parse({
     schemaVersion: 1,
@@ -206,7 +224,7 @@ export function buildStoryboardProjectDoc(
     durationFrames: startFrame,
     width: dimensions.width,
     height: dimensions.height,
-    tracks: [track],
+    tracks,
     clips,
     createdAt,
     updatedAt: createdAt,

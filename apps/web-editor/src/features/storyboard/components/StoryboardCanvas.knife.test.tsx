@@ -92,7 +92,7 @@ describe('StoryboardCanvas — knife tool integration (SB-POLISH-1e)', () => {
     mockOnCutEdge = vi.fn();
   });
 
-  const defaultProps = {
+  const defaultProps = () => ({
     nodes: [makeNode('start', 'start'), makeNode('scene1', 'scene-block'), makeNode('end', 'end')],
     edges: [makeEdge('edge1', 'start', 'scene1'), makeEdge('edge2', 'scene1', 'end')],
     nodeTypes: { 'scene-block': () => null, start: () => null, end: () => null },
@@ -105,12 +105,14 @@ describe('StoryboardCanvas — knife tool integration (SB-POLISH-1e)', () => {
     onNodeDragStop: vi.fn(),
     dragState: null,
     onAddBlock: vi.fn(),
-  };
+    onAddMusicBlock: vi.fn(),
+    canAddMusicBlock: true,
+  });
 
   it('grab mode (default): cursor is not crosshair, pan-on-drag is true, nodes draggable', () => {
     render(
       <StoryboardCanvas
-        {...defaultProps}
+        {...defaultProps()}
         cursorMode="grab"
         onNodeClick={mockOnNodeClick}
         onCutEdge={mockOnCutEdge}
@@ -134,7 +136,7 @@ describe('StoryboardCanvas — knife tool integration (SB-POLISH-1e)', () => {
   it('knife mode: cursor is crosshair, pan-on-drag is false, nodes not draggable', () => {
     render(
       <StoryboardCanvas
-        {...defaultProps}
+        {...defaultProps()}
         cursorMode="knife"
         onNodeClick={mockOnNodeClick}
         onCutEdge={mockOnCutEdge}
@@ -152,7 +154,7 @@ describe('StoryboardCanvas — knife tool integration (SB-POLISH-1e)', () => {
   it('knife mode: onNodeClick is suppressed (set to undefined)', () => {
     render(
       <StoryboardCanvas
-        {...defaultProps}
+        {...defaultProps()}
         cursorMode="knife"
         onNodeClick={mockOnNodeClick}
         onCutEdge={mockOnCutEdge}
@@ -166,7 +168,7 @@ describe('StoryboardCanvas — knife tool integration (SB-POLISH-1e)', () => {
   it('knife mode: onEdgeClick is wired to onCutEdge', () => {
     render(
       <StoryboardCanvas
-        {...defaultProps}
+        {...defaultProps()}
         cursorMode="knife"
         onCutEdge={mockOnCutEdge}
       />,
@@ -179,7 +181,7 @@ describe('StoryboardCanvas — knife tool integration (SB-POLISH-1e)', () => {
   it('grab mode: onEdgeClick is NOT wired (no onCutEdge handler)', () => {
     render(
       <StoryboardCanvas
-        {...defaultProps}
+        {...defaultProps()}
         cursorMode="grab"
         onCutEdge={mockOnCutEdge}
       />,
@@ -192,7 +194,7 @@ describe('StoryboardCanvas — knife tool integration (SB-POLISH-1e)', () => {
   it('knife mode without onCutEdge prop: onEdgeClick remains unset', () => {
     render(
       <StoryboardCanvas
-        {...defaultProps}
+        {...defaultProps()}
         cursorMode="knife"
         // Omit onCutEdge prop
       />,
@@ -205,7 +207,7 @@ describe('StoryboardCanvas — knife tool integration (SB-POLISH-1e)', () => {
   it('default cursorMode (undefined) behaves like grab mode', () => {
     render(
       <StoryboardCanvas
-        {...defaultProps}
+        {...defaultProps()}
         // Omit cursorMode (defaults to 'grab')
         onNodeClick={mockOnNodeClick}
       />,

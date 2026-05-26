@@ -109,6 +109,9 @@ vi.mock('@/features/storyboard/api', () => ({
   persistHistorySnapshot: vi.fn().mockResolvedValue(undefined),
   fetchHistorySnapshots: vi.fn().mockResolvedValue([]),
   addTemplateToStoryboard: vi.fn(),
+  fetchStoryboardMusic: vi.fn().mockResolvedValue({ items: [] }),
+  updateStoryboardMusicBlock: vi.fn().mockResolvedValue({}),
+  generateStoryboardMusicBlock: vi.fn().mockResolvedValue({ items: [] }),
 }));
 
 vi.mock('@/features/storyboard/components/LibraryPanel', () => ({

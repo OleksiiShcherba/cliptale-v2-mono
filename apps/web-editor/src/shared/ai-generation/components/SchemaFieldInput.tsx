@@ -122,6 +122,31 @@ export function SchemaFieldInput({ field, value, onChange, context }: SchemaFiel
         </div>
       );
 
+    case 'composition_plan':
+      return (
+        <div style={s.fieldWrapper}>
+          {labelNode}
+          <textarea
+            aria-label={field.label}
+            style={s.textAreaInput}
+            value={typeof value === 'string' ? value : value ? JSON.stringify(value, null, 2) : ''}
+            onChange={(e) => {
+              const raw = e.target.value.trim();
+              if (!raw) {
+                onChange(undefined);
+                return;
+              }
+              try {
+                onChange(JSON.parse(raw));
+              } catch {
+                onChange(raw);
+              }
+            }}
+          />
+          {field.description && <p style={s.fieldHelp}>{field.description}</p>}
+        </div>
+      );
+
     case 'number':
       return (
         <div style={s.fieldWrapper}>

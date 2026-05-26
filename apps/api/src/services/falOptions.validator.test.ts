@@ -5,7 +5,7 @@
  * mocks required.
  */
 import { describe, it, expect } from 'vitest';
-import { FAL_MODELS } from '@ai-video-editor/api-contracts';
+import { ELEVENLABS_MODELS, FAL_MODELS } from '@ai-video-editor/api-contracts';
 
 import { validateFalOptions } from './falOptions.validator.js';
 
@@ -14,6 +14,26 @@ function findModel(id: string) {
   if (!model) throw new Error(`fixture lookup failed: ${id}`);
   return model;
 }
+
+function findElevenLabsModel(id: string) {
+  const model = ELEVENLABS_MODELS.find((m) => m.id === id);
+  if (!model) throw new Error(`fixture lookup failed: ${id}`);
+  return model;
+}
+
+const compositionPlan = {
+  positive_global_styles: ['cinematic'],
+  negative_global_styles: ['vocals'],
+  sections: [
+    {
+      section_name: 'Main',
+      positive_local_styles: ['soft piano'],
+      negative_local_styles: [],
+      duration_ms: 30_000,
+      lines: [],
+    },
+  ],
+};
 
 describe('validateFalOptions', () => {
   it('accepts a valid minimal text-to-image request', () => {
@@ -129,5 +149,29 @@ describe('validateFalOptions', () => {
       multi_prompt: ['one', 'two'],
     });
     expect(result.ok).toBe(true);
+  });
+
+  it('accepts a structured ElevenLabs composition_plan object', () => {
+    const model = findElevenLabsModel('elevenlabs/music-generation');
+    const result = validateFalOptions(model, {
+      composition_plan: compositionPlan,
+      respect_sections_durations: true,
+      model_id: 'music_v1',
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects malformed ElevenLabs composition_plan sections', () => {
+    const model = findElevenLabsModel('elevenlabs/music-generation');
+    const result = validateFalOptions(model, {
+      composition_plan: {
+        ...compositionPlan,
+        sections: [{ ...compositionPlan.sections[0], duration_ms: 1 }],
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.some((e) => /duration_ms/.test(e))).toBe(true);
+    }
   });
 });

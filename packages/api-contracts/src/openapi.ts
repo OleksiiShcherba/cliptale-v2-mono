@@ -915,6 +915,188 @@ export const openApiSpec = {
         security: [{ bearerAuth: [] }],
       },
     },
+    '/storyboards/{draftId}/music': {
+      get: {
+        summary: 'List storyboard music blocks',
+        description:
+          'Returns every storyboard background music block with resolved existing-track or AI generation status.',
+        operationId: 'listStoryboardMusic',
+        tags: ['storyboard'],
+        parameters: [{
+          name: 'draftId',
+          in: 'path',
+          required: true,
+          schema: { type: 'string', format: 'uuid' },
+          description: 'UUID of the generation draft.',
+        }],
+        responses: {
+          200: {
+            description: 'Storyboard music blocks with resolved status.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StoryboardMusicResponse' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/storyboards/{draftId}/music/{musicBlockId}': {
+      put: {
+        summary: 'Update a storyboard music block',
+        description:
+          'Updates music source mode, prompt, composition plan, scene range, volume, fades, and loop mode.',
+        operationId: 'updateStoryboardMusicBlock',
+        tags: ['storyboard'],
+        parameters: [
+          {
+            name: 'draftId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+          {
+            name: 'musicBlockId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/StoryboardMusicBlockUpdateBody' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Updated music block.',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/StoryboardMusicBlock' } } },
+          },
+          400: { description: 'Invalid range or request body.' },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft or music block not found.' },
+          422: { description: 'Existing file is not a ready audio file.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+      patch: {
+        summary: 'Patch a storyboard music block',
+        description: 'Partially updates one storyboard music block.',
+        operationId: 'patchStoryboardMusicBlock',
+        tags: ['storyboard'],
+        parameters: [
+          {
+            name: 'draftId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+          {
+            name: 'musicBlockId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/StoryboardMusicBlockUpdateBody' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Updated music block.',
+            content: { 'application/json': { schema: { $ref: '#/components/schemas/StoryboardMusicBlock' } } },
+          },
+          400: { description: 'Invalid range or request body.' },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft or music block not found.' },
+          422: { description: 'Existing file is not a ready audio file.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/storyboards/{draftId}/music/{musicBlockId}/generate': {
+      post: {
+        summary: 'Generate one storyboard music block now',
+        description:
+          'Starts or retries one generate_now ElevenLabs music job without duplicating queued or running jobs.',
+        operationId: 'generateStoryboardMusicBlock',
+        tags: ['storyboard'],
+        parameters: [
+          {
+            name: 'draftId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+          {
+            name: 'musicBlockId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        responses: {
+          202: {
+            description: 'Music generation job queued or already active.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StoryboardMusicResponse' },
+              },
+            },
+          },
+          400: { description: 'Music block is not in generate_now mode.' },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft or music block not found.' },
+          422: { description: 'Music block has no prompt or composition plan.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/storyboards/{draftId}/music/generate-pending': {
+      post: {
+        summary: 'Generate pending storyboard music',
+        description:
+          'Starts unresolved generate_on_step3 ElevenLabs music blocks for Step 3 assembly.',
+        operationId: 'generatePendingStoryboardMusic',
+        tags: ['storyboard'],
+        parameters: [{
+          name: 'draftId',
+          in: 'path',
+          required: true,
+          schema: { type: 'string', format: 'uuid' },
+        }],
+        responses: {
+          202: {
+            description: 'Pending music generation jobs queued where needed.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/StoryboardMusicResponse' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid JWT.' },
+          403: { description: 'Draft belongs to another user.' },
+          404: { description: 'Draft not found.' },
+          422: { description: 'A pending music block has no prompt or composition plan.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
     '/storyboards/{draftId}/illustrations': {
       get: {
         summary: 'List storyboard illustration statuses',
@@ -1756,17 +1938,23 @@ export const openApiSpec = {
       },
       StoryboardPlan: {
         type: 'object',
-        required: ['schemaVersion', 'videoLengthSeconds', 'sceneCount', 'scenes'],
+        required: ['schemaVersion', 'videoLengthSeconds', 'sceneCount', 'scenes', 'musicSegments'],
         description: 'Structured storyboard instruction array persisted after planning.',
         properties: {
-          schemaVersion: { type: 'integer', enum: [1] },
+          schemaVersion: { type: 'integer', enum: [2] },
           videoLengthSeconds: { type: 'integer', minimum: 1, maximum: 600 },
-          sceneCount: { type: 'integer', minimum: 1, maximum: 100 },
+          sceneCount: { type: 'integer', minimum: 1, maximum: 40 },
           scenes: {
             type: 'array',
             minItems: 1,
-            maxItems: 100,
+            maxItems: 40,
             items: { $ref: '#/components/schemas/StoryboardPlanScene' },
+          },
+          musicSegments: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/StoryboardPlanMusicSegment' },
+            description:
+              'Planned background music segments. Scene ranges reference sceneNumber values during planning.',
           },
         },
       },
@@ -1810,6 +1998,68 @@ export const openApiSpec = {
           fileId: { type: 'string', format: 'uuid' },
           mediaType: { type: 'string', enum: ['video', 'image', 'audio'] },
           label: { type: 'string', minLength: 1 },
+        },
+      },
+      StoryboardPlanMusicSegment: {
+        type: 'object',
+        required: ['name', 'prompt', 'compositionPlan', 'startSceneNumber', 'endSceneNumber', 'sourceMode'],
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 255 },
+          prompt: { type: 'string', minLength: 1 },
+          compositionPlan: { $ref: '#/components/schemas/ElevenLabsCompositionPlan' },
+          startSceneNumber: { type: 'integer', minimum: 1 },
+          endSceneNumber: { type: 'integer', minimum: 1 },
+          sourceMode: {
+            type: 'string',
+            enum: ['existing', 'generate_now', 'generate_on_step3'],
+            default: 'generate_on_step3',
+          },
+        },
+      },
+      ElevenLabsCompositionPlan: {
+        type: 'object',
+        required: ['positive_global_styles', 'negative_global_styles', 'sections'],
+        description: 'ElevenLabs Music composition_plan payload. Use this instead of prompt for planned music.',
+        properties: {
+          positive_global_styles: {
+            type: 'array',
+            maxItems: 50,
+            items: { type: 'string', minLength: 1, maxLength: 100 },
+          },
+          negative_global_styles: {
+            type: 'array',
+            maxItems: 50,
+            items: { type: 'string', minLength: 1, maxLength: 100 },
+          },
+          sections: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 30,
+            items: { $ref: '#/components/schemas/ElevenLabsCompositionPlanSection' },
+          },
+        },
+      },
+      ElevenLabsCompositionPlanSection: {
+        type: 'object',
+        required: ['section_name', 'positive_local_styles', 'negative_local_styles', 'duration_ms', 'lines'],
+        properties: {
+          section_name: { type: 'string', minLength: 1, maxLength: 100 },
+          positive_local_styles: {
+            type: 'array',
+            maxItems: 50,
+            items: { type: 'string', minLength: 1, maxLength: 100 },
+          },
+          negative_local_styles: {
+            type: 'array',
+            maxItems: 50,
+            items: { type: 'string', minLength: 1, maxLength: 100 },
+          },
+          duration_ms: { type: 'integer', minimum: 3000, maximum: 120000 },
+          lines: {
+            type: 'array',
+            maxItems: 30,
+            items: { type: 'string', maxLength: 200 },
+          },
         },
       },
       MediaPreview: {
@@ -2041,9 +2291,88 @@ export const openApiSpec = {
           targetBlockId: { type: 'string', format: 'uuid', description: 'UUID of the target block.' },
         },
       },
+      StoryboardMusicBlock: {
+        type: 'object',
+        required: [
+          'id', 'draftId', 'name', 'sourceMode', 'prompt', 'compositionPlan', 'existingFileId',
+          'startSceneBlockId', 'endSceneBlockId', 'positionX', 'positionY', 'sortOrder', 'volume',
+          'fadeInS', 'fadeOutS', 'loopMode', 'generationStatus', 'generationJobId', 'outputFileId',
+          'errorMessage', 'createdAt', 'updatedAt',
+        ],
+        description:
+          'A storyboard background music block. Coverage is a logical scene range, not storyboard_edges.',
+        properties: {
+          id: { type: 'string', format: 'uuid', description: 'UUID of the music block.' },
+          draftId: { type: 'string', format: 'uuid', description: 'UUID of the owning draft.' },
+          name: { type: 'string', minLength: 1, maxLength: 255 },
+          sourceMode: { $ref: '#/components/schemas/StoryboardMusicSourceMode' },
+          prompt: { type: ['string', 'null'] },
+          compositionPlan: {
+            oneOf: [{ $ref: '#/components/schemas/ElevenLabsCompositionPlan' }, { type: 'null' }],
+          },
+          existingFileId: { type: ['string', 'null'], format: 'uuid' },
+          startSceneBlockId: { type: 'string', format: 'uuid' },
+          endSceneBlockId: { type: 'string', format: 'uuid' },
+          positionX: { type: 'number', description: 'Canvas X position in logical pixels.' },
+          positionY: { type: 'number', description: 'Canvas Y position in logical pixels.' },
+          sortOrder: { type: 'integer', minimum: 0 },
+          volume: { type: 'number', minimum: 0, maximum: 1 },
+          fadeInS: { type: 'number', minimum: 0 },
+          fadeOutS: { type: 'number', minimum: 0 },
+          loopMode: { type: 'string', enum: ['loop', 'trim'] },
+          generationStatus: {
+            type: ['string', 'null'],
+            enum: ['queued', 'running', 'ready', 'failed', null],
+          },
+          generationJobId: { type: ['string', 'null'], format: 'uuid' },
+          outputFileId: { type: ['string', 'null'], format: 'uuid' },
+          errorMessage: { type: ['string', 'null'] },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      StoryboardMusicSourceMode: {
+        type: 'string',
+        enum: ['existing', 'generate_now', 'generate_on_step3'],
+        description: 'How a storyboard music block resolves its audio source.',
+      },
+      StoryboardMusicResponse: {
+        type: 'object',
+        required: ['items'],
+        description: 'Storyboard background music blocks with resolved status.',
+        properties: {
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/StoryboardMusicBlock' },
+          },
+        },
+      },
+      StoryboardMusicBlockUpdateBody: {
+        type: 'object',
+        additionalProperties: false,
+        description: 'Partial update body for one storyboard music block.',
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 255 },
+          sourceMode: { $ref: '#/components/schemas/StoryboardMusicSourceMode' },
+          prompt: { type: ['string', 'null'] },
+          compositionPlan: {
+            oneOf: [{ $ref: '#/components/schemas/ElevenLabsCompositionPlan' }, { type: 'null' }],
+          },
+          existingFileId: { type: ['string', 'null'], format: 'uuid' },
+          startSceneBlockId: { type: 'string', format: 'uuid' },
+          endSceneBlockId: { type: 'string', format: 'uuid' },
+          positionX: { type: 'number' },
+          positionY: { type: 'number' },
+          sortOrder: { type: 'integer', minimum: 0 },
+          volume: { type: 'number', minimum: 0, maximum: 1 },
+          fadeInS: { type: 'number', minimum: 0 },
+          fadeOutS: { type: 'number', minimum: 0 },
+          loopMode: { type: 'string', enum: ['loop', 'trim'] },
+        },
+      },
       StoryboardState: {
         type: 'object',
-        required: ['blocks', 'edges'],
+        required: ['blocks', 'edges', 'musicBlocks'],
         description: 'Full storyboard state returned by GET, PUT, and POST /initialize.',
         properties: {
           blocks: {
@@ -2055,6 +2384,11 @@ export const openApiSpec = {
             type: 'array',
             items: { $ref: '#/components/schemas/StoryboardEdge' },
             description: 'All directed edges for the draft.',
+          },
+          musicBlocks: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/StoryboardMusicBlock' },
+            description: 'All storyboard background music blocks for the draft.',
           },
         },
       },
@@ -2376,6 +2710,35 @@ export const openApiSpec = {
           targetBlockId: { type: 'string', format: 'uuid', description: 'UUID of the target block.' },
         },
       },
+      MusicBlockInsert: {
+        type: 'object',
+        required: [
+          'id', 'draftId', 'name', 'sourceMode', 'prompt', 'compositionPlan', 'existingFileId',
+          'startSceneBlockId', 'endSceneBlockId', 'positionX', 'positionY', 'sortOrder',
+          'volume', 'fadeInS', 'fadeOutS', 'loopMode',
+        ],
+        description: 'A storyboard music block in the PUT /storyboards/:draftId request body.',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          draftId: { type: 'string', format: 'uuid' },
+          name: { type: 'string', maxLength: 255 },
+          sourceMode: { $ref: '#/components/schemas/StoryboardMusicSourceMode' },
+          prompt: { type: ['string', 'null'] },
+          compositionPlan: {
+            oneOf: [{ $ref: '#/components/schemas/ElevenLabsCompositionPlan' }, { type: 'null' }],
+          },
+          existingFileId: { type: ['string', 'null'], format: 'uuid' },
+          startSceneBlockId: { type: 'string', format: 'uuid' },
+          endSceneBlockId: { type: 'string', format: 'uuid' },
+          positionX: { type: 'number' },
+          positionY: { type: 'number' },
+          sortOrder: { type: 'integer', minimum: 0 },
+          volume: { type: 'number', minimum: 0, maximum: 1 },
+          fadeInS: { type: 'number', minimum: 0 },
+          fadeOutS: { type: 'number', minimum: 0 },
+          loopMode: { type: 'string', enum: ['loop', 'trim'] },
+        },
+      },
       SaveStoryboardBody: {
         type: 'object',
         required: ['blocks', 'edges'],
@@ -2390,6 +2753,12 @@ export const openApiSpec = {
             type: 'array',
             items: { $ref: '#/components/schemas/EdgeInsert' },
             description: 'Complete set of edges to persist (replaces existing).',
+          },
+          musicBlocks: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/MusicBlockInsert' },
+            description:
+              'Optional complete set of music blocks. Omit to preserve existing music blocks.',
           },
         },
       },

@@ -114,14 +114,16 @@ describe('elevenlabs-models catalog', () => {
     expect(voicePickerFields).toHaveLength(0);
   });
 
-  it('music_generation has a "prompt" required field and optional "duration"', () => {
+  it('music_generation supports prompt fallback and composition_plan execution fields', () => {
     const model = ELEVENLABS_MODELS.find((m) => m.capability === 'music_generation');
     expect(model).toBeDefined();
     const fields = model!.inputSchema.fields;
-    expect(fields.some((f) => f.name === 'prompt' && f.required)).toBe(true);
-    const duration = fields.find((f) => f.name === 'duration');
-    expect(duration).toBeDefined();
-    expect(duration!.required).toBe(false);
+    expect(fields.some((f) => f.name === 'prompt' && !f.required)).toBe(true);
+    expect(fields.some((f) => f.name === 'composition_plan' && f.type === 'composition_plan')).toBe(true);
+    expect(fields.some((f) => f.name === 'music_length_ms' && f.type === 'number')).toBe(true);
+    expect(fields.some((f) => f.name === 'respect_sections_durations' && f.type === 'boolean')).toBe(true);
+    expect(fields.some((f) => f.name === 'force_instrumental' && f.type === 'boolean')).toBe(true);
+    expect(fields.some((f) => f.name === 'model_id' && f.type === 'enum')).toBe(true);
   });
 });
 

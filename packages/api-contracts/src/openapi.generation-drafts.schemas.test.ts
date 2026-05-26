@@ -76,10 +76,15 @@ describe('openApiSpec generation draft schemas', () => {
       'videoLengthSeconds',
       'sceneCount',
       'scenes',
+      'musicSegments',
     ]);
-    expect(planProps.schemaVersion?.enum).toEqual([1]);
+    expect(planProps.schemaVersion?.enum).toEqual([2]);
     expect(planProps.videoLengthSeconds?.minimum).toBe(1);
     expect(planProps.videoLengthSeconds?.maximum).toBe(600);
+    expect(planProps.sceneCount?.maximum).toBe(40);
+    expect((planProps.musicSegments?.items as Record<string, unknown>).$ref).toBe(
+      '#/components/schemas/StoryboardPlanMusicSegment',
+    );
 
     const scene = schemas['StoryboardPlanScene'] as Record<string, unknown>;
     const sceneProps = scene.properties as Record<string, Record<string, unknown>>;
@@ -108,5 +113,50 @@ describe('openApiSpec generation draft schemas', () => {
     const mediaProps = media.properties as Record<string, Record<string, unknown>>;
     expect(mediaProps.fileId?.format).toBe('uuid');
     expect(mediaProps.mediaType?.enum).toEqual(['video', 'image', 'audio']);
+  });
+
+  it('documents storyboard plan music segments and ElevenLabs composition plans', () => {
+    const segment = schemas['StoryboardPlanMusicSegment'] as Record<string, unknown>;
+    expect(segment.required).toEqual([
+      'name',
+      'prompt',
+      'compositionPlan',
+      'startSceneNumber',
+      'endSceneNumber',
+      'sourceMode',
+    ]);
+    const segmentProps = segment.properties as Record<string, Record<string, unknown>>;
+    expect(segmentProps.compositionPlan?.$ref).toBe('#/components/schemas/ElevenLabsCompositionPlan');
+    expect(segmentProps.sourceMode?.enum).toEqual(['existing', 'generate_now', 'generate_on_step3']);
+    expect(segmentProps.sourceMode?.default).toBe('generate_on_step3');
+
+    const plan = schemas['ElevenLabsCompositionPlan'] as Record<string, unknown>;
+    expect(plan.required).toEqual(['positive_global_styles', 'negative_global_styles', 'sections']);
+    const planProps = plan.properties as Record<string, Record<string, unknown>>;
+    expect(planProps.positive_global_styles?.maxItems).toBe(50);
+    expect(planProps.negative_global_styles?.maxItems).toBe(50);
+    expect(planProps.sections?.minItems).toBe(1);
+    expect(planProps.sections?.maxItems).toBe(30);
+    expect((planProps.sections?.items as Record<string, unknown>).$ref).toBe(
+      '#/components/schemas/ElevenLabsCompositionPlanSection',
+    );
+
+    const section = schemas['ElevenLabsCompositionPlanSection'] as Record<string, unknown>;
+    expect(section.required).toEqual([
+      'section_name',
+      'positive_local_styles',
+      'negative_local_styles',
+      'duration_ms',
+      'lines',
+    ]);
+    const sectionProps = section.properties as Record<string, Record<string, unknown>>;
+    expect(sectionProps.section_name?.minLength).toBe(1);
+    expect(sectionProps.section_name?.maxLength).toBe(100);
+    expect(sectionProps.duration_ms?.minimum).toBe(3000);
+    expect(sectionProps.duration_ms?.maximum).toBe(120000);
+    expect(sectionProps.positive_local_styles?.maxItems).toBe(50);
+    expect(sectionProps.negative_local_styles?.maxItems).toBe(50);
+    expect(sectionProps.lines?.maxItems).toBe(30);
+    expect((sectionProps.lines?.items as Record<string, unknown>).maxLength).toBe(200);
   });
 });

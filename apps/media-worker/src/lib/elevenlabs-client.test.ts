@@ -4,12 +4,11 @@ import {
   textToSpeech,
   voiceClone,
   speechToSpeech,
+  createMusicCompositionPlan,
   musicGeneration,
   ElevenLabsError,
 } from './elevenlabs-client.js';
 import { API_KEY, VOICE_ID, AUDIO_BYTES, FILENAME, audioResponse, jsonResponse } from './elevenlabs-client.fixtures.js';
-
-// ── textToSpeech ─────────────────────────────────────────────────────────────
 
 describe('elevenlabs-client / textToSpeech', () => {
   beforeEach(() => {
@@ -65,8 +64,6 @@ describe('elevenlabs-client / textToSpeech', () => {
   });
 });
 
-// ── voiceClone ───────────────────────────────────────────────────────────────
-
 describe('elevenlabs-client / voiceClone', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -116,8 +113,6 @@ describe('elevenlabs-client / voiceClone', () => {
     expect((filesBlob as Blob).type).toBe('audio/mpeg');
   });
 });
-
-// ── speechToSpeech ───────────────────────────────────────────────────────────
 
 describe('elevenlabs-client / speechToSpeech', () => {
   beforeEach(() => {
@@ -170,7 +165,69 @@ describe('elevenlabs-client / speechToSpeech', () => {
   });
 });
 
-// ── musicGeneration ──────────────────────────────────────────────────────────
+const compositionPlan = {
+  positive_global_styles: ['cinematic'],
+  negative_global_styles: ['vocals'],
+  sections: [
+    {
+      section_name: 'Main',
+      positive_local_styles: ['soft piano'],
+      negative_local_styles: [],
+      duration_ms: 30_000,
+      lines: [],
+    },
+  ],
+};
+
+describe('elevenlabs-client / createMusicCompositionPlan', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  it('POSTs to /v1/music/plan and returns a composition plan', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(jsonResponse(compositionPlan));
+
+    const result = await createMusicCompositionPlan({
+      apiKey: API_KEY,
+      prompt: 'warm cinematic bed',
+      musicLengthMs: 45_000,
+    });
+
+    expect(result).toEqual(compositionPlan);
+
+    const [calledUrl, calledInit] = fetchMock.mock.calls[0]!;
+    expect(String(calledUrl)).toMatch('/v1/music/plan');
+    expect((calledInit as RequestInit).method).toBe('POST');
+    const headers = (calledInit as RequestInit).headers as Record<string, string>;
+    expect(headers['xi-api-key']).toBe(API_KEY);
+    expect(headers['Content-Type']).toBe('application/json');
+
+    const body = JSON.parse((calledInit as RequestInit).body as string);
+    expect(body).toEqual({
+      prompt: 'warm cinematic bed',
+      music_length_ms: 45_000,
+      model_id: 'music_v1',
+    });
+  });
+
+  it('sends source_composition_plan when regenerating a music plan', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(compositionPlan));
+
+    await createMusicCompositionPlan({
+      apiKey: API_KEY,
+      prompt: 'more urgent piano pulse',
+      musicLengthMs: 30_000,
+      sourceCompositionPlan: compositionPlan,
+    });
+
+    const body = JSON.parse((vi.mocked(fetch).mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.source_composition_plan).toEqual(compositionPlan);
+    expect(body.prompt).toBe('more urgent piano pulse');
+    expect(body.music_length_ms).toBe(30_000);
+  });
+});
 
 describe('elevenlabs-client / musicGeneration', () => {
   beforeEach(() => {
@@ -178,39 +235,62 @@ describe('elevenlabs-client / musicGeneration', () => {
     vi.stubGlobal('fetch', vi.fn());
   });
 
-  it('POSTs to /v1/sound-generation with xi-api-key and returns audio buffer', async () => {
+  it('POSTs to /v1/music with xi-api-key and returns audio buffer', async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockResolvedValueOnce(audioResponse());
 
-    const result = await musicGeneration({ apiKey: API_KEY, prompt: 'calm jazz' });
+    const result = await musicGeneration({ apiKey: API_KEY, compositionPlan });
 
     expect(Buffer.isBuffer(result)).toBe(true);
 
     const [calledUrl, calledInit] = fetchMock.mock.calls[0]!;
-    expect(String(calledUrl)).toMatch('/v1/sound-generation');
+    expect(String(calledUrl)).toMatch('/v1/music');
+    expect(String(calledUrl)).toMatch(/output_format=mp3_44100_128/);
     expect((calledInit as RequestInit).method).toBe('POST');
     const headers = (calledInit as RequestInit).headers as Record<string, string>;
     expect(headers['xi-api-key']).toBe(API_KEY);
     expect(headers['Content-Type']).toBe('application/json');
+    expect(headers['Accept']).toBe('audio/mpeg');
   });
 
-  it('sends text in the request body and includes duration_seconds when provided', async () => {
+  it('sends composition_plan without prompt in the compose request body', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(audioResponse());
 
-    await musicGeneration({ apiKey: API_KEY, prompt: 'epic orchestral', durationSeconds: 60 });
+    await musicGeneration({
+      apiKey: API_KEY,
+      compositionPlan,
+      respectSectionsDurations: false,
+    });
 
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0]![1] as RequestInit).body as string);
-    expect(body.text).toBe('epic orchestral');
-    expect(body.duration_seconds).toBe(60);
+    expect(body.composition_plan).toEqual(compositionPlan);
+    expect(body.prompt).toBeUndefined();
+    expect(body.model_id).toBe('music_v1');
+    expect(body.respect_sections_durations).toBe(false);
   });
 
-  it('omits duration_seconds from the body when not provided', async () => {
+  it('sends prompt-only compose fields without composition_plan when prompt is used directly', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(audioResponse());
 
-    await musicGeneration({ apiKey: API_KEY, prompt: 'ambient' });
+    await musicGeneration({
+      apiKey: API_KEY,
+      prompt: 'ambient',
+      musicLengthMs: 30_000,
+      forceInstrumental: true,
+    });
 
     const body = JSON.parse((vi.mocked(fetch).mock.calls[0]![1] as RequestInit).body as string);
-    expect(body.text).toBe('ambient');
-    expect(Object.prototype.hasOwnProperty.call(body, 'duration_seconds')).toBe(false);
+    expect(body.prompt).toBe('ambient');
+    expect(body.composition_plan).toBeUndefined();
+    expect(body.music_length_ms).toBe(30_000);
+    expect(body.force_instrumental).toBe(true);
+  });
+
+  it('rejects before fetch when prompt and compositionPlan are both provided', async () => {
+    await expect(
+      musicGeneration({ apiKey: API_KEY, prompt: 'ambient', compositionPlan }),
+    ).rejects.toThrow(/exactly one/);
+
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 });

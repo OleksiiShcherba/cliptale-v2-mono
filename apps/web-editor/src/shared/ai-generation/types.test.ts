@@ -30,8 +30,12 @@ describe('ai-generation/types', () => {
       'image_url',
       'image_url_list',
       'string_list',
+      'audio_url',
+      'audio_upload',
+      'voice_picker',
+      'composition_plan',
     ];
-    expect(fieldTypes).toHaveLength(8);
+    expect(fieldTypes).toHaveLength(12);
   });
 
   it('AiJobStatus accepts all four valid statuses', () => {
@@ -65,8 +69,12 @@ describe('ai-generation/types', () => {
       image_edit: [],
       text_to_video: [],
       image_to_video: [],
+      text_to_speech: [],
+      voice_cloning: [],
+      speech_to_speech: [],
+      music_generation: [],
     };
-    expect(Object.keys(response)).toHaveLength(4);
+    expect(Object.keys(response)).toHaveLength(8);
   });
 
   it('AiGenerationJob can hold a queued state with null fields', () => {

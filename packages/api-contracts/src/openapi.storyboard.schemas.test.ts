@@ -53,15 +53,70 @@ describe('openApiSpec storyboard component schemas', () => {
     expect(required).toContain('targetBlockId');
   });
 
-  it('defines StoryboardState schema with blocks and edges arrays', () => {
+  it('defines StoryboardState schema with blocks, edges, and musicBlocks arrays', () => {
     const schema = schemas['StoryboardState'] as Record<string, unknown>;
     expect(schema).toBeDefined();
     const required = schema.required as string[];
     expect(required).toContain('blocks');
     expect(required).toContain('edges');
+    expect(required).toContain('musicBlocks');
     const props = schema.properties as Record<string, Record<string, unknown>>;
     expect(props.blocks?.type).toBe('array');
     expect(props.edges?.type).toBe('array');
+    expect(props.musicBlocks?.type).toBe('array');
+    expect((props.musicBlocks?.items as Record<string, unknown>).$ref).toBe(
+      '#/components/schemas/StoryboardMusicBlock',
+    );
+  });
+
+  it('defines StoryboardMusicBlock schema with source modes and composition plans', () => {
+    const schema = schemas['StoryboardMusicBlock'] as Record<string, unknown>;
+    expect(schema).toBeDefined();
+    const required = schema.required as string[];
+    expect(required).toEqual([
+      'id',
+      'draftId',
+      'name',
+      'sourceMode',
+      'prompt',
+      'compositionPlan',
+      'existingFileId',
+      'startSceneBlockId',
+      'endSceneBlockId',
+      'positionX',
+      'positionY',
+      'sortOrder',
+      'volume',
+      'fadeInS',
+      'fadeOutS',
+      'loopMode',
+      'generationStatus',
+      'generationJobId',
+      'outputFileId',
+      'errorMessage',
+      'createdAt',
+      'updatedAt',
+    ]);
+
+    const props = schema.properties as Record<string, Record<string, unknown>>;
+    expect(props.sourceMode?.$ref).toBe('#/components/schemas/StoryboardMusicSourceMode');
+    expect(props.startSceneBlockId?.format).toBe('uuid');
+    expect(props.endSceneBlockId?.format).toBe('uuid');
+    expect(props.volume?.minimum).toBe(0);
+    expect(props.volume?.maximum).toBe(1);
+    expect(props.loopMode?.enum).toEqual(['loop', 'trim']);
+    expect(props.generationStatus?.enum).toEqual(['queued', 'running', 'ready', 'failed', null]);
+
+    const compositionPlan = props.compositionPlan?.oneOf as Array<Record<string, unknown>>;
+    expect(compositionPlan[0]?.$ref).toBe('#/components/schemas/ElevenLabsCompositionPlan');
+    expect(compositionPlan[1]?.type).toBe('null');
+  });
+
+  it('defines StoryboardMusicSourceMode component for referenced music schemas', () => {
+    const schema = schemas['StoryboardMusicSourceMode'] as Record<string, unknown>;
+    expect(schema).toBeDefined();
+    expect(schema.type).toBe('string');
+    expect(schema.enum).toEqual(['existing', 'generate_now', 'generate_on_step3']);
   });
 
   it('defines StoryboardProjectCreateResponse schema', () => {
@@ -183,12 +238,17 @@ describe('openApiSpec storyboard component schemas', () => {
     expect(refs.required).toEqual(['fileIds']);
   });
 
-  it('defines SaveStoryboardBody schema with blocks and edges', () => {
+  it('defines SaveStoryboardBody schema with blocks, edges, and optional musicBlocks', () => {
     const schema = schemas['SaveStoryboardBody'] as Record<string, unknown>;
     expect(schema).toBeDefined();
     const required = schema.required as string[];
     expect(required).toContain('blocks');
     expect(required).toContain('edges');
+    expect(required).not.toContain('musicBlocks');
+    const props = schema.properties as Record<string, Record<string, unknown>>;
+    expect((props.musicBlocks?.items as Record<string, unknown>).$ref).toBe(
+      '#/components/schemas/MusicBlockInsert',
+    );
   });
 
   it('defines PushHistoryBody schema with required snapshot field', () => {

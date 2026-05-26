@@ -240,10 +240,7 @@ describe('useStoryboardAutosave — edge cases', () => {
       target: 'scene-xyz',
     };
 
-    const { result, rerender } = renderHook<
-      { nodes: Node[]; edges: Edge[] },
-      { saveLabel: string; saveNow: () => Promise<void> }
-    >(
+    const { result, rerender } = renderHook(
       ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
       { initialProps: { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES } },
     );
@@ -272,5 +269,61 @@ describe('useStoryboardAutosave — edge cases', () => {
         ]),
       }),
     );
+  });
+
+  it('serializes music nodes to musicBlocks on a normal save', async () => {
+    const scene = makeSceneNode('scene-with-preserved-music');
+    const musicNode: Node = {
+      id: 'music-1',
+      type: 'music-block',
+      position: { x: 120, y: 520 },
+      data: {
+        musicBlock: {
+          id: 'music-1',
+          draftId: DRAFT_ID,
+          name: 'Opening music',
+          sourceMode: 'generate_on_step3',
+          prompt: 'Soft ambient pulse',
+          compositionPlan: null,
+          existingFileId: null,
+          startSceneBlockId: scene.id,
+          endSceneBlockId: scene.id,
+          positionX: 40,
+          positionY: 480,
+          sortOrder: 0,
+          volume: 0.8,
+          fadeInS: 0,
+          fadeOutS: 1,
+          loopMode: 'trim',
+          generationStatus: 'queued',
+          generationJobId: 'job-1',
+          outputFileId: null,
+          errorMessage: null,
+          createdAt: '2026-05-26T00:00:00Z',
+          updatedAt: '2026-05-26T00:00:00Z',
+        },
+      },
+    };
+    const { result, rerender } = renderHook(
+      ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
+      { initialProps: { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES } },
+    );
+
+    rerender({ nodes: [makeStartNode(), scene, musicNode], edges: DEFAULT_EDGES });
+
+    await act(async () => {
+      await result.current.saveNow();
+    });
+
+    const [, payload] = vi.mocked(saveStoryboard).mock.calls[0]!;
+    expect(payload.blocks).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: 'music-1' })]));
+    expect(payload.musicBlocks).toEqual([
+      expect.objectContaining({
+        id: 'music-1',
+        positionX: 120,
+        positionY: 520,
+      }),
+    ]);
+    expect(payload.musicBlocks?.[0]).not.toHaveProperty('generationJobId');
   });
 });

@@ -7,7 +7,6 @@ import {
   deriveStoryboardSceneCount,
   resolveStoryboardPlanStyleKey,
   resolveStoryboardPlanVideoLengthSeconds,
-  storyboardPlanSchema,
   type StoryboardPlan,
   type StoryboardPlanJobPayload,
 } from '@ai-video-editor/project-schema';
@@ -26,6 +25,12 @@ import {
   sanitizeStoryboardPlanJobError,
   type StoryboardPlanJobRepository,
 } from './storyboardPlan.repository.js';
+import {
+  parseStoryboardPlanJson,
+  StoryboardPlanOutputParseError,
+  StoryboardPlanSchemaValidationError,
+  validateStoryboardPlan,
+} from './storyboardPlan.output.js';
 
 export const DEFAULT_STORYBOARD_PLAN_MODEL = 'gpt-4o-mini';
 export const ALLOWED_STORYBOARD_PLAN_MODELS = [
@@ -68,20 +73,6 @@ export type StoryboardPlanJobDeps = {
   allowedModels?: readonly string[];
 };
 
-export class StoryboardPlanOutputParseError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'StoryboardPlanOutputParseError';
-  }
-}
-
-export class StoryboardPlanSchemaValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'StoryboardPlanSchemaValidationError';
-  }
-}
-
 export class StoryboardPlanJobPayloadValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -92,11 +83,16 @@ export class StoryboardPlanJobPayloadValidationError extends Error {
 export const STORYBOARD_PLAN_SYSTEM_PROMPT = [
   'You are a storyboard planning worker for ClipTale.',
   'Return only valid JSON. Do not include markdown, code fences, comments, prose, or extra keys.',
-  `The JSON must match schemaVersion ${STORYBOARD_PLAN_SCHEMA_VERSION} with keys: schemaVersion, videoLengthSeconds, sceneCount, scenes.`,
+  `The JSON must match schemaVersion ${STORYBOARD_PLAN_SCHEMA_VERSION} with keys: schemaVersion, videoLengthSeconds, sceneCount, scenes, musicSegments.`,
   'Every scene must include sceneNumber, prompt, visualPrompt, videoPrompt, durationSeconds, referencedMedia, transitionNotes, and style.',
   'videoPrompt must be an Image to Video prompt: describe main subject motion, camera movement, foreground/background depth cues, cinematic timing across the scene duration, continuity from the previous scene and into the next scene when applicable, and natural transitions without provider-specific jargon.',
   'Use only referencedMedia items supplied in the prompt context; each item must include fileId, mediaType, and label.',
   'Scene numbers must be sequential starting at 1. Scene durations must sum to videoLengthSeconds.',
+  'Also return musicSegments for default background music: prefer 1-3 continuous scene ranges based on video length and mood changes.',
+  'Every music segment must include name, prompt, compositionPlan, startSceneNumber, endSceneNumber, and sourceMode.',
+  'Music sourceMode must be generate_on_step3.',
+  'Music compositionPlan must be instrumental by default: use empty section lines arrays and avoid vocals, lyrics, singing, rap, spoken word, or voice-led sections.',
+  'Music compositionPlan section durations must total the duration of the covered scene range.',
 ].join('\n');
 
 function selectStoryboardPlanModel(
@@ -125,30 +121,6 @@ function extractCompletionText(completion: ChatCompletionResult): string {
   }
 
   return '';
-}
-
-function parseStoryboardPlanJson(rawOutput: string): unknown {
-  try {
-    return JSON.parse(rawOutput);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Malformed JSON';
-    throw new StoryboardPlanOutputParseError(`OpenAI returned malformed storyboard JSON: ${message}`);
-  }
-}
-
-function validateStoryboardPlan(rawPlan: unknown): StoryboardPlan {
-  const result = storyboardPlanSchema.safeParse(rawPlan);
-  if (!result.success) {
-    const details = result.error.issues
-      .slice(0, 8)
-      .map((issue) => {
-        const path = issue.path.length > 0 ? issue.path.join('.') : 'root';
-        return `${path}: ${issue.message}`;
-      })
-      .join('; ');
-    throw new StoryboardPlanSchemaValidationError(`OpenAI storyboard plan failed schema validation: ${details}`);
-  }
-  return result.data;
 }
 
 function buildMediaSummary(context: StoryboardPlanResolvedContext): unknown[] {
@@ -185,6 +157,14 @@ function buildUserPrompt(context: StoryboardPlanResolvedContext): string {
       style: styleKey,
       aspectRatio: settings?.aspectRatio ?? null,
       sceneDurationRule: 'The sum of all scene durationSeconds must equal videoLengthSeconds within 0.5 seconds.',
+      musicPlanning: {
+        includeMusicSegments: true,
+        preferredBlockCount: 'Use 1-3 music segments depending on video length and major mood changes.',
+        coverageRule: 'Each music segment covers a continuous startSceneNumber/endSceneNumber range derived from scene order.',
+        durationRule: 'Derive music duration from the sum of covered scene durationSeconds; compositionPlan section duration_ms values must total that range duration.',
+        sourceMode: 'generate_on_step3',
+        instrumentalDefault: 'Use empty lines arrays. Prefer instrumental styles and negative styles that exclude vocals, lyrics, singing, rap, spoken word, and voice-led sections.',
+      },
     },
     promptText: context.text,
     media: buildMediaSummary(context),

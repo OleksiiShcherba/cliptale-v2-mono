@@ -1,8 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
-import { createProjectFromStoryboard, fetchStoryboardVideos } from '@/features/storyboard/api';
-import type { StoryboardProjectAssemblyMode, StoryboardVideoStatusResponse } from '@/features/storyboard/types';
+import {
+  createProjectFromStoryboard,
+  fetchStoryboardMusic,
+  fetchStoryboardVideos,
+  generatePendingStoryboardMusic,
+} from '@/features/storyboard/api';
+import type {
+  StoryboardMusicResponse,
+  StoryboardProjectAssemblyMode,
+  StoryboardVideoStatusResponse,
+} from '@/features/storyboard/types';
 
 const SURFACE = '#0D0D14';
 const SURFACE_ALT = '#16161F';
@@ -16,7 +25,12 @@ const ERROR = '#EF4444';
 type AssemblyStatus = 'loading' | 'error';
 
 const inFlightByDraft = new Map<string, Promise<string>>();
-const VIDEO_POLL_INTERVAL_MS = 2000;
+const READY_POLL_INTERVAL_MS = 2000;
+const GENERATE_NOW_NOT_READY_ERROR =
+  'A music block set to Generate now is not ready. Go back to Step 2, generate it, then retry Step 3.';
+const MUSIC_PREPARATION_ERROR =
+  'Background music could not be prepared. Go back to Step 2, review the music block, then retry Step 3.';
+const STORYBOARD_MUSIC_ENDPOINT_ERROR_PATTERN = /\b(?:GET|POST|PUT|PATCH)\s+\/storyboards\/[^/\s]+\/music\b/i;
 
 export function resetStoryboardProjectAssemblyRequestsForTests(): void {
   inFlightByDraft.clear();
@@ -35,6 +49,35 @@ function getVideoFailure(status: StoryboardVideoStatusResponse): string | null {
   return failed?.errorMessage ?? (failed ? 'Storyboard video generation failed.' : null);
 }
 
+function musicIsReady(status: StoryboardMusicResponse): boolean {
+  return status.items.every((item) => item.generationStatus === 'ready' && item.outputFileId);
+}
+
+function getMusicFailure(status: StoryboardMusicResponse): string | null {
+  const failed = status.items.find((item) => item.generationStatus === 'failed');
+  if (!failed) return null;
+  if (/generate this music block|generate now|not ready/i.test(failed.errorMessage ?? '')) {
+    return GENERATE_NOW_NOT_READY_ERROR;
+  }
+  return MUSIC_PREPARATION_ERROR;
+}
+
+function toAssemblyErrorMessage(err: unknown): string {
+  if (!(err instanceof Error)) {
+    return 'Project assembly failed.';
+  }
+  if (/generate this music block|generate now|music block.*not ready/i.test(err.message)) {
+    return GENERATE_NOW_NOT_READY_ERROR;
+  }
+  if (
+    STORYBOARD_MUSIC_ENDPOINT_ERROR_PATTERN.test(err.message) ||
+    /elevenlabs|provider|\/music\/|background music|music block|music generation/i.test(err.message)
+  ) {
+    return MUSIC_PREPARATION_ERROR;
+  }
+  return err.message;
+}
+
 async function waitForStoryboardVideos(draftId: string): Promise<void> {
   while (true) {
     const status = await fetchStoryboardVideos(draftId);
@@ -45,7 +88,22 @@ async function waitForStoryboardVideos(draftId: string): Promise<void> {
     if (videosAreReady(status)) {
       return;
     }
-    await new Promise((resolve) => setTimeout(resolve, VIDEO_POLL_INTERVAL_MS));
+    await new Promise((resolve) => setTimeout(resolve, READY_POLL_INTERVAL_MS));
+  }
+}
+
+async function waitForStoryboardMusic(draftId: string): Promise<void> {
+  let status = await generatePendingStoryboardMusic(draftId);
+  while (true) {
+    const failure = getMusicFailure(status);
+    if (failure) {
+      throw new Error(failure);
+    }
+    if (musicIsReady(status)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, READY_POLL_INTERVAL_MS));
+    status = await fetchStoryboardMusic(draftId);
   }
 }
 
@@ -58,7 +116,12 @@ function startAssembly(draftId: string, mode: StoryboardProjectAssemblyMode): Pr
 
   const promise = (async () => {
     if (mode === 'videos') {
-      await waitForStoryboardVideos(draftId);
+      await Promise.all([
+        waitForStoryboardVideos(draftId),
+        waitForStoryboardMusic(draftId),
+      ]);
+    } else {
+      await waitForStoryboardMusic(draftId);
     }
     return createProjectFromStoryboard(draftId, mode);
   })()
@@ -105,7 +168,7 @@ export function GenerateProjectFromStoryboardPage(): React.ReactElement {
       .catch((err: unknown) => {
         if (!cancelled) {
           setStatus('error');
-          setErrorMessage(err instanceof Error ? err.message : 'Project assembly failed.');
+          setErrorMessage(toAssemblyErrorMessage(err));
         }
       });
 
@@ -128,7 +191,9 @@ export function GenerateProjectFromStoryboardPage(): React.ReactElement {
         <h1 style={styles.heading}>Step 3</h1>
         {status === 'loading' ? (
           <p style={styles.message}>
-            {mode === 'videos' ? 'Generating storyboard videos...' : 'Creating your editor project...'}
+            {mode === 'videos'
+              ? 'Generating storyboard videos and background music...'
+              : 'Generating background music and creating your editor project...'}
           </p>
         ) : (
           <>

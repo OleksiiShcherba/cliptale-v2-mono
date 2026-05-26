@@ -48,6 +48,7 @@ export async function putStoryboard(
       req.params['draftId']!,
       body.blocks,
       body.edges,
+      body.musicBlocks,
     );
     res.json(state);
   } catch (err) {

@@ -3,6 +3,7 @@
  *
  * Buttons:
  * - "Add Block" — appends a new SCENE block to the canvas.
+ * - "Add Music" — appends a storyboard music block when scenes exist.
  * - "Auto-Arrange" — disabled, tooltip "Coming soon".
  */
 
@@ -14,6 +15,8 @@ import { storyboardPageStyles as s } from './storyboardPageStyles';
 
 interface CanvasToolbarProps {
   onAddBlock: () => void;
+  onAddMusicBlock: () => void;
+  canAddMusicBlock: boolean;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -22,7 +25,11 @@ interface CanvasToolbarProps {
  * Floating canvas toolbar positioned at the bottom-right of the canvas area.
  * Contains "Add Block" (active) and "Auto-Arrange" (disabled placeholder).
  */
-export function CanvasToolbar({ onAddBlock }: CanvasToolbarProps): React.ReactElement {
+export function CanvasToolbar({
+  onAddBlock,
+  onAddMusicBlock,
+  canAddMusicBlock,
+}: CanvasToolbarProps): React.ReactElement {
   return (
     <div style={s.canvasToolbar} data-testid="canvas-toolbar">
       {/* Add Block */}
@@ -49,6 +56,30 @@ export function CanvasToolbar({ onAddBlock }: CanvasToolbarProps): React.ReactEl
           />
         </svg>
         Add Block
+      </button>
+
+      <button
+        type="button"
+        style={canAddMusicBlock ? s.canvasToolbarButton : s.canvasToolbarButtonDisabled}
+        onClick={canAddMusicBlock ? onAddMusicBlock : undefined}
+        disabled={!canAddMusicBlock}
+        aria-label="Add music block"
+        aria-disabled={canAddMusicBlock ? 'false' : 'true'}
+        title={canAddMusicBlock ? 'Add music block' : 'Add a scene before adding music'}
+        data-testid="add-music-block-button"
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 14 14"
+          fill="none"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path d="M5 3v7.25A1.75 1.75 0 1 1 3.25 8.5H5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M5 3h5v2H5V3Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+        </svg>
+        Add Music
       </button>
 
       {/* Auto-Arrange — disabled placeholder */}

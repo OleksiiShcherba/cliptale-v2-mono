@@ -31,10 +31,11 @@ import type {
   EdgeMouseHandler,
 } from '@xyflow/react';
 
+import type { GhostDragState } from '@/features/storyboard/hooks/useStoryboardDrag';
+
 import { CanvasToolbar } from './CanvasToolbar';
 import { GhostDragPortal } from './GhostDragPortal';
 import { ZoomToolbar } from './ZoomToolbar';
-import type { GhostDragState } from '../hooks/useStoryboardDrag';
 import { SURFACE, BORDER } from './storyboardPageStyles';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -77,6 +78,8 @@ interface StoryboardCanvasProps {
   onNodeDragStop: OnNodeDrag;
   dragState: GhostDragState | null;
   onAddBlock: () => void;
+  onAddMusicBlock: () => void;
+  canAddMusicBlock: boolean;
   /** Optional click handler forwarded to ReactFlow's onNodeClick. */
   onNodeClick?: NodeMouseHandler<Node>;
   /**
@@ -107,9 +110,11 @@ interface InnerCanvasProps extends StoryboardCanvasProps {
 function InnerCanvas({
   dragState,
   onAddBlock,
+  onAddMusicBlock,
+  canAddMusicBlock,
   zoom,
   onZoomChange,
-}: Pick<InnerCanvasProps, 'dragState' | 'onAddBlock' | 'zoom' | 'onZoomChange'>): React.ReactElement {
+}: Pick<InnerCanvasProps, 'dragState' | 'onAddBlock' | 'onAddMusicBlock' | 'canAddMusicBlock' | 'zoom' | 'onZoomChange'>): React.ReactElement {
   const { zoomTo } = useReactFlow();
 
   const handleZoomChange = useCallback(
@@ -124,7 +129,11 @@ function InnerCanvas({
     <>
       {dragState && <GhostDragPortal dragState={dragState} />}
       <ZoomToolbar currentZoom={zoom} onZoomChange={handleZoomChange} />
-      <CanvasToolbar onAddBlock={onAddBlock} />
+      <CanvasToolbar
+        onAddBlock={onAddBlock}
+        onAddMusicBlock={onAddMusicBlock}
+        canAddMusicBlock={canAddMusicBlock}
+      />
     </>
   );
 }
@@ -148,6 +157,8 @@ export function StoryboardCanvas({
   onNodeDragStop,
   dragState,
   onAddBlock,
+  onAddMusicBlock,
+  canAddMusicBlock,
   onNodeClick,
   cursorMode = 'grab',
   onCutEdge,
@@ -206,6 +217,8 @@ export function StoryboardCanvas({
         <InnerCanvas
           dragState={dragState}
           onAddBlock={onAddBlock}
+          onAddMusicBlock={onAddMusicBlock}
+          canAddMusicBlock={canAddMusicBlock}
           zoom={zoom}
           onZoomChange={setZoom}
         />

@@ -17,7 +17,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mock hoisted values ───────────────────────────────────────────────────────
 
-const { mockPool, mockConn, mockGenDraftRepo, mockStoryboardRepo } = vi.hoisted(() => {
+const { mockPool, mockConn, mockGenDraftRepo, mockStoryboardRepo, mockMusicRepo } = vi.hoisted(() => {
   const mockConn = {
     beginTransaction: vi.fn().mockResolvedValue(undefined),
     commit: vi.fn().mockResolvedValue(undefined),
@@ -50,12 +50,18 @@ const { mockPool, mockConn, mockGenDraftRepo, mockStoryboardRepo } = vi.hoisted(
     newId: vi.fn().mockReturnValue('00000000-0000-0000-0000-000000000001'),
   };
 
-  return { mockPool, mockConn, mockGenDraftRepo, mockStoryboardRepo };
+  const mockMusicRepo = {
+    listMusicBlocksByDraftId: vi.fn().mockResolvedValue([]),
+    findMusicBlocksByDraftIdForUpdate: vi.fn().mockResolvedValue([]),
+  };
+
+  return { mockPool, mockConn, mockGenDraftRepo, mockStoryboardRepo, mockMusicRepo };
 });
 
 vi.mock('@/db/connection.js', () => ({ pool: mockPool }));
 vi.mock('@/repositories/generationDraft.repository.js', () => mockGenDraftRepo);
 vi.mock('@/repositories/storyboard.repository.js', () => mockStoryboardRepo);
+vi.mock('@/repositories/storyboardMusic.repository.js', () => mockMusicRepo);
 
 // ── Import service under test after mocks are in place ────────────────────────
 
@@ -72,6 +78,9 @@ beforeEach(() => {
   mockStoryboardRepo.countSentinelBlocksForUpdate.mockResolvedValue(0);
   mockStoryboardRepo.findBlocksByDraftId.mockResolvedValue([]);
   mockStoryboardRepo.findEdgesByDraftId.mockResolvedValue([]);
+  mockStoryboardRepo.replaceStoryboard.mockResolvedValue(undefined);
+  mockMusicRepo.listMusicBlocksByDraftId.mockResolvedValue([]);
+  mockMusicRepo.findMusicBlocksByDraftIdForUpdate.mockResolvedValue([]);
   mockStoryboardRepo.insertHistoryAndPrune.mockResolvedValue(1);
   mockStoryboardRepo.findHistoryByDraftId.mockResolvedValue([]);
   mockStoryboardRepo.getConnection.mockResolvedValue(mockConn);
@@ -160,6 +169,7 @@ describe('storyboard.service — initializeStoryboard', () => {
 
     expect(result.blocks).toEqual(existing);
     expect(result.edges).toEqual([]);
+    expect(result.musicBlocks).toEqual([]);
   });
 });
 

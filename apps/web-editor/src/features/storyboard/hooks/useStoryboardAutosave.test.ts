@@ -61,10 +61,7 @@ describe('useStoryboardAutosave', () => {
 
   describe('debounced save after state change', () => {
     it('calls saveStoryboard once after 5s when nodes change', async () => {
-      const { rerender } = renderHook<
-        { nodes: Node[]; edges: Edge[] },
-        void
-      >(
+      const { rerender } = renderHook(
         ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
         { initialProps: { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES } },
       );
@@ -87,10 +84,7 @@ describe('useStoryboardAutosave', () => {
     });
 
     it('collapses multiple rapid re-renders within 5s into a single API call', async () => {
-      const { rerender } = renderHook<
-        { nodes: Node[]; edges: Edge[] },
-        void
-      >(
+      const { rerender } = renderHook(
         ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
         { initialProps: { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES } },
       );
@@ -110,10 +104,7 @@ describe('useStoryboardAutosave', () => {
     });
 
     it('does NOT call saveStoryboard again if state has not changed since last save', async () => {
-      const { rerender } = renderHook<
-        { nodes: Node[]; edges: Edge[] },
-        void
-      >(
+      const { rerender } = renderHook(
         ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
         { initialProps: { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES } },
       );
@@ -145,10 +136,7 @@ describe('useStoryboardAutosave', () => {
       // Make saveStoryboard never resolve so we can observe the "Saving…" state.
       vi.mocked(saveStoryboard).mockImplementation(() => new Promise(() => undefined));
 
-      const { result, rerender } = renderHook<
-        { nodes: Node[]; edges: Edge[] },
-        { saveLabel: string; saveNow: () => Promise<void> }
-      >(
+      const { result, rerender } = renderHook(
         ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
         { initialProps: { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES } },
       );
@@ -164,10 +152,7 @@ describe('useStoryboardAutosave', () => {
     });
 
     it('shows "Saved just now" immediately after a successful save', async () => {
-      const { result, rerender } = renderHook<
-        { nodes: Node[]; edges: Edge[] },
-        { saveLabel: string; saveNow: () => Promise<void> }
-      >(
+      const { result, rerender } = renderHook(
         ({ nodes, edges }) => useStoryboardAutosave(DRAFT_ID, nodes, edges),
         { initialProps: { nodes: DEFAULT_NODES, edges: DEFAULT_EDGES } },
       );

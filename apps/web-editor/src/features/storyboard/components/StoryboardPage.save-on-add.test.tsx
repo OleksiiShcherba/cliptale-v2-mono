@@ -16,18 +16,45 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { Node } from '@xyflow/react';
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
 // ---------------------------------------------------------------------------
 
-const { mockSaveStoryboard, mockPersistHistorySnapshot, mockAddTemplateToStoryboard, capturedOnAddTemplate } = vi.hoisted(() => ({
-  mockSaveStoryboard: vi.fn().mockResolvedValue(undefined),
-  mockPersistHistorySnapshot: vi.fn().mockResolvedValue(undefined),
-  mockAddTemplateToStoryboard: vi.fn(),
-  // Allows tests to grab the onAddTemplate prop passed to the LibraryPanel mock.
-  capturedOnAddTemplate: { current: null as ((templateId: string) => Promise<void>) | null },
-}));
+const {
+  mockSaveStoryboard,
+  mockPersistHistorySnapshot,
+  mockAddTemplateToStoryboard,
+  capturedOnAddTemplate,
+  mockCanvasNodes,
+  DEFAULT_CANVAS_NODES,
+} = vi.hoisted(() => {
+  const defaultCanvasNodes = [
+    {
+      id: 'start',
+      type: 'start',
+      position: { x: 60, y: 200 },
+      data: { label: 'START' },
+    },
+    {
+      id: 'end',
+      type: 'end',
+      position: { x: 900, y: 200 },
+      data: { label: 'END' },
+    },
+  ] as Node[];
+
+  return {
+    mockSaveStoryboard: vi.fn().mockResolvedValue(undefined),
+    mockPersistHistorySnapshot: vi.fn().mockResolvedValue(undefined),
+    mockAddTemplateToStoryboard: vi.fn(),
+    // Allows tests to grab the onAddTemplate prop passed to the LibraryPanel mock.
+    capturedOnAddTemplate: { current: null as ((templateId: string) => Promise<void>) | null },
+    mockCanvasNodes: { current: defaultCanvasNodes },
+    DEFAULT_CANVAS_NODES: defaultCanvasNodes,
+  };
+});
 
 // Mock the storyboard API — this is what saveNow ultimately calls.
 vi.mock('@/features/storyboard/api', () => ({
@@ -37,6 +64,9 @@ vi.mock('@/features/storyboard/api', () => ({
   persistHistorySnapshot: mockPersistHistorySnapshot,
   fetchHistorySnapshots: vi.fn().mockResolvedValue([]),
   addTemplateToStoryboard: mockAddTemplateToStoryboard,
+  fetchStoryboardMusic: vi.fn().mockResolvedValue({ items: [] }),
+  updateStoryboardMusicBlock: vi.fn().mockResolvedValue({}),
+  generateStoryboardMusicBlock: vi.fn().mockResolvedValue({ items: [] }),
 }));
 
 vi.mock('react-router-dom', async (importOriginal) => {
@@ -51,6 +81,15 @@ vi.mock('@/features/generate-wizard/components/WizardStepper', () => ({
   WizardStepper: ({ currentStep }: { currentStep: number }) => (
     <div data-testid="wizard-stepper" data-step={currentStep} />
   ),
+}));
+
+vi.mock('@/features/generate-wizard/hooks/useAssets', () => ({
+  useAssets: vi.fn(() => ({
+    data: { items: [], nextCursor: null, totals: { count: 0, bytesUsed: 0 } },
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  })),
 }));
 
 // Mock @xyflow/react — canvas not available in jsdom.
@@ -72,45 +111,31 @@ vi.mock('@xyflow/react', () => ({
 }));
 
 // Mock useStoryboardCanvas to return controllable nodes/edges state.
-vi.mock('@/features/storyboard/hooks/useStoryboardCanvas', () => ({
-  useStoryboardCanvas: vi.fn(() => ({
-    nodes: [
-      {
-        id: 'start',
-        type: 'start',
-        position: { x: 60, y: 200 },
-        data: { label: 'START' },
-      },
-      {
-        id: 'end',
-        type: 'end',
-        position: { x: 900, y: 200 },
-        data: { label: 'END' },
-      },
-    ],
-    edges: [],
-    isLoading: false,
-    error: null,
-    setNodes: vi.fn((updater: (prev: unknown[]) => unknown[]) => {
-      updater([
-        {
-          id: 'start',
-          type: 'start',
-          position: { x: 60, y: 200 },
-          data: { label: 'START' },
-        },
-        {
-          id: 'end',
-          type: 'end',
-          position: { x: 900, y: 200 },
-          data: { label: 'END' },
-        },
-      ]);
+vi.mock('@/features/storyboard/hooks/useStoryboardCanvas', async () => {
+  const ReactActual = await vi.importActual<typeof import('react')>('react');
+  return {
+    useStoryboardCanvas: vi.fn(() => {
+      const [nodes, setNodesState] = ReactActual.useState<Node[]>(mockCanvasNodes.current);
+      const setNodes: React.Dispatch<React.SetStateAction<Node[]>> = (updater) => {
+        setNodesState((prev) => {
+          const next = typeof updater === 'function' ? updater(prev) : updater;
+          mockCanvasNodes.current = next;
+          return next;
+        });
+      };
+
+      return {
+        nodes,
+        edges: [],
+        isLoading: false,
+        error: null,
+        setNodes,
+        setEdges: vi.fn(),
+        removeNode: vi.fn(),
+      };
     }),
-    setEdges: vi.fn(),
-    removeNode: vi.fn(),
-  })),
-}));
+  };
+});
 
 vi.mock('@/features/storyboard/components/LibraryPanel', () => ({
   LibraryPanel: ({
@@ -162,6 +187,21 @@ import { StoryboardPage } from './StoryboardPage';
 import { saveStoryboard, persistHistorySnapshot, addTemplateToStoryboard } from '@/features/storyboard/api';
 import type { StoryboardBlock } from '@/features/storyboard/types';
 
+function resetCanvasNodes(nodes: Node[] = DEFAULT_CANVAS_NODES): void {
+  mockCanvasNodes.current = nodes.map((node) => ({ ...node, data: { ...node.data } }));
+}
+
+function makeSceneNode(block: StoryboardBlock): Node {
+  return {
+    id: block.id,
+    type: 'scene-block',
+    position: { x: block.positionX, y: block.positionY },
+    data: { block, onRemove: vi.fn() },
+    draggable: true,
+    deletable: true,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Render helper
 // ---------------------------------------------------------------------------
@@ -189,6 +229,7 @@ describe('StoryboardPage / save-on-add (ST-FIX-4)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    resetCanvasNodes();
     vi.mocked(saveStoryboard).mockResolvedValue(undefined);
   });
 
@@ -234,6 +275,61 @@ describe('StoryboardPage / save-on-add (ST-FIX-4)', () => {
     expect(payload.blocks.some((block) => block.blockType === 'scene')).toBe(true);
   });
 
+  it('opens the music modal and saves the created music block from the page Add Music action', async () => {
+    const sceneBlock: StoryboardBlock = {
+      id: 'scene-1',
+      draftId: 'test-draft-abc',
+      blockType: 'scene',
+      name: 'Opening scene',
+      prompt: 'Opening prompt',
+      videoPrompt: null,
+      durationS: 8,
+      positionX: 340,
+      positionY: 200,
+      sortOrder: 1,
+      style: null,
+      createdAt: '2026-05-26T00:00:00Z',
+      updatedAt: '2026-05-26T00:00:00Z',
+      mediaItems: [],
+    };
+    resetCanvasNodes([
+      DEFAULT_CANVAS_NODES[0]!,
+      makeSceneNode(sceneBlock),
+      DEFAULT_CANVAS_NODES[1]!,
+    ]);
+
+    renderPage();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('add-music-block-button'));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('dialog', { name: 'Music block inspector' })).toBeTruthy();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const [, savePayload] = vi.mocked(saveStoryboard).mock.calls[0]!;
+    expect(savePayload.musicBlocks).toHaveLength(1);
+    expect(savePayload.musicBlocks?.[0]).toEqual(expect.objectContaining({
+      sourceMode: 'generate_on_step3',
+      startSceneBlockId: 'scene-1',
+      endSceneBlockId: 'scene-1',
+    }));
+
+    const [, historyPayload] = vi.mocked(persistHistorySnapshot).mock.calls[0]!;
+    expect(historyPayload.musicBlocks).toHaveLength(1);
+    expect(historyPayload.musicBlocks?.[0]).toEqual(expect.objectContaining({
+      sourceMode: 'generate_on_step3',
+      startSceneBlockId: 'scene-1',
+      endSceneBlockId: 'scene-1',
+    }));
+  });
+
   it('autosave-indicator shows "Saving…" then "Saved just now" after add', async () => {
     // Simulate a slow save to observe "Saving…" state.
     let resolvePromise!: () => void;
@@ -277,6 +373,7 @@ describe('StoryboardPage / library-add (SB-UI-BUG-1)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    resetCanvasNodes();
     vi.mocked(saveStoryboard).mockResolvedValue(undefined);
     capturedOnAddTemplate.current = null;
   });

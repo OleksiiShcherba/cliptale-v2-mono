@@ -119,7 +119,7 @@ interface SceneBlockNodeProps {
  * The red × button removes the node from canvas state via `onRemove` callback.
  */
 export function SceneBlockNode({ id, data }: SceneBlockNodeProps): React.ReactElement {
-  const { block, illustration, onRemove, onEdit, onRetryIllustration } = data;
+  const { block, illustration, musicCoverage, onRemove, onEdit, onRetryIllustration } = data;
 
   // Derive display name: auto-generate "SCENE 01" style if blank.
   const displayName: string = block.name
@@ -162,7 +162,10 @@ export function SceneBlockNode({ id, data }: SceneBlockNodeProps): React.ReactEl
 
   return (
     <div
-      style={s.root}
+      style={{
+        ...s.root,
+        ...(musicCoverage?.isHighlighted ? s.rootMusicHighlighted : {}),
+      }}
       data-testid="scene-block-node"
       onClick={handleEdit}
       role="button"
@@ -170,6 +173,10 @@ export function SceneBlockNode({ id, data }: SceneBlockNodeProps): React.ReactEl
       aria-label={`Edit scene ${displayName}`}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleEdit(); }}
     >
+      {musicCoverage && musicCoverage.count > 0 ? (
+        <div style={s.musicIndicator} data-testid="scene-music-indicator" />
+      ) : null}
+
       {/* Income port — left side */}
       <Handle
         type="target"
@@ -198,6 +205,12 @@ export function SceneBlockNode({ id, data }: SceneBlockNodeProps): React.ReactEl
         <span style={s.durationBadge} data-testid="duration-badge">
           {block.durationS}s
         </span>
+
+        {musicCoverage && musicCoverage.count > 0 ? (
+          <span style={s.musicBadge} data-testid="scene-music-badge">
+            MUSIC {musicCoverage.count}
+          </span>
+        ) : null}
 
         {illustration?.jobId ? (
           <div style={s.illustrationStatusRow} data-testid="illustration-status-row">

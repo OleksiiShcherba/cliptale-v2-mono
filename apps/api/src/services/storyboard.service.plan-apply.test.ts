@@ -1,10 +1,10 @@
-import type { StoryboardPlan } from '@ai-video-editor/project-schema';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   mockConn,
   mockGenDraftRepo,
   mockStoryboardRepo,
+  mockStoryboardMusicRepo,
   mockStoryboardHistoryRepo,
   mockStoryboardPlanJobRepo,
 } = vi.hoisted(() => {
@@ -29,6 +29,10 @@ const {
     newId: vi.fn(),
   };
 
+  const mockStoryboardMusicRepo = {
+    listMusicBlocksByDraftId: vi.fn().mockResolvedValue([]),
+  };
+
   const mockStoryboardHistoryRepo = {
     insertHistoryAndPruneInTx: vi.fn().mockResolvedValue(1),
   };
@@ -41,6 +45,7 @@ const {
     mockConn,
     mockGenDraftRepo,
     mockStoryboardRepo,
+    mockStoryboardMusicRepo,
     mockStoryboardHistoryRepo,
     mockStoryboardPlanJobRepo,
   };
@@ -48,75 +53,20 @@ const {
 
 vi.mock('@/repositories/generationDraft.repository.js', () => mockGenDraftRepo);
 vi.mock('@/repositories/storyboard.repository.js', () => mockStoryboardRepo);
+vi.mock('@/repositories/storyboardMusic.repository.js', () => mockStoryboardMusicRepo);
 vi.mock('@/repositories/storyboardHistory.repository.js', () => mockStoryboardHistoryRepo);
 vi.mock('@/repositories/storyboardPlanJob.repository.js', () => mockStoryboardPlanJobRepo);
 
 import { ForbiddenError, UnprocessableEntityError } from '@/lib/errors.js';
+
 import { applyLatestCompletedPlan } from './storyboard.service.js';
-import { DRAFT_ID, USER_A, USER_B, makeDraft } from './storyboard.service.fixtures.js';
-
-const PLAN: StoryboardPlan = {
-  schemaVersion: 1,
-  videoLengthSeconds: 12,
-  sceneCount: 2,
-  scenes: [
-    {
-      sceneNumber: 1,
-      prompt: 'Introduce the problem.',
-      visualPrompt: 'Wide shot of a cluttered desk.',
-      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
-      durationSeconds: 5.4,
-      referencedMedia: [
-        {
-          fileId: '00000000-0000-4000-8000-000000000001',
-          mediaType: 'image',
-          label: 'desk.png',
-        },
-        {
-          fileId: '00000000-0000-4000-8000-000000000002',
-          mediaType: 'video',
-          label: 'workflow.mp4',
-        },
-      ],
-      transitionNotes: '',
-      style: 'cinematic',
-    },
-    {
-      sceneNumber: 2,
-      prompt: 'Show the resolved state.',
-      visualPrompt: 'Clean product hero frame.',
-      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
-      durationSeconds: 6.6,
-      referencedMedia: [],
-      transitionNotes: '',
-      style: 'minimal',
-    },
-  ],
-};
-
-function makeCompletedJob(plan: StoryboardPlan | null = PLAN) {
-  return {
-    jobId: 'job-1',
-    draftId: DRAFT_ID,
-    userId: USER_A,
-    status: 'completed' as const,
-    model: null,
-    promptSnapshot: {},
-    mediaContext: null,
-    plan,
-    errorMessage: null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    completedAt: new Date(),
-    failedAt: null,
-  };
-}
+import { DRAFT_ID, USER_A, USER_B, makeCompletedPlanJob, makeDraft } from './storyboard.service.fixtures.js';
 
 describe('storyboard.service — applyLatestCompletedPlan', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGenDraftRepo.findDraftById.mockResolvedValue(makeDraft(USER_A, 'step2'));
-    mockStoryboardPlanJobRepo.findLatestCompletedByDraftId.mockResolvedValue(makeCompletedJob());
+    mockStoryboardPlanJobRepo.findLatestCompletedByDraftId.mockResolvedValue(makeCompletedPlanJob());
     mockStoryboardRepo.findBlocksByDraftId
       .mockResolvedValueOnce([
         { id: 'start-existing', blockType: 'start', sortOrder: 0 },
@@ -145,6 +95,7 @@ describe('storyboard.service — applyLatestCompletedPlan', () => {
       .mockReturnValueOnce('edge-2')
       .mockReturnValueOnce('edge-3');
     mockStoryboardRepo.replaceStoryboard.mockResolvedValue(undefined);
+    mockStoryboardMusicRepo.listMusicBlocksByDraftId.mockResolvedValue([]);
     mockStoryboardHistoryRepo.insertHistoryAndPruneInTx.mockResolvedValue(1);
     mockConn.beginTransaction.mockResolvedValue(undefined);
     mockConn.commit.mockResolvedValue(undefined);
@@ -187,7 +138,7 @@ describe('storyboard.service — applyLatestCompletedPlan', () => {
       durationS: 7,
       sortOrder: 2,
       style: 'minimal',
-      positionX: 550,
+      positionX: 552,
       positionY: 300,
     });
     expect(blocks[1].mediaItems).toEqual([
@@ -233,6 +184,7 @@ describe('storyboard.service — applyLatestCompletedPlan', () => {
           mediaItems: block.mediaItems ?? [],
         })),
         edges,
+        musicBlocks: [],
       },
       50,
     );

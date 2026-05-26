@@ -32,6 +32,7 @@ import { validateFalOptions } from '@/services/falOptions.validator.js';
 
 /** Model id for the only catalog entry that exposes a mutually-exclusive prompt XOR. */
 const KLING_O3_MODEL_ID = 'fal-ai/kling-video/o3/standard/image-to-video';
+const ELEVENLABS_MUSIC_MODEL_ID = 'elevenlabs/music-generation';
 
 /** Parameters accepted by {@link submitGeneration}. */
 export type SubmitGenerationParams = {
@@ -136,6 +137,10 @@ export async function submitGeneration(
     throw new ValidationError(validation.errors.join('; '));
   }
 
+  if (model.provider === 'elevenlabs' && model.id === ELEVENLABS_MUSIC_MODEL_ID) {
+    enforceElevenLabsMusicOptions(model.id, mergedOptions);
+  }
+
   // kling-o3 XOR is specific to fal.ai — skip for ElevenLabs models.
   if (model.provider === 'fal' && model.id === KLING_O3_MODEL_ID) {
     const hasPromptOpt = typeof mergedOptions['prompt'] === 'string';
@@ -199,6 +204,33 @@ export async function submitGeneration(
   }
 
   return { jobId, status: 'queued' };
+}
+
+function enforceElevenLabsMusicOptions(
+  modelId: string,
+  options: Record<string, unknown>,
+): void {
+  const hasPrompt = typeof options['prompt'] === 'string' && options['prompt'].length > 0;
+  const hasPlan = options['composition_plan'] !== undefined && options['composition_plan'] !== null;
+  const shouldRegeneratePlan = options['regenerate_composition_plan'] === true;
+
+  if (!hasPrompt && !hasPlan) {
+    throw new ValidationError(
+      `Model '${modelId}' requires 'composition_plan' or 'prompt'`,
+    );
+  }
+
+  if (hasPrompt && hasPlan && !shouldRegeneratePlan) {
+    throw new ValidationError(
+      `Model '${modelId}' accepts either 'prompt' or 'composition_plan', not both`,
+    );
+  }
+
+  if (shouldRegeneratePlan && !hasPrompt) {
+    throw new ValidationError(
+      `Model '${modelId}' requires 'prompt' when regenerating a composition plan`,
+    );
+  }
 }
 
 /**

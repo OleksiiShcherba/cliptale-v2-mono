@@ -27,6 +27,20 @@ beforeEach(() => {
   resetMocks();
 });
 
+const compositionPlan = {
+  positive_global_styles: ['cinematic'],
+  negative_global_styles: ['vocals'],
+  sections: [
+    {
+      section_name: 'Main',
+      positive_local_styles: ['soft piano'],
+      negative_local_styles: [],
+      duration_ms: 30_000,
+      lines: [],
+    },
+  ],
+};
+
 // ── text_to_speech ────────────────────────────────────────────────────────────
 
 describe('aiGeneration.service / ElevenLabs text_to_speech', () => {
@@ -161,6 +175,59 @@ describe('aiGeneration.service / ElevenLabs music_generation', () => {
     expect(enqueueMock).toHaveBeenCalledWith(
       expect.objectContaining({
         options: expect.objectContaining({ duration: 60 }),
+      }),
+    );
+  });
+
+  it('accepts structured composition_plan without prompt', async () => {
+    await submitGeneration(TEST_USER, {
+      modelId: MODEL,
+      options: {
+        composition_plan: compositionPlan,
+        respect_sections_durations: true,
+        model_id: 'music_v1',
+      },
+    });
+
+    expect(enqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capability: 'music_generation',
+        provider: 'elevenlabs',
+        options: expect.objectContaining({
+          composition_plan: compositionPlan,
+        }),
+      }),
+    );
+  });
+
+  it('rejects prompt and composition_plan together unless plan regeneration is requested', async () => {
+    await expect(
+      submitGeneration(TEST_USER, {
+        modelId: MODEL,
+        options: { prompt: 'epic drums', composition_plan: compositionPlan },
+      }),
+    ).rejects.toThrow(/either 'prompt' or 'composition_plan'/);
+
+    expect(enqueueMock).not.toHaveBeenCalled();
+  });
+
+  it('allows prompt plus composition_plan when regenerating the plan', async () => {
+    await submitGeneration(TEST_USER, {
+      modelId: MODEL,
+      options: {
+        prompt: 'epic drums',
+        composition_plan: compositionPlan,
+        regenerate_composition_plan: true,
+      },
+    });
+
+    expect(enqueueMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          prompt: 'epic drums',
+          composition_plan: compositionPlan,
+          regenerate_composition_plan: true,
+        }),
       }),
     );
   });

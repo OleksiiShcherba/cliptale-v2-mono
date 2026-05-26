@@ -27,6 +27,8 @@ import type {
   VoiceCloneParams,
   SpeechToSpeechParams,
   MusicGenerationParams,
+  CreateMusicCompositionPlanParams,
+  ElevenLabsCompositionPlan,
   VoiceCloneResult,
 } from '@/lib/elevenlabs-client.js';
 import type { AudioCapability } from '@/jobs/ai-generate.output.js';
@@ -37,6 +39,7 @@ export type ElevenLabsClientFns = {
   textToSpeech: (params: TextToSpeechParams) => Promise<Buffer>;
   voiceClone: (params: VoiceCloneParams) => Promise<VoiceCloneResult>;
   speechToSpeech: (params: SpeechToSpeechParams) => Promise<Buffer>;
+  createMusicCompositionPlan: (params: CreateMusicCompositionPlanParams) => Promise<ElevenLabsCompositionPlan>;
   musicGeneration: (params: MusicGenerationParams) => Promise<Buffer>;
 };
 
@@ -173,10 +176,43 @@ async function handleMusicGeneration(
 ): Promise<void> {
   await setProgress(deps.pool, jobId, 30);
 
+  const prompt = getOptionalString(options['prompt']);
+  const compositionPlan = readCompositionPlan(options['composition_plan']);
+  const shouldRegeneratePlan = options['regenerate_composition_plan'] === true;
+  const musicLengthMs = getMusicLengthMs(options);
+  const modelId = getOptionalString(options['model_id']);
+  const respectSectionsDurations = getOptionalBoolean(options['respect_sections_durations']);
+  const forceInstrumental = getOptionalBoolean(options['force_instrumental']) ?? true;
+
+  if (compositionPlan && prompt && !shouldRegeneratePlan) {
+    throw new Error("ElevenLabs music_generation accepts either 'prompt' or 'composition_plan', not both");
+  }
+
+  let plan = compositionPlan;
+  if (!plan || shouldRegeneratePlan) {
+    if (!prompt) {
+      throw new Error("ElevenLabs music_generation requires 'composition_plan' or 'prompt'");
+    }
+    const explicitSourcePlan = readCompositionPlan(options['source_composition_plan']);
+    const sourceCompositionPlan = shouldRegeneratePlan ? explicitSourcePlan ?? compositionPlan : undefined;
+    plan = forceInstrumentalPlan(
+      await deps.elevenlabs.createMusicCompositionPlan({
+        apiKey: deps.elevenlabsKey,
+        prompt,
+        musicLengthMs,
+        modelId,
+        sourceCompositionPlan,
+      }),
+      forceInstrumental,
+    );
+    await persistResolvedMusicPlan(deps.pool, jobId, options, plan);
+  }
+
   const audioBytes = await deps.elevenlabs.musicGeneration({
     apiKey: deps.elevenlabsKey,
-    prompt: options.prompt as string,
-    durationSeconds: options.duration as number | undefined,
+    compositionPlan: plan,
+    respectSectionsDurations,
+    modelId,
   });
 
   await saveAudioFile({ audioBytes, capability, jobId, userId }, deps);
@@ -246,4 +282,84 @@ async function downloadAudio(url: string): Promise<Buffer> {
 
 async function setProgress(pool: Pool, jobId: string, progress: number): Promise<void> {
   await pool.execute('UPDATE ai_generation_jobs SET progress = ? WHERE job_id = ?', [progress, jobId]);
+}
+
+function getOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function getOptionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function getMusicLengthMs(options: Record<string, unknown>): number | undefined {
+  const musicLengthMs = options['music_length_ms'];
+  if (typeof musicLengthMs === 'number') return musicLengthMs;
+
+  // Backward compatibility for the legacy sound-generation catalog field.
+  const durationSeconds = options['duration'];
+  if (typeof durationSeconds === 'number') {
+    return Math.round(durationSeconds * 1000);
+  }
+
+  return undefined;
+}
+
+function readCompositionPlan(value: unknown): ElevenLabsCompositionPlan | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error("ElevenLabs music_generation field 'composition_plan' must be an object");
+  }
+
+  const plan = value as Record<string, unknown>;
+  if (
+    !Array.isArray(plan['positive_global_styles']) ||
+    !Array.isArray(plan['negative_global_styles']) ||
+    !Array.isArray(plan['sections'])
+  ) {
+    throw new Error("ElevenLabs music_generation field 'composition_plan' is invalid");
+  }
+
+  return value as ElevenLabsCompositionPlan;
+}
+
+function forceInstrumentalPlan(
+  plan: ElevenLabsCompositionPlan,
+  forceInstrumental: boolean,
+): ElevenLabsCompositionPlan {
+  if (!forceInstrumental) return plan;
+
+  const instrumentalNegatives = ['vocals', 'lyrics', 'singing'];
+  const mergeNegatives = (values: string[]) => Array.from(new Set([...values, ...instrumentalNegatives]));
+
+  return {
+    ...plan,
+    negative_global_styles: mergeNegatives(plan.negative_global_styles),
+    sections: plan.sections.map((section) => ({
+      ...section,
+      negative_local_styles: mergeNegatives(section.negative_local_styles),
+      lines: [],
+    })),
+  };
+}
+
+async function persistResolvedMusicPlan(
+  pool: Pool,
+  jobId: string,
+  options: Record<string, unknown>,
+  compositionPlan: ElevenLabsCompositionPlan,
+): Promise<void> {
+  await pool.execute(
+    `UPDATE ai_generation_jobs
+        SET options = ?
+      WHERE job_id = ?`,
+    [
+      JSON.stringify({
+        ...options,
+        composition_plan: compositionPlan,
+        regenerate_composition_plan: false,
+      }),
+      jobId,
+    ],
+  );
 }

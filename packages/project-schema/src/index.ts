@@ -12,7 +12,23 @@ export {
   draftStyleKeySchema,
 } from './schemas/promptDoc.schema.js';
 export {
+  ELEVENLABS_COMPOSITION_PLAN_MIN_SECTION_DURATION_MS,
+  ELEVENLABS_COMPOSITION_PLAN_MAX_SECTION_DURATION_MS,
+  ELEVENLABS_COMPOSITION_PLAN_MIN_TOTAL_DURATION_MS,
+  ELEVENLABS_COMPOSITION_PLAN_MAX_TOTAL_DURATION_MS,
+  ELEVENLABS_COMPOSITION_PLAN_MAX_SECTIONS,
+  ELEVENLABS_COMPOSITION_PLAN_MAX_STYLES,
+  ELEVENLABS_COMPOSITION_PLAN_MAX_LYRICS_LINES,
+  ELEVENLABS_COMPOSITION_PLAN_MAX_LYRICS_LINE_LENGTH,
+  elevenLabsCompositionPlanSectionSchema,
+  elevenLabsCompositionPlanSchema,
+  storyboardMusicSourceModeSchema,
+  storyboardMusicGenerationStatusSchema,
+  storyboardMusicBlockSchema,
+} from './schemas/storyboardMusic.schema.js';
+export {
   STORYBOARD_PLAN_SCHEMA_VERSION,
+  STORYBOARD_PLAN_LEGACY_SCHEMA_VERSION,
   STORYBOARD_PLAN_TARGET_SCENE_DURATION_SECONDS,
   STORYBOARD_PLAN_MIN_SCENE_COUNT,
   STORYBOARD_PLAN_MAX_SCENE_COUNT,
@@ -21,6 +37,7 @@ export {
   STORYBOARD_PLAN_DEFAULT_STYLE_KEY,
   storyboardPlanReferencedMediaSchema,
   storyboardPlanSceneSchema,
+  storyboardPlanMusicSegmentSchema,
   storyboardPlanJobStatusSchema,
   storyboardPlanSchema,
   storyboardPlanJobResultSchema,
@@ -40,8 +57,16 @@ export type {
   DraftStyleKey,
 } from './schemas/promptDoc.schema.js';
 export type {
+  ElevenLabsCompositionPlanSection,
+  ElevenLabsCompositionPlan,
+  StoryboardMusicSourceMode,
+  StoryboardMusicGenerationStatus,
+  StoryboardMusicBlock,
+} from './schemas/storyboardMusic.schema.js';
+export type {
   StoryboardPlanReferencedMedia,
   StoryboardPlanScene,
+  StoryboardPlanMusicSegment,
   StoryboardPlan,
   StoryboardPlanJobStatus,
   StoryboardPlanJobResult,

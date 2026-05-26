@@ -132,5 +132,78 @@ function checkField(
       }
       return;
     }
+    case 'composition_plan': {
+      validateCompositionPlan(field.name, value, errors);
+      return;
+    }
+  }
+}
+
+function validateCompositionPlan(
+  fieldName: string,
+  value: unknown,
+  errors: string[],
+): void {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    errors.push(`Field '${fieldName}' must be a composition plan object`);
+    return;
+  }
+
+  const plan = value as Record<string, unknown>;
+  validateStringArray(fieldName, 'positive_global_styles', plan['positive_global_styles'], errors, 50);
+  validateStringArray(fieldName, 'negative_global_styles', plan['negative_global_styles'], errors, 50);
+
+  const sections = plan['sections'];
+  if (!Array.isArray(sections) || sections.length === 0 || sections.length > 30) {
+    errors.push(`Field '${fieldName}.sections' must contain 1-30 sections`);
+    return;
+  }
+
+  let totalDurationMs = 0;
+  for (const [index, rawSection] of sections.entries()) {
+    const sectionPath = `${fieldName}.sections[${index}]`;
+    if (rawSection === null || typeof rawSection !== 'object' || Array.isArray(rawSection)) {
+      errors.push(`Field '${sectionPath}' must be an object`);
+      continue;
+    }
+
+    const section = rawSection as Record<string, unknown>;
+    if (typeof section['section_name'] !== 'string' || section['section_name'].length === 0) {
+      errors.push(`Field '${sectionPath}.section_name' must be a non-empty string`);
+    }
+    validateStringArray(sectionPath, 'positive_local_styles', section['positive_local_styles'], errors, 50);
+    validateStringArray(sectionPath, 'negative_local_styles', section['negative_local_styles'], errors, 50);
+    validateStringArray(sectionPath, 'lines', section['lines'], errors, 30);
+
+    const durationMs = section['duration_ms'];
+    if (typeof durationMs !== 'number' || Number.isNaN(durationMs)) {
+      errors.push(`Field '${sectionPath}.duration_ms' must be a number`);
+      continue;
+    }
+    if (durationMs < 3_000 || durationMs > 120_000) {
+      errors.push(`Field '${sectionPath}.duration_ms' must be between 3000 and 120000`);
+    }
+    totalDurationMs += durationMs;
+  }
+
+  if (totalDurationMs < 3_000 || totalDurationMs > 600_000) {
+    errors.push(`Field '${fieldName}' total duration must be between 3000 and 600000`);
+  }
+}
+
+function validateStringArray(
+  parentPath: string,
+  key: string,
+  value: unknown,
+  errors: string[],
+  maxItems: number,
+): void {
+  const path = `${parentPath}.${key}`;
+  if (!Array.isArray(value) || value.length > maxItems) {
+    errors.push(`Field '${path}' must be an array with at most ${maxItems} items`);
+    return;
+  }
+  if (!value.every((item) => typeof item === 'string')) {
+    errors.push(`Field '${path}' must contain only strings`);
   }
 }

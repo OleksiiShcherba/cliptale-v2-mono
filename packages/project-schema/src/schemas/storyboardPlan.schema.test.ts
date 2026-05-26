@@ -5,6 +5,7 @@ import {
   STORYBOARD_PLAN_DEFAULT_STYLE_KEY,
   STORYBOARD_PLAN_DEFAULT_VIDEO_LENGTH_SECONDS,
   STORYBOARD_PLAN_DURATION_TOLERANCE_SECONDS,
+  STORYBOARD_PLAN_SCHEMA_VERSION,
   deriveStoryboardSceneCount,
   resolveStoryboardPlanStyleKey,
   resolveStoryboardPlanVideoLengthSeconds,
@@ -18,8 +19,22 @@ const validReferencedMedia = {
   label: 'Product photo',
 } as const;
 
+const validMusicCompositionPlan = {
+  positive_global_styles: ['cinematic', 'instrumental', 'warm piano'],
+  negative_global_styles: ['vocals', 'lyrics', 'singing'],
+  sections: [
+    {
+      section_name: 'Main cue',
+      positive_local_styles: ['gentle pulse'],
+      negative_local_styles: ['spoken word'],
+      duration_ms: 12_000,
+      lines: [],
+    },
+  ],
+};
+
 const validPlan: StoryboardPlan = {
-  schemaVersion: 1,
+  schemaVersion: STORYBOARD_PLAN_SCHEMA_VERSION,
   videoLengthSeconds: 12,
   sceneCount: 2,
   scenes: [
@@ -44,13 +59,124 @@ const validPlan: StoryboardPlan = {
       style: 'cinematic',
     },
   ],
+  musicSegments: [
+    {
+      name: 'Main background music',
+      prompt: 'Warm instrumental music that supports the full story.',
+      compositionPlan: validMusicCompositionPlan,
+      startSceneNumber: 1,
+      endSceneNumber: 2,
+      sourceMode: 'generate_on_step3',
+    },
+  ],
 };
 
 describe('storyboardPlanSchema', () => {
-  it('accepts a valid storyboard plan', () => {
+  it('accepts a valid v2 storyboard plan with music segments', () => {
     const result = storyboardPlanSchema.safeParse(validPlan);
 
     expect(result.success).toBe(true);
+    expect(result.success && result.data.schemaVersion).toBe(STORYBOARD_PLAN_SCHEMA_VERSION);
+    expect(result.success && result.data.musicSegments).toHaveLength(1);
+  });
+
+  it('normalizes legacy v1 storyboard plans to v2 with an empty music segment list', () => {
+    const { musicSegments: _musicSegments, ...legacyPlan } = validPlan;
+    const result = storyboardPlanSchema.safeParse({
+      ...legacyPlan,
+      schemaVersion: 1,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.schemaVersion).toBe(STORYBOARD_PLAN_SCHEMA_VERSION);
+    expect(result.success && result.data.musicSegments).toEqual([]);
+  });
+
+  it('defaults music segment sourceMode to generate_on_step3', () => {
+    const result = storyboardPlanSchema.safeParse({
+      ...validPlan,
+      musicSegments: [
+        {
+          ...validPlan.musicSegments[0],
+          sourceMode: undefined,
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.musicSegments[0]?.sourceMode).toBe('generate_on_step3');
+  });
+
+  it('rejects music ranges outside the planned scene numbers', () => {
+    expect(
+      storyboardPlanSchema.safeParse({
+        ...validPlan,
+        musicSegments: [
+          {
+            ...validPlan.musicSegments[0],
+            startSceneNumber: 2,
+            endSceneNumber: 1,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      storyboardPlanSchema.safeParse({
+        ...validPlan,
+        musicSegments: [
+          {
+            ...validPlan.musicSegments[0],
+            endSceneNumber: 3,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects invalid music composition plans', () => {
+    expect(
+      storyboardPlanSchema.safeParse({
+        ...validPlan,
+        musicSegments: [
+          {
+            ...validPlan.musicSegments[0],
+            compositionPlan: {
+              ...validMusicCompositionPlan,
+              sections: [
+                {
+                  ...validMusicCompositionPlan.sections[0],
+                  duration_ms: 2_999,
+                },
+              ],
+            },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects music composition plans whose duration does not match covered scenes', () => {
+    const result = storyboardPlanSchema.safeParse({
+      ...validPlan,
+      musicSegments: [
+        {
+          ...validPlan.musicSegments[0],
+          compositionPlan: {
+            ...validMusicCompositionPlan,
+            sections: [
+              {
+                ...validMusicCompositionPlan.sections[0],
+                duration_ms: 6_000,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.success === false && JSON.stringify(result.error.issues)).toContain('covered scene range');
   });
 
   it('rejects duplicate scene numbers because scenes must be sequential', () => {

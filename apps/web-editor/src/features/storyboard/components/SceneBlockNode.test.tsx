@@ -249,6 +249,15 @@ describe('SceneBlockNode', () => {
     expect(onRetryIllustration).toHaveBeenCalledWith('block-xyz');
   });
 
+  it('renders music coverage markers on covered scenes', () => {
+    renderNode(makeBlock(), vi.fn(), 'block-xyz', {
+      musicCoverage: { count: 2, isHighlighted: true },
+    });
+
+    expect(screen.getByTestId('scene-music-indicator')).toBeTruthy();
+    expect(screen.getByTestId('scene-music-badge').textContent).toBe('MUSIC 2');
+  });
+
   it.each([
     ['queued', 'Image queued'],
     ['running', 'Image running'],
