@@ -31,10 +31,7 @@ import type {
   EdgeMouseHandler,
 } from '@xyflow/react';
 
-import type { GhostDragState } from '@/features/storyboard/hooks/useStoryboardDrag';
-
 import { CanvasToolbar } from './CanvasToolbar';
-import { GhostDragPortal } from './GhostDragPortal';
 import { ZoomToolbar } from './ZoomToolbar';
 import { SURFACE, BORDER } from './storyboardPageStyles';
 
@@ -76,7 +73,6 @@ interface StoryboardCanvasProps {
   onNodeDragStart: OnNodeDrag;
   onNodeDrag: OnNodeDrag;
   onNodeDragStop: OnNodeDrag;
-  dragState: GhostDragState | null;
   onAddBlock: () => void;
   onAddMusicBlock: () => void;
   canAddMusicBlock: boolean;
@@ -108,13 +104,12 @@ interface InnerCanvasProps extends StoryboardCanvasProps {
  * Handles the zoom toolbar interaction via the React Flow instance API.
  */
 function InnerCanvas({
-  dragState,
   onAddBlock,
   onAddMusicBlock,
   canAddMusicBlock,
   zoom,
   onZoomChange,
-}: Pick<InnerCanvasProps, 'dragState' | 'onAddBlock' | 'onAddMusicBlock' | 'canAddMusicBlock' | 'zoom' | 'onZoomChange'>): React.ReactElement {
+}: Pick<InnerCanvasProps, 'onAddBlock' | 'onAddMusicBlock' | 'canAddMusicBlock' | 'zoom' | 'onZoomChange'>): React.ReactElement {
   const { zoomTo } = useReactFlow();
 
   const handleZoomChange = useCallback(
@@ -127,7 +122,6 @@ function InnerCanvas({
 
   return (
     <>
-      {dragState && <GhostDragPortal dragState={dragState} />}
       <ZoomToolbar currentZoom={zoom} onZoomChange={handleZoomChange} />
       <CanvasToolbar
         onAddBlock={onAddBlock}
@@ -141,8 +135,8 @@ function InnerCanvas({
 // ── Component ──────────────────────────────────────────────────────────────────
 
 /**
- * React Flow canvas region with zoom/pan, ghost drag portal, zoom toolbar,
- * and canvas toolbar. Extracted from StoryboardPage to stay under 300 lines.
+ * React Flow canvas region with zoom/pan, zoom toolbar, and canvas toolbar.
+ * Extracted from StoryboardPage to stay under 300 lines.
  */
 export function StoryboardCanvas({
   nodes,
@@ -155,7 +149,6 @@ export function StoryboardCanvas({
   onNodeDragStart,
   onNodeDrag,
   onNodeDragStop,
-  dragState,
   onAddBlock,
   onAddMusicBlock,
   canAddMusicBlock,
@@ -215,7 +208,6 @@ export function StoryboardCanvas({
         />
 
         <InnerCanvas
-          dragState={dragState}
           onAddBlock={onAddBlock}
           onAddMusicBlock={onAddMusicBlock}
           canAddMusicBlock={canAddMusicBlock}

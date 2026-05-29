@@ -175,7 +175,7 @@ export function StoryboardPage(): React.ReactElement {
     },
   });
 
-  const { dragState, syncRefs, handleNodeDragStart, handleNodeDrag, handleNodeDragStop } =
+  const { syncRefs, handleNodeDragStart, handleNodeDrag, handleNodeDragStop } =
     useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow });
   useEffect(() => {
     syncRefs(nodes, edges);
@@ -245,7 +245,7 @@ export function StoryboardPage(): React.ReactElement {
           nodeTypes={STORYBOARD_NODE_TYPES} onNodesChange={handleNodesChange} onEdgesChange={handleEdgesChange}
           onConnect={handleConnect} isValidConnection={isValidConnection}
           onNodeDragStart={handleNodeDragStart} onNodeDrag={handleNodeDrag} onNodeDragStop={handleNodeDragStop}
-          dragState={dragState} onAddBlock={handleAddBlock} onAddMusicBlock={handleAddMusicBlock}
+          onAddBlock={handleAddBlock} onAddMusicBlock={handleAddMusicBlock}
           canAddMusicBlock={canAddMusicBlock} onNodeClick={handleNodeClick}
           isKnifeActive={isKnifeActive} onCutEdge={cutEdge} isHistoryOpen={isHistoryOpen}
           onCloseHistory={() => setIsHistoryOpen(false)} onRestore={handleRestore}

@@ -182,6 +182,47 @@ describe('captureCanvasThumbnail', () => {
     expect(placeholder.length).toBeGreaterThan(0);
   });
 
+  it('caches resources fetched by html-to-image across captures without cache-busting query params', async () => {
+    const fakeEl = document.createElement('div');
+    vi.spyOn(document, 'querySelector').mockReturnValue(fakeEl);
+    vi.spyOn(fakeEl, 'getBoundingClientRect').mockReturnValue({
+      width: 1200,
+      height: 800,
+      top: 0,
+      left: 0,
+      bottom: 800,
+      right: 1200,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    const networkFetch = vi.fn(async () =>
+      new Response(new Blob(['image-bytes'], { type: 'image/png' }), {
+        status: 200,
+        headers: { 'Content-Type': 'image/png' },
+      }),
+    );
+    vi.stubGlobal('fetch', networkFetch);
+    mockToJpeg.mockImplementation(async () => {
+      await window.fetch('http://api.test/assets/file-1/thumbnail?token=first');
+      return 'data:image/jpeg;base64,cached';
+    });
+
+    await captureCanvasThumbnail();
+    mockToJpeg.mockImplementation(async () => {
+      await window.fetch('http://api.test/assets/file-1/thumbnail?token=second');
+      return 'data:image/jpeg;base64,cached-again';
+    });
+    await captureCanvasThumbnail();
+
+    expect(networkFetch).toHaveBeenCalledTimes(1);
+    expect(networkFetch).toHaveBeenCalledWith(
+      'http://api.test/assets/file-1/thumbnail?token=first',
+      undefined,
+    );
+  });
+
   it('returns null when .react-flow element is not found', async () => {
     vi.spyOn(document, 'querySelector').mockReturnValue(null);
 

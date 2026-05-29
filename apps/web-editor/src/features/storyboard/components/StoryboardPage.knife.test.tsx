@@ -123,7 +123,6 @@ vi.mock('../hooks/useStoryboardHistorySeed', () => ({
 
 vi.mock('../hooks/useStoryboardDrag', () => ({
   useStoryboardDrag: vi.fn(() => ({
-    dragState: null,
     syncRefs: vi.fn(),
     handleNodeDragStart: vi.fn(),
     handleNodeDrag: vi.fn(),

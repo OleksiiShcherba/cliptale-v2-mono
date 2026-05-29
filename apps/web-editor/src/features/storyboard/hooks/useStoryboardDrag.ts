@@ -1,11 +1,10 @@
 /**
- * useStoryboardDrag — ghost drag and auto-insert-on-edge behaviours.
+ * useStoryboardDrag — node drag styling and auto-insert-on-edge behaviours.
  *
- * Ghost drag:
- *   - When a scene, START, or END block drag starts, set `dragState` so the canvas can render
- *     a fixed-position portal clone that follows the cursor.
- *   - The dragged node's opacity is set to 0.3 (ghost) while dragging.
- *   - On drag end, restore full opacity.
+ * Drag styling:
+ *   - When a scene, music, START, or END block drag starts, dim the original
+ *     moving node while React Flow applies controlled dragging:true position changes.
+ *   - On drag end, restore the node's pre-drag style.
  *
  * Auto-insert on edge drop:
  *   - On `onNodeDragStop`, hit-test the dropped node centre against all
@@ -22,33 +21,16 @@ import React, { useState, useCallback, useRef } from 'react';
 
 import type { Node, Edge, OnNodeDrag, XYPosition } from '@xyflow/react';
 
-import { BORDER } from '@/features/storyboard/components/storyboardPageStyles';
-
-// ── Constants ──────────────────────────────────────────────────────────────────
-
-/** Opacity applied to the original node while it is being dragged (ghost). */
-const GHOST_OPACITY = 0.3;
-
-/**
- * Pixel radius around an edge midpoint within which a dropped node centre
- * is considered "on" that edge and triggers auto-insert.
- */
-const EDGE_HIT_TOLERANCE = 40;
-
-// ── Types ──────────────────────────────────────────────────────────────────────
-
-export type GhostDragState = {
-  /** Node currently being dragged. */
-  node: Node;
-  /** Current cursor X in viewport pixels. */
-  clientX: number;
-  /** Current cursor Y in viewport pixels. */
-  clientY: number;
-  /** Width of the dragged node (px) — used to size the portal clone. */
-  nodeWidth: number;
-  /** Height of the dragged node (px) — used to size the portal clone. */
-  nodeHeight: number;
-};
+import {
+  DRAGGED_NODE_OPACITY,
+  EDGE_HIT_TOLERANCE,
+  createAutoInsertEdges,
+  distanceBetweenPoints,
+  edgeMidpoint,
+  isDragStyledNode,
+  restoreNodeStyle,
+  type StoryboardDragState,
+} from './useStoryboardDrag.helpers';
 
 type UseStoryboardDragArgs = {
   setNodes: React.Dispatch<React.SetStateAction<Node[]>>;
@@ -70,8 +52,8 @@ type UseStoryboardDragArgs = {
 };
 
 type UseStoryboardDragResult = {
-  /** Non-null while a scene, START, or END node is being dragged. Render a portal clone using this. */
-  dragState: GhostDragState | null;
+  /** Non-null while a supported storyboard node is being dragged. */
+  dragState: StoryboardDragState | null;
   /** Keeps internal node/edge refs up-to-date. Call this whenever nodes or edges change. */
   syncRefs: (nodes: Node[], edges: Edge[]) => void;
   /** Bind to ReactFlow `onNodeDragStart`. */
@@ -81,47 +63,6 @@ type UseStoryboardDragResult = {
   /** Bind to ReactFlow `onNodeDragStop`. */
   handleNodeDragStop: OnNodeDrag;
 };
-
-// ── Edge midpoint helpers ──────────────────────────────────────────────────────
-
-/**
- * Returns the canvas-space midpoint of an edge.
- * Uses node position + half measured size to approximate node centre.
- */
-function edgeMidpoint(edge: Edge, nodes: Node[]): XYPosition | null {
-  const source = nodes.find((n) => n.id === edge.source);
-  const target = nodes.find((n) => n.id === edge.target);
-  if (!source || !target) return null;
-
-  const sx = source.position.x + (source.measured?.width ?? 0) / 2;
-  const sy = source.position.y + (source.measured?.height ?? 0) / 2;
-  const tx = target.position.x + (target.measured?.width ?? 0) / 2;
-  const ty = target.position.y + (target.measured?.height ?? 0) / 2;
-
-  return { x: (sx + tx) / 2, y: (sy + ty) / 2 };
-}
-
-/** Euclidean distance between two 2-D points. */
-function dist(a: XYPosition, b: XYPosition): number {
-  return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
-}
-
-function isGhostPreviewNode(node: Node): boolean {
-  return (
-    node.type === 'scene-block' ||
-    node.type === 'music-block' ||
-    node.type === 'start' ||
-    node.type === 'end'
-  );
-}
-
-function restoreNodeOpacity(node: Node): Node {
-  const { opacity: _removed, ...restStyle } = (node.style ?? {}) as Record<string, unknown>;
-  return {
-    ...node,
-    style: restStyle as React.CSSProperties,
-  };
-}
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
 
@@ -135,12 +76,13 @@ export function useStoryboardDrag({
   pushSnapshot,
   saveNow,
 }: UseStoryboardDragArgs): UseStoryboardDragResult {
-  const [dragState, setDragState] = useState<GhostDragState | null>(null);
+  const [dragState, setDragState] = useState<StoryboardDragState | null>(null);
 
   // Mutable refs so the dragStop handler reads the latest nodes/edges
   // without being recreated on every state update.
   const edgesRef = useRef<Edge[]>([]);
   const nodesRef = useRef<Node[]>([]);
+  const originalNodeStylesRef = useRef<Map<string, React.CSSProperties | undefined>>(new Map());
 
   const syncRefs = useCallback((nodes: Node[], edges: Edge[]): void => {
     nodesRef.current = nodes;
@@ -151,17 +93,23 @@ export function useStoryboardDrag({
 
   const handleNodeDragStart: OnNodeDrag = useCallback(
     (_event, node) => {
-      if (!isGhostPreviewNode(node)) return;
+      if (!isDragStyledNode(node)) return;
 
       const nodeWidth = node.measured?.width ?? 220;
       const nodeHeight = node.measured?.height ?? 120;
 
+      if (!originalNodeStylesRef.current.has(node.id) && node.style?.opacity !== DRAGGED_NODE_OPACITY) {
+        originalNodeStylesRef.current.set(node.id, node.style ? { ...node.style } : undefined);
+      }
+
       setNodes((prev) =>
-        prev.map((n) =>
-          n.id === node.id
-            ? { ...n, style: { ...n.style, opacity: GHOST_OPACITY } }
-            : n,
-        ),
+        prev.map((n) => {
+          if (n.id !== node.id) return n;
+          if (!originalNodeStylesRef.current.has(n.id)) {
+            originalNodeStylesRef.current.set(n.id, n.style ? { ...n.style } : undefined);
+          }
+          return { ...n, style: { ...n.style, opacity: DRAGGED_NODE_OPACITY } };
+        }),
       );
 
       setDragState({
@@ -178,7 +126,7 @@ export function useStoryboardDrag({
   // ── onNodeDrag ─────────────────────────────────────────────────────────────
 
   const handleNodeDrag: OnNodeDrag = useCallback((event, node) => {
-    if (!isGhostPreviewNode(node)) return;
+    if (!isDragStyledNode(node)) return;
 
     // React Flow v12 passes a native DOM event (from d3-drag's sourceEvent),
     // NOT a React synthetic event.  The TypeScript declaration says
@@ -218,7 +166,7 @@ export function useStoryboardDrag({
         const updatedNodes: Node[] = nodesRef.current.map((n) => {
           if (n.id !== droppedId) return n;
           return {
-            ...restoreNodeOpacity(n),
+            ...restoreNodeStyle(n, originalNodeStylesRef),
             position: droppedPosition,
           };
         });
@@ -239,7 +187,7 @@ export function useStoryboardDrag({
       const updatedNodes: Node[] = nodesRef.current.map((n) => {
         if (n.id !== droppedId) return n;
         return {
-          ...restoreNodeOpacity(n),
+          ...restoreNodeStyle(n, originalNodeStylesRef),
           position: droppedPosition,
         };
       });
@@ -267,7 +215,7 @@ export function useStoryboardDrag({
       for (const edge of candidates) {
         const mid = edgeMidpoint(edge, currentNodes);
         if (!mid) continue;
-        const d = dist(droppedCentre, mid);
+        const d = distanceBetweenPoints(droppedCentre, mid);
         if (d < EDGE_HIT_TOLERANCE && d < minDist) {
           minDist = d;
           hitEdge = edge;
@@ -277,35 +225,19 @@ export function useStoryboardDrag({
       if (hitEdge) {
         // Auto-insert: replace the hit edge with two new edges.
         const oldEdge = hitEdge;
-        setEdges((prev) => {
-          const withoutOld = prev.filter((e) => e.id !== oldEdge.id);
-          const edgeStyle = { stroke: BORDER, strokeWidth: 2 };
-          const newEdge1: Edge = {
-            id: crypto.randomUUID(),
-            source: oldEdge.source,
-            sourceHandle: 'exit',
-            target: node.id,
-            targetHandle: 'income',
-            style: edgeStyle,
-          };
-          const newEdge2: Edge = {
-            id: crypto.randomUUID(),
-            source: node.id,
-            sourceHandle: 'exit',
-            target: oldEdge.target,
-            targetHandle: 'income',
-            style: edgeStyle,
-          };
-          return [...withoutOld, newEdge1, newEdge2];
-        });
+        const withoutOld = currentEdges.filter((e) => e.id !== oldEdge.id);
+        const updatedEdges = [...withoutOld, ...createAutoInsertEdges(oldEdge, node.id)];
+        setEdges(() => updatedEdges);
+        void pushSnapshot(updatedNodes, updatedEdges);
+      } else {
+        void pushSnapshot(updatedNodes, currentEdges);
       }
 
       // Defence-in-depth: trigger a history snapshot and autosave directly from
       // drag-stop.  This is the authoritative save path for position changes —
       // it runs regardless of whether React Flow's own `dragging:false`
-      // onNodesChange event fires (which can be unreliable under ghost-drag with
-      // the original node at 30% opacity).
-      void pushSnapshot(updatedNodes, currentEdges);
+      // onNodesChange event fires. Mid-drag `dragging:true` node changes only
+      // update controlled React Flow state and never persist.
       setTimeout(() => void saveNow(), 0);
 
       setDragState(null);

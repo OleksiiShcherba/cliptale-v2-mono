@@ -1,19 +1,4 @@
-/**
- * Tests for StoryboardPage — SB-UI-BUG-2 + SB-POLISH-1c: position suppression.
- *
- * Verifies that `handleNodesChange` in StoryboardPage:
- *  (a) does NOT update node position for `{ type: 'position', dragging: true }` events
- *  (b) does NOT update node position for `{ type: 'position', dragging: false }` events
- *      — drag-end position commits are now handled exclusively by
- *        useStoryboardDrag#handleNodeDragStop (SB-POLISH-1c), which avoids
- *        double-snapshot races between the two paths.
- *
- * Split from StoryboardPage.test.tsx to respect the 300-line cap (§9.7).
- *
- * Strategy: mock `applyNodeChanges` from @xyflow/react to record the `changes`
- * argument it receives, then assert that all position changes are filtered before
- * the call; non-position changes pass through unchanged.
- */
+/** Tests StoryboardPage drag position filtering and controlled mid-drag state. */
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -21,16 +6,25 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-// ---------------------------------------------------------------------------
-// Hoisted mocks
-// ---------------------------------------------------------------------------
-
 const { capturedOnNodesChange, mockApplyNodeChanges } = vi.hoisted(() => ({
-  // Captures the onNodesChange prop passed into the StoryboardCanvas mock.
   capturedOnNodesChange: {
     current: null as ((changes: unknown[]) => void) | null,
   },
-  mockApplyNodeChanges: vi.fn((_changes: unknown[], nodes: unknown[]) => nodes),
+  mockApplyNodeChanges: vi.fn((changes: unknown[], nodes: unknown[]) => {
+    return (nodes as Array<{ id: string; position?: { x: number; y: number } }>).map((node) => {
+      const positionChange = changes.find((change) => {
+        return (
+          typeof change === 'object' &&
+          change !== null &&
+          (change as { type?: string; id?: string }).type === 'position' &&
+          (change as { id?: string }).id === node.id
+        );
+      }) as { position?: { x: number; y: number } } | undefined;
+      return positionChange?.position
+        ? { ...node, position: positionChange.position }
+        : node;
+    });
+  }),
 }));
 
 vi.mock('react-router-dom', async (importOriginal) => {
@@ -47,7 +41,6 @@ vi.mock('@/features/generate-wizard/components/WizardStepper', () => ({
   ),
 }));
 
-// Mock @xyflow/react — capture applyNodeChanges so we can assert on filtered changes.
 vi.mock('@xyflow/react', () => ({
   ReactFlow: ({ children }: { children?: React.ReactNode }) => (
     <div data-testid="react-flow-mock">{children}</div>
@@ -65,39 +58,46 @@ vi.mock('@xyflow/react', () => ({
   useReactFlow: () => ({ getNodes: vi.fn(() => []), zoomTo: vi.fn() }),
 }));
 
-// Mock StoryboardCanvas to capture onNodesChange so we can invoke it directly.
 vi.mock('./StoryboardCanvas', () => ({
   StoryboardCanvas: ({
+    nodes,
     onNodesChange,
     children,
   }: {
+    nodes: Array<{ id: string; position: { x: number; y: number } }>;
     onNodesChange: (changes: unknown[]) => void;
     children?: React.ReactNode;
   }) => {
     capturedOnNodesChange.current = onNodesChange;
-    return <div data-testid="storyboard-canvas-mock">{children}</div>;
+    return (
+      <div data-testid="storyboard-canvas-mock">
+        {nodes.map((node) => (
+          <span key={node.id} data-testid={`node-position-${node.id}`}>
+            {node.position.x},{node.position.y}
+          </span>
+        ))}
+        {children}
+      </div>
+    );
   },
 }));
 
 vi.mock('@/features/storyboard/hooks/useStoryboardCanvas', () => ({
   useStoryboardCanvas: vi.fn(() => ({
-    nodes: [
-      {
-        id: 'node-1',
-        type: 'scene-block',
-        position: { x: 100, y: 100 },
-        data: {},
-      },
-    ],
-    edges: [],
+    ...(() => {
+      const [nodes, setNodes] = React.useState([
+        {
+          id: 'node-1',
+          type: 'scene-block',
+          position: { x: 100, y: 100 },
+          data: {},
+        },
+      ]);
+      const [edges, setEdges] = React.useState([]);
+      return { nodes, edges, setNodes, setEdges };
+    })(),
     isLoading: false,
     error: null,
-    // setNodes must execute the updater callback so that applyNodeChanges
-    // is actually invoked inside handleNodesChange.
-    setNodes: vi.fn().mockImplementation((updater: (prev: unknown[]) => unknown[]) => {
-      updater([{ id: 'node-1', type: 'scene-block', position: { x: 100, y: 100 }, data: {} }]);
-    }),
-    setEdges: vi.fn(),
     removeNode: vi.fn(),
   })),
 }));
@@ -142,15 +142,7 @@ vi.mock('@/features/storyboard/hooks/useStoryboardPlanGeneration', () => ({
   })),
 }));
 
-// ---------------------------------------------------------------------------
-// Import after mocks
-// ---------------------------------------------------------------------------
-
 import { StoryboardPage } from './StoryboardPage';
-
-// ---------------------------------------------------------------------------
-// Render helper
-// ---------------------------------------------------------------------------
 
 function renderPage(draftId = 'test-draft-drag') {
   const queryClient = new QueryClient({
@@ -167,16 +159,10 @@ function renderPage(draftId = 'test-draft-drag') {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Tests — SB-UI-BUG-2: drag position suppression
-// ---------------------------------------------------------------------------
-
-describe('StoryboardPage / handleNodesChange drag-filter (SB-UI-BUG-2 + SB-POLISH-1c)', () => {
+describe('StoryboardPage / handleNodesChange drag-filter', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.clearAllMocks();
-    // Reset after vi.clearAllMocks so the implementation is still correct.
-    mockApplyNodeChanges.mockImplementation((_changes: unknown[], nodes: unknown[]) => nodes);
+    mockApplyNodeChanges.mockClear();
     capturedOnNodesChange.current = null;
   });
 
@@ -184,10 +170,9 @@ describe('StoryboardPage / handleNodesChange drag-filter (SB-UI-BUG-2 + SB-POLIS
     vi.useRealTimers();
   });
 
-  it('does NOT pass mid-drag position changes to applyNodeChanges', () => {
+  it('passes mid-drag position changes to applyNodeChanges', () => {
     renderPage();
 
-    // Ensure StoryboardCanvas mounted and captured onNodesChange.
     expect(capturedOnNodesChange.current).toBeTypeOf('function');
 
     const midDragChange = {
@@ -201,11 +186,10 @@ describe('StoryboardPage / handleNodesChange drag-filter (SB-UI-BUG-2 + SB-POLIS
       capturedOnNodesChange.current!([midDragChange]);
     });
 
-    // applyNodeChanges must have been called — but with the mid-drag change filtered out.
+    expect(screen.getByTestId('node-position-node-1').textContent).toBe('200,200');
     expect(mockApplyNodeChanges).toHaveBeenCalled();
     const passedChanges = mockApplyNodeChanges.mock.calls[0][0] as unknown[];
-    // The mid-drag change should NOT be in the array passed to applyNodeChanges.
-    expect(passedChanges).not.toContainEqual(
+    expect(passedChanges).toContainEqual(
       expect.objectContaining({ type: 'position', dragging: true }),
     );
   });
@@ -226,9 +210,9 @@ describe('StoryboardPage / handleNodesChange drag-filter (SB-UI-BUG-2 + SB-POLIS
       capturedOnNodesChange.current!([dragEndChange]);
     });
 
+    expect(screen.getByTestId('node-position-node-1').textContent).toBe('100,100');
     expect(mockApplyNodeChanges).toHaveBeenCalled();
     const passedChanges = mockApplyNodeChanges.mock.calls[0][0] as unknown[];
-    // drag-end position changes are now filtered — handleNodeDragStop owns this path.
     expect(passedChanges).not.toContainEqual(
       expect.objectContaining({ type: 'position', dragging: false }),
     );
@@ -252,7 +236,7 @@ describe('StoryboardPage / handleNodesChange drag-filter (SB-UI-BUG-2 + SB-POLIS
     expect(passedChanges).toContainEqual(expect.objectContaining({ type: 'remove' }));
   });
 
-  it('filters all position changes (both dragging:true and dragging:false) in a mixed batch', () => {
+  it('passes only dragging:true position changes in a mixed position batch', () => {
     renderPage();
 
     expect(capturedOnNodesChange.current).toBeTypeOf('function');
@@ -276,9 +260,7 @@ describe('StoryboardPage / handleNodesChange drag-filter (SB-UI-BUG-2 + SB-POLIS
 
     expect(mockApplyNodeChanges).toHaveBeenCalled();
     const passedChanges = mockApplyNodeChanges.mock.calls[0][0] as unknown[];
-    // Both mid-drag and drag-end position changes are filtered.
-    // handleNodeDragStop in useStoryboardDrag is the authoritative path (SB-POLISH-1c).
-    expect(passedChanges).not.toContainEqual(
+    expect(passedChanges).toContainEqual(
       expect.objectContaining({ dragging: true }),
     );
     expect(passedChanges).not.toContainEqual(

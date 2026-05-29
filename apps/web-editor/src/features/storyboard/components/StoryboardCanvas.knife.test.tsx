@@ -56,10 +56,6 @@ vi.mock('./ZoomToolbar', () => ({
   ZoomToolbar: () => <div data-testid="zoom-toolbar" />,
 }));
 
-vi.mock('./GhostDragPortal', () => ({
-  GhostDragPortal: () => <div data-testid="ghost-drag-portal" />,
-}));
-
 // ── Test utilities ────────────────────────────────────────────────────────────
 
 const makeNode = (id: string, type: string = 'scene-block'): Node => ({
@@ -103,7 +99,6 @@ describe('StoryboardCanvas — knife tool integration (SB-POLISH-1e)', () => {
     onNodeDragStart: vi.fn(),
     onNodeDrag: vi.fn(),
     onNodeDragStop: vi.fn(),
-    dragState: null,
     onAddBlock: vi.fn(),
     onAddMusicBlock: vi.fn(),
     canAddMusicBlock: true,
@@ -131,6 +126,26 @@ describe('StoryboardCanvas — knife tool integration (SB-POLISH-1e)', () => {
 
     // onEdgeClick should NOT be wired (no onCutEdge in grab mode).
     expect(capturedReactFlowProps.current.onEdgeClick).toBeUndefined();
+  });
+
+  it('does not render a separate drag clone during normal node drag', () => {
+    render(
+      <StoryboardCanvas
+        {...defaultProps()}
+        nodes={[
+          {
+            ...makeNode('scene1', 'scene-block'),
+            style: { opacity: 0.3 },
+          },
+        ]}
+        cursorMode="grab"
+      />,
+    );
+
+    expect(screen.queryByTestId('ghost-drag-clone')).toBeNull();
+    expect(screen.queryByTestId('ghost-drag-scene-preview')).toBeNull();
+    expect(screen.queryByTestId('ghost-drag-start-preview')).toBeNull();
+    expect(screen.queryByTestId('ghost-drag-end-preview')).toBeNull();
   });
 
   it('knife mode: cursor is crosshair, pan-on-drag is false, nodes not draggable', () => {

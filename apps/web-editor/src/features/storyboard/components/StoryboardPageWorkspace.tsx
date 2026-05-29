@@ -14,7 +14,6 @@ import type {
 } from '@xyflow/react';
 
 import type { UseStoryboardPlanGenerationResult } from '@/features/storyboard/hooks/useStoryboardPlanGeneration';
-import type { GhostDragState } from '@/features/storyboard/hooks/useStoryboardDrag';
 import type { UseStoryboardIllustrationsResult } from '@/features/storyboard/hooks/useStoryboardIllustrations';
 import type { StoryboardMusicBlock, StoryboardSidebarTab } from '@/features/storyboard/types';
 
@@ -49,7 +48,6 @@ interface StoryboardPageWorkspaceProps {
   onNodeDragStart: OnNodeDrag;
   onNodeDrag: OnNodeDrag;
   onNodeDragStop: OnNodeDrag;
-  dragState: GhostDragState | null;
   onAddBlock: () => void;
   onAddMusicBlock: () => void;
   canAddMusicBlock: boolean;
@@ -91,7 +89,6 @@ export function StoryboardPageWorkspace({
   onNodeDragStart,
   onNodeDrag,
   onNodeDragStop,
-  dragState,
   onAddBlock,
   onAddMusicBlock,
   canAddMusicBlock,
@@ -153,7 +150,6 @@ export function StoryboardPageWorkspace({
             onNodeDragStart={onNodeDragStart}
             onNodeDrag={onNodeDrag}
             onNodeDragStop={onNodeDragStop}
-            dragState={dragState}
             onAddBlock={onAddBlock}
             onAddMusicBlock={onAddMusicBlock}
             canAddMusicBlock={canAddMusicBlock}

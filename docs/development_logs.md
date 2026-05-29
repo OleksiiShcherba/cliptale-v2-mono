@@ -1,5 +1,19 @@
 # Development Log (compacted — 2026-03-29 to 2026-04-29)
 
+## Storyboard Drag Snapshot Thumbnail Hotfix (2026-05-29)
+- fixed: drag-drop storyboard snapshots still capture canvas thumbnails, but `html-to-image` resource fetches now use a normalized in-memory cache so repeated captures do not refetch the same scene media thumbnails.
+- added: thumbnail capture regression coverage proving query-token variants of the same resource reuse one cached fetch payload.
+- preserved: drag-drop still pushes an undo/history snapshot, captures a thumbnail, and triggers immediate storyboard save.
+- tests: `npm --workspace apps/web-editor test -- captureCanvasThumbnail useStoryboardHistoryPush useStoryboardDrag.drag-save` -> 3 files / 30 tests passed.
+- typecheck scan: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "captureCanvasThumbnail|useStoryboardHistoryPush|useStoryboardDrag|useStoryboardDrag.drag-save" || true` -> no touched-file output.
+
+## Storyboard Planner Music Section Normalization Hotfix (2026-05-29)
+- fixed: storyboard-plan output normalization now accepts loose OpenAI music section aliases such as `title`, `label`, and numeric `duration` while converting second-scale durations to `duration_ms`.
+- fixed: music section names are synthesized only when missing, preserving explicit empty `section_name` values as schema errors for actionable failure messages.
+- tests: `npm --workspace apps/media-worker test -- storyboardPlan.job.normalization.test.ts` -> 1 file / 4 tests passed.
+- tests: `npm --workspace apps/media-worker test -- storyboardPlan.job.test.ts` -> 1 file / 14 tests passed.
+- typecheck: `npm --workspace apps/media-worker run typecheck` -> passed.
+
 ## Storyboard UX, Prompt, and Step 3 Video Generation Adjustments — STB-ADJ-1 (2026-05-25)
 - changed: active scene illustration controls now show a loader-only status preview instead of falling back to `Ref` while the title is `Generating scene illustrations`.
 - preserved: ready canonical reference thumbnails still render during scene generation, and failed/ready reference fallback behavior remains unchanged.
@@ -1701,6 +1715,78 @@
 - validation: `wc -l apps/api/src/repositories/storyboardPlanJob.repository.test.ts apps/api/src/__tests__/integration/generationDraft.storyboardPlan.integration.test.ts apps/api/src/__tests__/fixtures/storyboardPlan.fixtures.ts` -> 296, 274, 80 lines.
 - validation: `npm --workspace apps/api test -- storyboardPlanJob generationDraft.storyboardPlan file.softdelete` -> passed, 4 files / 41 tests.
 - checked by code-quality-expert - APPROVED
+
+---
+
+## 2026-05-29 - DND-1 Storyboard Real-Node Drag Preview
+- implemented: stopped rendering the `GhostDragPortal` clone from `StoryboardCanvas`; the React Flow node itself is now the only moving drag preview.
+- implemented: allowed controlled `dragging: true` node position changes into storyboard canvas state without history or autosave, while keeping `dragging: false` position persistence in `handleNodeDragStop`.
+- implemented: greyed and restored the original node style for scene, music, START, and END blocks; scene edge midpoint auto-insert remains scene-only and drop snapshots now use the final edge set when auto-insert fires.
+- validation: `npm --workspace apps/web-editor test -- useStoryboardDrag StoryboardPage.drag-filter StoryboardCanvas` -> passed, 7 files / 40 tests.
+- validation: `git diff --check` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - COMMENTED
+
+---
+
+## 2026-05-29 - DND-1 Code Quality Review Fixes
+- fixed: split `useStoryboardDrag` helpers/types into `useStoryboardDrag.helpers.ts`; `useStoryboardDrag.ts` is now under the 300-line architecture cap.
+- fixed: removed dead drag-preview prop threading from `StoryboardPage` -> `StoryboardPageWorkspace` -> `StoryboardCanvas`.
+- fixed: deleted the production-dead `GhostDragPortal` component and its now-obsolete unit test.
+- validation: `npm --workspace apps/web-editor test -- useStoryboardDrag StoryboardPage.drag-filter StoryboardCanvas GhostDragPortal` -> passed, 7 files / 42 tests.
+- validation: touched-file TypeScript scan with a temporary focused `tsconfig` -> passed.
+- validation: `npm --workspace apps/web-editor run typecheck -- --pretty false` -> blocked by pre-existing unrelated workspace errors.
+- validation: `git diff --check` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+---
+
+## 2026-05-29 - DND-2 Storyboard Drag Contract Tests
+- implemented: strengthened `StoryboardCanvas` coverage so normal node drag cannot render a separate `ghost-drag-*` clone.
+- implemented: updated `StoryboardPage.drag-filter` coverage to prove `dragging: true` position changes update controlled node state while `dragging: false` remains filtered from the React Flow change path.
+- implemented: added drop snapshot coverage for scene, music, START, and END nodes so final positions and restored styles are persisted instead of greyed opacity or stale pre-drag coordinates.
+- implemented: added START and END assertions that position persistence does not mutate scene graph edges; music edge-preservation coverage remains in `useStoryboardDrag.music.test.ts`.
+- validation: `npm --workspace apps/web-editor test -- useStoryboardDrag StoryboardPage.drag-filter StoryboardCanvas` -> passed, 7 files / 45 tests.
+- validation: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "useStoryboardDrag|StoryboardCanvas|StoryboardPage.drag-filter|useStoryboardPageCanvasHandlers" || true` -> no touched-file output.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+---
+
+## 2026-05-29 - DND-3 Storyboard Browser Drag Regression Coverage
+- implemented: replaced the obsolete music E2E ghost-clone expectation with browser assertions that scene, music, START, and END drags never render `ghost-drag-clone`.
+- implemented: added shared E2E drag checks for stable DOM identity, unchanged node dimensions during drag, and post-mouseup position matching the final preview position.
+- implemented: captured deterministic storyboard PUT payloads in `storyboard-music.spec.ts` and asserted each dragged block saves the actual dropped React Flow canvas coordinates from the node transform.
+- validation: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-drag.spec.ts e2e/storyboard-fixes.spec.ts e2e/storyboard-music.spec.ts e2e/helpers/storyboard.ts` -> passed.
+- validation: `VITE_PUBLIC_API_BASE_URL=http://localhost:3001 E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/storyboard-drag.spec.ts e2e/storyboard-fixes.spec.ts e2e/storyboard-music.spec.ts --project=chromium` -> blocked in global setup by local auth seed 401: `E2E login failed (401): {"error":"Invalid email or password"}`.
+- validation: `git diff --check` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - COMMENTED
+
+---
+
+## 2026-05-29 - DND-4 Final Storyboard Drag Regression and Logging
+- completed: reran final storyboard drag regressions for the DND-1 through DND-3 implementation; storyboard drag now uses the real React Flow node as the preview for scene, music, START, and END blocks, keeps normal dimensions while greyed during drag, persists final drop positions, and leaves scene edge auto-insert scene-only.
+- final diff scope: storyboard drag implementation/tests, `e2e/storyboard-music.spec.ts`, and task/log docs; generated Playwright report output was left out of the final diff.
+- validation: `npm --workspace apps/web-editor test -- useStoryboardDrag StoryboardPage.drag-filter StoryboardCanvas` -> passed, 7 files / 45 tests.
+- validation: `npm --workspace apps/web-editor run typecheck 2>&1 | rg "useStoryboardDrag|StoryboardCanvas|StoryboardPage.drag-filter|GhostDragPortal|useStoryboardPageCanvasHandlers" || true` -> no touched-file output, including no stale `GhostDragPortal` errors.
+- validation: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-drag.spec.ts e2e/storyboard-fixes.spec.ts e2e/storyboard-music.spec.ts e2e/helpers/storyboard.ts` -> passed.
+- validation: `git diff --check` -> passed.
+- validation: `VITE_PUBLIC_API_BASE_URL=http://localhost:3001 E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/storyboard-drag.spec.ts e2e/storyboard-fixes.spec.ts e2e/storyboard-music.spec.ts --project=chromium` -> blocked in global setup by local auth seed 401: `E2E login failed (401): {"error":"Invalid email or password"}`.
+- active task: removed DND-4 from `docs/active_task.md`; no active subtasks remain.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - COMMENTED
 
 ---
 

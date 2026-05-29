@@ -40,6 +40,16 @@ type GeneratedMusicRequest = {
   sourceMode: MusicMode | null;
 };
 
+type StoryboardSavePayload = {
+  blocks?: Array<{
+    id: string;
+    blockType: string;
+    positionX: number;
+    positionY: number;
+  }>;
+  musicBlocks?: Array<MusicBlock>;
+};
+
 type MusicBlock = {
   id: string;
   draftId: string;
@@ -325,6 +335,7 @@ function projectDoc(mode: 'images' | 'videos') {
 async function installStoryboardMusicMocks(page: Page): Promise<{
   getUnexpectedApiRequests: () => string[];
   getProviderRequests: () => string[];
+  getStoryboardSavePayloads: () => StoryboardSavePayload[];
   getMusicSavePayloads: () => unknown[];
   getMusicPatchPayloads: () => unknown[];
   getGeneratedMusicRequests: () => string[];
@@ -352,6 +363,7 @@ async function installStoryboardMusicMocks(page: Page): Promise<{
   ];
   const unexpectedApiRequests: string[] = [];
   const providerRequests: string[] = [];
+  const storyboardSavePayloads: StoryboardSavePayload[] = [];
   const musicSavePayloads: unknown[] = [];
   const musicPatchPayloads: unknown[] = [];
   const generatedMusicRequests: GeneratedMusicRequest[] = [];
@@ -406,7 +418,8 @@ async function installStoryboardMusicMocks(page: Page): Promise<{
     }
 
     if (request.method() === 'PUT' && path === `/storyboards/${DRAFT_ID}`) {
-      const body = request.postDataJSON() as { blocks?: Array<{ id: string; positionX?: number }>; musicBlocks?: MusicBlock[] };
+      const body = request.postDataJSON() as StoryboardSavePayload;
+      storyboardSavePayloads.push(body);
       if (body.blocks?.some((block) => block.id === SCENE_A_ID && Number(block.positionX) !== 340)) {
         sceneMoveSaved = true;
       }
@@ -686,6 +699,7 @@ async function installStoryboardMusicMocks(page: Page): Promise<{
   return {
     getUnexpectedApiRequests: () => [...unexpectedApiRequests],
     getProviderRequests: () => [...providerRequests],
+    getStoryboardSavePayloads: () => [...storyboardSavePayloads],
     getMusicSavePayloads: () => [...musicSavePayloads],
     getMusicPatchPayloads: () => [...musicPatchPayloads],
     getGeneratedMusicRequests: () => generatedMusicRequests.map((request) => request.path),
@@ -759,21 +773,165 @@ async function expectDialogNearViewportCenter(page: Page): Promise<void> {
   expect(centerDeltaY).toBeLessThanOrEqual(16);
 }
 
-async function dragFirstMusicBlockUntilGhost(page: Page): Promise<void> {
-  const musicNode = page.getByTestId('music-block-node').first();
-  const box = await getVisibleBox(musicNode);
-  const startX = box.x + box.width / 2;
-  const startY = box.y + box.height / 2;
+function expectCloseTo(actual: number, expected: number, label: string, tolerance = 2): void {
+  expect(
+    Math.abs(actual - expected),
+    `${label}: expected ${actual} to be within ${tolerance}px of ${expected}`,
+  ).toBeLessThanOrEqual(tolerance);
+}
+
+function parseTransformScale(transform: string): number {
+  if (!transform || transform === 'none') return 1;
+  const matrixMatch = transform.match(/^matrix\(([^,]+)/);
+  if (matrixMatch?.[1]) return Number(matrixMatch[1]) || 1;
+  const matrix3dMatch = transform.match(/^matrix3d\(([^,]+)/);
+  if (matrix3dMatch?.[1]) return Number(matrix3dMatch[1]) || 1;
+  return 1;
+}
+
+function parseTranslatePosition(transform: string): { positionX: number; positionY: number } | null {
+  if (!transform || transform === 'none') return null;
+  const translateMatch = transform.match(/translate\(\s*(-?\d+(?:\.\d+)?)px,\s*(-?\d+(?:\.\d+)?)px\s*\)/);
+  if (translateMatch?.[1] && translateMatch[2]) {
+    return { positionX: Number(translateMatch[1]), positionY: Number(translateMatch[2]) };
+  }
+  const matrixMatch = transform.match(/^matrix\([^,]+,[^,]+,[^,]+,[^,]+,\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\)$/);
+  if (matrixMatch?.[1] && matrixMatch[2]) {
+    return { positionX: Number(matrixMatch[1]), positionY: Number(matrixMatch[2]) };
+  }
+  return null;
+}
+
+async function getNodeCanvasPosition(locator: Locator): Promise<{ positionX: number; positionY: number }> {
+  const transform = await locator.evaluate((element) => {
+    const view = (
+      element as {
+        ownerDocument?: {
+          defaultView?: {
+            getComputedStyle?: (target: unknown) => { transform?: string };
+          };
+        };
+      }
+    ).ownerDocument?.defaultView;
+    return view?.getComputedStyle?.(element)?.transform ?? 'none';
+  });
+  const position = parseTranslatePosition(String(transform));
+  expect(position, `Expected node transform to expose canvas position, got ${String(transform)}`).not.toBeNull();
+  if (!position) throw new Error(`Unable to parse node transform: ${String(transform)}`);
+  return position;
+}
+
+async function expectSameElement(
+  beforeHandle: NonNullable<Awaited<ReturnType<Locator['elementHandle']>>>,
+  locator: Locator,
+  label: string,
+): Promise<void> {
+  const currentHandle = await locator.elementHandle();
+  expect(currentHandle, `${label} must still resolve to a DOM element`).not.toBeNull();
+  if (!currentHandle) return;
+  const isSame = await beforeHandle.evaluate(
+    (before, current) => before === current,
+    currentHandle,
+  );
+  expect(isSame, `${label} must remain the same DOM element during drag`).toBe(true);
+}
+
+function findSavedPosition(
+  payload: StoryboardSavePayload,
+  id: string,
+  kind: 'block' | 'music',
+): { positionX: number; positionY: number } | null {
+  if (kind === 'music') {
+    const musicBlock = payload.musicBlocks?.find((block) => block.id === id);
+    return musicBlock
+      ? { positionX: musicBlock.positionX, positionY: musicBlock.positionY }
+      : null;
+  }
+
+  const block = payload.blocks?.find((item) => item.id === id);
+  return block
+    ? { positionX: block.positionX, positionY: block.positionY }
+    : null;
+}
+
+async function dragAndAssertExactPreviewDrop(
+  page: Page,
+  getStoryboardSavePayloads: () => StoryboardSavePayload[],
+  params: {
+    label: string;
+    locator: Locator;
+    blockId: string;
+    payloadKind: 'block' | 'music';
+    delta: { x: number; y: number };
+  },
+): Promise<StoryboardSavePayload> {
+  await expect(params.locator).toBeVisible({ timeout: 15_000 });
+  const beforeHandle = await params.locator.elementHandle();
+  expect(beforeHandle, `${params.label} must have a DOM element before drag`).not.toBeNull();
+  if (!beforeHandle) throw new Error(`${params.label} elementHandle was null`);
+
+  const beforeBox = await getVisibleBox(params.locator);
+  const startX = beforeBox.x + beforeBox.width / 2;
+  const startY = beforeBox.y + beforeBox.height / 2;
+  const midX = startX + params.delta.x / 2;
+  const midY = startY + params.delta.y / 2;
+  const endX = startX + params.delta.x;
+  const endY = startY + params.delta.y;
+  const payloadStartIndex = getStoryboardSavePayloads().length;
 
   await page.mouse.move(startX, startY);
   await page.mouse.down();
-  await page.mouse.move(startX + 120, startY + 80, { steps: 8 });
-  const ghostClone = page.getByTestId('ghost-drag-clone');
-  await expect(ghostClone).toBeVisible({ timeout: 5_000 });
-  await expect(ghostClone).toHaveAttribute('aria-hidden', 'true');
-  await expect(ghostClone).toHaveAttribute('inert', '');
-  await expect(ghostClone).toHaveCSS('pointer-events', 'none');
+  await page.mouse.move(midX, midY, { steps: 6 });
+
+  await expect(page.getByTestId('ghost-drag-clone')).toHaveCount(0);
+  await expectSameElement(beforeHandle, params.locator, params.label);
+
+  const midDragBox = await getVisibleBox(params.locator);
+  expectCloseTo(midDragBox.width, beforeBox.width, `${params.label} width during drag`, 1);
+  expectCloseTo(midDragBox.height, beforeBox.height, `${params.label} height during drag`, 1);
+
+  await page.mouse.move(endX, endY, { steps: 6 });
+  await expect(page.getByTestId('ghost-drag-clone')).toHaveCount(0);
+  await expectSameElement(beforeHandle, params.locator, params.label);
+
+  const droppedPreviewBox = await getVisibleBox(params.locator);
   await page.mouse.up();
+  await expect(page.getByTestId('ghost-drag-clone')).toHaveCount(0);
+  await expectSameElement(beforeHandle, params.locator, params.label);
+
+  const afterDropBox = await getVisibleBox(params.locator);
+  expectCloseTo(afterDropBox.width, beforeBox.width, `${params.label} width after drop`, 1);
+  expectCloseTo(afterDropBox.height, beforeBox.height, `${params.label} height after drop`, 1);
+  expectCloseTo(afterDropBox.x, droppedPreviewBox.x, `${params.label} x after mouseup`);
+  expectCloseTo(afterDropBox.y, droppedPreviewBox.y, `${params.label} y after mouseup`);
+  const expectedPosition = await getNodeCanvasPosition(params.locator);
+
+  let matchedPayload: StoryboardSavePayload | null = null;
+  await expect.poll(() => {
+    matchedPayload = getStoryboardSavePayloads()
+      .slice(payloadStartIndex)
+      .find((candidate) => {
+        const candidatePosition = findSavedPosition(candidate, params.blockId, params.payloadKind);
+        return (
+          candidatePosition !== null &&
+          Math.abs(candidatePosition.positionX - expectedPosition.positionX) <= 2 &&
+          Math.abs(candidatePosition.positionY - expectedPosition.positionY) <= 2
+        );
+      }) ?? null;
+    return matchedPayload !== null;
+  }, {
+    message: `${params.label} autosave PUT payload should include dropped coordinates`,
+    timeout: 10_000,
+  }).toBe(true);
+  const payload = matchedPayload;
+  const savedPosition = findSavedPosition(payload, params.blockId, params.payloadKind);
+  expect(savedPosition, `${params.label} must be present in autosave PUT payload`).not.toBeNull();
+  if (!savedPosition) return payload;
+
+  expectCloseTo(savedPosition.positionX, expectedPosition.positionX, `${params.label} saved positionX`);
+  expectCloseTo(savedPosition.positionY, expectedPosition.positionY, `${params.label} saved positionY`);
+
+  return payload;
 }
 
 async function prepareStoryboardMusicFlow(page: Page) {
@@ -819,7 +977,7 @@ async function prepareStoryboardMusicFlow(page: Page) {
 test.describe('Storyboard music E2E', () => {
   test.setTimeout(90_000);
 
-  test('covers manual add, auto placement, per-block prompts, drag ghost, and centered modal regressions', async ({ page }) => {
+  test('covers manual add, auto placement, per-block prompts, exact drag preview/drop, and centered modal regressions', async ({ page }) => {
     const mocks = await installStoryboardMusicMocks(page);
     await page.goto(`/storyboard/${DRAFT_ID}`);
 
@@ -883,7 +1041,42 @@ test.describe('Storyboard music E2E', () => {
     }, { timeout: 10_000 }).toBe(true);
     await page.getByLabel('Close music inspector').click();
 
-    await dragFirstMusicBlockUntilGhost(page);
+    const dragCases = [
+      {
+        label: 'Scene Block',
+        locator: page.getByTestId('scene-block-node').first(),
+        blockId: SCENE_A_ID,
+        payloadKind: 'block' as const,
+        delta: { x: 80, y: 60 },
+      },
+      {
+        label: 'Music Block',
+        locator: page.getByTestId('music-block-node').first(),
+        blockId: MUSIC_EXISTING_ID,
+        payloadKind: 'music' as const,
+        delta: { x: 120, y: 80 },
+      },
+      {
+        label: 'START',
+        locator: page.getByTestId('start-node'),
+        blockId: START_ID,
+        payloadKind: 'block' as const,
+        delta: { x: 36, y: -44 },
+      },
+      {
+        label: 'END',
+        locator: page.getByTestId('end-node'),
+        blockId: END_ID,
+        payloadKind: 'block' as const,
+        delta: { x: -72, y: 54 },
+      },
+    ];
+
+    for (const dragCase of dragCases) {
+      await dragAndAssertExactPreviewDrop(page, mocks.getStoryboardSavePayloads, dragCase);
+    }
+
+    expect(mocks.getStoryboardSavePayloads().length).toBeGreaterThanOrEqual(dragCases.length);
     await expect(page.getByTestId('music-block-modal')).not.toBeVisible();
 
     expect(mocks.getProviderRequests()).toEqual([]);

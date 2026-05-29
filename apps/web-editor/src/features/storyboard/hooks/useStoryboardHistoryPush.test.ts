@@ -227,6 +227,7 @@ describe('useStoryboardHistoryPush — thumbnail capture', () => {
     expect(updatedEntries[0].createdAt).toBe(optimisticEntries[0].createdAt);
     expect(updatedEntries[0].snapshot.thumbnail).toBe('data:image/jpeg;base64,abc');
   });
+
 });
 
 describe('useStoryboardHistoryPush — snapshot structure', () => {

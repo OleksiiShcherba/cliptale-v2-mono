@@ -1,6 +1,83 @@
 import { toJpeg } from 'html-to-image';
 import { SURFACE } from '../components/storyboardPageStyles';
 
+type CachedFetchPayload = {
+  body: ArrayBuffer;
+  status: number;
+  statusText: string;
+  headers: [string, string][];
+};
+
+const thumbnailResourceCache = new Map<string, Promise<CachedFetchPayload>>();
+
+function getThumbnailResourceCacheKey(input: RequestInfo | URL): string | null {
+  const url = typeof input === 'string'
+    ? input
+    : input instanceof URL
+      ? input.toString()
+      : input.url;
+
+  if (!url || url.startsWith('data:') || url.startsWith('blob:')) return null;
+
+  try {
+    const parsed = new URL(url, window.location.href);
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return url.replace(/[?#].*$/, '');
+  }
+}
+
+function makeCachedResponse(payload: CachedFetchPayload): Response {
+  return new Response(payload.body.slice(0), {
+    status: payload.status,
+    statusText: payload.statusText,
+    headers: payload.headers,
+  });
+}
+
+function createThumbnailCaptureFetch(baseFetch: typeof fetch): typeof fetch {
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
+    const cacheKey = method.toUpperCase() === 'GET'
+      ? getThumbnailResourceCacheKey(input)
+      : null;
+
+    if (!cacheKey) {
+      return baseFetch(input, init);
+    }
+
+    let cachedPayload = thumbnailResourceCache.get(cacheKey);
+    if (!cachedPayload) {
+      cachedPayload = baseFetch(input, init).then(async (response) => ({
+        body: await response.clone().arrayBuffer(),
+        status: response.status,
+        statusText: response.statusText,
+        headers: Array.from(response.headers.entries()),
+      }));
+      thumbnailResourceCache.set(cacheKey, cachedPayload);
+    }
+
+    try {
+      return makeCachedResponse(await cachedPayload);
+    } catch (error) {
+      thumbnailResourceCache.delete(cacheKey);
+      throw error;
+    }
+  };
+}
+
+async function withThumbnailResourceCache<T>(fn: () => Promise<T>): Promise<T> {
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = createThumbnailCaptureFetch(originalFetch);
+  try {
+    return await fn();
+  } finally {
+    window.fetch = originalFetch;
+  }
+}
+
 /**
  * Captures the React Flow canvas as a JPEG data URL.
  *
@@ -28,18 +105,20 @@ export async function captureCanvasThumbnail(): Promise<string | null> {
   const srcH = rect.height || (el as HTMLElement).clientHeight || 800;
 
   try {
-    return await toJpeg(el as HTMLElement, {
-      width: srcW,
-      height: srcH,
-      canvasWidth: 320,
-      canvasHeight: 180,
-      quality: 0.6,
-      backgroundColor: SURFACE,
-      skipFonts: true,
-      pixelRatio: 1,
-      imagePlaceholder:
-        'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
-    });
+    return await withThumbnailResourceCache(() =>
+      toJpeg(el as HTMLElement, {
+        width: srcW,
+        height: srcH,
+        canvasWidth: 320,
+        canvasHeight: 180,
+        quality: 0.6,
+        backgroundColor: SURFACE,
+        skipFonts: true,
+        pixelRatio: 1,
+        imagePlaceholder:
+          'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+      }),
+    );
   } catch {
     return null;
   }

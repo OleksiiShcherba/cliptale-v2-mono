@@ -72,8 +72,10 @@ export function useStoryboardPageCanvasHandlers({
   const handleNodesChange: OnNodesChange = useCallback(
     (changes: NodeChange[]): void => {
       if (isGenerationBlocking) return;
-      const nonPositionChanges = changes.filter((change) => change.type !== 'position');
-      setNodes((prev) => applyNodeChanges(nonPositionChanges, prev));
+      const controlledChanges = changes.filter(
+        (change) => change.type !== 'position' || change.dragging === true,
+      );
+      setNodes((prev) => applyNodeChanges(controlledChanges, prev));
     },
     [isGenerationBlocking, setNodes],
   );

@@ -176,6 +176,65 @@ describe('processStoryboardPlanJob output normalization', () => {
     ]);
   });
 
+  it('normalizes loose composition section labels and duration aliases', async () => {
+    const repository = makeRepository();
+    const rawPlan = {
+      schema_version: STORYBOARD_PLAN_SCHEMA_VERSION,
+      video_length_seconds: 30,
+      scene_count: 5,
+      scenes: Array.from({ length: 5 }, (_, index) => makeScene(index + 1)),
+      music_segments: [
+        {
+          name: 'Three-part launch cue',
+          prompt: 'Instrumental cue that builds across the product story.',
+          compositionPlan: {
+            positiveGlobalStyles: ['cinematic', 'instrumental'],
+            negativeGlobalStyles: ['vocals', 'lyrics'],
+            sections: [
+              { title: 'Opening pulse', duration: 10 },
+              { label: 'Feature lift', duration: 10 },
+              { duration: 10 },
+            ],
+          },
+          startSceneNumber: 1,
+          endSceneNumber: 5,
+        },
+      ],
+    };
+
+    const result = await processStoryboardPlanJob(makeJob(), {
+      openai: makeOpenAiMock(JSON.stringify(rawPlan)),
+      pool,
+      repository,
+      resolveContext: vi.fn(async () => makeContext()),
+    });
+
+    expect(result.musicSegments[0]!.compositionPlan.sections).toEqual([
+      {
+        section_name: 'Opening pulse',
+        positive_local_styles: [],
+        negative_local_styles: [],
+        duration_ms: 10_000,
+        lines: [],
+      },
+      {
+        section_name: 'Feature lift',
+        positive_local_styles: [],
+        negative_local_styles: [],
+        duration_ms: 10_000,
+        lines: [],
+      },
+      {
+        section_name: 'Three-part launch cue 3',
+        positive_local_styles: [],
+        negative_local_styles: [],
+        duration_ms: 10_000,
+        lines: [],
+      },
+    ]);
+    expect(repository.markCompleted).toHaveBeenCalledWith(expect.objectContaining({ plan: result }));
+  });
+
   it('reports nested schema errors instead of a generic root union error', async () => {
     const repository = makeRepository();
     const invalidPlan = {

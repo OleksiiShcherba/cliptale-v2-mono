@@ -133,6 +133,41 @@ describe('useStoryboardDrag', () => {
 
       expect(updated?.style?.opacity).toBe(0.3);
     });
+
+    it('restores the original node style after drag stop', () => {
+      const setNodes = vi.fn();
+      const setEdges = vi.fn();
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }));
+
+      const sceneNode: Node = {
+        ...makeSceneNode('scene-1', 100),
+        style: { opacity: 0.72, borderColor: 'red' },
+      };
+      const dimmedSceneNode: Node = {
+        ...sceneNode,
+        style: { opacity: 0.3, borderColor: 'red' },
+      };
+      const droppedSceneNode: Node = {
+        ...dimmedSceneNode,
+        position: { x: 240, y: 260 },
+      };
+
+      act(() => {
+        result.current.syncRefs([sceneNode], []);
+        fireDragStart(result.current.handleNodeDragStart, sceneNode);
+        result.current.syncRefs([dimmedSceneNode], []);
+        fireDragStop(result.current.handleNodeDragStop, droppedSceneNode);
+      });
+
+      expect(pushSnapshot).toHaveBeenCalledTimes(1);
+      const [snapshotNodes] = pushSnapshot.mock.calls[0] as [Node[], Edge[]];
+      const snapshotNode = snapshotNodes.find((n) => n.id === 'scene-1');
+
+      expect(snapshotNode?.style).toEqual({ opacity: 0.72, borderColor: 'red' });
+      expect(snapshotNode?.position).toEqual({ x: 240, y: 260 });
+    });
   });
 
   // ── handleNodeDrag ───────────────────────────────────────────────────────────

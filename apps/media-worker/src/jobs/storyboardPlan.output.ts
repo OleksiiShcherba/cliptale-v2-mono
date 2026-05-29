@@ -101,29 +101,88 @@ function normalizeCompositionPlan(rawPlan: unknown, fallback: {
   if (!isRecord(rawPlan)) return rawPlan;
 
   const sections = pickValue(rawPlan, ['sections', 'musicSections', 'music_sections', 'segments']);
+  const normalizedSections = Array.isArray(sections)
+    ? normalizeCompositionPlanSections(sections, fallback)
+    : makeFallbackSections(fallback);
 
   return {
     positive_global_styles: pickValue(rawPlan, ['positive_global_styles', 'positiveGlobalStyles']),
     negative_global_styles: pickValue(rawPlan, ['negative_global_styles', 'negativeGlobalStyles']),
-    sections: Array.isArray(sections) ? sections.map(normalizeCompositionPlanSection) : makeFallbackSections(fallback),
+    sections: normalizedSections,
   };
 }
 
-function normalizeCompositionPlanSection(rawSection: unknown): unknown {
+function normalizeCompositionPlanSections(
+  sections: unknown[],
+  fallback: {
+    name: unknown;
+    durationMs: number | null;
+  },
+): unknown[] {
+  const fallbackDurationMs = fallback.durationMs && sections.length > 0
+    ? Math.round(fallback.durationMs / sections.length)
+    : null;
+
+  return sections.map((section, index) =>
+    normalizeCompositionPlanSection(section, {
+      name: fallback.name,
+      index,
+      durationMs: fallbackDurationMs,
+    }),
+  );
+}
+
+function normalizeCompositionPlanSection(rawSection: unknown, fallback: {
+  name: unknown;
+  index: number;
+  durationMs: number | null;
+}): unknown {
   if (!isRecord(rawSection)) return rawSection;
 
-  const durationMs = pickValue(rawSection, ['duration_ms', 'durationMs']);
-  const durationSeconds = pickValue(rawSection, ['duration_seconds', 'durationSeconds']);
+  const rawDurationMs = pickValue(rawSection, ['duration_ms', 'durationMs']);
+  const rawDuration = rawDurationMs ?? pickValue(rawSection, ['duration']);
+  const rawDurationSeconds = pickValue(rawSection, ['duration_seconds', 'durationSeconds']);
+  const durationMs = normalizeDurationMs(rawDurationMs, rawDuration, rawDurationSeconds, fallback.durationMs);
+  const sectionName = pickValue(rawSection, ['section_name', 'sectionName', 'name', 'title', 'label']);
 
   return {
-    section_name: pickValue(rawSection, ['section_name', 'sectionName', 'name']),
+    section_name: typeof sectionName === 'string'
+      ? sectionName
+      : makeFallbackSectionName(fallback.name, fallback.index),
     positive_local_styles: pickValue(rawSection, ['positive_local_styles', 'positiveLocalStyles']),
     negative_local_styles: pickValue(rawSection, ['negative_local_styles', 'negativeLocalStyles']),
-    duration_ms:
-      durationMs ??
-      (typeof durationSeconds === 'number' ? Math.round(durationSeconds * 1_000) : durationSeconds),
+    duration_ms: durationMs,
     lines: pickValue(rawSection, ['lines', 'lyrics']),
   };
+}
+
+function normalizeDurationMs(
+  explicitDurationMs: unknown,
+  duration: unknown,
+  durationSeconds: unknown,
+  fallbackDurationMs: number | null,
+): unknown {
+  if (explicitDurationMs !== undefined) {
+    return explicitDurationMs;
+  }
+
+  if (typeof duration === 'number') {
+    return duration > 0 && duration <= 600 ? Math.round(duration * 1_000) : duration;
+  }
+
+  if (typeof durationSeconds === 'number') {
+    return Math.round(durationSeconds * 1_000);
+  }
+
+  return fallbackDurationMs ?? duration ?? durationSeconds;
+}
+
+function makeFallbackSectionName(name: unknown, index: number): string {
+  const prefix = typeof name === 'string' && name.trim().length > 0
+    ? name.trim()
+    : 'Main cue';
+  const suffix = index > 0 ? ` ${index + 1}` : '';
+  return `${prefix}${suffix}`.slice(0, 100);
 }
 
 function makeFallbackSections(fallback: {

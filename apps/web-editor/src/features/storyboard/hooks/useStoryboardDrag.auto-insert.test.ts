@@ -106,6 +106,37 @@ describe('useStoryboardDrag — auto-insert (FOLLOW-2)', () => {
       expect(nextEdges).toHaveLength(2);
       expect(nextEdges[0].id).not.toBe(nextEdges[1].id);
     });
+
+    it('pushes a snapshot with the final auto-inserted edge set', () => {
+      const setNodes = vi.fn();
+      const setEdges = vi.fn();
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+      const { result } = renderHook(() => useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }));
+
+      const nodeA = makeSceneNode('a', 100, 200, 220, 120);
+      const nodeB = makeSceneNode('b', 700, 200, 220, 120);
+      const edgeAB = makeEdge('a', 'b');
+      const droppedNode = makeSceneNode('dropped', 400, 200, 220, 120);
+
+      act(() => {
+        result.current.syncRefs([nodeA, nodeB, droppedNode], [edgeAB]);
+        fireDragStart(result.current.handleNodeDragStart, droppedNode);
+        fireDragStop(result.current.handleNodeDragStop, droppedNode);
+      });
+
+      expect(pushSnapshot).toHaveBeenCalledTimes(1);
+      const [, snapshotEdges] = pushSnapshot.mock.calls[0] as [unknown[], Edge[]];
+
+      expect(snapshotEdges).toHaveLength(2);
+      expect(snapshotEdges).not.toContain(edgeAB);
+      expect(snapshotEdges).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ source: 'a', target: 'dropped' }),
+          expect.objectContaining({ source: 'dropped', target: 'b' }),
+        ]),
+      );
+    });
   });
 
   // ── syncRefs ─────────────────────────────────────────────────────────────────

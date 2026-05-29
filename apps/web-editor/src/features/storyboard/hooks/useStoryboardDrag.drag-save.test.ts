@@ -17,7 +17,7 @@ import type { Node, Edge } from '@xyflow/react';
 import { useStoryboardDrag } from './useStoryboardDrag';
 import {
   makeSceneNode,
-  makeEdge,
+  makeMusicNode,
   fireDragStart,
   fireDragStop,
 } from './useStoryboardDrag.fixtures';
@@ -26,6 +26,81 @@ import {
 
 describe('useStoryboardDrag — drag-stop save (SB-POLISH-1c)', () => {
   describe('handleNodeDragStop', () => {
+    it.each([
+      {
+        label: 'scene block',
+        node: {
+          ...makeSceneNode('scene-1', 100, 200),
+          style: { borderColor: 'red' },
+        },
+        droppedPosition: { x: 350, y: 280 },
+      },
+      {
+        label: 'music block',
+        node: {
+          ...makeMusicNode(),
+          style: { borderColor: 'blue' },
+        },
+        droppedPosition: { x: 280, y: 640 },
+      },
+      {
+        label: 'START',
+        node: {
+          id: 'start',
+          type: 'start',
+          position: { x: 60, y: 200 },
+          data: {},
+          style: { borderColor: 'green' },
+        } satisfies Node,
+        droppedPosition: { x: 80, y: 220 },
+      },
+      {
+        label: 'END',
+        node: {
+          id: 'end',
+          type: 'end',
+          position: { x: 900, y: 200 },
+          data: {},
+          style: { borderColor: 'purple' },
+        } satisfies Node,
+        droppedPosition: { x: 980, y: 240 },
+      },
+    ])('pushes restored style and final position for $label drops', ({ node, droppedPosition }) => {
+      const setNodes = vi.fn();
+      const setEdges = vi.fn();
+      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
+      const saveNow = vi.fn().mockResolvedValue(undefined);
+
+      const { result } = renderHook(() =>
+        useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }),
+      );
+
+      const dimmedNode: Node = {
+        ...node,
+        style: { ...node.style, opacity: 0.3 },
+      };
+      const droppedNode: Node = {
+        ...dimmedNode,
+        position: droppedPosition,
+      };
+
+      act(() => {
+        result.current.syncRefs([node], []);
+        fireDragStart(result.current.handleNodeDragStart, node);
+        result.current.syncRefs([dimmedNode], []);
+        fireDragStop(result.current.handleNodeDragStop, droppedNode);
+      });
+
+      expect(pushSnapshot).toHaveBeenCalledTimes(1);
+      const [snapshotNodes] = pushSnapshot.mock.calls[0] as [Node[], Edge[]];
+      const snapshotNode = snapshotNodes.find((n) => n.id === node.id);
+
+      expect(snapshotNode?.position).toEqual(droppedPosition);
+      expect(snapshotNode?.position).not.toEqual(node.position);
+      expect(snapshotNode?.style).toEqual(node.style);
+      expect((snapshotNode?.style as { opacity?: number } | undefined)?.opacity).not.toBe(0.3);
+    });
+
     it('calls saveNow exactly once when a scene-block node is dropped', () => {
       // Install fake timers before the act so the setTimeout inside
       // handleNodeDragStop is captured and can be flushed synchronously.
@@ -105,7 +180,30 @@ describe('useStoryboardDrag — drag-stop save (SB-POLISH-1c)', () => {
       expect(saveNow).toHaveBeenCalledTimes(1);
     });
 
-    it('passes START nodes with opacity restored to pushSnapshot', () => {
+    it.each([
+      {
+        label: 'START',
+        node: {
+          id: 'start',
+          type: 'start',
+          position: { x: 60, y: 200 },
+          data: {},
+          style: { opacity: 0.3 },
+        } satisfies Node,
+        droppedPosition: { x: 80, y: 220 },
+      },
+      {
+        label: 'END',
+        node: {
+          id: 'end',
+          type: 'end',
+          position: { x: 900, y: 200 },
+          data: {},
+          style: { opacity: 0.3 },
+        } satisfies Node,
+        droppedPosition: { x: 980, y: 240 },
+      },
+    ])('persists $label position without changing edges', ({ node, droppedPosition }) => {
       const setNodes = vi.fn();
       const setEdges = vi.fn();
       const pushSnapshot = vi.fn().mockResolvedValue(undefined);
@@ -115,124 +213,29 @@ describe('useStoryboardDrag — drag-stop save (SB-POLISH-1c)', () => {
         useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }),
       );
 
-      const ghostStartNode: Node = {
-        id: 'start',
-        type: 'start',
-        position: { x: 60, y: 200 },
-        data: {},
-        style: { opacity: 0.3 },
-      };
-      const droppedStartNode: Node = {
-        ...ghostStartNode,
-        position: { x: 80, y: 220 },
+      const currentEdges: Edge[] = [
+        { id: 'edge-scene-1-scene-2', source: 'scene-1', target: 'scene-2' },
+      ];
+      const droppedNode: Node = {
+        ...node,
+        position: droppedPosition,
       };
 
       act(() => {
-        result.current.syncRefs([ghostStartNode], []);
-        fireDragStop(result.current.handleNodeDragStop, droppedStartNode);
-      });
-
-      expect(pushSnapshot).toHaveBeenCalledTimes(1);
-      const [snapshotNodes] = pushSnapshot.mock.calls[0] as [Node[], Edge[]];
-
-      const snapshotNode = snapshotNodes.find((n) => n.id === 'start');
-      expect(snapshotNode?.position).toEqual({ x: 80, y: 220 });
-      expect((snapshotNode?.style as { opacity?: number } | undefined)?.opacity).toBeUndefined();
-    });
-
-    it('calls pushSnapshot with the updated position when an END node is dropped', () => {
-      const setNodes = vi.fn();
-      const setEdges = vi.fn();
-      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
-      const saveNow = vi.fn().mockResolvedValue(undefined);
-
-      const { result } = renderHook(() =>
-        useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }),
-      );
-
-      const endNode: Node = {
-        id: 'end',
-        type: 'end',
-        position: { x: 900, y: 200 },
-        data: {},
-      };
-      const droppedEndNode: Node = {
-        ...endNode,
-        position: { x: 980, y: 240 },
-        data: {},
-      };
-
-      act(() => {
-        result.current.syncRefs([endNode], []);
-        fireDragStop(result.current.handleNodeDragStop, droppedEndNode);
-      });
-
-      expect(pushSnapshot).toHaveBeenCalledTimes(1);
-      const [snapshotNodes] = pushSnapshot.mock.calls[0] as [Node[], Edge[]];
-
-      const snapshotNode = snapshotNodes.find((n) => n.id === 'end');
-      expect(snapshotNode?.position.x).toBe(980);
-      expect(snapshotNode?.position.y).toBe(240);
-    });
-
-    it('passes the updated (post-drop) position to pushSnapshot', () => {
-      const setNodes = vi.fn();
-      const setEdges = vi.fn();
-      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
-      const saveNow = vi.fn().mockResolvedValue(undefined);
-
-      const { result } = renderHook(() =>
-        useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }),
-      );
-
-      // Node starts at x=100, y=200.
-      const sceneNode = makeSceneNode('scene-1', 100, 200);
-
-      // The "dropped" node that handleNodeDragStop receives has the final position.
-      const droppedNode = makeSceneNode('scene-1', 350, 280);
-
-      act(() => {
-        result.current.syncRefs([sceneNode], []);
-        fireDragStart(result.current.handleNodeDragStart, sceneNode);
+        result.current.syncRefs([node], currentEdges);
         fireDragStop(result.current.handleNodeDragStop, droppedNode);
       });
 
-      expect(pushSnapshot).toHaveBeenCalledTimes(1);
-      const [snapshotNodes] = pushSnapshot.mock.calls[0] as [Node[], Edge[]];
-
-      const snapshotNode = snapshotNodes.find((n) => n.id === 'scene-1');
-      expect(snapshotNode?.position.x).toBe(350);
-      expect(snapshotNode?.position.y).toBe(280);
-    });
-
-    it('passes nodes with opacity restored (not 0.3) to pushSnapshot', () => {
-      const setNodes = vi.fn();
-      const setEdges = vi.fn();
-      const pushSnapshot = vi.fn().mockResolvedValue(undefined);
-      const saveNow = vi.fn().mockResolvedValue(undefined);
-
-      const { result } = renderHook(() =>
-        useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow }),
+      expect(setEdges).not.toHaveBeenCalled();
+      expect(pushSnapshot).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: node.id,
+            position: droppedPosition,
+          }),
+        ]),
+        currentEdges,
       );
-
-      // Simulate a node with ghost opacity already set in the ref
-      // (as would happen after handleNodeDragStart ran and the effect synced refs).
-      const ghostNode: Node = {
-        ...makeSceneNode('scene-1', 100, 200),
-        style: { opacity: 0.3 },
-      };
-
-      act(() => {
-        result.current.syncRefs([ghostNode], []);
-        fireDragStop(result.current.handleNodeDragStop, makeSceneNode('scene-1', 100, 200));
-      });
-
-      expect(pushSnapshot).toHaveBeenCalledTimes(1);
-      const [snapshotNodes] = pushSnapshot.mock.calls[0] as [Node[], Edge[]];
-
-      const snapshotNode = snapshotNodes.find((n) => n.id === 'scene-1');
-      // Opacity must be removed — not 0.3 in the snapshot.
-      expect((snapshotNode?.style as { opacity?: number } | undefined)?.opacity).toBeUndefined();
     });
   });
 });
