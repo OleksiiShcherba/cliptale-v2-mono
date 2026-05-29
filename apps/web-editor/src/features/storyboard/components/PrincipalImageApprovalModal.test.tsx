@@ -19,6 +19,7 @@ vi.mock('@/lib/api-client', () => ({
 }));
 
 import { PrincipalImageApprovalModal } from './PrincipalImageApprovalModal';
+import { StoryboardBulkStreamUrlProvider } from './SceneBlockNode.mediaThumbnail';
 import type { StoryboardIllustrationReferenceStatus } from '@/features/storyboard/types';
 import type { AssetSummary } from '@/features/generate-wizard/types';
 
@@ -87,6 +88,59 @@ describe('PrincipalImageApprovalModal', () => {
     await waitFor(() => {
       expect(props.onApprove).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('uses pre-resolved bulk stream URLs for principal and reference previews', async () => {
+    render(
+      <StoryboardBulkStreamUrlProvider
+        urls={{
+          'principal-file-1': 'https://signed.test/bulk/principal-file-1',
+          'reference-file-1': 'https://signed.test/bulk/reference-file-1',
+        }}
+      >
+        <PrincipalImageApprovalModal
+          draftId="draft-1"
+          reference={reference({ sourceReferenceFileIds: ['reference-file-1'] })}
+          onApprove={vi.fn().mockResolvedValue(undefined)}
+          onEdit={vi.fn().mockResolvedValue(undefined)}
+          onReplace={vi.fn().mockResolvedValue(undefined)}
+          onSetReferences={vi.fn().mockResolvedValue(undefined)}
+        />
+      </StoryboardBulkStreamUrlProvider>,
+    );
+
+    const principal = await screen.findByTestId('principal-image-preview-img') as HTMLImageElement;
+    const referencePreview = await screen.findByTestId('principal-image-reference-preview-img') as HTMLImageElement;
+
+    expect(principal.src).toBe('https://signed.test/bulk/principal-file-1');
+    expect(referencePreview.src).toBe('https://signed.test/bulk/reference-file-1');
+    expect(mockApiClientGet).not.toHaveBeenCalledWith('/files/principal-file-1/stream');
+    expect(mockApiClientGet).not.toHaveBeenCalledWith('/files/reference-file-1/stream');
+  });
+
+  it('marks missing bulk-managed principal and reference previews unavailable without loading forever', () => {
+    render(
+      <StoryboardBulkStreamUrlProvider
+        urls={{}}
+        fileIds={['principal-file-1', 'reference-file-1']}
+        missingFileIds={['principal-file-1', 'reference-file-1']}
+      >
+        <PrincipalImageApprovalModal
+          draftId="draft-1"
+          reference={reference({ sourceReferenceFileIds: ['reference-file-1'] })}
+          onApprove={vi.fn().mockResolvedValue(undefined)}
+          onEdit={vi.fn().mockResolvedValue(undefined)}
+          onReplace={vi.fn().mockResolvedValue(undefined)}
+          onSetReferences={vi.fn().mockResolvedValue(undefined)}
+        />
+      </StoryboardBulkStreamUrlProvider>,
+    );
+
+    expect(screen.getByTestId('principal-image-preview-fallback').textContent).toBe('Preview unavailable');
+    expect(screen.queryByTestId('principal-image-preview-loader')).toBeNull();
+    expect(screen.getByLabelText('Reference preview unavailable')).toBeTruthy();
+    expect(mockApiClientGet).not.toHaveBeenCalledWith('/files/principal-file-1/stream');
+    expect(mockApiClientGet).not.toHaveBeenCalledWith('/files/reference-file-1/stream');
   });
 
   it('opens a full preview from the principal image and closes it', async () => {

@@ -11,6 +11,7 @@ import type {
 } from '@ai-video-editor/project-schema';
 
 import { parseStorageUri } from '@/lib/storage-uri.js';
+import { publishAiGenerationJobStatus } from '@/lib/realtime.js';
 import { setJobProgress, setJobStatus } from '@/jobs/ai-generate.utils.js';
 import type { CreateFileParams, FilesRepo, AiGenerationJobRepo } from '@/jobs/ai-generate.job.js';
 
@@ -171,6 +172,7 @@ export async function processStoryboardOpenAIImageJob(
   const payload = job.data;
 
   await setJobStatus(deps.pool, payload.jobId, 'processing');
+  await publishAiGenerationJobStatus({ pool: deps.pool, jobId: payload.jobId });
 
   try {
     const imageInputs = await buildImageInputs({ payload, deps });
@@ -194,6 +196,7 @@ export async function processStoryboardOpenAIImageJob(
         });
 
     await setJobProgress(deps.pool, payload.jobId, PROGRESS_OPENAI_DONE);
+    await publishAiGenerationJobStatus({ pool: deps.pool, jobId: payload.jobId });
 
     const body = await resolveOutputBuffer(response);
     const storageKey = `storyboard-openai-images/${payload.userId}/${randomUUID()}.${OUTPUT_EXTENSION}`;
@@ -234,6 +237,7 @@ export async function processStoryboardOpenAIImageJob(
         outputFileId: fileId,
       });
     }
+    await publishAiGenerationJobStatus({ pool: deps.pool, jobId: payload.jobId });
   } catch (error) {
     const message = sanitizeStoryboardImageError(error);
     if (isFinalBullMqAttempt(job)) {
@@ -247,6 +251,7 @@ export async function processStoryboardOpenAIImageJob(
       } else {
         await deps.storyboardSceneRepo?.markFailed(payload.jobId, message);
       }
+      await publishAiGenerationJobStatus({ pool: deps.pool, jobId: payload.jobId });
     }
     throw error;
   }

@@ -8,6 +8,62 @@ import type { BlockMediaItem } from '../types';
 import { sceneBlockNodeStyles as s } from './nodeStyles';
 
 const VISUAL_MEDIA_TYPES = new Set<string>(['image', 'video']);
+type StoryboardBulkStreamUrlContextValue = {
+  urls: Record<string, string>;
+  fileIds: Set<string>;
+  missingFileIds: Set<string>;
+  error: string | null;
+};
+
+const StoryboardBulkStreamUrlContext = React.createContext<StoryboardBulkStreamUrlContextValue>({
+  urls: {},
+  fileIds: new Set(),
+  missingFileIds: new Set(),
+  error: null,
+});
+
+export function StoryboardBulkStreamUrlProvider({
+  urls,
+  fileIds,
+  missingFileIds,
+  error = null,
+  children,
+}: {
+  urls: Record<string, string>;
+  fileIds?: readonly string[];
+  missingFileIds?: readonly string[];
+  error?: string | null;
+  children: React.ReactNode;
+}): React.ReactElement {
+  const value = React.useMemo<StoryboardBulkStreamUrlContextValue>(() => ({
+    urls,
+    fileIds: new Set(fileIds ?? Object.keys(urls)),
+    missingFileIds: new Set(missingFileIds ?? []),
+    error,
+  }), [error, fileIds, missingFileIds, urls]);
+
+  return (
+    <StoryboardBulkStreamUrlContext.Provider value={value}>
+      {children}
+    </StoryboardBulkStreamUrlContext.Provider>
+  );
+}
+
+export function useStoryboardBulkStreamUrl(fileId: string | null): {
+  url: string | null;
+  isBulkManaged: boolean;
+  isMissing: boolean;
+  error: string | null;
+} {
+  const { urls, fileIds, missingFileIds, error } = React.useContext(StoryboardBulkStreamUrlContext);
+  if (!fileId) return { url: null, isBulkManaged: false, isMissing: false, error };
+  return {
+    url: urls[fileId] ?? null,
+    isBulkManaged: fileIds.has(fileId),
+    isMissing: missingFileIds.has(fileId),
+    error,
+  };
+}
 
 /** Placeholder SVG shown when a thumbnail slot has no image/video media. */
 export function PlaceholderThumbnail(): React.ReactElement {
@@ -34,7 +90,13 @@ export function PlaceholderThumbnail(): React.ReactElement {
 export function MediaThumbnail({ item }: { item: BlockMediaItem }): React.ReactElement {
   const [previewFailed, setPreviewFailed] = React.useState(false);
   const fileId = item.mediaType === 'image' ? item.fileId : null;
-  const { url: imageUrl } = useFileStreamUrl(fileId);
+  const bulkImage = useStoryboardBulkStreamUrl(fileId);
+  const shouldFallbackToSingle = !bulkImage.url &&
+    !bulkImage.isMissing &&
+    (!bulkImage.isBulkManaged || bulkImage.error !== null);
+  const { url: fallbackImageUrl } = useFileStreamUrl(shouldFallbackToSingle ? fileId : null);
+  const bulkImageUrl = bulkImage.url;
+  const imageUrl = bulkImageUrl ?? fallbackImageUrl;
 
   React.useEffect(() => {
     setPreviewFailed(false);

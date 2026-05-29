@@ -1,16 +1,19 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
-import type { AiGenerationContext } from '@/shared/ai-generation/types';
+import type { AiGenerationContext, AiGenerationJob } from '@/shared/ai-generation/types';
 
-const { mockSubmitGeneration, mockGetJobStatus } = vi.hoisted(() => ({
+const { mockSubmitGeneration, mockUseJobPolling } = vi.hoisted(() => ({
   mockSubmitGeneration: vi.fn(),
-  mockGetJobStatus: vi.fn(),
+  mockUseJobPolling: vi.fn(),
 }));
 
 vi.mock('@/shared/ai-generation/api', () => ({
   submitGeneration: mockSubmitGeneration,
-  getJobStatus: mockGetJobStatus,
+}));
+
+vi.mock('./useJobPolling', () => ({
+  useJobPolling: mockUseJobPolling,
 }));
 
 import { useAiGeneration } from './useAiGeneration';
@@ -18,13 +21,20 @@ import { useAiGeneration } from './useAiGeneration';
 const PROJECT_CTX: AiGenerationContext = { kind: 'project', id: 'proj-1' };
 const DRAFT_CTX: AiGenerationContext = { kind: 'draft', id: 'draft-42' };
 
-beforeEach(() => {
-  vi.useFakeTimers();
-  vi.clearAllMocks();
-});
+function makeJob(overrides: Partial<AiGenerationJob> = {}): AiGenerationJob {
+  return {
+    jobId: 'job-1',
+    status: 'processing',
+    progress: 25,
+    resultAssetId: null,
+    errorMessage: null,
+    ...overrides,
+  };
+}
 
-afterEach(() => {
-  vi.useRealTimers();
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockUseJobPolling.mockReturnValue({ job: null, isPolling: false });
 });
 
 describe('useAiGeneration', () => {
@@ -35,15 +45,8 @@ describe('useAiGeneration', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('submits a project-context generation request and starts polling', async () => {
+  it('submits a project-context generation request and seeds a queued realtime job', async () => {
     mockSubmitGeneration.mockResolvedValue({ jobId: 'job-1', status: 'queued' });
-    mockGetJobStatus.mockResolvedValue({
-      jobId: 'job-1',
-      status: 'processing',
-      progress: 25,
-      resultAssetId: null,
-      errorMessage: null,
-    });
 
     const { result } = renderHook(() => useAiGeneration());
 
@@ -60,25 +63,17 @@ describe('useAiGeneration', () => {
       prompt: 'A sunset',
       options: {},
     });
-
-    // Let the polling kick in
-    await act(async () => {
-      await vi.runOnlyPendingTimersAsync();
-    });
-
-    expect(result.current.currentJob?.status).toBe('processing');
-    expect(result.current.isGenerating).toBe(true);
-  });
-
-  it('submits a draft-context generation request', async () => {
-    mockSubmitGeneration.mockResolvedValue({ jobId: 'job-2', status: 'queued' });
-    mockGetJobStatus.mockResolvedValue({
-      jobId: 'job-2',
+    expect(mockUseJobPolling).toHaveBeenLastCalledWith('job-1', {
+      jobId: 'job-1',
       status: 'queued',
       progress: 0,
       resultAssetId: null,
       errorMessage: null,
     });
+  });
+
+  it('submits a draft-context generation request', async () => {
+    mockSubmitGeneration.mockResolvedValue({ jobId: 'job-2', status: 'queued' });
 
     const { result } = renderHook(() => useAiGeneration());
 
@@ -93,6 +88,22 @@ describe('useAiGeneration', () => {
       modelId: 'fal-ai/nano-banana-2',
       options: {},
     });
+    expect(mockUseJobPolling).toHaveBeenLastCalledWith('job-2', expect.objectContaining({
+      jobId: 'job-2',
+      status: 'queued',
+    }));
+  });
+
+  it('exposes the current realtime job and generating state from useJobPolling', () => {
+    mockUseJobPolling.mockReturnValue({
+      job: makeJob({ status: 'processing', progress: 60 }),
+      isPolling: true,
+    });
+
+    const { result } = renderHook(() => useAiGeneration());
+
+    expect(result.current.currentJob).toEqual(makeJob({ status: 'processing', progress: 60 }));
+    expect(result.current.isGenerating).toBe(true);
   });
 
   it('sets error when submission fails', async () => {
@@ -127,16 +138,8 @@ describe('useAiGeneration', () => {
     expect(result.current.error).toBe('Failed to submit generation');
   });
 
-  it('reset returns to idle state', async () => {
+  it('reset returns to idle state and clears the subscribed job id', async () => {
     mockSubmitGeneration.mockResolvedValue({ jobId: 'job-1', status: 'queued' });
-    mockGetJobStatus.mockResolvedValue({
-      jobId: 'job-1',
-      status: 'completed',
-      progress: 100,
-      resultAssetId: 'asset-1',
-      errorMessage: null,
-    });
-
     const { result } = renderHook(() => useAiGeneration());
 
     await act(async () => {
@@ -147,16 +150,11 @@ describe('useAiGeneration', () => {
       });
     });
 
-    await act(async () => {
-      await vi.runOnlyPendingTimersAsync();
-    });
-
-    expect(result.current.currentJob?.status).toBe('completed');
-
     act(() => {
       result.current.reset();
     });
 
+    expect(mockUseJobPolling).toHaveBeenLastCalledWith(null, null);
     expect(result.current.currentJob).toBeNull();
     expect(result.current.error).toBeNull();
     expect(result.current.isGenerating).toBe(false);

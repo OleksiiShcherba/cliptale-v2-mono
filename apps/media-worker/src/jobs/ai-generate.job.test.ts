@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { MediaIngestJobPayload } from '@ai-video-editor/project-schema';
 
+vi.mock('@/lib/realtime.js', () => ({
+  publishAiGenerationJobStatus: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { processAiGenerateJob } from './ai-generate.job.js';
 import {
   BUCKET,

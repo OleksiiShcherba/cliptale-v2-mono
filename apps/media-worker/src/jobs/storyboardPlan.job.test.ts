@@ -9,6 +9,10 @@ import type {
 } from '@ai-video-editor/project-schema';
 import { STORYBOARD_PLAN_SCHEMA_VERSION } from '@ai-video-editor/project-schema';
 
+vi.mock('@/lib/realtime.js', () => ({
+  publishStoryboardPlanStatus: vi.fn().mockResolvedValue(undefined),
+}));
+
 import {
   resolveStoryboardPlanContext,
   StoryboardPlanContextValidationError,

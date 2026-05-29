@@ -37,6 +37,7 @@ import {
   setJobProgress,
   type FileKind,
 } from '@/jobs/ai-generate.utils.js';
+import { publishAiGenerationJobStatus } from '@/lib/realtime.js';
 
 // Re-export FileKind so existing imports from this module continue to work.
 export type { FileKind };
@@ -151,6 +152,7 @@ export async function processAiGenerateJob(
   const { s3, pool, bucket, falKey, fal, elevenlabsKey, elevenlabs, ingestQueue } = deps;
 
   await setJobStatus(pool, jobId, 'processing');
+  await publishAiGenerationJobStatus({ pool, jobId });
 
   try {
     // Dispatch ElevenLabs audio capabilities to the dedicated audio handler.
@@ -163,6 +165,7 @@ export async function processAiGenerateJob(
           aiGenerationJobRepo: deps.aiGenerationJobRepo,
         },
       );
+      await publishAiGenerationJobStatus({ pool, jobId });
       return;
     }
 
@@ -177,11 +180,15 @@ export async function processAiGenerateJob(
       apiKey: falKey,
     });
     await setJobProgress(pool, jobId, PROGRESS_SUBMITTED);
+    await publishAiGenerationJobStatus({ pool, jobId });
 
     const output = await pollFalWithProgress(
       { modelId, requestId, apiKey: falKey, statusUrl, responseUrl },
       fal.getFalJobStatus,
-      (progress) => setJobProgress(pool, jobId, progress),
+      async (progress) => {
+        await setJobProgress(pool, jobId, progress);
+        await publishAiGenerationJobStatus({ pool, jobId });
+      },
     );
 
     const parsed = parseFalOutput(capability as FalCapability, output);
@@ -231,10 +238,36 @@ export async function processAiGenerateJob(
       aiJobId: jobId,
       outputFileId: fileId,
     });
+    await publishAiGenerationJobStatus({ pool, jobId });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown generation error';
     await setJobStatus(pool, jobId, 'failed', message);
+    await markStoryboardAiBindingsFailed(pool, jobId, message);
     await deps.storyboardIllustrationRepo?.markFailed(jobId, message);
+    await publishAiGenerationJobStatus({ pool, jobId });
     throw err;
   }
+}
+
+async function markStoryboardAiBindingsFailed(
+  pool: Pool,
+  jobId: string,
+  message: string,
+): Promise<void> {
+  await pool.execute(
+    `UPDATE storyboard_scene_video_jobs
+        SET status = 'failed',
+            error_message = ?,
+            active_lock = NULL
+      WHERE ai_job_id = ?`,
+    [message, jobId],
+  );
+  await pool.execute(
+    `UPDATE storyboard_music_generation_jobs
+        SET status = 'failed',
+            error_message = ?,
+            active_lock = NULL
+      WHERE ai_job_id = ?`,
+    [message, jobId],
+  );
 }

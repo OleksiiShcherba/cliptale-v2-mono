@@ -1,3 +1,5 @@
+import { createServer } from 'node:http';
+
 import express, { type Request, type Response, type NextFunction } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -20,6 +22,7 @@ import { trashRouter } from '@/routes/trash.routes.js';
 import { storyboardRouter } from '@/routes/storyboard.routes.js';
 import { sceneTemplateRouter } from '@/routes/sceneTemplate.routes.js';
 import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, ConflictError, UnprocessableEntityError, GoneError } from '@/lib/errors.js';
+import { attachRealtimeWebSocketServer } from '@/lib/realtime.js';
 
 const app = express();
 
@@ -79,7 +82,9 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'))) {
   runPendingMigrations()
     .then(() => {
-      app.listen(config.server.port, () => {
+      const server = createServer(app);
+      attachRealtimeWebSocketServer(server);
+      server.listen(config.server.port, () => {
         console.log(`API listening on port ${config.server.port}`);
       });
     })

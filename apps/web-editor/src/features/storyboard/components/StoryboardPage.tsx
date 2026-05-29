@@ -30,6 +30,8 @@ import { hasUnresolvedStep3Music } from '@/features/storyboard/utils/storyboardM
 import { MusicBlockModal } from './MusicBlockModal';
 import { SceneModal } from './SceneModal';
 import { PrincipalImageApprovalModal } from './PrincipalImageApprovalModal';
+import { StoryboardBulkStreamUrlProvider } from './SceneBlockNode.mediaThumbnail';
+import { useStoryboardPageBulkStreamUrls } from './StoryboardPage.bulkStreamUrls';
 import { StoryboardPageFooter } from './StoryboardPageFooter';
 import { StoryboardPageWorkspace } from './StoryboardPageWorkspace';
 import { StoryboardTopBar } from './StoryboardPage.topBar';
@@ -52,7 +54,6 @@ export function StoryboardPage(): React.ReactElement {
   const reloadStoryboard = useCallback(async (): Promise<void> => {
     await reload?.();
   }, [reload]);
-
   const { selectedBlockId } = useStoryboardStore();
   const generationFlow = useStoryboardGenerationFlow({
     draftId: safeDraftId,
@@ -73,7 +74,12 @@ export function StoryboardPage(): React.ReactElement {
     isStep3Disabled,
     principalImageModal,
   } = generationFlow;
-
+  const {
+    fileIds: bulkStreamFileIds,
+    urls: storyboardImageStreamUrls,
+    error: storyboardImageStreamUrlError,
+    missingFileIds: missingStoryboardImageStreamFileIds,
+  } = useStoryboardPageBulkStreamUrls(nodes, illustrationGeneration);
   useEffect(() => {
     initHistoryStore(safeDraftId);
     return () => { destroyHistoryStore(); };
@@ -94,7 +100,6 @@ export function StoryboardPage(): React.ReactElement {
   const editingMusicBlock = musicBlocks.find((block) => block.id === editingMusicBlockId) ?? null;
 
   const { editingBlock, openModal, handleSave, handleDelete, handleClose } = useSceneModal(setNodes, saveNow);
-
   useEffect(() => {
     if (isGenerationBlocking && editingBlock !== null) handleClose();
   }, [editingBlock, handleClose, isGenerationBlocking]);
@@ -116,7 +121,6 @@ export function StoryboardPage(): React.ReactElement {
     },
     [isGenerationBlocking, openModal, setActiveMusicBlockId],
   );
-
   const { pushSnapshot } = useStoryboardHistoryPush(safeDraftId);
   const handlePersistAddHistory = useCallback(
     async (nextNodes: Node[], nextEdges: FlowEdge[]): Promise<void> => {
@@ -157,7 +161,6 @@ export function StoryboardPage(): React.ReactElement {
     canvasIsLoading: isLoading,
     handleRestore,
   });
-
   useStoryboardKeyboard({
     nodes,
     onRemoveNode: removeNode,
@@ -174,7 +177,6 @@ export function StoryboardPage(): React.ReactElement {
 
   const { dragState, syncRefs, handleNodeDragStart, handleNodeDrag, handleNodeDragStop } =
     useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow });
-
   useEffect(() => {
     syncRefs(nodes, edges);
   }, [nodes, edges, syncRefs]);
@@ -224,67 +226,71 @@ export function StoryboardPage(): React.ReactElement {
 
   return (
     <div style={s.page} data-testid="storyboard-page">
-      <StoryboardTopBar
-        saveLabel={saveLabel}
-        isHistoryOpen={isHistoryOpen}
-        onHistoryToggle={() => setIsHistoryOpen((v) => !v)}
-        onNavigateHome={() => { navigate('/'); }}
-      />
-
-      <StoryboardPageWorkspace
-        activeTab={activeTab} setActiveTab={setActiveTab} draftId={safeDraftId}
-        selectedBlockId={selectedBlockId} onAddTemplate={handleAddFromLibrary}
-        isLoading={isLoading} error={error} nodes={nodes} edges={edges}
-        nodeTypes={STORYBOARD_NODE_TYPES} onNodesChange={handleNodesChange} onEdgesChange={handleEdgesChange}
-        onConnect={handleConnect} isValidConnection={isValidConnection}
-        onNodeDragStart={handleNodeDragStart} onNodeDrag={handleNodeDrag} onNodeDragStop={handleNodeDragStop}
-        dragState={dragState} onAddBlock={handleAddBlock} onAddMusicBlock={handleAddMusicBlock}
-        canAddMusicBlock={canAddMusicBlock} onNodeClick={handleNodeClick}
-        isKnifeActive={isKnifeActive} onCutEdge={cutEdge} isHistoryOpen={isHistoryOpen}
-        onCloseHistory={() => setIsHistoryOpen(false)} onRestore={handleRestore}
-        planGeneration={planGeneration} illustrationGeneration={illustrationGeneration}
-        isPlanBlocking={isPlanBlocking}
-      />
-
-      <StoryboardPageFooter isNextDisabled={isStep3Disabled || isMusicBlockingStep3} onBack={handleBack} onNext={handleNext} />
-
-      {editingBlock !== null && (
-        <SceneModal
-          mode="block"
-          block={editingBlock}
-          onSave={handleSave}
-          onDelete={handleDelete}
-          onClose={handleClose}
-          uploadDraftId={safeDraftId}
+      <StoryboardBulkStreamUrlProvider
+        urls={storyboardImageStreamUrls}
+        fileIds={bulkStreamFileIds}
+        error={storyboardImageStreamUrlError}
+        missingFileIds={missingStoryboardImageStreamFileIds}
+      >
+        <StoryboardTopBar
+          saveLabel={saveLabel}
+          isHistoryOpen={isHistoryOpen}
+          onHistoryToggle={() => setIsHistoryOpen((v) => !v)}
+          onNavigateHome={() => { navigate('/'); }}
         />
-      )}
-
-      {editingMusicBlock !== null && (
-        <MusicBlockModal
-          draftId={safeDraftId} block={editingMusicBlock} orderedScenes={orderedScenes}
-          isGenerating={isGeneratingMusicBlockId === editingMusicBlock.id}
-          error={musicError} onChange={commitMusicBlock} onGenerate={generateMusicBlock}
-          onClose={() => {
-            setEditingMusicBlockId(null);
-            setActiveMusicBlockId(null);
-          }}
+        <StoryboardPageWorkspace
+          activeTab={activeTab} setActiveTab={setActiveTab} draftId={safeDraftId}
+          selectedBlockId={selectedBlockId} onAddTemplate={handleAddFromLibrary}
+          isLoading={isLoading} error={error} nodes={nodes} edges={edges}
+          nodeTypes={STORYBOARD_NODE_TYPES} onNodesChange={handleNodesChange} onEdgesChange={handleEdgesChange}
+          onConnect={handleConnect} isValidConnection={isValidConnection}
+          onNodeDragStart={handleNodeDragStart} onNodeDrag={handleNodeDrag} onNodeDragStop={handleNodeDragStop}
+          dragState={dragState} onAddBlock={handleAddBlock} onAddMusicBlock={handleAddMusicBlock}
+          canAddMusicBlock={canAddMusicBlock} onNodeClick={handleNodeClick}
+          isKnifeActive={isKnifeActive} onCutEdge={cutEdge} isHistoryOpen={isHistoryOpen}
+          onCloseHistory={() => setIsHistoryOpen(false)} onRestore={handleRestore}
+          planGeneration={planGeneration} illustrationGeneration={illustrationGeneration}
+          isPlanBlocking={isPlanBlocking}
         />
-      )}
+        <StoryboardPageFooter isNextDisabled={isStep3Disabled || isMusicBlockingStep3} onBack={handleBack} onNext={handleNext} />
+        {editingBlock !== null && (
+          <SceneModal
+            mode="block"
+            block={editingBlock}
+            onSave={handleSave}
+            onDelete={handleDelete}
+            onClose={handleClose}
+            uploadDraftId={safeDraftId}
+          />
+        )}
 
-      {principalImageModal.shouldRender && illustrationGeneration.reference && (
-        <PrincipalImageApprovalModal
-          draftId={safeDraftId}
-          reference={illustrationGeneration.reference}
-          isBusy={principalImageModal.isBusy}
-          error={principalImageModal.error}
-          onApprove={principalImageModal.onApprove}
-          onEdit={principalImageModal.onEdit}
-          onReplace={principalImageModal.onReplace}
-          onSetReferences={principalImageModal.onSetReferences}
-        />
-      )}
+        {editingMusicBlock !== null && (
+          <MusicBlockModal
+            draftId={safeDraftId} block={editingMusicBlock} orderedScenes={orderedScenes}
+            isGenerating={isGeneratingMusicBlockId === editingMusicBlock.id}
+            error={musicError} onChange={commitMusicBlock} onGenerate={generateMusicBlock}
+            onClose={() => {
+              setEditingMusicBlockId(null);
+              setActiveMusicBlockId(null);
+            }}
+          />
+        )}
 
-      {step3Modal}
+        {principalImageModal.shouldRender && illustrationGeneration.reference && (
+          <PrincipalImageApprovalModal
+            draftId={safeDraftId}
+            reference={illustrationGeneration.reference}
+            isBusy={principalImageModal.isBusy}
+            error={principalImageModal.error}
+            onApprove={principalImageModal.onApprove}
+            onEdit={principalImageModal.onEdit}
+            onReplace={principalImageModal.onReplace}
+            onSetReferences={principalImageModal.onSetReferences}
+          />
+        )}
+
+        {step3Modal}
+      </StoryboardBulkStreamUrlProvider>
     </div>
   );
 }

@@ -3,7 +3,7 @@
  *
  * These test the new EPIC B soft-delete/restore surface with in-memory repo mocks.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { GoneError, NotFoundError } from '@/lib/errors.js';
 import * as fileRepository from '@/repositories/file.repository.js';
@@ -84,15 +84,22 @@ describe('file.service', () => {
   // ── restoreFile ─────────────────────────────────────────────────────────────
 
   describe('restoreFile', () => {
+    const RESTORE_TEST_NOW = new Date('2026-04-20T00:00:00.000Z');
     const softDeletedRow = {
       ...baseFileRow,
       deletedAt: new Date('2026-04-10T00:00:00.000Z'), // recent — within TTL
     };
 
     beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(RESTORE_TEST_NOW);
       vi.clearAllMocks();
       vi.mocked(fileRepository.findByIdIncludingDeleted).mockResolvedValue(softDeletedRow);
       vi.mocked(fileRepository.restore).mockResolvedValue(true);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
     });
 
     it('restores the file and returns the FileRow with deletedAt null on happy path', async () => {

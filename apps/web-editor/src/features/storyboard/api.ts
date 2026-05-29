@@ -136,7 +136,7 @@ export async function fetchHistorySnapshots(
  *
  * Maps to POST /generation-drafts/:draftId/storyboard-plan.
  * Returns the persisted job ID immediately so callers can move the user to
- * Step 2 while polling continues.
+ * Step 2 while realtime events report status changes.
  */
 export async function startStoryboardPlan(
   draftId: string,

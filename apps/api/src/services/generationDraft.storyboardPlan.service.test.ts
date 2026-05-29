@@ -33,6 +33,12 @@ vi.mock('@/queues/jobs/enqueue-storyboard-plan.js', () => ({
   enqueueStoryboardPlan: vi.fn(),
 }));
 
+vi.mock('@/lib/realtimePublisher.js', () => ({
+  publishStoryboardStatusUpdated: vi.fn().mockResolvedValue(undefined),
+}));
+
+import { publishStoryboardStatusUpdated } from '@/lib/realtimePublisher.js';
+
 const VALID_PLAN: StoryboardPlan = {
   schemaVersion: 1,
   videoLengthSeconds: 30,
@@ -128,6 +134,16 @@ describe('generationDraft.storyboardPlan.service', () => {
     expect(
       vi.mocked(storyboardPlanJobRepository.reserveQueuedJob).mock.invocationCallOrder[0],
     ).toBeLessThan(vi.mocked(enqueueStoryboardPlan).mock.invocationCallOrder[0]!);
+    expect(publishStoryboardStatusUpdated).toHaveBeenCalledWith({
+      userId: USER_ID,
+      draftId: DRAFT_ID,
+      payload: {
+        resource: 'storyboardPlan',
+        jobId: result.jobId,
+        status: 'queued',
+        errorMessage: null,
+      },
+    });
   });
 
   it('returns the active planning job instead of enqueueing a duplicate', async () => {
@@ -187,6 +203,16 @@ describe('generationDraft.storyboardPlan.service', () => {
       '44444444-4444-4444-8444-444444444444',
       error,
     );
+    expect(publishStoryboardStatusUpdated).toHaveBeenCalledWith({
+      userId: USER_ID,
+      draftId: DRAFT_ID,
+      payload: {
+        resource: 'storyboardPlan',
+        jobId: '44444444-4444-4444-8444-444444444444',
+        status: 'failed',
+        errorMessage: 'Redis unavailable',
+      },
+    });
   });
 
   it('rejects an empty prompt with no media before enqueueing', async () => {

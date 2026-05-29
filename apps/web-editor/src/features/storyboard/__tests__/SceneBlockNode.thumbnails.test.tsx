@@ -49,6 +49,7 @@ vi.mock('@xyflow/react', () => ({
 // ── Import SUT after mocks ─────────────────────────────────────────────────────
 
 import { SceneBlockNode } from '../components/SceneBlockNode';
+import { StoryboardBulkStreamUrlProvider } from '../components/SceneBlockNode.mediaThumbnail';
 import type { BlockMediaItem, StoryboardBlock } from '../types';
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
@@ -129,6 +130,38 @@ describe('SceneBlockNode thumbnails', () => {
     expect(img).toBeTruthy();
     expect(img.src).toContain('https://signed.test/files/img-1/stream');
     expect(mockApiClientGet).toHaveBeenCalledWith('/files/img-1/stream');
+  });
+
+  it('uses a pre-resolved bulk stream URL without calling the single-file stream endpoint', async () => {
+    const media = [makeMedia({ fileId: 'img-bulk-1', mediaType: 'image' })];
+    render(
+      <StoryboardBulkStreamUrlProvider urls={{ 'img-bulk-1': 'https://signed.test/bulk/img-bulk-1' }}>
+        <SceneBlockNode
+          id="node-1"
+          data={{ block: makeBlock(media), onRemove: mockOnRemove }}
+        />
+      </StoryboardBulkStreamUrlProvider>,
+    );
+
+    const img = await screen.findByTestId('thumbnail-img') as HTMLImageElement;
+    expect(img.src).toBe('https://signed.test/bulk/img-bulk-1');
+    expect(mockApiClientGet).not.toHaveBeenCalledWith('/files/img-bulk-1/stream');
+  });
+
+  it('shows a placeholder without a single-file stream call when a bulk-managed image URL is missing', () => {
+    const media = [makeMedia({ fileId: 'img-missing-1', mediaType: 'image' })];
+    render(
+      <StoryboardBulkStreamUrlProvider urls={{}} fileIds={['img-missing-1']}>
+        <SceneBlockNode
+          id="node-1"
+          data={{ block: makeBlock(media), onRemove: mockOnRemove }}
+        />
+      </StoryboardBulkStreamUrlProvider>,
+    );
+
+    expect(screen.getByTestId('placeholder-svg')).toBeTruthy();
+    expect(screen.queryByTestId('thumbnail-img')).toBeFalsy();
+    expect(mockApiClientGet).not.toHaveBeenCalledWith('/files/img-missing-1/stream');
   });
 
   it('uses the thumbnail endpoint for video media items', () => {

@@ -41,6 +41,7 @@ vi.mock('@/lib/config', () => ({
 // ── Import SUT after mocks ─────────────────────────────────────────────────────
 
 import { SceneModalMediaSection } from './SceneModal.mediaSection';
+import { StoryboardBulkStreamUrlProvider } from './SceneBlockNode.mediaThumbnail';
 import type { ModalMediaItem } from './SceneModal.types';
 import type { UploadTarget } from '@/shared/file-upload/types';
 
@@ -134,6 +135,27 @@ describe('SceneModalMediaSection — uploadDraftId threading', () => {
     expect(mockApiClientGet).toHaveBeenCalledWith('/files/asset-image-1/stream');
     expect(preview.alt).toBe('image preview for Product image');
     expect(screen.getByText('IMAGE CLIP')).toBeTruthy();
+  });
+
+  it('uses a pre-resolved bulk stream URL for image media previews', async () => {
+    render(
+      <StoryboardBulkStreamUrlProvider urls={{ 'asset-image-bulk-1': 'https://signed.test/bulk/asset-image-bulk-1' }}>
+        <SceneModalMediaSection
+          items={[{
+            fileId: 'asset-image-bulk-1',
+            mediaType: 'image',
+            filename: 'Product image',
+            sortOrder: 0,
+          }]}
+          onAdd={vi.fn()}
+          onRemove={vi.fn()}
+        />
+      </StoryboardBulkStreamUrlProvider>,
+    );
+
+    const preview = await screen.findByTestId('media-preview-image') as HTMLImageElement;
+    expect(preview.src).toBe('https://signed.test/bulk/asset-image-bulk-1');
+    expect(mockApiClientGet).not.toHaveBeenCalledWith('/files/asset-image-bulk-1/stream');
   });
 
   it('opens a full image preview modal from an image media thumbnail', async () => {

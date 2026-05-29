@@ -1,5 +1,10 @@
 import { test, expect, type Page, type Route } from "@playwright/test";
 import { E2E_API_URL } from "./helpers/env";
+import {
+  emitMockRealtimeEvent,
+  installMockRealtime,
+  readMockRealtimeMessages,
+} from "./helpers/mock-realtime";
 
 const DRAFT_ID = "00000000-0000-4000-8000-00000000e201";
 const PROJECT_ID = "00000000-0000-4000-8000-00000000e301";
@@ -178,6 +183,33 @@ function illustrationResponse(ready: boolean) {
   };
 }
 
+function videoStatusResponse(status: "running" | "ready" | "failed") {
+  const ready = status === "ready";
+  const failed = status === "failed";
+  return {
+    items: [
+      {
+        blockId: SCENE_A_ID,
+        status,
+        jobId: "video-job-a",
+        modelId: "fal-ai/audio-video",
+        generateAudio: true,
+        outputFileId: ready ? VIDEO_A_ID : null,
+        errorMessage: failed ? "Provider video failed" : null,
+      },
+      {
+        blockId: SCENE_B_ID,
+        status: failed ? "running" : status,
+        jobId: "video-job-b",
+        modelId: "fal-ai/audio-video",
+        generateAudio: true,
+        outputFileId: ready ? VIDEO_B_ID : null,
+        errorMessage: null,
+      },
+    ],
+  };
+}
+
 function assembledProjectDoc(mode: "images" | "videos") {
   const trackId = mode === "videos" ? "track-storyboard-videos" : "track-storyboard-images";
   const trackName = mode === "videos" ? "Storyboard videos" : "Storyboard scenes";
@@ -228,11 +260,13 @@ async function installStoryboardProjectMocks(
   options: { failFirstAssembly?: boolean; initiallyReady?: boolean; failFirstVideoStatus?: boolean } = {},
 ): Promise<{
   completeIllustrations: () => void;
+  completeVideos: () => Promise<void>;
   getAssemblyAttempts: () => number;
-  getVideoStatusPolls: () => number;
+  getVideoStatusRequests: () => number;
   getProjectModes: () => string[];
   getVideoStartPayloads: () => unknown[];
-  getFileStreamUrls: () => string[];
+  getBulkStreamUrlRequests: () => string[][];
+  getSingleFileStreamRequests: () => string[];
   getSignedImageRequests: () => string[];
   getUnexpectedApiRequests: () => string[];
 }> {
@@ -245,9 +279,12 @@ async function installStoryboardProjectMocks(
   let assembledMode: "images" | "videos" = "images";
   const projectModes: string[] = [];
   const videoStartPayloads: unknown[] = [];
-  const fileStreamUrls: string[] = [];
+  const bulkStreamUrlRequests: string[][] = [];
+  const singleFileStreamRequests: string[] = [];
   const signedImageRequests: string[] = [];
   const unexpectedApiRequests: string[] = [];
+
+  await installMockRealtime(page);
 
   await page.route("**/*", async (route: Route) => {
     const request = route.request();
@@ -274,9 +311,26 @@ async function installStoryboardProjectMocks(
       url.origin === E2E_API_ORIGIN &&
       path.match(/^\/files\/[^/]+\/stream$/)
     ) {
-      const signedUrl = `https://signed.test${path}`;
-      fileStreamUrls.push(signedUrl);
-      await route.fulfill(jsonResponse({ url: signedUrl }));
+      singleFileStreamRequests.push(path);
+      await route.fulfill(
+        jsonResponse({ error: `Unexpected single-file stream URL request: ${path}` }, 599),
+      );
+      return;
+    }
+
+    if (request.method() === "POST" && url.origin === E2E_API_ORIGIN && path === "/files/stream-urls") {
+      const body = request.postDataJSON() as { fileIds?: string[] } | null;
+      const fileIds = [...new Set(body?.fileIds ?? [])].sort();
+      bulkStreamUrlRequests.push(fileIds);
+      await route.fulfill(
+        jsonResponse({
+          urls: Object.fromEntries(fileIds.map((fileId) => [
+            fileId,
+            `https://signed.test/files/${fileId}/stream`,
+          ])),
+          missingFileIds: [],
+        }),
+      );
       return;
     }
 
@@ -369,28 +423,7 @@ async function installStoryboardProjectMocks(
       videoStatusPolls = 0;
       videoStartPayloads.push(request.postDataJSON());
       await route.fulfill(
-        jsonResponse({
-          items: [
-            {
-              blockId: SCENE_A_ID,
-              status: "queued",
-              jobId: "video-job-a",
-              modelId: "fal-ai/audio-video",
-              generateAudio: true,
-              outputFileId: null,
-              errorMessage: null,
-            },
-            {
-              blockId: SCENE_B_ID,
-              status: "queued",
-              jobId: "video-job-b",
-              modelId: "fal-ai/audio-video",
-              generateAudio: true,
-              outputFileId: null,
-              errorMessage: null,
-            },
-          ],
-        }, 202),
+        jsonResponse(videoStatusResponse("running"), 202),
       );
       return;
     }
@@ -399,32 +432,19 @@ async function installStoryboardProjectMocks(
       videoStatusPolls += 1;
       const failed = options.failFirstVideoStatus === true && !videoFailureServed;
       if (failed) videoFailureServed = true;
-      const ready = videosStarted && !failed && videoStatusPolls >= 2;
+      const ready = videosStarted && !failed && videoReadySeen;
       if (ready) videoReadySeen = true;
-      await route.fulfill(
-        jsonResponse({
-          items: [
-            {
-              blockId: SCENE_A_ID,
-              status: failed ? "failed" : ready ? "ready" : "running",
-              jobId: "video-job-a",
-              modelId: "fal-ai/audio-video",
-              generateAudio: true,
-              outputFileId: ready ? VIDEO_A_ID : null,
-              errorMessage: failed ? "Provider video failed" : null,
-            },
-            {
-              blockId: SCENE_B_ID,
-              status: ready ? "ready" : "running",
-              jobId: "video-job-b",
-              modelId: "fal-ai/audio-video",
-              generateAudio: true,
-              outputFileId: ready ? VIDEO_B_ID : null,
-              errorMessage: null,
-            },
-          ],
-        }),
-      );
+      await route.fulfill(jsonResponse(videoStatusResponse(failed ? "failed" : ready ? "ready" : "running")));
+      return;
+    }
+
+    if (request.method() === "POST" && path === `/storyboards/${DRAFT_ID}/music/generate-pending`) {
+      await route.fulfill(jsonResponse({ items: [] }));
+      return;
+    }
+
+    if (request.method() === "GET" && path === `/storyboards/${DRAFT_ID}/music`) {
+      await route.fulfill(jsonResponse({ items: [] }));
       return;
     }
 
@@ -524,12 +544,34 @@ async function installStoryboardProjectMocks(
   return {
     completeIllustrations: () => {
       illustrationsReady = true;
+      void emitMockRealtimeEvent(page, {
+        type: "storyboard.status.updated",
+        userId: "e2e-test-user-001",
+        draftId: DRAFT_ID,
+        payload: {
+          resource: "storyboardIllustrations",
+          status: illustrationResponse(true),
+        },
+      });
+    },
+    completeVideos: () => {
+      videoReadySeen = true;
+      return emitMockRealtimeEvent(page, {
+        type: "storyboard.status.updated",
+        userId: "e2e-test-user-001",
+        draftId: DRAFT_ID,
+        payload: {
+          resource: "storyboardVideos",
+          status: videoStatusResponse("ready"),
+        },
+      });
     },
     getAssemblyAttempts: () => assemblyAttempts,
-    getVideoStatusPolls: () => videoStatusPolls,
+    getVideoStatusRequests: () => videoStatusPolls,
     getProjectModes: () => [...projectModes],
     getVideoStartPayloads: () => [...videoStartPayloads],
-    getFileStreamUrls: () => [...fileStreamUrls],
+    getBulkStreamUrlRequests: () => bulkStreamUrlRequests.map((ids) => [...ids]),
+    getSingleFileStreamRequests: () => [...singleFileStreamRequests],
     getSignedImageRequests: () => [...signedImageRequests],
     getUnexpectedApiRequests: () => [...unexpectedApiRequests],
   };
@@ -583,14 +625,19 @@ test.describe("Storyboard Step 3 project handoff", () => {
     await expect(imageClips.nth(1)).toHaveAccessibleName(/Clip: image, starts at frame 60/);
     await expect(page.getByLabel("Current frame")).toContainText("/ 150");
     expect(mocks.getProjectModes()).toEqual(["images"]);
-    expect(mocks.getFileStreamUrls()).toEqual(
-      expect.arrayContaining([
-        `https://signed.test/files/${FILE_A_ID}/stream`,
-        `https://signed.test/files/${FILE_B_ID}/stream`,
-      ]),
-    );
+    expect(mocks.getBulkStreamUrlRequests()).toContainEqual([FILE_A_ID, FILE_B_ID]);
+    expect(mocks.getSingleFileStreamRequests()).toEqual([]);
     expect(mocks.getSignedImageRequests()).toEqual(
       expect.arrayContaining([`/files/${FILE_A_ID}/stream`, `/files/${FILE_B_ID}/stream`]),
+    );
+    await expect.poll(async () => readMockRealtimeMessages(page), { timeout: 5_000 }).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "subscribe",
+          scope: "draft-storyboard",
+          draftId: DRAFT_ID,
+        }),
+      ]),
     );
     expect(mocks.getUnexpectedApiRequests()).toEqual([]);
   });
@@ -611,6 +658,8 @@ test.describe("Storyboard Step 3 project handoff", () => {
     await page.getByTestId("step3-start-videos-button").click();
 
     await expect(page.getByText("Generating storyboard videos...")).toBeVisible({ timeout: 15_000 });
+    await expect.poll(mocks.getVideoStatusRequests, { timeout: 10_000 }).toBe(1);
+    await mocks.completeVideos();
     await expect(page).toHaveURL(new RegExp(`/editor\\?projectId=${PROJECT_ID}$`), { timeout: 20_000 });
     const videoClips = page.getByRole("button", { name: /Clip: video/ });
     await expect(videoClips).toHaveCount(2);
@@ -619,7 +668,7 @@ test.describe("Storyboard Step 3 project handoff", () => {
     expect(mocks.getVideoStartPayloads()).toEqual([
       { modelId: "fal-ai/audio-video", generateAudio: true },
     ]);
-    expect(mocks.getVideoStatusPolls()).toBeGreaterThanOrEqual(2);
+    expect(mocks.getVideoStatusRequests()).toBe(1);
     expect(mocks.getProjectModes()).toEqual(["videos"]);
     expect(mocks.getUnexpectedApiRequests()).toEqual([]);
   });
@@ -640,8 +689,10 @@ test.describe("Storyboard Step 3 project handoff", () => {
     await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
     await page.getByRole("button", { name: "Retry" }).click();
 
+    await expect.poll(mocks.getVideoStatusRequests, { timeout: 10_000 }).toBe(2);
+    await mocks.completeVideos();
     await expect(page).toHaveURL(new RegExp(`/editor\\?projectId=${PROJECT_ID}$`), { timeout: 20_000 });
-    expect(mocks.getVideoStatusPolls()).toBeGreaterThanOrEqual(2);
+    expect(mocks.getVideoStatusRequests()).toBe(2);
     expect(mocks.getProjectModes()).toEqual(["videos"]);
     expect(mocks.getUnexpectedApiRequests()).toEqual([]);
   });

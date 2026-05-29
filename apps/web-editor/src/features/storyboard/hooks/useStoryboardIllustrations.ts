@@ -12,11 +12,17 @@ import type {
   StoryboardIllustrationStatusItem,
   StoryboardIllustrationStatusResponse,
 } from '@/features/storyboard/types';
+import { useDraftStoryboardStatusSubscription } from '@/shared/hooks/useRealtimeSubscription';
 
-const DEFAULT_POLL_INTERVAL_MS = 1_500;
+import {
+  derivePhase,
+  deriveStatus,
+  eventHasIllustrationBinding,
+  hasPendingSceneStart,
+  isIllustrationStatusResponse,
+} from './useStoryboardIllustrations.status';
 
 type UseStoryboardIllustrationsOptions = {
-  pollIntervalMs?: number;
   onStoryboardUpdated?: () => void | Promise<void>;
 };
 
@@ -33,79 +39,21 @@ export type UseStoryboardIllustrationsResult = {
   refresh: () => Promise<StoryboardIllustrationStatusItem[]>;
 };
 
-function hasActiveJob(item: StoryboardIllustrationStatusItem | StoryboardIllustrationReferenceStatus): boolean {
-  return item.jobId !== null && (item.status === 'queued' || item.status === 'running');
-}
-
-function deriveStatus(response: StoryboardIllustrationStatusResponse): StoryboardIllustrationLifecycleStatus {
-  const entries = [response.reference, ...response.items];
-  if (entries.some(hasActiveJob)) {
-    return entries.some((item) => item.jobId !== null && item.status === 'running') ? 'running' : 'queued';
-  }
-  if (entries.some((item) => item.status === 'failed')) return 'failed';
-  if (
-    response.reference.status === 'ready' &&
-    response.reference.approvalStatus === 'approved' &&
-    response.items.length > 0 &&
-    response.items.every((item) => item.jobId !== null && item.status === 'ready')
-  ) {
-    return 'completed';
-  }
-  return 'idle';
-}
-
-function derivePhase(response: StoryboardIllustrationStatusResponse): StoryboardIllustrationLifecyclePhase {
-  if (hasActiveJob(response.reference)) {
-    return 'reference';
-  }
-  if (response.items.some(hasActiveJob)) {
-    return 'scene';
-  }
-  if (response.reference.status === 'failed') {
-    return 'reference';
-  }
-  if (response.items.some((item) => item.status === 'failed')) {
-    return 'scene';
-  }
-  if (
-    response.reference.status === 'ready' &&
-    response.reference.approvalStatus === 'approved' &&
-    response.items.length > 0 &&
-    response.items.every((item) => item.jobId !== null && item.status === 'ready')
-  ) {
-    return 'completed';
-  }
-  return 'idle';
-}
-
-function hasActiveWork(response: StoryboardIllustrationStatusResponse): boolean {
-  return hasActiveJob(response.reference) || response.items.some(hasActiveJob);
-}
-
-function hasPendingSceneStart(response: StoryboardIllustrationStatusResponse): boolean {
-  return (
-    response.reference.status === 'ready' &&
-    response.reference.approvalStatus === 'approved' &&
-    !response.items.some(hasActiveJob) &&
-    response.items.some((item) => item.status === 'queued' && item.jobId === null)
-  );
-}
+type StoryboardStatusPayload = {
+  resource?: unknown;
+  status?: unknown;
+};
 
 export function useStoryboardIllustrations(
   draftId: string,
   options: UseStoryboardIllustrationsOptions = {},
 ): UseStoryboardIllustrationsResult {
-  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const onStoryboardUpdatedRef = useRef(options.onStoryboardUpdated);
-  const timeoutRef = useRef<number | null>(null);
   const isMountedRef = useRef(true);
   const seenOutputFileIdsRef = useRef<Set<string>>(new Set());
   const activeDraftIdRef = useRef(draftId);
   const requestTokenRef = useRef(0);
-  const hasActiveWorkRef = useRef(false);
   const workflowActiveRef = useRef(false);
-  const shouldContinueSceneStartRef = useRef(false);
-  const schedulePollRef = useRef<(() => void) | null>(null);
 
   const [items, setItems] = useState<StoryboardIllustrationStatusItem[]>([]);
   const [reference, setReference] = useState<StoryboardIllustrationReferenceStatus | null>(null);
@@ -117,24 +65,15 @@ export function useStoryboardIllustrations(
     onStoryboardUpdatedRef.current = options.onStoryboardUpdated;
   }, [options.onStoryboardUpdated]);
 
-  const clearPollTimeout = useCallback(() => {
-    if (timeoutRef.current !== null) {
-      window.clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  }, []);
-
   const applyResponse = useCallback((response: StoryboardIllustrationStatusResponse) => {
     const nextStatus = deriveStatus(response);
     const nextPhase = derivePhase(response);
-    const shouldContinueSceneStart = workflowActiveRef.current && hasPendingSceneStart(response);
+    const shouldContinueSceneStart = hasPendingSceneStart(response);
 
     setReference(response.reference);
     setItems(response.items);
     setStatus(shouldContinueSceneStart ? 'queued' : nextStatus);
     setPhase(shouldContinueSceneStart ? 'scene' : nextPhase);
-    hasActiveWorkRef.current = hasActiveWork(response) || shouldContinueSceneStart;
-    shouldContinueSceneStartRef.current = shouldContinueSceneStart;
 
     if (nextStatus === 'completed' || nextStatus === 'failed') {
       workflowActiveRef.current = false;
@@ -154,6 +93,7 @@ export function useStoryboardIllustrations(
     if (unseenReadyOutput) {
       void onStoryboardUpdatedRef.current?.();
     }
+    return { shouldContinueSceneStart };
   }, []);
 
   const beginRequest = useCallback((draftIdForRequest: string): number => {
@@ -169,20 +109,17 @@ export function useStoryboardIllustrations(
       && activeDraftIdRef.current === draftIdForRequest
   ), []);
 
-  const refresh = useCallback(async (): Promise<StoryboardIllustrationStatusItem[]> => {
-    if (!draftId) return [];
+  const refreshStatusSnapshot = useCallback(async (): Promise<StoryboardIllustrationStatusResponse | null> => {
+    if (!draftId) return null;
     const token = beginRequest(draftId);
     try {
       const response = await fetchStoryboardIllustrations(draftId);
-      if (!isCurrentRequest(draftId, token)) return [];
+      if (!isCurrentRequest(draftId, token)) return null;
       setError(null);
       applyResponse(response);
-      if (hasActiveWork(response)) {
-        schedulePollRef.current?.();
-      }
-      return response.items;
+      return response;
     } catch (err) {
-      if (!isCurrentRequest(draftId, token)) return [];
+      if (!isCurrentRequest(draftId, token)) return null;
       setError('Could not check illustration progress.');
       setStatus('failed');
       setPhase('failed');
@@ -199,39 +136,56 @@ export function useStoryboardIllustrations(
     applyResponse(response);
   }, [applyResponse, draftId, isCurrentRequest]);
 
-  const schedulePoll = useCallback(() => {
-    clearPollTimeout();
-    timeoutRef.current = window.setTimeout(() => {
-      void refresh().then(async () => {
-        if (!isMountedRef.current) return;
-        if (shouldContinueSceneStartRef.current) {
-          try {
-            await continueStoryboardIllustrations();
-          } catch {
-            if (!isMountedRef.current) return;
-            workflowActiveRef.current = false;
-            hasActiveWorkRef.current = false;
-            shouldContinueSceneStartRef.current = false;
-            setError('Could not start illustration generation.');
-            setStatus('failed');
-            setPhase('reference');
-          }
-          if (!isMountedRef.current) return;
-        }
-        if (hasActiveWorkRef.current) schedulePoll();
-      }).catch(() => {
-        clearPollTimeout();
-      });
-    }, pollIntervalMs);
-  }, [clearPollTimeout, continueStoryboardIllustrations, pollIntervalMs, refresh]);
+  const refresh = useCallback(async (): Promise<StoryboardIllustrationStatusItem[]> => {
+    const response = await refreshStatusSnapshot();
+    if (response && hasPendingSceneStart(response)) {
+      await continueStoryboardIllustrations();
+    }
+    return response?.items ?? [];
+  }, [continueStoryboardIllustrations, refreshStatusSnapshot]);
 
-  useEffect(() => {
-    schedulePollRef.current = schedulePoll;
-  }, [schedulePoll]);
+  const handleStatusResponse = useCallback(async (
+    response: StoryboardIllustrationStatusResponse,
+  ): Promise<void> => {
+    const result = applyResponse(response);
+    if (!result.shouldContinueSceneStart) return;
+    try {
+      await continueStoryboardIllustrations();
+    } catch {
+      if (!isMountedRef.current) return;
+      workflowActiveRef.current = false;
+      setError('Could not start illustration generation.');
+      setStatus('failed');
+      setPhase('reference');
+    }
+  }, [applyResponse, continueStoryboardIllustrations]);
+
+  const refreshFromRealtime = useCallback(() => {
+    if (!draftId) return;
+    void refreshStatusSnapshot()
+      .then(async (response) => {
+        if (!response || !isMountedRef.current) return;
+        await handleStatusResponse(response);
+      })
+      .catch(() => undefined);
+  }, [draftId, handleStatusResponse, refreshStatusSnapshot]);
+
+  useDraftStoryboardStatusSubscription(draftId || null, {
+    enabled: Boolean(draftId),
+    onEvent: (event) => {
+      if (!eventHasIllustrationBinding(event)) return;
+      const payload = event.payload as StoryboardStatusPayload;
+      if (payload.resource === 'storyboardIllustrations' && isIllustrationStatusResponse(payload.status)) {
+        void handleStatusResponse(payload.status);
+        return;
+      }
+      refreshFromRealtime();
+    },
+    onReconnect: refreshFromRealtime,
+  });
 
   const start = useCallback(async (): Promise<void> => {
     if (!draftId) return;
-    clearPollTimeout();
     const token = beginRequest(draftId);
     workflowActiveRef.current = true;
     setStatus('queued');
@@ -241,8 +195,7 @@ export function useStoryboardIllustrations(
     try {
       const response = await startStoryboardIllustrations(draftId);
       if (!isCurrentRequest(draftId, token)) return;
-      applyResponse(response);
-      if (hasActiveWorkRef.current) schedulePoll();
+      await handleStatusResponse(response);
     } catch (err) {
       if (!isCurrentRequest(draftId, token)) return;
       workflowActiveRef.current = false;
@@ -250,11 +203,10 @@ export function useStoryboardIllustrations(
       setStatus('failed');
       setPhase('failed');
     }
-  }, [applyResponse, beginRequest, clearPollTimeout, draftId, isCurrentRequest, schedulePoll]);
+  }, [beginRequest, draftId, handleStatusResponse, isCurrentRequest]);
 
   const retryBlock = useCallback(async (blockId: string): Promise<void> => {
     if (!draftId) return;
-    clearPollTimeout();
     const token = beginRequest(draftId);
     setStatus('queued');
     setPhase('scene');
@@ -263,42 +215,32 @@ export function useStoryboardIllustrations(
     try {
       const response = await startStoryboardBlockIllustration(draftId, blockId);
       if (!isCurrentRequest(draftId, token)) return;
-      applyResponse(response);
-      if (hasActiveWork(response)) schedulePoll();
+      await handleStatusResponse(response);
     } catch (err) {
       if (!isCurrentRequest(draftId, token)) return;
       setError('Could not retry the scene illustration.');
       setStatus('failed');
       setPhase('failed');
     }
-  }, [applyResponse, beginRequest, clearPollTimeout, draftId, isCurrentRequest, schedulePoll]);
+  }, [beginRequest, draftId, handleStatusResponse, isCurrentRequest]);
 
   useEffect(() => {
     isMountedRef.current = true;
     activeDraftIdRef.current = draftId;
     requestTokenRef.current += 1;
     seenOutputFileIdsRef.current = new Set();
-    hasActiveWorkRef.current = false;
     workflowActiveRef.current = false;
-    shouldContinueSceneStartRef.current = false;
-    clearPollTimeout();
     setItems([]);
     setReference(null);
     setStatus('idle');
     setPhase('idle');
     setError(null);
-    void refresh().then((nextItems) => {
-      if (!isMountedRef.current) return;
-      if (hasActiveWorkRef.current) schedulePoll();
-    }).catch(() => {
-      clearPollTimeout();
-    });
+    void refresh().catch(() => undefined);
 
     return () => {
       isMountedRef.current = false;
-      clearPollTimeout();
     };
-  }, [clearPollTimeout, draftId, refresh, schedulePoll]);
+  }, [draftId, refresh]);
 
   const byBlockId = useMemo(() => (
     new Map(items.map((item) => [item.blockId, item]))

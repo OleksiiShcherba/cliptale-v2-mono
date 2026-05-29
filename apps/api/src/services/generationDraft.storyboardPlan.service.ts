@@ -11,6 +11,7 @@ import {
   NotFoundError,
   UnprocessableEntityError,
 } from '@/lib/errors.js';
+import { publishStoryboardStatusUpdated } from '@/lib/realtimePublisher.js';
 import * as generationDraftRepository from '@/repositories/generationDraft.repository.js';
 import type { GenerationDraft } from '@/repositories/generationDraft.repository.js';
 import * as storyboardPlanJobRepository from '@/repositories/storyboardPlanJob.repository.js';
@@ -70,6 +71,16 @@ export async function startStoryboardPlan(
     promptSnapshot: draft.promptDoc,
   });
   if (!reservation.created) {
+    await publishStoryboardStatusUpdated({
+      userId,
+      draftId,
+      payload: {
+        resource: 'storyboardPlan',
+        jobId: reservation.jobId,
+        status: reservation.status,
+        errorMessage: null,
+      },
+    });
     return { jobId: reservation.jobId, status: reservation.status };
   }
 
@@ -77,8 +88,29 @@ export async function startStoryboardPlan(
     await enqueueStoryboardPlan({ jobId: reservation.jobId, draftId, userId });
   } catch (error) {
     await storyboardPlanJobRepository.markFailed(reservation.jobId, error);
+    await publishStoryboardStatusUpdated({
+      userId,
+      draftId,
+      payload: {
+        resource: 'storyboardPlan',
+        jobId: reservation.jobId,
+        status: 'failed',
+        errorMessage: error instanceof Error ? error.message : 'Failed to enqueue storyboard plan job',
+      },
+    });
     throw error;
   }
+
+  await publishStoryboardStatusUpdated({
+    userId,
+    draftId,
+    payload: {
+      resource: 'storyboardPlan',
+      jobId: reservation.jobId,
+      status: 'queued',
+      errorMessage: null,
+    },
+  });
 
   return { jobId: reservation.jobId, status: 'queued' };
 }

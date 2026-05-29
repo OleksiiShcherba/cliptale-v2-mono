@@ -59,6 +59,25 @@ export const aiGenerationJobRepo: AiGenerationJobRepo = {
       [fileId, jobId],
     );
 
+    await pool.execute(
+      `UPDATE storyboard_scene_video_jobs
+          SET status = 'ready',
+              output_file_id = ?,
+              error_message = NULL,
+              active_lock = 1
+        WHERE ai_job_id = ?`,
+      [fileId, jobId],
+    );
+    await pool.execute(
+      `UPDATE storyboard_music_generation_jobs
+          SET status = 'ready',
+              output_file_id = ?,
+              error_message = NULL,
+              active_lock = NULL
+        WHERE ai_job_id = ?`,
+      [fileId, jobId],
+    );
+
     if (draftId) {
       await pool.execute(
         'INSERT IGNORE INTO draft_files (draft_id, file_id) VALUES (?, ?)',
@@ -78,6 +97,22 @@ export const storyboardAiGenerationJobRepo: AiGenerationJobRepo & {
           SET status = 'failed',
               error_message = ?
         WHERE job_id = ?`,
+      [errorMessage, jobId],
+    );
+    await pool.execute(
+      `UPDATE storyboard_scene_video_jobs
+          SET status = 'failed',
+              error_message = ?,
+              active_lock = NULL
+        WHERE ai_job_id = ?`,
+      [errorMessage, jobId],
+    );
+    await pool.execute(
+      `UPDATE storyboard_music_generation_jobs
+          SET status = 'failed',
+              error_message = ?,
+              active_lock = NULL
+        WHERE ai_job_id = ?`,
       [errorMessage, jobId],
     );
   },

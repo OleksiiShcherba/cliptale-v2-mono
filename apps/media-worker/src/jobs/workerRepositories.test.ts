@@ -68,15 +68,21 @@ describe('workerRepositories', () => {
 
     await aiGenerationJobRepo.setOutputFile('job-1', 'file-1');
 
-    expect(mockExecute).toHaveBeenCalledTimes(3);
+    expect(mockExecute).toHaveBeenCalledTimes(5);
     expect(mockExecute.mock.calls[1][0]).toContain("SET status = 'completed'");
     expect(mockExecute.mock.calls[1][1]).toEqual(['file-1', 'job-1']);
-    expect(mockExecute.mock.calls[2][0]).toContain('INSERT IGNORE INTO draft_files');
-    expect(mockExecute.mock.calls[2][1]).toEqual(['draft-1', 'file-1']);
+    expect(mockExecute.mock.calls[2][0]).toContain('UPDATE storyboard_scene_video_jobs');
+    expect(mockExecute.mock.calls[2][0]).toContain("SET status = 'ready'");
+    expect(mockExecute.mock.calls[2][1]).toEqual(['file-1', 'job-1']);
+    expect(mockExecute.mock.calls[3][0]).toContain('UPDATE storyboard_music_generation_jobs');
+    expect(mockExecute.mock.calls[3][0]).toContain("SET status = 'ready'");
+    expect(mockExecute.mock.calls[3][1]).toEqual(['file-1', 'job-1']);
+    expect(mockExecute.mock.calls[4][0]).toContain('INSERT IGNORE INTO draft_files');
+    expect(mockExecute.mock.calls[4][1]).toEqual(['draft-1', 'file-1']);
   });
 
   it('marks storyboard AI jobs failed with sanitized worker errors', async () => {
-    mockExecute.mockResolvedValueOnce([{ affectedRows: 1 }]);
+    mockExecute.mockResolvedValue([{ affectedRows: 1 }]);
 
     await storyboardAiGenerationJobRepo.markFailed('job-1', 'safe failure');
 
@@ -84,6 +90,18 @@ describe('workerRepositories', () => {
     expect(sql).toContain("SET status = 'failed'");
     expect(sql).toContain('error_message = ?');
     expect(params).toEqual(['safe failure', 'job-1']);
+
+    const [videoSql, videoParams] = mockExecute.mock.calls[1] as [string, unknown[]];
+    expect(videoSql).toContain('UPDATE storyboard_scene_video_jobs');
+    expect(videoSql).toContain("SET status = 'failed'");
+    expect(videoSql).toContain('active_lock = NULL');
+    expect(videoParams).toEqual(['safe failure', 'job-1']);
+
+    const [musicSql, musicParams] = mockExecute.mock.calls[2] as [string, unknown[]];
+    expect(musicSql).toContain('UPDATE storyboard_music_generation_jobs');
+    expect(musicSql).toContain("SET status = 'failed'");
+    expect(musicSql).toContain('active_lock = NULL');
+    expect(musicParams).toEqual(['safe failure', 'job-1']);
   });
 
   it('filters storyboard image references by user, image kind, non-deleted status, and requested ids', async () => {

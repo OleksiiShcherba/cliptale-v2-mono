@@ -2,6 +2,7 @@ import React from 'react';
 
 import { useFileStreamUrl } from '@/shared/hooks/useFileStreamUrl';
 
+import { useStoryboardBulkStreamUrl } from './SceneBlockNode.mediaThumbnail';
 import type { PrincipalImageLightboxState } from './PrincipalImageLightbox';
 import * as s from './PrincipalImageApprovalModal.styles';
 
@@ -44,7 +45,13 @@ function ReferencePreview({
   onOpenLightbox,
 }: ReferencePreviewProps): React.ReactElement {
   const [previewFailed, setPreviewFailed] = React.useState(false);
-  const { url, isLoading, error } = useFileStreamUrl(fileId);
+  const bulkPreview = useStoryboardBulkStreamUrl(fileId);
+  const shouldFallbackToSingle = !bulkPreview.url &&
+    !bulkPreview.isMissing &&
+    (!bulkPreview.isBulkManaged || bulkPreview.error !== null);
+  const { url: fallbackUrl, isLoading, error } = useFileStreamUrl(shouldFallbackToSingle ? fileId : null);
+  const bulkUrl = bulkPreview.url;
+  const url = bulkUrl ?? fallbackUrl;
 
   React.useEffect(() => {
     setPreviewFailed(false);
@@ -75,9 +82,13 @@ function ReferencePreview({
       ) : (
         <span
           style={s.referencePreviewFallbackStyle}
-          aria-label={error ?? (isLoading ? 'Loading reference preview' : 'Reference preview unavailable')}
+          aria-label={error ?? (
+            isLoading || (bulkPreview.isBulkManaged && !bulkPreview.isMissing && !bulkPreview.error)
+              ? 'Loading reference preview'
+              : 'Reference preview unavailable'
+          )}
         >
-          {isLoading ? '' : '!'}
+          {isLoading || (bulkPreview.isBulkManaged && !bulkPreview.isMissing && !bulkPreview.error) ? '' : '!'}
         </span>
       )}
       <button

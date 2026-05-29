@@ -181,6 +181,34 @@ describe('AssetThumbCard / drag-and-drop', () => {
     expect(mockApiClientGet).toHaveBeenCalledWith('/files/img-stream-1/stream');
   });
 
+  it('uses a pre-resolved preview URL without calling the single-file stream endpoint', async () => {
+    render(
+      <AssetThumbCard
+        asset={makeImageAsset({ id: 'img-stream-1', thumbnailUrl: null })}
+        onAssetSelected={onAssetSelected}
+        previewUrl="https://signed.test/bulk/img-stream-1"
+      />,
+    );
+
+    const image = await screen.findByAltText('photo.jpg') as HTMLImageElement;
+    expect(image.src).toBe('https://signed.test/bulk/img-stream-1');
+    expect(mockApiClientGet).not.toHaveBeenCalled();
+  });
+
+  it('renders the image placeholder when a bulk context reports no preview URL', () => {
+    render(
+      <AssetThumbCard
+        asset={makeImageAsset({ id: 'img-missing-1', thumbnailUrl: null })}
+        onAssetSelected={onAssetSelected}
+        previewUrl={null}
+      />,
+    );
+
+    expect(screen.queryByAltText('photo.jpg')).toBeNull();
+    expect(screen.getByText('🖼')).toBeTruthy();
+    expect(mockApiClientGet).not.toHaveBeenCalled();
+  });
+
   it('still fires onAssetSelected on click (existing behavior preserved)', () => {
     const asset = makeVideoAsset();
     render(<AssetThumbCard asset={asset} onAssetSelected={onAssetSelected} />);

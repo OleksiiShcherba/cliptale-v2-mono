@@ -1,57 +1,32 @@
-import React from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 
-const {
+import {
   mockCreateProjectFromStoryboard,
   mockFetchStoryboardMusic,
   mockFetchStoryboardVideos,
   mockGeneratePendingStoryboardMusic,
-} = vi.hoisted(() => ({
-  mockCreateProjectFromStoryboard: vi.fn(),
-  mockFetchStoryboardMusic: vi.fn(),
-  mockFetchStoryboardVideos: vi.fn(),
-  mockGeneratePendingStoryboardMusic: vi.fn(),
-}));
+  mockRealtimeSubscriptions,
+  renderPage,
+  renderStrictModePage,
+  setupStoryboardProjectPageTestLifecycle,
+} from './GenerateProjectFromStoryboardPage.test-utils';
 
-vi.mock('@/features/storyboard/api', () => ({
-  createProjectFromStoryboard: mockCreateProjectFromStoryboard,
-  fetchStoryboardMusic: mockFetchStoryboardMusic,
-  fetchStoryboardVideos: mockFetchStoryboardVideos,
-  generatePendingStoryboardMusic: mockGeneratePendingStoryboardMusic,
-}));
-
-import {
-  GenerateProjectFromStoryboardPage,
-  resetStoryboardProjectAssemblyRequestsForTests,
-} from './GenerateProjectFromStoryboardPage';
-
-function renderPage(initialEntry: string = '/generate/road-map?draftId=draft-123') {
-  return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
-      <Routes>
-        <Route path="/generate/road-map" element={<GenerateProjectFromStoryboardPage />} />
-        <Route path="/editor" element={<div data-testid="editor-page" />} />
-        <Route path="/generate" element={<div data-testid="generate-page" />} />
-        <Route path="/storyboard/:draftId" element={<div data-testid="storyboard-page" />} />
-      </Routes>
-    </MemoryRouter>,
-  );
+function emitStoryboardStatus(payload: Record<string, unknown>): void {
+  act(() => {
+    mockRealtimeSubscriptions.forEach(({ handlers }) => {
+      handlers.onEvent({
+        type: 'storyboard.status.updated',
+        draftId: 'draft-123',
+        userId: 'user-1',
+        payload,
+      });
+    });
+  });
 }
 
 describe('GenerateProjectFromStoryboardPage', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    resetStoryboardProjectAssemblyRequestsForTests();
-    mockGeneratePendingStoryboardMusic.mockResolvedValue({ items: [] });
-    mockFetchStoryboardMusic.mockResolvedValue({ items: [] });
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-    resetStoryboardProjectAssemblyRequestsForTests();
-  });
+  setupStoryboardProjectPageTestLifecycle();
 
   it('shows loading and navigates to the editor after successful assembly', async () => {
     mockCreateProjectFromStoryboard.mockResolvedValue({ projectId: 'project-123', versionId: 7 });
@@ -68,16 +43,7 @@ describe('GenerateProjectFromStoryboardPage', () => {
   it('dedupes the request under React Strict Mode double effects', async () => {
     mockCreateProjectFromStoryboard.mockResolvedValue({ projectId: 'project-123', versionId: 7 });
 
-    render(
-      <React.StrictMode>
-        <MemoryRouter initialEntries={['/generate/road-map?draftId=draft-123']}>
-          <Routes>
-            <Route path="/generate/road-map" element={<GenerateProjectFromStoryboardPage />} />
-            <Route path="/editor" element={<div data-testid="editor-page" />} />
-          </Routes>
-        </MemoryRouter>
-      </React.StrictMode>,
-    );
+    renderStrictModePage();
 
     await waitFor(() => expect(screen.getByTestId('editor-page')).toBeTruthy());
     expect(mockCreateProjectFromStoryboard).toHaveBeenCalledTimes(1);
@@ -98,15 +64,9 @@ describe('GenerateProjectFromStoryboardPage', () => {
     expect(mockCreateProjectFromStoryboard).toHaveBeenCalledWith('draft-123', 'videos');
   });
 
-  it('polls queued video status until videos are ready before assembly', async () => {
-    vi.useFakeTimers();
+  it('waits for realtime video readiness before assembly', async () => {
     mockFetchStoryboardVideos
-      .mockResolvedValueOnce({
-        items: [{ blockId: 'scene-1', status: 'running', outputFileId: null }],
-      })
-      .mockResolvedValueOnce({
-        items: [{ blockId: 'scene-1', status: 'ready', outputFileId: 'video-file-1' }],
-      });
+      .mockResolvedValueOnce({ items: [{ blockId: 'scene-1', status: 'running', outputFileId: null }] });
     mockCreateProjectFromStoryboard.mockResolvedValue({ projectId: 'project-video', versionId: 9 });
 
     renderPage('/generate/road-map?draftId=draft-123&mode=videos');
@@ -114,16 +74,36 @@ describe('GenerateProjectFromStoryboardPage', () => {
     await vi.waitFor(() => expect(mockFetchStoryboardVideos).toHaveBeenCalledTimes(1));
     expect(mockCreateProjectFromStoryboard).not.toHaveBeenCalled();
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
+    emitStoryboardStatus({
+      resource: 'storyboardVideos',
+      status: { items: [{ blockId: 'scene-1', status: 'ready', outputFileId: 'video-file-1' }] },
     });
 
     await vi.waitFor(() => expect(mockCreateProjectFromStoryboard).toHaveBeenCalledWith('draft-123', 'videos'));
-    expect(mockFetchStoryboardVideos).toHaveBeenCalledTimes(2);
+    expect(mockFetchStoryboardVideos).toHaveBeenCalledTimes(1);
   });
 
-  it('polls generated music until it is ready before image assembly', async () => {
-    vi.useFakeTimers();
+  it('waits for realtime music readiness before image assembly', async () => {
+    mockGeneratePendingStoryboardMusic.mockResolvedValueOnce({
+      items: [{ id: 'music-1', generationStatus: 'running', outputFileId: null }],
+    });
+    mockCreateProjectFromStoryboard.mockResolvedValue({ projectId: 'project-123', versionId: 7 });
+
+    renderPage();
+
+    await vi.waitFor(() => expect(mockGeneratePendingStoryboardMusic).toHaveBeenCalledWith('draft-123'));
+    expect(mockCreateProjectFromStoryboard).not.toHaveBeenCalled();
+
+    emitStoryboardStatus({
+      resource: 'storyboardMusic',
+      status: { items: [{ id: 'music-1', generationStatus: 'ready', outputFileId: 'music-file-1' }] },
+    });
+
+    await vi.waitFor(() => expect(mockCreateProjectFromStoryboard).toHaveBeenCalledWith('draft-123', 'images'));
+    expect(mockFetchStoryboardMusic).not.toHaveBeenCalled();
+  });
+
+  it('refreshes Step 3 music status after reconnect before image assembly', async () => {
     mockGeneratePendingStoryboardMusic.mockResolvedValueOnce({
       items: [{ id: 'music-1', generationStatus: 'running', outputFileId: null }],
     });
@@ -138,11 +118,12 @@ describe('GenerateProjectFromStoryboardPage', () => {
     expect(mockCreateProjectFromStoryboard).not.toHaveBeenCalled();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
+      mockRealtimeSubscriptions.at(-1)?.handlers.onReconnect?.();
+      await Promise.resolve();
     });
 
     await vi.waitFor(() => expect(mockCreateProjectFromStoryboard).toHaveBeenCalledWith('draft-123', 'images'));
-    expect(mockFetchStoryboardMusic).toHaveBeenCalledWith('draft-123');
+    expect(mockFetchStoryboardMusic).toHaveBeenCalledTimes(1);
   });
 
   it('dedupes video assembly under React Strict Mode double effects', async () => {
@@ -151,16 +132,7 @@ describe('GenerateProjectFromStoryboardPage', () => {
     });
     mockCreateProjectFromStoryboard.mockResolvedValue({ projectId: 'project-video', versionId: 9 });
 
-    render(
-      <React.StrictMode>
-        <MemoryRouter initialEntries={['/generate/road-map?draftId=draft-123&mode=videos']}>
-          <Routes>
-            <Route path="/generate/road-map" element={<GenerateProjectFromStoryboardPage />} />
-            <Route path="/editor" element={<div data-testid="editor-page" />} />
-          </Routes>
-        </MemoryRouter>
-      </React.StrictMode>,
-    );
+    renderStrictModePage('/generate/road-map?draftId=draft-123&mode=videos');
 
     await waitFor(() => expect(screen.getByTestId('editor-page')).toBeTruthy());
     expect(mockFetchStoryboardVideos).toHaveBeenCalledTimes(1);
@@ -233,8 +205,7 @@ describe('GenerateProjectFromStoryboardPage', () => {
     expect(mockCreateProjectFromStoryboard).not.toHaveBeenCalled();
   });
 
-  it('sanitizes endpoint-shaped music polling errors before rendering them', async () => {
-    vi.useFakeTimers();
+  it('sanitizes endpoint-shaped music refresh errors before rendering them', async () => {
     mockGeneratePendingStoryboardMusic.mockResolvedValueOnce({
       items: [{ id: 'music-1', generationStatus: 'running', outputFileId: null }],
     });
@@ -244,8 +215,9 @@ describe('GenerateProjectFromStoryboardPage', () => {
 
     await vi.waitFor(() => expect(mockGeneratePendingStoryboardMusic).toHaveBeenCalledWith('draft-123'));
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
+    emitStoryboardStatus({
+      resource: 'aiGenerationJob',
+      storyboardBindings: [{ resource: 'storyboardMusic' }],
     });
 
     await vi.waitFor(() => expect(screen.getByText(/background music could not be prepared/i)).toBeTruthy());

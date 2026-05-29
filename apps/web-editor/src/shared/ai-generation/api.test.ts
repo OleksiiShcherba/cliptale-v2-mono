@@ -150,7 +150,7 @@ describe('ai-generation/api', () => {
         jobId: 'job-456',
         status: 'completed',
         progress: 100,
-        resultAssetId: 'asset-789',
+        outputFileId: 'asset-789',
         errorMessage: null,
       };
       mockApiClient.get.mockResolvedValue(okResponse(job));

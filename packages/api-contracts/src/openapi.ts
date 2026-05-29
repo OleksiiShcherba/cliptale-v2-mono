@@ -6,6 +6,7 @@
  * the spec and any consumer types must land in the same commit.
  *
  * Routes documented here:
+ *  - POST /files/stream-urls                    — bulk presigned file stream URLs
  *  - GET /projects                               — list authenticated user's projects (Home hub)
  *  - POST /projects                              — create project with optional title (Home hub)
  *  - PATCH /projects/{projectId}/clips/{clipId}  — partial clip update (Epic 6)
@@ -36,6 +37,37 @@ export const openApiSpec = {
     version: '1.0.0',
   },
   paths: {
+    '/files/stream-urls': {
+      post: {
+        summary: 'Resolve presigned stream URLs for multiple files',
+        description:
+          'Returns short-lived stream/download URLs for authenticated user-owned, non-deleted files. ' +
+          'Missing, foreign, and soft-deleted IDs are all reported in missingFileIds without detail.',
+        operationId: 'createFileStreamUrls',
+        tags: ['files'],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CreateFileStreamUrlsBody' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Resolved URL map and unresolved file IDs.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/FileStreamUrlsResponse' },
+              },
+            },
+          },
+          400: { description: 'Validation error.' },
+          401: { description: 'Missing or invalid JWT.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
     '/projects': {
       get: {
         summary: "List the authenticated user's projects",
@@ -2228,6 +2260,36 @@ export const openApiSpec = {
             description: 'Opaque cursor for the next page, or null at end of list.',
           },
           totals: { $ref: '#/components/schemas/AssetTotals' },
+        },
+      },
+      CreateFileStreamUrlsBody: {
+        type: 'object',
+        required: ['fileIds'],
+        additionalProperties: false,
+        properties: {
+          fileIds: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 100,
+            items: { type: 'string', format: 'uuid' },
+            description: 'File IDs to resolve. The API deduplicates IDs before lookup.',
+          },
+        },
+      },
+      FileStreamUrlsResponse: {
+        type: 'object',
+        required: ['urls', 'missingFileIds'],
+        properties: {
+          urls: {
+            type: 'object',
+            additionalProperties: { type: 'string' },
+            description: 'Map of fileId to short-lived presigned stream/download URL.',
+          },
+          missingFileIds: {
+            type: 'array',
+            items: { type: 'string', format: 'uuid' },
+            description: 'Requested IDs that were missing, foreign, or soft-deleted.',
+          },
         },
       },
       BlockMediaItem: {

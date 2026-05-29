@@ -14,6 +14,7 @@ const ASSET_DRAG_MIME = 'application/x-cliptale-asset';
 export interface AssetThumbCardProps {
   asset: AssetSummary;
   onAssetSelected: (asset: AssetSummary) => void;
+  previewUrl?: string | null;
 }
 
 /** Formats seconds as `m:ss`. */
@@ -32,11 +33,13 @@ function formatDuration(seconds: number): string {
 export function AssetThumbCard({
   asset,
   onAssetSelected,
+  previewUrl,
 }: AssetThumbCardProps): React.ReactElement {
   const [isHovered, setIsHovered] = useState(false);
   const [previewFailed, setPreviewFailed] = useState(false);
   const needsImageStream = asset.type === 'image' && !asset.thumbnailUrl;
-  const { url: imageStreamUrl } = useFileStreamUrl(needsImageStream ? asset.id : null);
+  const shouldResolveSingleImage = needsImageStream && previewUrl === undefined;
+  const { url: imageStreamUrl } = useFileStreamUrl(shouldResolveSingleImage ? asset.id : null);
   // Holds a reference to the off-screen drag image so we can remove it after
   // the drag ends. The element is appended to `document.body` during `dragstart`
   // and removed on `dragend` to avoid leaking DOM nodes.
@@ -45,7 +48,7 @@ export function AssetThumbCard({
   const thumbSrc = asset.thumbnailUrl
     ? buildAuthenticatedUrl(asset.thumbnailUrl)
     : asset.type === 'image'
-      ? imageStreamUrl
+      ? previewUrl ?? imageStreamUrl
       : null;
 
   React.useEffect(() => {

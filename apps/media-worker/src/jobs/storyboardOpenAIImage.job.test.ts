@@ -5,6 +5,10 @@ import type { S3Client } from '@aws-sdk/client-s3';
 import type OpenAI from 'openai';
 import type { StoryboardOpenAIImageJobPayload } from '@ai-video-editor/project-schema';
 
+vi.mock('@/lib/realtime.js', () => ({
+  publishAiGenerationJobStatus: vi.fn().mockResolvedValue(undefined),
+}));
+
 import {
   processStoryboardOpenAIImageJob,
   type StoryboardOpenAIImageJobDeps,

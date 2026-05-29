@@ -8,6 +8,7 @@ import {
   UnprocessableEntityError,
   ValidationError,
 } from '@/lib/errors.js';
+import { publishStoryboardStatusUpdated } from '@/lib/realtimePublisher.js';
 import * as aiGenerationJobRepository from '@/repositories/aiGenerationJob.repository.js';
 import * as generationDraftRepository from '@/repositories/generationDraft.repository.js';
 import type { GenerationDraft } from '@/repositories/generationDraft.repository.js';
@@ -276,5 +277,14 @@ export async function startStoryboardVideos(params: {
     }
   }
 
-  return listStoryboardVideos(params.userId, params.draftId);
+  const status = await listStoryboardVideos(params.userId, params.draftId);
+  await publishStoryboardStatusUpdated({
+    userId: params.userId,
+    draftId: params.draftId,
+    payload: {
+      resource: 'storyboardVideos',
+      status,
+    },
+  });
+  return status;
 }

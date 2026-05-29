@@ -117,18 +117,21 @@ export function AiGenerationPanel({
     setActiveCapability(getFirstCapabilityForGroup(next));
   }, []);
 
-  // Invalidate the asset list when a generation finishes so the new asset
+  // Invalidate the asset list once per completed job so the generated file
   // appears in the Asset Browser / wizard gallery without a manual refresh.
-  const prevStatusRef = useRef<string | null>(null);
+  const invalidatedJobIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const status = currentJob?.status ?? null;
-    if (prevStatusRef.current !== 'completed' && status === 'completed') {
-      // Invalidate context-scoped asset query. Uses the same key shape as
-      // AssetPickerField so the picker list also refreshes automatically.
+    if (!currentJob || currentJob.status !== 'completed') return;
+    if (invalidatedJobIdsRef.current.has(currentJob.jobId)) return;
+
+    invalidatedJobIdsRef.current.add(currentJob.jobId);
+    if (context.kind === 'project') {
+      void queryClient.invalidateQueries({ queryKey: ['assets', context.id] });
+    } else {
       void queryClient.invalidateQueries({ queryKey: ['assets', context.kind, context.id] });
+      void queryClient.invalidateQueries({ queryKey: ['generate-wizard', 'assets', context.id] });
     }
-    prevStatusRef.current = status;
-  }, [currentJob?.status, context.kind, context.id, queryClient]);
+  }, [currentJob, context.kind, context.id, queryClient]);
 
   const canSubmit = !!selectedModel && !isGenerating && hasAllRequired(selectedModel, optionValues);
 
@@ -271,4 +274,3 @@ export function AiGenerationPanel({
     </div>
   );
 }
-

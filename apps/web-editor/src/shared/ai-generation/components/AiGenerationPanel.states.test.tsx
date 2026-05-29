@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const { mockListModels, mockGetContextAssets } = vi.hoisted(() => ({
   mockListModels: vi.fn(),
@@ -30,6 +31,7 @@ import {
  *  `AiGenerationPanel.fixtures.tsx`. */
 
 const PROJECT_CTX = { kind: 'project' as const, id: 'proj-1' };
+const DRAFT_CTX = { kind: 'draft' as const, id: 'draft-42' };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -84,6 +86,73 @@ describe('AiGenerationPanel / states', () => {
     await waitFor(() => expect(screen.getByText('Generation complete!')).toBeTruthy());
     expect(screen.getByText('Added to your Assets')).toBeTruthy();
     expect(screen.getByRole('button', { name: /generate another/i })).toBeTruthy();
+  });
+
+  it('invalidates the project asset query exactly once when a job completes', async () => {
+    mockUseAiGeneration.mockReturnValue({
+      ...defaultHookReturn(),
+      currentJob: {
+        jobId: 'job-1',
+        status: 'completed',
+        progress: 100,
+        resultAssetId: 'asset-1',
+        errorMessage: null,
+      },
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+
+    const { rerender } = render(
+      <QueryClientProvider client={client}>
+        <AiGenerationPanel context={PROJECT_CTX} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['assets', 'proj-1'] }),
+    );
+    rerender(
+      <QueryClientProvider client={client}>
+        <AiGenerationPanel context={PROJECT_CTX} />
+      </QueryClientProvider>,
+    );
+
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves draft context when invalidating generated draft assets', async () => {
+    mockUseAiGeneration.mockReturnValue({
+      ...defaultHookReturn(),
+      currentJob: {
+        jobId: 'job-1',
+        status: 'completed',
+        progress: 100,
+        resultAssetId: 'asset-1',
+        errorMessage: null,
+      },
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+
+    render(
+      <QueryClientProvider client={client}>
+        <AiGenerationPanel context={DRAFT_CTX} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['assets', 'draft', 'draft-42'],
+      }),
+    );
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['generate-wizard', 'assets', 'draft-42'],
+    });
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['assets', 'draft-42'] });
   });
 
   it('renders "View in Assets" and calls both callbacks when clicked', async () => {

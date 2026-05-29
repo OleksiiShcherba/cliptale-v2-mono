@@ -45,6 +45,17 @@ export {
   resolveStoryboardPlanVideoLengthSeconds,
   resolveStoryboardPlanStyleKey,
 } from './schemas/storyboardPlan.schema.js';
+export {
+  REALTIME_REDIS_CHANNEL,
+  realtimeSubscriptionScopeSchema,
+  realtimeSubscribeMessageSchema,
+  realtimeUnsubscribeMessageSchema,
+  realtimeClientMessageSchema,
+  realtimeStoryboardEventSchema,
+  realtimeAiJobEventSchema,
+  realtimeRedisEventSchema,
+  realtimeServerMessageSchema,
+} from './schemas/realtime.schema.js';
 export type { ProjectDoc, Track, Clip, VideoClip, AudioClip, TextOverlayClip, ImageClip, CaptionClip } from './types/index.js';
 export type {
   PromptDoc,
@@ -71,6 +82,16 @@ export type {
   StoryboardPlanJobStatus,
   StoryboardPlanJobResult,
 } from './schemas/storyboardPlan.schema.js';
+export type {
+  RealtimeSubscriptionScope,
+  RealtimeSubscribeMessage,
+  RealtimeUnsubscribeMessage,
+  RealtimeClientMessage,
+  RealtimeStoryboardEvent,
+  RealtimeAiJobEvent,
+  RealtimeRedisEvent,
+  RealtimeServerMessage,
+} from './schemas/realtime.schema.js';
 export type {
   MediaIngestJobPayload,
   TranscriptionJobPayload,

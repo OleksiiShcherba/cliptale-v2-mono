@@ -33,8 +33,9 @@ import {
 // Mock dependencies
 // ---------------------------------------------------------------------------
 
-const { mockApiClientGet } = vi.hoisted(() => ({
+const { mockApiClientGet, mockApiClientPost } = vi.hoisted(() => ({
   mockApiClientGet: vi.fn(),
+  mockApiClientPost: vi.fn(),
 }));
 
 vi.mock('@/features/generate-wizard/api', () => ({
@@ -46,7 +47,7 @@ vi.mock('@/lib/api-client', () => ({
   getAuthToken: () => 'test-token',
   apiClient: {
     get: mockApiClientGet,
-    post: vi.fn(),
+    post: mockApiClientPost,
     patch: vi.fn(),
     delete: vi.fn(),
   },
@@ -57,6 +58,7 @@ vi.mock('@/lib/config', () => ({
 }));
 
 import { listAssets } from '@/features/generate-wizard/api';
+import { clearBulkFileStreamUrlCacheForTests } from '@/shared/hooks/useBulkFileStreamUrls';
 
 const mockListAssets = vi.mocked(listAssets);
 
@@ -123,10 +125,21 @@ function mockFailure() {
 describe('AssetPickerModal', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    clearBulkFileStreamUrlCacheForTests();
     mockApiClientGet.mockImplementation((path: string) => Promise.resolve({
       ok: true,
       status: 200,
       json: async () => ({ url: `https://signed.test${path}` }),
+    }));
+    mockApiClientPost.mockImplementation((_path: string, body: { fileIds: string[] }) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        urls: Object.fromEntries(
+          body.fileIds.map((fileId) => [fileId, `https://signed.test/files/${fileId}/stream`]),
+        ),
+        missingFileIds: [],
+      }),
     }));
   });
 
@@ -153,7 +166,39 @@ describe('AssetPickerModal', () => {
 
     const image = await screen.findByAltText(IMAGE_ASSET.label) as HTMLImageElement;
     expect(image.src).toBe('https://signed.test/files/i1/stream');
-    expect(mockApiClientGet).toHaveBeenCalledWith('/files/i1/stream');
+    expect(mockApiClientPost).toHaveBeenCalledWith('/files/stream-urls', { fileIds: ['i1'] });
+    expect(mockApiClientGet).not.toHaveBeenCalled();
+  });
+
+  it('should use an existing image thumbnail without requesting stream URLs', async () => {
+    mockSuccess(IMAGE_RESPONSE);
+    renderModal('image');
+
+    const image = await screen.findByAltText(IMAGE_ASSET.label) as HTMLImageElement;
+    expect(image.src).toBe('http://example.com/thumb/i1.jpg?token=test-token');
+    expect(mockApiClientPost).not.toHaveBeenCalled();
+    expect(mockApiClientGet).not.toHaveBeenCalled();
+  });
+
+  it('should resolve multiple image previews with one bulk stream request', async () => {
+    mockSuccess({
+      items: [
+        { ...IMAGE_ASSET, id: 'i1', label: 'Hero banner', thumbnailUrl: null },
+        { ...IMAGE_ASSET, id: 'i2', label: 'Square cover', thumbnailUrl: null },
+      ],
+      nextCursor: null,
+      totals: { count: 2, bytesUsed: 200 },
+    });
+    renderModal('image');
+
+    const firstImage = await screen.findByAltText('Hero banner') as HTMLImageElement;
+    const secondImage = await screen.findByAltText('Square cover') as HTMLImageElement;
+
+    expect(firstImage.src).toBe('https://signed.test/files/i1/stream');
+    expect(secondImage.src).toBe('https://signed.test/files/i2/stream');
+    expect(mockApiClientPost).toHaveBeenCalledTimes(1);
+    expect(mockApiClientPost).toHaveBeenCalledWith('/files/stream-urls', { fileIds: ['i1', 'i2'] });
+    expect(mockApiClientGet).not.toHaveBeenCalled();
   });
 
   it('should render "Insert Audio" title when mediaType is audio', async () => {

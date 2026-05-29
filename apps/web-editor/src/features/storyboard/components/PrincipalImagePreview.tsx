@@ -2,6 +2,7 @@ import React from 'react';
 
 import { useFileStreamUrl } from '@/shared/hooks/useFileStreamUrl';
 
+import { useStoryboardBulkStreamUrl } from './SceneBlockNode.mediaThumbnail';
 import type { PrincipalImageLightboxState } from './PrincipalImageLightbox';
 import * as s from './PrincipalImageApprovalModal.styles';
 
@@ -17,13 +18,22 @@ export function PrincipalImagePreview({
   onOpenLightbox,
 }: PrincipalImagePreviewProps): React.ReactElement {
   const [previewFailed, setPreviewFailed] = React.useState(false);
-  const { url: previewUrl, isLoading: isUrlLoading, error } = useFileStreamUrl(fileId);
+  const bulkPreview = useStoryboardBulkStreamUrl(fileId);
+  const shouldFallbackToSingle = !bulkPreview.url &&
+    !bulkPreview.isMissing &&
+    (!bulkPreview.isBulkManaged || bulkPreview.error !== null);
+  const { url: fallbackPreviewUrl, isLoading: isUrlLoading, error } =
+    useFileStreamUrl(shouldFallbackToSingle ? fileId : null);
+  const bulkPreviewUrl = bulkPreview.url;
+  const previewUrl = bulkPreviewUrl ?? fallbackPreviewUrl;
 
   React.useEffect(() => {
     setPreviewFailed(false);
   }, [fileId, previewUrl]);
 
-  const showLoader = isPreviewLoading || isUrlLoading;
+  const showLoader = isPreviewLoading ||
+    isUrlLoading ||
+    (bulkPreview.isBulkManaged && !bulkPreview.isMissing && !previewUrl && !bulkPreview.error);
 
   return (
     <div style={s.previewShellStyle} data-testid="principal-image-preview">

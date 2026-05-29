@@ -1512,6 +1512,198 @@
 
 ---
 
+## 2026-05-27 - BULK-WS-1 Backend Bulk File Stream URL Endpoint
+- implemented: added authenticated `POST /files/stream-urls` with `{ fileIds: string[] }`, 100-ID validation, service-side dedupe, user-owned/non-deleted filtering, and `{ urls, missingFileIds }` response shape.
+- implemented: reused the existing `GET /files/:id/stream` S3 presign behavior and expiry for all returned URLs while preserving the single-file endpoint.
+- covered: added focused integration coverage for multi-file success, dedupe/presign count, missing/foreign/deleted IDs, invalid/empty/over-limit requests, and single-file compatibility.
+- covered: updated OpenAPI with request/response schemas and route contract tests.
+- validation: `npm --workspace apps/api test -- file` -> failed in pre-existing `src/services/file.softdelete.service.test.ts` restore TTL assertions; new `file-stream-urls` integration test passed in the same run.
+- validation: `npm --workspace apps/api test -- src/__tests__/integration/file-stream-urls-endpoint.test.ts` -> 1 file / 6 tests passed.
+- validation: `npm --workspace packages/api-contracts test -- openapi` -> 7 files / 154 tests passed.
+- validation: `npm --workspace apps/api run typecheck` -> passed.
+- active task: removed only `BULK-WS-1` from `docs/active_task.md`.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+---
+
+## 2026-05-27 - BULK-WS-2 Use Bulk Stream URLs in Step 1 Media Gallery
+- implemented: added `useBulkFileStreamUrls(fileIds)` with stable unique ID resolution, in-flight request reuse, per-file URL caching, missing-ID caching, and `POST /files/stream-urls` integration.
+- implemented: updated `AssetThumbCard` to accept an optional pre-resolved `previewUrl` while preserving the existing single-file `useFileStreamUrl` fallback for standalone card usage.
+- implemented: updated `MediaGalleryRecentBody` and `AssetPickerModal` to collect visible image assets lacking `thumbnailUrl`, bulk-resolve those file IDs once, and pass resolved preview URLs down to thumbnail cards.
+- covered: added hook coverage for dedupe/caching/empty sets, updated picker/gallery tests to assert one bulk request for multiple image previews, and added card coverage proving pre-resolved previews do not call the single-file stream endpoint.
+- validation: `npm --workspace apps/web-editor test -- MediaGalleryPanel AssetPickerModal AssetThumbCard useBulkFileStreamUrls` -> 7 files / 66 tests passed.
+- validation: `npm --workspace apps/web-editor run typecheck` -> failed on existing unrelated web-editor type errors in App/timeline/version-history/AI generation/config test surfaces; no BULK-WS-2 files were reported in the visible failures.
+- active task: removed only `BULK-WS-2` from `docs/active_task.md`.
+- fix-loop: addressed code-quality feedback by making bulk stream URL cache entries expire after a conservative 14-minute TTL beneath the backend 15-minute presigned URL expiry; added regression coverage proving reuse before TTL and refetch after expiry.
+- validation: `npm --workspace apps/web-editor test -- useBulkFileStreamUrls` -> 1 file / 8 tests passed.
+- validation: `npm --workspace apps/web-editor test -- MediaGalleryPanel AssetPickerModal AssetThumbCard useBulkFileStreamUrls` -> 7 files / 73 tests passed.
+- validation: `git diff --check -- apps/web-editor/src/shared/hooks/useBulkFileStreamUrls.ts apps/web-editor/src/shared/hooks/useBulkFileStreamUrls.test.ts docs/development_logs.md` -> passed.
+- fix-loop 2: addressed code-quality re-review by scheduling mounted `useBulkFileStreamUrls` consumers to expire the soonest cached URL in their current ID set, clear stale visible state at TTL, and trigger the existing bulk fetch path without polling or remount/key changes.
+- validation: `npm --workspace apps/web-editor test -- useBulkFileStreamUrls` -> 1 file / 9 tests passed.
+- validation: `npm --workspace apps/web-editor test -- MediaGalleryPanel AssetPickerModal AssetThumbCard useBulkFileStreamUrls` -> 7 files / 74 tests passed.
+- validation: `git diff --check -- apps/web-editor/src/shared/hooks/useBulkFileStreamUrls.ts apps/web-editor/src/shared/hooks/useBulkFileStreamUrls.test.ts docs/development_logs.md` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+---
+
+## 2026-05-27 - BULK-WS-3 Use Bulk Stream URLs in Storyboard and Step 3 Image Surfaces
+- implemented: added a storyboard-scoped bulk stream URL provider fed by `useBulkFileStreamUrls`, collecting visible scene image media, generated scene illustration outputs, principal output IDs, and visible reference IDs from `StoryboardPage`.
+- implemented: updated scene block thumbnails, scene modal image previews, principal image preview, and principal reference chips to use pre-resolved bulk URLs while preserving the single-file fallback when rendered outside a bulk-managed context or after bulk resolution errors.
+- implemented: updated Step 3 `/generate/road-map` assembly to load storyboard image IDs, bulk-resolve multi-image sets before assembly/navigation, and continue gracefully if the bulk preload fails.
+- covered: added focused coverage for storyboard page bulk file collection, pre-resolved thumbnail/modal/principal previews avoiding single-file stream calls, and Step 3 bulk resolution before image assembly.
+- validation: `npm --workspace apps/web-editor test -- StoryboardPage SceneBlockNode SceneModal PrincipalImage GenerateProjectFromStoryboardPage` -> 14 files / 162 tests passed; existing Step 3 React `act(...)` warnings remained.
+- validation: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-project.spec.ts e2e/storyboard-illustrations.spec.ts e2e/helpers/storyboard.ts` -> passed.
+- validation: `git diff --check -- <touched BULK-WS-3 files>` -> passed.
+- active task: removed only `BULK-WS-3` from `docs/active_task.md`.
+- fix loop: threaded `missingFileIds` through the storyboard bulk stream URL provider, stopped missing bulk-managed principal/reference previews from showing loaders indefinitely, and let Step 3 assembly continue when bulk image preloading reports missing IDs.
+- fix loop: extracted Step 3 styles and storyboard bulk stream URL collection so `GenerateProjectFromStoryboardPage.tsx` and `StoryboardPage.tsx` are below the 300-line cap.
+- fix loop validation: `npm --workspace apps/web-editor test -- StoryboardPage SceneBlockNode SceneModal PrincipalImage GenerateProjectFromStoryboardPage` -> 14 files / 168 tests passed; existing Step 3 React `act(...)` warnings remained.
+- fix loop validation: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-project.spec.ts e2e/storyboard-illustrations.spec.ts e2e/helpers/storyboard.ts` -> passed.
+- fix loop validation: line counts are `GenerateProjectFromStoryboardPage.tsx` 267, `StoryboardPage.tsx` 296, `GenerateProjectFromStoryboardPage.styles.ts` 91, and `StoryboardPage.bulkStreamUrls.ts` 41.
+- fix loop validation: `git diff --check -- <touched BULK-WS-3 fix-loop files>` -> passed.
+- second fix loop: changed Step 3 image preload gating to wait for the current storyboard image ID set to reach a terminal bulk URL state from resolved URLs, missing IDs, or hook error, instead of trusting the hook's initial `isLoading` value.
+- second fix loop: added coverage for the real stale-loading timing shape where the bulk URL hook first renders the new ID set with `isLoading: false`, then flips loading from an effect before resolving multiple image URLs.
+- second fix loop validation: `npm --workspace apps/web-editor test -- GenerateProjectFromStoryboardPage useBulkFileStreamUrls` -> 2 files / 27 tests passed; existing Step 3 React `act(...)` warnings remained in older polling tests.
+- second fix loop validation: `npm --workspace apps/web-editor test -- StoryboardPage SceneBlockNode SceneModal PrincipalImage GenerateProjectFromStoryboardPage` -> 14 files / 168 tests passed; existing Step 3 React `act(...)` warnings remained.
+- second fix loop validation: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-project.spec.ts e2e/storyboard-illustrations.spec.ts e2e/helpers/storyboard.ts` -> passed.
+- second fix loop validation: line counts are `GenerateProjectFromStoryboardPage.tsx` 266 and `StoryboardPage.tsx` 296.
+- second fix loop validation: `git diff --check -- apps/web-editor/src/features/generate-wizard/components/GenerateProjectFromStoryboardPage.tsx apps/web-editor/src/features/generate-wizard/components/GenerateProjectFromStoryboardPage.test.tsx docs/development_logs.md` -> passed.
+- third fix loop: split oversized Step 3 `GenerateProjectFromStoryboardPage.test.tsx` into co-located general and bulk URL test files with a small shared test utility module, preserving existing Step 3 race, missing, and error bulk URL coverage while keeping each touched test/helper file below the 300-line cap.
+- third fix loop validation: `npm --workspace apps/web-editor test -- GenerateProjectFromStoryboardPage` -> 2 files / 18 tests passed; existing Step 3 React `act(...)` warnings remained.
+- third fix loop validation: `npm --workspace apps/web-editor test -- StoryboardPage SceneBlockNode SceneModal PrincipalImage GenerateProjectFromStoryboardPage` -> 15 files / 168 tests passed; existing Step 3 React `act(...)` warnings remained.
+- third fix loop validation: line counts are `GenerateProjectFromStoryboardPage.test.tsx` 234, `GenerateProjectFromStoryboardPage.bulk-urls.test.tsx` 174, and `GenerateProjectFromStoryboardPage.test-utils.tsx` 93.
+- third fix loop validation: `git diff --check -- <touched tracked Step 3 split files>` plus `git diff --check --no-index /dev/null <new Step 3 split files>` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+---
+
+## 2026-05-27 - BULK-WS-5 Publish Status Events From API and Workers
+- implemented: added API realtime publisher helpers and emitted queued/failed initial events from storyboard plan starts, storyboard illustration starts/updates, storyboard video starts, storyboard music Step 3 generation, and generic draft/project AI generation submits.
+- implemented: added media-worker realtime publisher helpers and emitted storyboard plan running/completed/failed events plus AI job processing/progress/completed/failed events after successful DB writes.
+- implemented: synchronized worker-side storyboard video and music mappings to ready/failed when their backing `ai_generation_jobs` complete or fail, so Step 3 refreshes observe terminal states.
+- validation: `npm --workspace apps/media-worker run typecheck` -> passed.
+- validation: `npm --workspace apps/api run typecheck` -> passed.
+- validation: `npm --workspace apps/media-worker test -- storyboardPlan storyboardOpenAIImage ai-generate realtime` -> passed, 9 files / 77 tests.
+- validation: `npm --workspace apps/api test -- storyboardPlan storyboardIllustration storyboardVideo storyboardMusic aiGeneration realtime` -> failed due existing storyboard plan schema expectation mismatch (`schemaVersion: 1` expected vs persisted schema version 2 with `musicSegments`); unrelated realtime tests and touched service tests in that run passed.
+- fix loop: moved media-worker realtime Redis URL access to `config.redis.url` and extracted storyboard illustration realtime publishing into a co-located typed helper so `storyboardIllustration.service.ts` no longer owns the BULK-WS-5 publishing payload construction.
+- fix loop validation: `npm --workspace apps/api run typecheck` -> passed.
+- fix loop validation: `npm --workspace apps/media-worker run typecheck` -> passed.
+- fix loop validation: `npm --workspace apps/media-worker test -- storyboardPlan storyboardOpenAIImage ai-generate realtime` -> passed, 11 files / 81 tests.
+- fix loop validation: `npm --workspace apps/api test -- storyboardIllustration realtimePublisher` -> passed, 3 files / 54 tests.
+- fix loop validation: line counts are `storyboardIllustration.service.ts` 953, `storyboardIllustration.realtime.ts` 45, and `apps/media-worker/src/lib/realtime.ts` 204.
+- fix loop validation: `git diff --check` for touched tracked files plus no-index whitespace checks for new helper/realtime files -> passed.
+- second fix loop: split `storyboardIllustration.service.ts` into co-located config, type, validation, status, and job helper modules so the touched service and each new helper stay under the 300-line limit without changing controller/test imports.
+- second fix loop validation: `npm --workspace apps/api test -- storyboardIllustration realtimePublisher` -> passed, 3 files / 54 tests.
+- second fix loop validation: `npm --workspace apps/api run typecheck` -> passed.
+- second fix loop validation: line counts are `storyboardIllustration.service.ts` 295, `storyboardIllustration.config.ts` 33, `storyboardIllustration.jobs.ts` 193, `storyboardIllustration.realtime.ts` 45, `storyboardIllustration.status.ts` 277, `storyboardIllustration.types.ts` 42, and `storyboardIllustration.validation.ts` 141.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+---
+
+## 2026-05-27 - BULK-WS-4 Add Authenticated WebSocket Transport
+- implemented: wrapped API startup in a Node HTTP server and attached a `/realtime` WebSocket upgrade path while preserving the existing Express app export and HTTP route behavior.
+- implemented: added realtime handshake auth using the existing Bearer/query-token session source plus dev auth bypass, with typed subscribe/unsubscribe schemas for draft storyboard and AI job status subscriptions in `project-schema`.
+- implemented: enforced draft/job ownership before accepting subscriptions, returned generic not-found errors for foreign resources, and added bounded per-connection subscription state with cleanup and heartbeat ping handling.
+- implemented: added Redis pub/sub fanout on `cliptale:realtime:v1` for storyboard and AI job update envelopes; publishing from services/workers remains deferred to BULK-WS-5.
+- covered: added project-schema realtime schema tests and API realtime tests for auth, ownership rejection, HTTP route preservation, unsubscribe cleanup, and Redis fanout.
+- validation: `npm --workspace packages/project-schema run build` -> passed.
+- validation: `npm --workspace packages/project-schema test -- realtime` -> passed, 1 file / 5 tests.
+- validation: `npm --workspace apps/api test -- realtime websocket auth` -> passed, 9 files / 97 tests; existing OAuth error-handler tests still log expected internal errors and Redis version warnings.
+- validation: `npm --workspace apps/api run typecheck` -> passed.
+- active task: removed only `BULK-WS-4` from `docs/active_task.md`.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+---
+
+## 2026-05-27 - BULK-WS-6 Replace Storyboard and Step 3 Polling With WebSocket Subscriptions
+- implemented: added a browser realtime WebSocket subscription manager deriving `/realtime` `ws://`/`wss://` URLs from `config.apiBaseUrl`, passing the stored auth token as the browser-compatible query token, sharing one socket across subscribers, resubscribing after reconnect, and invoking reconnect refresh callbacks once.
+- implemented: added shared realtime subscription hooks, including draft-scoped storyboard status subscriptions that avoid duplicate event handlers under React Strict Mode.
+- implemented: replaced storyboard plan status polling with draft storyboard status events; completed plan events apply the latest storyboard once, failed events surface the existing user-facing failure state, and reconnect performs one current job status refresh.
+- implemented: replaced illustration status scheduling with event-driven status application, direct status payload handling, and one event-triggered refresh for aggregated AI job binding events while preserving sequential scene-start behavior.
+- implemented: replaced Step 3 storyboard video/music wait loops with draft realtime subscriptions; direct storyboard video/music payloads update readiness immediately, while generic AI job binding events trigger one status refresh before assembly.
+- covered: updated storyboard plan, illustration, and Step 3 tests to drive mocked realtime events and assert no repeated status requests are scheduled.
+- validation: `npm --workspace apps/web-editor test -- useStoryboardPlanGeneration useStoryboardIllustrations GenerateProjectFromStoryboardPage StoryboardPage` -> passed, 11 files / 106 tests; existing Step 3 React `act(...)` warnings remain.
+- validation: `npm --workspace apps/web-editor run typecheck` -> failed on existing unrelated web-editor type errors in App/timeline/version-history/AI generation/config test surfaces; no BULK-WS-6 files were reported in the visible failures.
+- validation: `rg "setInterval|setTimeout|sleep|poll" <touched storyboard/Step 3 realtime files>` -> no matches.
+- validation: `git diff --check` for touched BULK-WS-6 files and docs -> passed.
+- active task: removed only `BULK-WS-6` from `docs/active_task.md`.
+- fix-loop: addressed code-quality comments by subscribing Step 3 realtime waits before the initial confirming refresh, cleaning up subscriptions on refresh rejection, adding race/cleanup coverage, and splitting touched runtime/test files under the 300-line cap.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+---
+
+## 2026-05-27 - BULK-WS-7 Replace Project Page AI Image Generation Polling
+- implemented: refactored `useJobPolling` to keep its public API while using the shared realtime `ai-job` WebSocket subscription, with a single initial snapshot and reconnect snapshot refresh instead of repeated timed status requests.
+- implemented: seeded submitted jobs as queued in `useAiGeneration`, mapped realtime `outputFileId` payloads to the existing frontend `resultAssetId` field, and preserved failed-job error display through the existing `GenerationProgress`/result UI flow.
+- implemented: updated `AiGenerationPanel` completion handling to invalidate the project asset query prefix `['assets', projectId]` exactly once per completed job, while preserving draft-context gallery/picker invalidations for the Step 1 AI tab.
+- covered: rewrote AI generation hook tests to drive mocked realtime events, assert no interval scheduling, cover reconnect snapshots, failed events, and one-time project asset invalidation.
+- validation: `npm --workspace apps/web-editor test -- useAiGeneration useJobPolling AiGenerationPanel GenerationProgress` -> passed, 9 files / 79 tests.
+- validation: `npm --workspace apps/web-editor run typecheck` -> failed on existing unrelated web-editor type errors across App/timeline/version-history/config test surfaces plus existing AI catalog fixture typings; no new runtime polling implementation errors were isolated by the focused tests.
+- validation: `rg "setInterval|setTimeout|poll" apps/web-editor/src/shared/ai-generation` -> no runtime AI generation interval polling remains; matches are a negative assertion in `useJobPolling.test.ts`, an existing type comment in `types.ts`, and an existing `VoicePickerModal` cleanup test timeout.
+- active task: removed only `BULK-WS-7` from `docs/active_task.md`.
+- fix-loop: moved this log block out of the middle of the BULK-WS-3 entry so both audit entries are contiguous.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+---
+
+## 2026-05-27 - BULK-WS-8 Regression and E2E Coverage
+- implemented: added a Playwright-local realtime WebSocket mock in `e2e/helpers/storyboard.ts` so storyboard E2E flows can drive explicit status events without depending on timed HTTP polling.
+- implemented: updated `e2e/storyboard-project.spec.ts` Step 3 mocks to use `POST /files/stream-urls`, fail on browser/API fallback to repeated `GET /files/:id/stream`, and complete video generation only after realtime storyboard video events.
+- implemented: updated `e2e/storyboard-illustrations.spec.ts` to emit storyboard plan and illustration status events for plan apply, principal image approval/retry, ready thumbnails, and multi-reference principal-image flows while asserting no single-file stream URL fallback.
+- covered: retained final storyboard-to-editor navigation/project hydration assertions for image-skip and video-generation paths, and relied on the focused web-editor AI generation panel tests for project-page completed asset refresh coverage.
+- validation: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-project.spec.ts e2e/storyboard-illustrations.spec.ts e2e/helpers/storyboard.ts` -> passed.
+- validation: `npm --workspace packages/project-schema test -- realtime storyboardPlan` -> passed, 2 files / 25 tests.
+- validation: `npm --workspace packages/api-contracts test -- openapi` -> passed, 7 files / 154 tests.
+- validation: `npm --workspace apps/web-editor test -- MediaGalleryPanel StoryboardPage GenerateProjectFromStoryboardPage AiGenerationPanel` -> passed, 19 files / 182 tests; existing Step 3 React `act(...)` warnings remained.
+- validation: `npm --workspace apps/media-worker test -- storyboardPlan storyboardOpenAIImage ai-generate` -> passed, 11 files / 81 tests.
+- validation: `npm --workspace apps/api test -- file realtime storyboard aiGeneration` -> failed on existing storyboard plan schema fixture mismatches (`schemaVersion: 1` expected vs normalized v2 with `musicSegments`) and existing file soft-delete TTL restore failures; realtime/file-stream endpoint tests in the same run passed.
+- validation: `VITE_PUBLIC_API_BASE_URL=http://localhost:3001 E2E_BASE_URL=http://localhost:5173 E2E_API_URL=http://localhost:3001 npx playwright test e2e/storyboard-project.spec.ts e2e/storyboard-illustrations.spec.ts --project=chromium` -> blocked in global setup by existing local E2E seed auth issue: `E2E login failed (401): {"error":"Invalid email or password"}` for `http://localhost:3001`.
+- validation: `git diff --check -- e2e/helpers/storyboard.ts e2e/storyboard-project.spec.ts e2e/storyboard-illustrations.spec.ts` -> passed.
+- active task: removed only `BULK-WS-8` from `docs/active_task.md`; no active subtasks remain.
+- fix: split realtime WebSocket mock helpers from `e2e/helpers/storyboard.ts` into `e2e/helpers/mock-realtime.ts`; helper files now remain under the 300-line cap.
+- fix-loop: added Step 2 E2E assertions that capture the illustration status request count after the initial snapshot and require principal-image, scene-running, failure, retry, completion, thumbnail, and Step 3 gating transitions to complete without additional `GET /storyboards/:draftId/illustrations` polling.
+- validation: `npx tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck e2e/storyboard-illustrations.spec.ts e2e/helpers/storyboard.ts e2e/helpers/mock-realtime.ts` -> passed.
+- validation: `git diff --check -- e2e/storyboard-illustrations.spec.ts` -> passed.
+- checked by code-quality-expert - APPROVED
+- checked by qa-reviewer - APPROVED
+- checked by design-reviewer - APPROVED
+- checked by playwright-reviewer - APPROVED
+
+---
+
+## 2026-05-27 - BULK-WS-8 API QA Regression Fix
+- fixed: updated API storyboard plan test fixtures to expect normalized schema v2 completed plans with `musicSegments: []` while preserving a legacy v1 persisted-plan mapping case.
+- fixed: made file soft-delete restore TTL tests deterministic by freezing the restore test clock inside the restore test group.
+- validation: `npm --workspace apps/api test -- file realtime storyboard aiGeneration` -> passed, 49 files / 428 tests.
+- validation: `git diff --check -- apps/api/src/repositories/storyboardPlanJob.repository.test.ts apps/api/src/__tests__/integration/generationDraft.storyboardPlan.integration.test.ts apps/api/src/services/file.softdelete.service.test.ts docs/development_logs.md` -> passed.
+- fix: extracted shared storyboard plan fixtures and row builders so `storyboardPlanJob.repository.test.ts` and `generationDraft.storyboardPlan.integration.test.ts` both remain under the 300-line non-E2E cap.
+- validation: `wc -l apps/api/src/repositories/storyboardPlanJob.repository.test.ts apps/api/src/__tests__/integration/generationDraft.storyboardPlan.integration.test.ts apps/api/src/__tests__/fixtures/storyboardPlan.fixtures.ts` -> 296, 274, 80 lines.
+- validation: `npm --workspace apps/api test -- storyboardPlanJob generationDraft.storyboardPlan file.softdelete` -> passed, 4 files / 41 tests.
+- checked by code-quality-expert - APPROVED
+
+---
+
 ## Architectural Decisions
 - §9.7 300-line cap exceptions: `fal-models.ts` (1093L), `file.repository.ts` (306L), `useProjectInit.test.ts` (318L), `StoryboardCard.tsx` (319L), `storyboard-store.ts` (307L), `StoryboardPage.tsx` (351L approved); e2e/*.spec.ts exempt
 - Worker env: only `index.ts` reads config keys; handlers receive secrets via `deps`

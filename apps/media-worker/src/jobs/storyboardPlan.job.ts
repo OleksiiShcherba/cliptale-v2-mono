@@ -25,6 +25,7 @@ import {
   sanitizeStoryboardPlanJobError,
   type StoryboardPlanJobRepository,
 } from './storyboardPlan.repository.js';
+import { publishStoryboardPlanStatus } from '@/lib/realtime.js';
 import {
   parseStoryboardPlanJson,
   StoryboardPlanOutputParseError,
@@ -242,6 +243,7 @@ export async function processStoryboardPlanJob(
     const jobId = extractValidStoryboardPlanJobId(job.data);
     if (jobId) {
       await repository.markFailed(jobId, error);
+      await publishStoryboardPlanStatus({ pool: deps.pool, jobId });
     }
     throw new UnrecoverableError(sanitizeStoryboardPlanJobError(error));
   }
@@ -252,6 +254,7 @@ export async function processStoryboardPlanJob(
   const allowedModels = deps.allowedModels ?? ALLOWED_STORYBOARD_PLAN_MODELS;
 
   await repository.markRunning(jobId);
+  await publishStoryboardPlanStatus({ pool: deps.pool, jobId });
 
   try {
     const context = await resolveContext(draftId, userId);
@@ -277,15 +280,18 @@ export async function processStoryboardPlanJob(
       plan,
       mediaContext: toPersistedStoryboardPlanMediaContext(context),
     });
+    await publishStoryboardPlanStatus({ pool: deps.pool, jobId });
 
     return plan;
   } catch (error) {
     if (isDeterministicFailure(error)) {
       await repository.markFailed(jobId, error);
+      await publishStoryboardPlanStatus({ pool: deps.pool, jobId });
       throw new UnrecoverableError(sanitizeStoryboardPlanJobError(error));
     }
     if (isFinalBullMqAttempt(job)) {
       await repository.markFailed(jobId, error);
+      await publishStoryboardPlanStatus({ pool: deps.pool, jobId });
     }
     throw error;
   }

@@ -20,11 +20,13 @@ import { render, screen, fireEvent } from '@testing-library/react';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────────
 
-const { mockBuildAuthenticatedUrl } = vi.hoisted(() => ({
+const { mockBuildAuthenticatedUrl, mockApiClientGet } = vi.hoisted(() => ({
   mockBuildAuthenticatedUrl: vi.fn((url: string) => url + '?token=test'),
+  mockApiClientGet: vi.fn(),
 }));
 
 vi.mock('@/lib/api-client', () => ({
+  apiClient: { get: mockApiClientGet },
   buildAuthenticatedUrl: mockBuildAuthenticatedUrl,
 }));
 
@@ -94,6 +96,12 @@ describe('SceneModal', () => {
     mockOnSave.mockClear();
     mockOnDelete.mockClear();
     mockOnClose.mockClear();
+    mockApiClientGet.mockReset();
+    mockApiClientGet.mockImplementation((path: string) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ url: `https://signed.test${path}` }),
+    }));
   });
 
   describe('block mode — rendering', () => {

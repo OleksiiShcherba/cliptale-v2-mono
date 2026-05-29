@@ -1,13 +1,7 @@
 /**
- * AI generation service — unified fal.ai + ElevenLabs model submission.
- *
- * Validates submit requests against the static AI_MODELS catalog (fal + ElevenLabs),
- * enforces the kling-o3 prompt XOR (fal-only), resolves any asset URL fields into
- * presigned HTTPS URLs, enqueues a worker job, and persists a job row.
- *
- * Jobs are tied only to `user_id` + `output_file_id` — no project coupling in
- * the job shape (Batch 1 Subtask 8). Project/draft linking is handled separately
- * by an explicit link call after the job completes.
+ * AI generation service for fal.ai and ElevenLabs submissions.
+ * Validates model options, resolves internal file IDs to signed URLs, persists
+ * a job row, and enqueues the worker. Project/draft links stay explicit.
  */
 import {
   AI_MODELS,
@@ -21,11 +15,10 @@ import {
   NotFoundError,
   ForbiddenError,
 } from '@/lib/errors.js';
+import { publishAiJobUpdatedById } from '@/lib/realtimePublisher.js';
 import { enqueueAiGenerateJob } from '@/queues/jobs/enqueue-ai-generate.js';
 import * as aiGenerationJobRepository from '@/repositories/aiGenerationJob.repository.js';
-import type {
-  AiJobStatus,
-} from '@/repositories/aiGenerationJob.repository.js';
+import type { AiJobStatus } from '@/repositories/aiGenerationJob.repository.js';
 import { getVoicesByUserId, type UserVoice } from '@/repositories/voice.repository.js';
 import { resolveAssetImageUrls } from '@/services/aiGeneration.assetResolver.js';
 import { validateFalOptions } from '@/services/falOptions.validator.js';
@@ -200,8 +193,23 @@ export async function submitGeneration(
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to enqueue generation job';
     await aiGenerationJobRepository.updateJobStatus(jobId, 'failed', message);
+    await publishAiJobUpdatedById(jobId, {
+      resource: 'aiGenerationJob',
+      jobId,
+      status: 'failed',
+      errorMessage: message,
+    });
     throw error;
   }
+
+  await publishAiJobUpdatedById(jobId, {
+    resource: 'aiGenerationJob',
+    jobId,
+    status: 'queued',
+    progress: 0,
+    outputFileId: null,
+    errorMessage: null,
+  });
 
   return { jobId, status: 'queued' };
 }

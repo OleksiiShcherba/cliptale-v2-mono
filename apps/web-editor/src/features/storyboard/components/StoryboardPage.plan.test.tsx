@@ -25,6 +25,7 @@ const {
   mockGenerateStoryboardMusicBlock,
   mockListModels,
   mockApiClientGet,
+  mockApiClientPost,
 } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
   mockUseStoryboardCanvas: vi.fn(),
@@ -46,6 +47,7 @@ const {
   mockGenerateStoryboardMusicBlock: vi.fn(),
   mockListModels: vi.fn(),
   mockApiClientGet: vi.fn(),
+  mockApiClientPost: vi.fn(),
 }));
 
 vi.mock('react-router-dom', async (importOriginal) => {
@@ -108,7 +110,7 @@ vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
 }));
 
 vi.mock('@/lib/api-client', () => ({
-  apiClient: { get: mockApiClientGet, post: vi.fn(), put: vi.fn(), delete: vi.fn() },
+  apiClient: { get: mockApiClientGet, post: mockApiClientPost, put: vi.fn(), delete: vi.fn() },
   buildAuthenticatedUrl: (url: string) => `${url}?token=test`,
 }));
 
@@ -221,6 +223,17 @@ describe('StoryboardPage / storyboard plan generation', () => {
       status: 200,
       json: async () => ({ url: `https://signed.test${path}` }),
     }));
+    mockApiClientPost.mockImplementation((_path: string, body: { fileIds?: string[] }) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        urls: Object.fromEntries((body.fileIds ?? []).map((fileId) => [
+          fileId,
+          `https://signed.test/files/${fileId}/stream`,
+        ])),
+        missingFileIds: [],
+      }),
+    }));
     setCanvasMock();
     setPlanMock();
     setIllustrationMock();
@@ -230,6 +243,93 @@ describe('StoryboardPage / storyboard plan generation', () => {
     setCanvasMock({ nodes: sentinelNodes });
     renderPage();
     expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+
+  it('bulk-resolves visible storyboard image files for canvas and principal previews', async () => {
+    setCanvasMock({
+      nodes: [
+        sentinelNodes[0],
+        {
+          id: 'scene-1',
+          type: 'scene-block',
+          position: { x: 200, y: 0 },
+          data: {
+            block: {
+              id: 'scene-1',
+              mediaItems: [
+                { id: 'media-1', fileId: 'canvas-image-file-1', mediaType: 'image', sortOrder: 0 },
+                { id: 'media-2', fileId: 'canvas-video-file-1', mediaType: 'video', sortOrder: 1 },
+              ],
+            },
+          },
+        },
+        sentinelNodes[1],
+      ],
+    });
+    setIllustrationMock({
+      reference: {
+        status: 'ready',
+        jobId: 'ref-job-1',
+        outputFileId: 'principal-file-bulk-1',
+        sourceReferenceFileIds: ['reference-file-bulk-1', 'reference-file-bulk-2'],
+        approvalStatus: 'pending',
+        errorMessage: null,
+      },
+      items: [
+        {
+          blockId: 'scene-1',
+          status: 'ready',
+          jobId: 'scene-job-1',
+          outputFileId: 'scene-output-file-bulk-1',
+          errorMessage: null,
+        },
+      ],
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(mockApiClientPost).toHaveBeenCalledWith('/files/stream-urls', {
+        fileIds: [
+          'canvas-image-file-1',
+          'principal-file-bulk-1',
+          'reference-file-bulk-1',
+          'reference-file-bulk-2',
+          'scene-output-file-bulk-1',
+        ],
+      });
+    });
+  });
+
+  it('passes missing bulk file IDs through so principal previews stop loading', async () => {
+    mockApiClientPost.mockImplementation((_path: string, body: { fileIds?: string[] }) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        urls: {},
+        missingFileIds: body.fileIds ?? [],
+      }),
+    }));
+    setIllustrationMock({
+      reference: {
+        status: 'ready',
+        jobId: 'ref-job-1',
+        outputFileId: 'principal-file-missing-bulk-1',
+        sourceReferenceFileIds: ['reference-file-missing-bulk-1'],
+        approvalStatus: 'pending',
+        errorMessage: null,
+      },
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('principal-image-preview-fallback').textContent).toBe('Preview unavailable');
+    });
+    expect(screen.queryByTestId('principal-image-preview-loader')).toBeNull();
+    expect(screen.getByLabelText('Reference preview unavailable')).toBeTruthy();
+    expect(mockApiClientGet).not.toHaveBeenCalledWith('/files/principal-file-missing-bulk-1/stream');
+    expect(mockApiClientGet).not.toHaveBeenCalledWith('/files/reference-file-missing-bulk-1/stream');
   });
 
   it('does not auto-start plan generation for an existing custom storyboard', () => {

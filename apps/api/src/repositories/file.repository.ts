@@ -232,6 +232,21 @@ export async function findByIdForUser(fileId: string, userId: string): Promise<F
   return rows.length ? mapRow(rows[0]!) : null;
 }
 
+/** Returns non-deleted files matching `fileIds` and owned by `userId`. */
+export async function findManyByIdsForUser(
+  fileIds: string[],
+  userId: string,
+): Promise<FileRow[]> {
+  if (fileIds.length === 0) return [];
+  const placeholders = fileIds.map(() => '?').join(',');
+  const [rows] = await pool.execute<DbRow[]>(
+    `SELECT * FROM files
+     WHERE user_id = ? AND deleted_at IS NULL AND file_id IN (${placeholders})`,
+    [userId, ...fileIds],
+  );
+  return rows.map(mapRow);
+}
+
 // ── List helpers (extracted to file.repository.list.ts to keep this file ≤ 300 lines) ──
 
 export type {

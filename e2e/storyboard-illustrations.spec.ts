@@ -5,6 +5,10 @@ import { test, expect, type Page, type Route } from "@playwright/test";
 import { installCorsWorkaround } from "./helpers/cors-workaround";
 import { E2E_API_URL } from "./helpers/env";
 import {
+  emitMockRealtimeEvent,
+  installMockRealtime,
+} from "./helpers/mock-realtime";
+import {
   cleanupDraft,
   createE2eDbConnection,
   createTempDraft,
@@ -300,6 +304,22 @@ function buildIllustrationResponse(params: {
   };
 }
 
+function emitStoryboardIllustrationStatus(
+  page: Page,
+  draftId: string,
+  status: IllustrationStatusResponse,
+): void {
+  void emitMockRealtimeEvent(page, {
+    type: "storyboard.status.updated",
+    userId: "e2e-test-user-001",
+    draftId,
+    payload: {
+      resource: "storyboardIllustrations",
+      status,
+    },
+  });
+}
+
 function withReadyMedia(state: StoryboardState, readyBlockIds: Set<string>): StoryboardState {
   return {
     ...state,
@@ -338,6 +358,10 @@ async function installStoryboardIllustrationMocks(
   failReference: () => void;
   recoverReference: () => void;
   getSceneStartCount: () => number;
+  getPlanStatusRequests: () => number;
+  getIllustrationStatusRequests: () => number;
+  getBulkStreamUrlRequests: () => string[][];
+  getSingleFileStreamRequests: () => string[];
 }> {
   let latestStoryboardState: StoryboardState | null = null;
   let sceneBlockIds: string[] = [];
@@ -353,6 +377,12 @@ async function installStoryboardIllustrationMocks(
   const readyBlockIds = new Set<string>();
   const failedBlockIds = new Set<string>();
   let sourceReferenceFileIds = [...(params.sourceReferenceFileIds ?? [])];
+  let planStatusRequests = 0;
+  let illustrationStatusRequests = 0;
+  const bulkStreamUrlRequests: string[][] = [];
+  const singleFileStreamRequests: string[] = [];
+
+  await installMockRealtime(page);
 
   const currentReference = (): ReferenceStatusItem => {
     if (referenceFailed) {
@@ -389,6 +419,48 @@ async function installStoryboardIllustrationMocks(
 
     if (
       request.method() === "GET" &&
+      url.origin === "https://signed.test" &&
+      path.match(/^\/files\/[^/]+\/stream$/)
+    ) {
+      await route.fulfill({
+        status: 200,
+        contentType: "image/png",
+        headers: { "access-control-allow-origin": "*" },
+        body: PNG_1X1,
+      });
+      return;
+    }
+
+    if (request.method() === "POST" && url.origin === "http://localhost:3001" && path === "/files/stream-urls") {
+      const body = request.postDataJSON() as { fileIds?: string[] } | null;
+      const fileIds = [...new Set(body?.fileIds ?? [])].sort();
+      bulkStreamUrlRequests.push(fileIds);
+      await route.fulfill(
+        jsonResponse({
+          urls: Object.fromEntries(fileIds.map((fileId) => [
+            fileId,
+            `https://signed.test/files/${fileId}/stream`,
+          ])),
+          missingFileIds: [],
+        }),
+      );
+      return;
+    }
+
+    if (
+      request.method() === "GET" &&
+      url.origin === "http://localhost:3001" &&
+      path.match(/^\/files\/[^/]+\/stream$/)
+    ) {
+      singleFileStreamRequests.push(path);
+      await route.fulfill(
+        jsonResponse({ error: `Unexpected single-file stream URL request: ${path}` }, 599),
+      );
+      return;
+    }
+
+    if (
+      request.method() === "GET" &&
       path.includes("/assets/") &&
       (path.endsWith("/thumbnail") || path.endsWith("/stream"))
     ) {
@@ -406,6 +478,16 @@ async function installStoryboardIllustrationMocks(
       path === `/generation-drafts/${params.draftId}/storyboard-plan`
     ) {
       await route.fulfill(jsonResponse({ jobId: params.planJobId, status: "queued" }, 202));
+      void emitMockRealtimeEvent(page, {
+        type: "storyboard.status.updated",
+        userId: "e2e-test-user-001",
+        draftId: params.draftId,
+        payload: {
+          resource: "storyboardPlan",
+          jobId: params.planJobId,
+          status: "completed",
+        },
+      });
       return;
     }
 
@@ -413,6 +495,7 @@ async function installStoryboardIllustrationMocks(
       request.method() === "GET" &&
       path === `/generation-drafts/${params.draftId}/storyboard-plan/${params.planJobId}`
     ) {
+      planStatusRequests += 1;
       await route.fulfill(
         jsonResponse({
           jobId: params.planJobId,
@@ -450,6 +533,7 @@ async function installStoryboardIllustrationMocks(
       request.method() === "GET" &&
       path === `/storyboards/${params.draftId}/illustrations`
     ) {
+      illustrationStatusRequests += 1;
       if (sceneBlockIds.length === 0) {
         await route.fulfill(jsonResponse(buildIllustrationResponse({
           reference: currentReference(),
@@ -660,25 +744,60 @@ async function installStoryboardIllustrationMocks(
       referenceComplete = true;
       referenceApproved = false;
       referenceFailed = false;
+      emitStoryboardIllustrationStatus(page, params.draftId, buildIllustrationResponse({
+        reference: currentReference(),
+        items: buildItems(sceneBlockIds, new Map()),
+      }));
     },
     completeInitialRun: () => {
       initialRunComplete = true;
+      readyBlockIds.add(sceneBlockIds[0]!);
+      readyBlockIds.add(sceneBlockIds[2]!);
+      failedBlockIds.add(sceneBlockIds[1]!);
+      emitStoryboardIllustrationStatus(page, params.draftId, buildIllustrationResponse({
+        reference: currentReference(),
+        items: buildItems(sceneBlockIds, new Map([
+          ...Array.from(readyBlockIds).map((id) => [id, "ready"] as const),
+          ...Array.from(failedBlockIds).map((id) => [id, "failed"] as const),
+        ])),
+      }));
     },
     completeRetry: () => {
       retryComplete = true;
+      failedBlockIds.clear();
+      readyBlockIds.add(sceneBlockIds[1]!);
+      emitStoryboardIllustrationStatus(page, params.draftId, buildIllustrationResponse({
+        reference: currentReference(),
+        items: buildItems(
+          sceneBlockIds,
+          new Map(Array.from(readyBlockIds).map((id) => [id, "ready"] as const)),
+        ),
+      }));
     },
     failReference: () => {
       referenceStarted = true;
       referenceComplete = false;
       referenceFailed = true;
+      emitStoryboardIllustrationStatus(page, params.draftId, buildIllustrationResponse({
+        reference: currentReference(),
+        items: buildItems(sceneBlockIds, new Map()),
+      }));
     },
     recoverReference: () => {
       referenceStarted = true;
       referenceComplete = true;
       referenceApproved = false;
       referenceFailed = false;
+      emitStoryboardIllustrationStatus(page, params.draftId, buildIllustrationResponse({
+        reference: currentReference(),
+        items: buildItems(sceneBlockIds, new Map()),
+      }));
     },
     getSceneStartCount: () => startCount,
+    getPlanStatusRequests: () => planStatusRequests,
+    getIllustrationStatusRequests: () => illustrationStatusRequests,
+    getBulkStreamUrlRequests: () => bulkStreamUrlRequests.map((ids) => [...ids]),
+    getSingleFileStreamRequests: () => [...singleFileStreamRequests],
   };
 }
 
@@ -726,6 +845,9 @@ test.describe("Storyboard Step 2 scene illustrations", () => {
       await expect(page.getByText("Creating visual style reference")).toBeVisible({ timeout: 10_000 });
       await expect(page.getByTestId("storyboard-reference-preview-fallback")).toHaveText("Wait");
       await expect(nextButton).toBeDisabled();
+      const illustrationStatusRequestsAfterInitialSnapshot =
+        illustrationMocks.getIllustrationStatusRequests();
+      expect(illustrationStatusRequestsAfterInitialSnapshot).toBeGreaterThan(0);
 
       illustrationMocks.completeReference();
       await expect(page.getByTestId("principal-image-modal")).toBeVisible({ timeout: 10_000 });
@@ -733,6 +855,9 @@ test.describe("Storyboard Step 2 scene illustrations", () => {
       await expect(page.getByTestId("principal-image-approve-button")).toBeEnabled();
       await expect(nextButton).toBeDisabled();
       expect(illustrationMocks.getSceneStartCount()).toBe(0);
+      expect(illustrationMocks.getIllustrationStatusRequests()).toBe(
+        illustrationStatusRequestsAfterInitialSnapshot,
+      );
 
       await page.getByTestId("principal-image-approve-button").click();
       await expect(page.getByTestId("principal-image-modal")).toHaveCount(0, { timeout: 10_000 });
@@ -742,22 +867,43 @@ test.describe("Storyboard Step 2 scene illustrations", () => {
       await expect(nextButton).toBeDisabled();
       await expect(page.getByTestId("back-button")).toBeEnabled();
       await expect(page.getByTestId("home-button")).toBeEnabled();
+      expect(illustrationMocks.getIllustrationStatusRequests()).toBe(
+        illustrationStatusRequestsAfterInitialSnapshot,
+      );
 
       illustrationMocks.completeInitialRun();
       await expect(page.getByText("Image failed")).toBeVisible({ timeout: 10_000 });
       await expect(page.getByText("Image ready").first()).toBeVisible({ timeout: 10_000 });
       await expect(nextButton).toBeDisabled();
+      expect(illustrationMocks.getIllustrationStatusRequests()).toBe(
+        illustrationStatusRequestsAfterInitialSnapshot,
+      );
 
       const failedScene = page.getByTestId("scene-block-node").filter({ hasText: "Image failed" });
       await failedScene.getByTestId("illustration-retry-button").click();
       await expect(nextButton).toBeDisabled();
       await expect(page.getByText("Image running")).toBeVisible({ timeout: 10_000 });
+      expect(illustrationMocks.getIllustrationStatusRequests()).toBe(
+        illustrationStatusRequestsAfterInitialSnapshot,
+      );
 
       illustrationMocks.completeRetry();
       await expect(page.getByText("Image ready")).toHaveCount(3, { timeout: 15_000 });
       await expect(nextButton).toBeEnabled();
       await expect(page.getByLabel("Illustrations complete")).toHaveText("Done");
       await expect(page.getByTestId("thumbnail-img")).toHaveCount(3, { timeout: 15_000 });
+      expect(illustrationMocks.getIllustrationStatusRequests()).toBe(
+        illustrationStatusRequestsAfterInitialSnapshot,
+      );
+      expect(illustrationMocks.getSingleFileStreamRequests()).toEqual([]);
+      expect(illustrationMocks.getBulkStreamUrlRequests().flat()).toEqual(
+        expect.arrayContaining(
+          buildAppliedStoryboardState(draftId).blocks
+            .filter((block) => block.blockType === "scene")
+            .map((block) => readyFileId(block.id)),
+        ),
+      );
+      expect(illustrationMocks.getPlanStatusRequests()).toBeLessThanOrEqual(1);
     } finally {
       if (planJobId) await deleteStoryboardPlanJob(conn, planJobId).catch(() => {});
       await cleanupDraft(page.request, token, draftId);
@@ -867,6 +1013,7 @@ test.describe("Storyboard Step 2 scene illustrations", () => {
         /file-canonical-reference-merged-2\/thumbnail/,
       );
       await expect(page.getByTestId("principal-image-modal")).toBeVisible({ timeout: 10_000 });
+      expect(illustrationMocks.getSingleFileStreamRequests()).toEqual([]);
       expect(illustrationMocks.getSceneStartCount()).toBe(0);
       await page.getByTestId("principal-image-approve-button").click();
       await expect(page.getByText("Generating scene illustrations")).toBeVisible({ timeout: 10_000 });

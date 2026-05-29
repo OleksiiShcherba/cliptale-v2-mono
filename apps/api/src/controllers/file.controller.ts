@@ -22,7 +22,13 @@ export const listFilesQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(24),
 });
 
+/** Zod schema for `POST /files/stream-urls` body. Exported for route middleware. */
+export const bulkStreamUrlsSchema = z.object({
+  fileIds: z.array(z.string().uuid()).min(1).max(fileService.MAX_BULK_STREAM_URLS),
+});
+
 type CreateUploadUrlBody = z.infer<typeof createUploadUrlSchema>;
+type BulkStreamUrlsBody = z.infer<typeof bulkStreamUrlsSchema>;
 
 // ── Handlers ──────────────────────────────────────────────────────────────────
 
@@ -126,6 +132,29 @@ export async function streamFile(
       s3Client,
     );
     res.json({ url });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /files/stream-urls
+ *
+ * Returns short-lived presigned GET URLs for owned, non-deleted files.
+ */
+export async function streamFileUrls(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const body = req.body as BulkStreamUrlsBody;
+    const result = await fileService.streamUrls(
+      body.fileIds,
+      req.user!.userId,
+      s3Client,
+    );
+    res.json(result);
   } catch (err) {
     next(err);
   }

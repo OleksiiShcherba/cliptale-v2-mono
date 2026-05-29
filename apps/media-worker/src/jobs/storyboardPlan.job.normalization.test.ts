@@ -7,6 +7,10 @@ import {
   type StoryboardPlanJobPayload,
 } from '@ai-video-editor/project-schema';
 
+vi.mock('@/lib/realtime.js', () => ({
+  publishStoryboardPlanStatus: vi.fn().mockResolvedValue(undefined),
+}));
+
 import {
   processStoryboardPlanJob,
   type StoryboardPlanOpenAiClient,

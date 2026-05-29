@@ -3,12 +3,12 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Copy workspace manifests for layer-cached dependency installation.
-COPY package.json tsconfig.json ./
+COPY package.json package-lock.json tsconfig.json ./
 COPY apps/api/package.json ./apps/api/
 COPY packages/project-schema/package.json ./packages/project-schema/
 COPY packages/api-contracts/package.json ./packages/api-contracts/
 
-RUN npm install \
+RUN npm ci \
   --workspace=apps/api \
   --workspace=packages/project-schema \
   --workspace=packages/api-contracts

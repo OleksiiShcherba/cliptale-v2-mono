@@ -1,26 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 
-const { mockGetJobStatus } = vi.hoisted(() => ({
+import type { RealtimeAiJobEvent, RealtimeSubscribeMessage } from '@ai-video-editor/project-schema';
+import type { AiGenerationJob } from '@/shared/ai-generation/types';
+
+const { mockGetJobStatus, mockUseRealtimeSubscription } = vi.hoisted(() => ({
   mockGetJobStatus: vi.fn(),
+  mockUseRealtimeSubscription: vi.fn(),
 }));
 
 vi.mock('@/shared/ai-generation/api', () => ({
   getJobStatus: mockGetJobStatus,
 }));
 
+vi.mock('@/shared/hooks/useRealtimeSubscription', () => ({
+  useRealtimeSubscription: mockUseRealtimeSubscription,
+}));
+
 import { useJobPolling } from './useJobPolling';
 
-beforeEach(() => {
-  vi.useFakeTimers();
-  vi.clearAllMocks();
-});
-
-afterEach(() => {
-  vi.useRealTimers();
-});
-
-function makeJob(overrides: Record<string, unknown> = {}) {
+function makeJob(overrides: Partial<AiGenerationJob> = {}): AiGenerationJob {
   return {
     jobId: 'job-1',
     status: 'processing',
@@ -31,108 +30,170 @@ function makeJob(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function makeEvent(payload: Record<string, unknown>): RealtimeAiJobEvent {
+  return {
+    type: 'ai.job.updated',
+    jobId: 'job-1',
+    userId: 'user-1',
+    payload,
+  };
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
+function latestSubscriptionOptions() {
+  const call = mockUseRealtimeSubscription.mock.calls.at(-1);
+  if (!call) throw new Error('Realtime subscription was not registered');
+  return call[1] as {
+    enabled?: boolean;
+    onEvent: (event: RealtimeAiJobEvent) => void;
+    onReconnect?: () => void;
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockGetJobStatus.mockResolvedValue(makeJob());
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('useJobPolling', () => {
-  it('returns null job and isPolling=false when jobId is null', () => {
+  it('returns null job and leaves realtime disabled when jobId is null', () => {
     const { result } = renderHook(() => useJobPolling(null));
+
     expect(result.current.job).toBeNull();
     expect(result.current.isPolling).toBe(false);
+    expect(mockGetJobStatus).not.toHaveBeenCalled();
+    expect(mockUseRealtimeSubscription).toHaveBeenLastCalledWith(null, expect.objectContaining({
+      enabled: false,
+    }));
   });
 
-  it('polls immediately when jobId is provided', async () => {
-    mockGetJobStatus.mockResolvedValue(makeJob());
+  it('fetches one initial snapshot and subscribes to the ai job channel', async () => {
     const { result } = renderHook(() => useJobPolling('job-1'));
 
-    await act(async () => {
-      await vi.runOnlyPendingTimersAsync();
-    });
+    await waitFor(() => expect(result.current.job?.status).toBe('processing'));
 
+    expect(mockGetJobStatus).toHaveBeenCalledTimes(1);
     expect(mockGetJobStatus).toHaveBeenCalledWith('job-1');
-    expect(result.current.job?.status).toBe('processing');
+    expect(mockUseRealtimeSubscription).toHaveBeenCalledWith(
+      { type: 'subscribe', scope: 'ai-job', jobId: 'job-1' } satisfies RealtimeSubscribeMessage,
+      expect.objectContaining({ enabled: true }),
+    );
     expect(result.current.isPolling).toBe(true);
   });
 
-  it('stops polling when status becomes completed', async () => {
-    mockGetJobStatus.mockResolvedValue(makeJob({ status: 'completed', progress: 100 }));
-    const { result } = renderHook(() => useJobPolling('job-1'));
+  it('does not schedule interval-based status checks', () => {
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+    mockGetJobStatus.mockReturnValueOnce(new Promise(() => undefined));
 
-    await act(async () => {
-      await vi.runOnlyPendingTimersAsync();
-    });
-
-    expect(result.current.job?.status).toBe('completed');
-    expect(result.current.isPolling).toBe(false);
-  });
-
-  it('stops polling when status becomes failed', async () => {
-    mockGetJobStatus.mockResolvedValue(
-      makeJob({ status: 'failed', errorMessage: 'Provider error' }),
-    );
-    const { result } = renderHook(() => useJobPolling('job-1'));
-
-    await act(async () => {
-      await vi.runOnlyPendingTimersAsync();
-    });
-
-    expect(result.current.job?.status).toBe('failed');
-    expect(result.current.isPolling).toBe(false);
-  });
-
-  it('polls again after interval while status is queued/processing', async () => {
-    mockGetJobStatus.mockResolvedValue(makeJob({ status: 'queued', progress: 0 }));
     renderHook(() => useJobPolling('job-1'));
 
-    // Initial poll(s) — may fire more than once due to strict mode
-    await act(async () => {
-      await vi.runOnlyPendingTimersAsync();
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+  });
+
+  it('updates the job from realtime events and maps outputFileId to resultAssetId', async () => {
+    const initialJob = makeJob({ status: 'queued', progress: 0 });
+    const { result } = renderHook(() => useJobPolling('job-1', initialJob));
+
+    await waitFor(() => expect(result.current.job?.status).toBe('processing'));
+
+    act(() => {
+      latestSubscriptionOptions().onEvent(makeEvent({
+        status: 'completed',
+        progress: 100,
+        outputFileId: 'asset-1',
+        errorMessage: null,
+      }));
     });
 
-    const initialCalls = mockGetJobStatus.mock.calls.length;
-    expect(initialCalls).toBeGreaterThanOrEqual(1);
+    expect(result.current.job).toEqual(makeJob({
+      status: 'completed',
+      progress: 100,
+      resultAssetId: 'asset-1',
+    }));
+    expect(result.current.isPolling).toBe(false);
+  });
 
-    // Advance by poll interval (2500ms) — should fire at least one more
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2500);
+  it('shows failed realtime status with the server error message', async () => {
+    const { result } = renderHook(() => useJobPolling('job-1'));
+
+    await waitFor(() => expect(result.current.job?.status).toBe('processing'));
+
+    act(() => {
+      latestSubscriptionOptions().onEvent(makeEvent({
+        status: 'failed',
+        progress: 30,
+        errorMessage: 'Provider error',
+      }));
     });
 
-    expect(mockGetJobStatus.mock.calls.length).toBeGreaterThan(initialCalls);
+    expect(result.current.job).toEqual(makeJob({
+      status: 'failed',
+      progress: 30,
+      errorMessage: 'Provider error',
+    }));
+    expect(result.current.isPolling).toBe(false);
+  });
+
+  it('refreshes a snapshot once when realtime reconnects', async () => {
+    mockGetJobStatus
+      .mockResolvedValueOnce(makeJob({ status: 'queued', progress: 0 }))
+      .mockResolvedValueOnce(makeJob({ status: 'processing', progress: 75 }));
+
+    const { result } = renderHook(() => useJobPolling('job-1'));
+
+    await waitFor(() => expect(result.current.job?.progress).toBe(0));
+
+    act(() => {
+      latestSubscriptionOptions().onReconnect?.();
+    });
+
+    await waitFor(() => expect(result.current.job?.progress).toBe(75));
+    expect(mockGetJobStatus).toHaveBeenCalledTimes(2);
   });
 
   it('resets job to null when jobId changes to null', async () => {
-    mockGetJobStatus.mockResolvedValue(makeJob());
     const { result, rerender } = renderHook(({ id }) => useJobPolling(id), {
       initialProps: { id: 'job-1' as string | null },
     });
 
-    await act(async () => {
-      await vi.runOnlyPendingTimersAsync();
-    });
-
-    expect(result.current.job).not.toBeNull();
+    await waitFor(() => expect(result.current.job).not.toBeNull());
 
     rerender({ id: null });
+
     expect(result.current.job).toBeNull();
     expect(result.current.isPolling).toBe(false);
   });
 
-  it('survives transient network errors and keeps polling', async () => {
-    // Reject enough times to cover strict mode double-mount, then resolve
-    mockGetJobStatus.mockRejectedValueOnce(new Error('Network error'));
-    mockGetJobStatus.mockRejectedValueOnce(new Error('Network error'));
-    mockGetJobStatus.mockResolvedValue(makeJob({ status: 'processing', progress: 75 }));
+  it('ignores an initial snapshot that resolves after the job is cleared', async () => {
+    const snapshot = deferred<AiGenerationJob>();
+    mockGetJobStatus.mockReturnValueOnce(snapshot.promise);
 
-    const { result } = renderHook(() => useJobPolling('job-1'));
-
-    // Initial poll(s) — errors swallowed
-    await act(async () => {
-      await vi.runOnlyPendingTimersAsync();
+    const { result, rerender } = renderHook(({ id }) => useJobPolling(id), {
+      initialProps: { id: 'job-1' as string | null },
     });
 
-    // Advance past interval — next poll should succeed
+    rerender({ id: null });
+
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2500);
+      snapshot.resolve(makeJob({ status: 'completed', progress: 100 }));
+      await snapshot.promise;
     });
 
-    expect(result.current.job?.progress).toBe(75);
-    expect(result.current.isPolling).toBe(true);
+    expect(result.current.job).toBeNull();
+    expect(result.current.isPolling).toBe(false);
   });
 });

@@ -23,7 +23,9 @@ export type SeedResult = {
   projectB: string;
   draftA: string;
   fileA: string;
+  fileA2: string;
   fileB: string;
+  deletedFileA: string;
 };
 
 /**
@@ -41,7 +43,9 @@ export async function seedFixtures(conn: Connection): Promise<SeedResult> {
   const projectB = randomUUID();
   const draftA = randomUUID();
   const fileA = randomUUID();
+  const fileA2 = randomUUID();
   const fileB = randomUUID();
+  const deletedFileA = randomUUID();
 
   // Users
   for (const [uid, email] of [
@@ -91,18 +95,35 @@ export async function seedFixtures(conn: Connection): Promise<SeedResult> {
   await conn.execute(
     `INSERT INTO files (file_id, user_id, kind, storage_uri, mime_type, display_name)
      VALUES (?, ?, ?, ?, ?, ?)`,
+    [fileA2, userAId, 'image', 's3://test-bucket/file-a-2.png', 'image/png', 'file-a-2.png'],
+  );
+  await conn.execute(
+    `INSERT INTO files (file_id, user_id, kind, storage_uri, mime_type, display_name)
+     VALUES (?, ?, ?, ?, ?, ?)`,
     [fileB, userBId, 'image', 's3://test-bucket/file-b.png', 'image/png', 'file-b.png'],
+  );
+  await conn.execute(
+    `INSERT INTO files (file_id, user_id, kind, storage_uri, mime_type, display_name, deleted_at)
+     VALUES (?, ?, ?, ?, ?, ?, NOW(3))`,
+    [
+      deletedFileA,
+      userAId,
+      'image',
+      's3://test-bucket/file-deleted-a.png',
+      'image/png',
+      'file-deleted-a.png',
+    ],
   );
 
   return {
     userAId, userBId, tokenA, tokenB, sessionAId, sessionBId,
-    projectA, projectB, draftA, fileA, fileB,
+    projectA, projectB, draftA, fileA, fileA2, fileB, deletedFileA,
   };
 }
 
 /** Tears down all rows seeded by seedFixtures in FK-safe order. */
 export async function teardownFixtures(conn: Connection, seed: SeedResult): Promise<void> {
-  const fileIds = [seed.fileA, seed.fileB];
+  const fileIds = [seed.fileA, seed.fileA2, seed.fileB, seed.deletedFileA];
   const ph = fileIds.map(() => '?').join(',');
 
   await conn.query(`DELETE FROM project_files WHERE file_id IN (${ph})`, fileIds);

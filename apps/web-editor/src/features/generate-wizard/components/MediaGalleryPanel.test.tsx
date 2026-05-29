@@ -30,6 +30,7 @@ import {
   EMPTY_RESPONSE,
   VIDEO_ONLY_RESPONSE,
   VIDEO_ASSET,
+  IMAGE_ASSET,
   AUDIO_ASSET,
 } from './MediaGalleryPanel.fixtures';
 
@@ -42,12 +43,17 @@ vi.mock('@/features/generate-wizard/api', () => ({
   listDraftAssets: vi.fn(),
 }));
 
+const { mockApiClientGet, mockApiClientPost } = vi.hoisted(() => ({
+  mockApiClientGet: vi.fn(),
+  mockApiClientPost: vi.fn(),
+}));
+
 vi.mock('@/lib/api-client', () => ({
   buildAuthenticatedUrl: (url: string) => `${url}?token=test-token`,
   getAuthToken: () => 'test-token',
   apiClient: {
-    get: vi.fn(),
-    post: vi.fn(),
+    get: mockApiClientGet,
+    post: mockApiClientPost,
     patch: vi.fn(),
     delete: vi.fn(),
   },
@@ -115,6 +121,7 @@ vi.mock('@/shared/file-upload/UploadDropzone', () => ({
 
 import { listAssets, listDraftAssets } from '@/features/generate-wizard/api';
 import { useFileUpload } from '@/shared/file-upload/useFileUpload';
+import { clearBulkFileStreamUrlCacheForTests } from '@/shared/hooks/useBulkFileStreamUrls';
 
 const mockListAssets = vi.mocked(listAssets);
 const mockListDraftAssets = vi.mocked(listDraftAssets);
@@ -186,12 +193,28 @@ function mockFailure() {
 describe('MediaGalleryPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearBulkFileStreamUrlCacheForTests();
     mockUseFileUpload.mockReturnValue({
       entries: [],
       isUploading: false,
       uploadFiles: mockUploadFiles,
       clearEntries: mockClearEntries,
     });
+    mockApiClientGet.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ url: 'https://signed.test/single-stream' }),
+    });
+    mockApiClientPost.mockImplementation((_path: string, body: { fileIds: string[] }) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        urls: Object.fromEntries(
+          body.fileIds.map((fileId) => [fileId, `https://signed.test/files/${fileId}/stream`]),
+        ),
+        missingFileIds: [],
+      }),
+    }));
   });
 
   it('should render skeleton while the query is loading', () => {
@@ -287,6 +310,27 @@ describe('MediaGalleryPanel', () => {
       const img = screen.getByAltText(VIDEO_ASSET.label) as HTMLImageElement;
       expect(img.src).toContain('token=test-token');
     });
+  });
+
+  it('should resolve image previews without thumbnails through one bulk request', async () => {
+    mockSuccess({
+      items: [
+        { ...IMAGE_ASSET, id: 'i1', label: 'Hero banner', thumbnailUrl: null },
+        { ...IMAGE_ASSET, id: 'i2', label: 'Square cover', thumbnailUrl: null },
+      ],
+      nextCursor: null,
+      totals: { count: 2, bytesUsed: 200 },
+    });
+    renderPanel();
+
+    const firstImage = await screen.findByAltText('Hero banner') as HTMLImageElement;
+    const secondImage = await screen.findByAltText('Square cover') as HTMLImageElement;
+
+    expect(firstImage.src).toBe('https://signed.test/files/i1/stream');
+    expect(secondImage.src).toBe('https://signed.test/files/i2/stream');
+    expect(mockApiClientPost).toHaveBeenCalledTimes(1);
+    expect(mockApiClientPost).toHaveBeenCalledWith('/files/stream-urls', { fileIds: ['i1', 'i2'] });
+    expect(mockApiClientGet).not.toHaveBeenCalled();
   });
 
   it('should omit a section header when that group has no items', async () => {

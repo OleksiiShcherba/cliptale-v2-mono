@@ -1,13 +1,14 @@
 /**
  * useStoryboardPlanGeneration — Step 2 storyboard plan generation lifecycle.
  *
- * Starts the async planning job only when requested, polls until the persisted
- * job reaches a terminal state, applies only completed plans, and exposes the
- * server-returned storyboard as React Flow-ready canvas state.
+ * Starts the async planning job only when requested, applies completed plans
+ * from realtime status events, and exposes the server-returned storyboard as
+ * React Flow-ready canvas state.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { RealtimeStoryboardEvent } from '@ai-video-editor/project-schema';
 import { useQueryClient } from '@tanstack/react-query';
 
 import {
@@ -15,47 +16,19 @@ import {
   getStoryboardPlanStatus,
   startStoryboardPlan,
 } from '@/features/storyboard/api';
-import type {
-  MusicBlockNodeData,
-  SceneBlockNodeData,
-  SentinelNodeData,
-  StoryboardBlock,
-  StoryboardEdge,
-  StoryboardMusicBlock,
-  StoryboardPlanGenerationStatus,
-} from '@/features/storyboard/types';
-import { musicBlockToNode, orderStoryboardSceneBlocks } from './useStoryboardMusic';
+import type { StoryboardPlanGenerationStatus } from '@/features/storyboard/types';
+import { useDraftStoryboardStatusSubscription } from '@/shared/hooks/useRealtimeSubscription';
 
-const DEFAULT_POLL_INTERVAL_MS = 1_000;
-
-export type StoryboardPlanFlowNode = {
-  id: string;
-  type: 'start' | 'end' | 'scene-block' | 'music-block';
-  position: { x: number; y: number };
-  data: SceneBlockNodeData | SentinelNodeData | MusicBlockNodeData;
-  draggable: boolean;
-  deletable: boolean;
-};
-
-export type StoryboardPlanFlowEdge = {
-  id: string;
-  source: string;
-  sourceHandle: 'exit';
-  target: string;
-  targetHandle: 'income';
-  style: { stroke: string; strokeWidth: number };
-};
-
-export type StoryboardPlanCanvasState = {
-  nodes: StoryboardPlanFlowNode[];
-  edges: StoryboardPlanFlowEdge[];
-};
+import { toCanvasState, type StoryboardPlanCanvasState } from './useStoryboardPlanGeneration.canvas';
+export type {
+  StoryboardPlanCanvasState,
+  StoryboardPlanFlowEdge,
+  StoryboardPlanFlowNode,
+} from './useStoryboardPlanGeneration.canvas';
 
 export type UseStoryboardPlanGenerationOptions = {
   /** Used for scene node delete callbacks in generated React Flow node data. */
   onRemoveNode?: (nodeId: string) => void;
-  /** Test override; production uses a 1 second poll interval. */
-  pollIntervalMs?: number;
 };
 
 export type UseStoryboardPlanGenerationResult = {
@@ -68,84 +41,31 @@ export type UseStoryboardPlanGenerationResult = {
   reset: () => void;
 };
 
-function blockToNode(
-  block: StoryboardBlock,
-  onRemoveNode: (nodeId: string) => void,
-): StoryboardPlanFlowNode {
-  const position = { x: block.positionX, y: block.positionY };
-
-  if (block.blockType === 'start') {
-    return {
-      id: block.id,
-      type: 'start',
-      position,
-      data: { label: 'START' } satisfies SentinelNodeData,
-      draggable: true,
-      deletable: false,
-    };
-  }
-
-  if (block.blockType === 'end') {
-    return {
-      id: block.id,
-      type: 'end',
-      position,
-      data: { label: 'END' } satisfies SentinelNodeData,
-      draggable: true,
-      deletable: false,
-    };
-  }
-
-  return {
-    id: block.id,
-    type: 'scene-block',
-    position,
-    data: { block, onRemove: onRemoveNode } satisfies SceneBlockNodeData,
-    draggable: true,
-    deletable: true,
-  };
-}
-
-function edgeToFlowEdge(edge: StoryboardEdge): StoryboardPlanFlowEdge {
-  return {
-    id: edge.id,
-    source: edge.sourceBlockId,
-    sourceHandle: 'exit',
-    target: edge.targetBlockId,
-    targetHandle: 'income',
-    style: { stroke: '#252535', strokeWidth: 2 },
-  };
-}
-
-function toCanvasState(
-  blocks: StoryboardBlock[],
-  edges: StoryboardEdge[],
-  musicBlocks: StoryboardMusicBlock[],
-  onRemoveNode: (nodeId: string) => void,
-): StoryboardPlanCanvasState {
-  const orderedScenes = orderStoryboardSceneBlocks(blocks, edges);
-  return {
-    nodes: [
-      ...blocks.map((block) => blockToNode(block, onRemoveNode)),
-      ...musicBlocks.map((musicBlock) =>
-        musicBlockToNode(musicBlock, orderedScenes as StoryboardBlock[]) as StoryboardPlanFlowNode,
-      ),
-    ],
-    edges: edges.map(edgeToFlowEdge),
-  };
-}
-
 const START_ERROR_MESSAGE = 'Could not start storyboard generation. Try again.';
-const POLL_ERROR_MESSAGE = 'Could not check storyboard generation progress. Try again.';
+const STATUS_REFRESH_ERROR_MESSAGE = 'Could not check storyboard generation progress. Try again.';
 const APPLY_ERROR_MESSAGE = 'Could not apply generated storyboard scenes. Try again.';
 const JOB_FAILED_MESSAGE = 'Storyboard generation failed. Try again.';
+
+type StoryboardPlanRealtimePayload = {
+  resource?: unknown;
+  jobId?: unknown;
+  status?: unknown;
+};
+
+function getStoryboardPlanPayload(event: RealtimeStoryboardEvent): StoryboardPlanRealtimePayload | null {
+  const payload = event.payload as StoryboardPlanRealtimePayload;
+  return payload.resource === 'storyboardPlan' ? payload : null;
+}
+
+function isPlanJobStatus(status: unknown): status is 'queued' | 'running' | 'completed' | 'failed' {
+  return status === 'queued' || status === 'running' || status === 'completed' || status === 'failed';
+}
 
 export function useStoryboardPlanGeneration(
   draftId: string,
   options: UseStoryboardPlanGenerationOptions = {},
 ): UseStoryboardPlanGenerationResult {
   const queryClient = useQueryClient();
-  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const onRemoveNode = options.onRemoveNode ?? (() => {});
 
   const [status, setStatus] = useState<StoryboardPlanGenerationStatus>('idle');
@@ -154,7 +74,6 @@ export function useStoryboardPlanGeneration(
   const [canvasState, setCanvasState] = useState<StoryboardPlanCanvasState | null>(null);
 
   const statusRef = useRef<StoryboardPlanGenerationStatus>('idle');
-  const timeoutRef = useRef<number | null>(null);
   const isMountedRef = useRef(true);
   const activeDraftIdRef = useRef(draftId);
   const generationTokenRef = useRef(0);
@@ -164,39 +83,29 @@ export function useStoryboardPlanGeneration(
     setStatus(nextStatus);
   }, []);
 
-  const clearPollTimeout = useCallback(() => {
-    if (timeoutRef.current !== null) {
-      window.clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  }, []);
-
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
-      clearPollTimeout();
     };
-  }, [clearPollTimeout]);
+  }, []);
 
   useEffect(() => {
     activeDraftIdRef.current = draftId;
     generationTokenRef.current += 1;
-    clearPollTimeout();
     setLifecycleStatus('idle');
     setJobId(null);
     setError(null);
     setCanvasState(null);
-  }, [clearPollTimeout, draftId, setLifecycleStatus]);
+  }, [draftId, setLifecycleStatus]);
 
   const reset = useCallback(() => {
     generationTokenRef.current += 1;
-    clearPollTimeout();
     setLifecycleStatus('idle');
     setJobId(null);
     setError(null);
     setCanvasState(null);
-  }, [clearPollTimeout, setLifecycleStatus]);
+  }, [setLifecycleStatus]);
 
   const isCurrentGeneration = useCallback((draftIdForGeneration: string, token: number) => (
     isMountedRef.current
@@ -233,41 +142,61 @@ export function useStoryboardPlanGeneration(
     }
   }, [isCurrentGeneration, onRemoveNode, queryClient, setLifecycleStatus]);
 
-  const poll = useCallback(
-    (draftIdForGeneration: string, currentJobId: string, token: number) => {
-      clearPollTimeout();
+  const handlePlanStatus = useCallback((
+    draftIdForGeneration: string,
+    currentJobId: string,
+    token: number,
+    nextStatus: 'queued' | 'running' | 'completed' | 'failed',
+  ) => {
+    if (!isCurrentGeneration(draftIdForGeneration, token)) return;
 
-      timeoutRef.current = window.setTimeout(() => {
-        void getStoryboardPlanStatus(draftIdForGeneration, currentJobId)
-          .then((response) => {
-            if (!isCurrentGeneration(draftIdForGeneration, token)) return;
+    if (nextStatus === 'completed') {
+      void applyCompletedPlan(draftIdForGeneration, token);
+      return;
+    }
 
-            if (response.status === 'completed') {
-              clearPollTimeout();
-              void applyCompletedPlan(draftIdForGeneration, token);
-              return;
-            }
+    if (nextStatus === 'failed') {
+      setError(JOB_FAILED_MESSAGE);
+      setLifecycleStatus('failed');
+      return;
+    }
 
-            if (response.status === 'failed') {
-              clearPollTimeout();
-              setError(JOB_FAILED_MESSAGE);
-              setLifecycleStatus('failed');
-              return;
-            }
+    setLifecycleStatus(nextStatus);
+  }, [applyCompletedPlan, isCurrentGeneration, setLifecycleStatus]);
 
-            setLifecycleStatus(response.status);
-            poll(draftIdForGeneration, currentJobId, token);
-          })
-          .catch((err: unknown) => {
-            if (!isCurrentGeneration(draftIdForGeneration, token)) return;
-            clearPollTimeout();
-            setError(POLL_ERROR_MESSAGE);
-            setLifecycleStatus('failed');
-          });
-      }, pollIntervalMs);
+  const refreshCurrentPlanStatus = useCallback(() => {
+    const currentJobId = jobId;
+    if (!draftId || !currentJobId) return;
+    if (statusRef.current !== 'queued' && statusRef.current !== 'running') return;
+
+    const token = generationTokenRef.current;
+    void getStoryboardPlanStatus(draftId, currentJobId)
+      .then((response) => {
+        handlePlanStatus(draftId, currentJobId, token, response.status);
+      })
+      .catch(() => {
+        if (!isCurrentGeneration(draftId, token)) return;
+        setError(STATUS_REFRESH_ERROR_MESSAGE);
+        setLifecycleStatus('failed');
+      });
+  }, [draftId, handlePlanStatus, isCurrentGeneration, jobId, setLifecycleStatus]);
+
+  useDraftStoryboardStatusSubscription(draftId || null, {
+    enabled: Boolean(draftId),
+    onEvent: (event) => {
+      const payload = getStoryboardPlanPayload(event);
+      if (
+        !payload ||
+        typeof payload.jobId !== 'string' ||
+        payload.jobId !== jobId ||
+        !isPlanJobStatus(payload.status)
+      ) {
+        return;
+      }
+      handlePlanStatus(draftId, payload.jobId, generationTokenRef.current, payload.status);
     },
-    [applyCompletedPlan, clearPollTimeout, isCurrentGeneration, pollIntervalMs, setLifecycleStatus],
-  );
+    onReconnect: refreshCurrentPlanStatus,
+  });
 
   const start = useCallback(async (): Promise<string | null> => {
     if (!draftId) return null;
@@ -275,7 +204,6 @@ export function useStoryboardPlanGeneration(
       return jobId;
     }
 
-    clearPollTimeout();
     const token = generationTokenRef.current + 1;
     generationTokenRef.current = token;
     activeDraftIdRef.current = draftId;
@@ -290,7 +218,6 @@ export function useStoryboardPlanGeneration(
 
       setJobId(response.jobId);
       setLifecycleStatus(response.status);
-      poll(draftId, response.jobId, token);
       return response.jobId;
     } catch (err) {
       if (!isCurrentGeneration(draftId, token)) return null;
@@ -298,7 +225,7 @@ export function useStoryboardPlanGeneration(
       setLifecycleStatus('failed');
       return null;
     }
-  }, [clearPollTimeout, draftId, isCurrentGeneration, jobId, poll, setLifecycleStatus]);
+  }, [draftId, isCurrentGeneration, jobId, setLifecycleStatus]);
 
   return {
     status,

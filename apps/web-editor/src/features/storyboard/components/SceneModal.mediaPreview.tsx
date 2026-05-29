@@ -5,6 +5,7 @@ import { useFileStreamUrl } from '@/shared/hooks/useFileStreamUrl';
 import { buildAuthenticatedUrl } from '@/lib/api-client';
 import { config } from '@/lib/config';
 
+import { useStoryboardBulkStreamUrl } from './SceneBlockNode.mediaThumbnail';
 import {
   BORDER,
   SURFACE,
@@ -139,7 +140,11 @@ function MediaPreviewThumbnail({
 }): React.ReactElement {
   const [previewFailed, setPreviewFailed] = useState(false);
   const fileId = item.mediaType === 'image' ? item.fileId : null;
-  const { url: imageUrl } = useFileStreamUrl(fileId);
+  const bulkImage = useStoryboardBulkStreamUrl(fileId);
+  const shouldFallbackToSingle = !bulkImage.url && (!bulkImage.isBulkManaged || bulkImage.error !== null);
+  const { url: fallbackImageUrl } = useFileStreamUrl(shouldFallbackToSingle ? fileId : null);
+  const bulkImageUrl = bulkImage.url;
+  const imageUrl = bulkImageUrl ?? fallbackImageUrl;
 
   useEffect(() => {
     setPreviewFailed(false);

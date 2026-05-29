@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
 import mysql, { type Connection } from 'mysql2/promise';
+import { EMPTY_PROMPT_DOC, PROMPT_DOC, VALID_PLAN } from '../fixtures/storyboardPlan.fixtures.js';
 
 Object.assign(process.env, {
   APP_DB_HOST: process.env['APP_DB_HOST'] ?? 'localhost',
@@ -35,38 +36,6 @@ vi.mock('bullmq', async (importOriginal) => {
 function sha256(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
-
-const PROMPT_DOC = {
-  schemaVersion: 1,
-  blocks: [{ type: 'text', value: 'Create a clean launch video storyboard.' }],
-  settings: {
-    videoLengthSeconds: 30,
-    aspectRatio: '16:9',
-    styleKey: 'cinematic',
-    modelPreference: 'gpt-storyboard-test',
-  },
-};
-
-const EMPTY_PROMPT_DOC = {
-  schemaVersion: 1,
-  blocks: [{ type: 'text', value: '   ' }],
-};
-
-const VALID_PLAN = {
-  schemaVersion: 1,
-  videoLengthSeconds: 30,
-  sceneCount: 5,
-  scenes: Array.from({ length: 5 }, (_, index) => ({
-    sceneNumber: index + 1,
-    prompt: `Scene ${index + 1} prompt`,
-    visualPrompt: `Scene ${index + 1} visual prompt`,
-    videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
-    durationSeconds: 6,
-    referencedMedia: [],
-    transitionNotes: '',
-    style: 'cinematic',
-  })),
-};
 
 let app: Express;
 let conn: Connection;

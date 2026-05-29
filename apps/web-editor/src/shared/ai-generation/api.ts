@@ -90,14 +90,26 @@ export type AssetSummary = {
   status: string;
 };
 
-/** Poll the status of an AI generation job. */
+type AiGenerationJobResponse = Omit<AiGenerationJob, 'resultAssetId'> & {
+  resultAssetId?: string | null;
+  outputFileId?: string | null;
+};
+
+/** Fetch the current status snapshot of an AI generation job. */
 export async function getJobStatus(jobId: string): Promise<AiGenerationJob> {
   const res = await apiClient.get(`/ai/jobs/${jobId}`);
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Failed to get job status (${res.status}): ${body}`);
   }
-  return res.json() as Promise<AiGenerationJob>;
+  const data = await res.json() as AiGenerationJobResponse;
+  return {
+    jobId: data.jobId,
+    status: data.status,
+    progress: data.progress,
+    resultAssetId: data.resultAssetId ?? data.outputFileId ?? null,
+    errorMessage: data.errorMessage,
+  };
 }
 
 /**

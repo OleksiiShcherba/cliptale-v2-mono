@@ -21,6 +21,16 @@ router.post(
 // Registered BEFORE /files/:id so Express does not match this route as an id.
 router.get('/files', authMiddleware, fileController.listFiles);
 
+// POST /files/stream-urls
+// Returns presigned GET URLs for a batch of authenticated user-owned files.
+// Must be registered BEFORE /files/:id routes to avoid mis-routing.
+router.post(
+  '/files/stream-urls',
+  authMiddleware,
+  validateBody(fileController.bulkStreamUrlsSchema),
+  fileController.streamFileUrls,
+);
+
 // GET /files/:id/stream
 // Returns a presigned GET URL for the file, verifying caller ownership.
 router.get('/files/:id/stream', authMiddleware, fileController.streamFile);

@@ -6,6 +6,7 @@ import {
   UnprocessableEntityError,
   ValidationError,
 } from '@/lib/errors.js';
+import { publishStoryboardStatusUpdated } from '@/lib/realtimePublisher.js';
 import * as aiJobRepository from '@/repositories/aiGenerationJob.repository.js';
 import * as fileLinksRepository from '@/repositories/fileLinks.repository.js';
 import * as fileRepository from '@/repositories/file.repository.js';
@@ -249,7 +250,16 @@ export async function generateStoryboardMusicBlock(params: {
       if (!(error instanceof ActiveMusicJobExistsError)) throw error;
     }
   }
-  return listStoryboardMusic(params.userId, params.draftId);
+  const status = await listStoryboardMusic(params.userId, params.draftId);
+  await publishStoryboardStatusUpdated({
+    userId: params.userId,
+    draftId: params.draftId,
+    payload: {
+      resource: 'storyboardMusic',
+      status,
+    },
+  });
+  return status;
 }
 
 /** Enqueues all pending Step 3 storyboard music blocks for a draft. */
@@ -274,5 +284,14 @@ export async function generatePendingStoryboardMusic(params: {
     }
   }
   const refreshedBlocks = await listFreshBlocks(params.draftId);
-  return { items: refreshedBlocks.map(toStep3PendingItem) };
+  const status = { items: refreshedBlocks.map(toStep3PendingItem) };
+  await publishStoryboardStatusUpdated({
+    userId: params.userId,
+    draftId: params.draftId,
+    payload: {
+      resource: 'storyboardMusic',
+      status,
+    },
+  });
+  return status;
 }

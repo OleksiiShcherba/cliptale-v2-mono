@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+vi.mock('@/lib/realtime.js', () => ({
+  publishAiGenerationJobStatus: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { processAiGenerateJob } from './ai-generate.job.js';
 import type { AiGenerateJobPayload } from './ai-generate.job.js';
 import {

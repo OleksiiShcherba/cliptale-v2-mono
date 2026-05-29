@@ -21,6 +21,13 @@ vi.mock('@/db/connection.js', () => ({
 
 import type { StoryboardPlan } from '@ai-video-editor/project-schema';
 import {
+  LEGACY_VALID_PLAN,
+  MEDIA_CONTEXT,
+  PROMPT_SNAPSHOT,
+  VALID_PLAN,
+  makeStoryboardPlanJobRow,
+} from '../__tests__/fixtures/storyboardPlan.fixtures.js';
+import {
   createQueuedJob,
   findByJobId,
   findLatestCompletedByDraftId,
@@ -30,101 +37,6 @@ import {
   reserveQueuedJob,
   sanitizeStoryboardPlanJobError,
 } from './storyboardPlanJob.repository.js';
-
-const NOW = new Date('2026-05-13T10:00:00.000Z');
-
-const VALID_PLAN: StoryboardPlan = {
-  schemaVersion: 1,
-  videoLengthSeconds: 30,
-  sceneCount: 5,
-  scenes: [
-    {
-      sceneNumber: 1,
-      prompt: 'Open with the product on a desk.',
-      visualPrompt: 'Cinematic desk shot with soft morning light.',
-      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
-      durationSeconds: 6,
-      referencedMedia: [],
-      transitionNotes: 'Cut on action.',
-      style: 'cinematic',
-    },
-    {
-      sceneNumber: 2,
-      prompt: 'Show the user picking it up.',
-      visualPrompt: 'Close handheld shot of the product in use.',
-      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
-      durationSeconds: 6,
-      referencedMedia: [],
-      transitionNotes: 'Quick push transition.',
-      style: 'cinematic',
-    },
-    {
-      sceneNumber: 3,
-      prompt: 'Highlight the key feature.',
-      visualPrompt: 'Macro feature detail with crisp reflections.',
-      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
-      durationSeconds: 6,
-      referencedMedia: [],
-      transitionNotes: 'Match cut.',
-      style: 'cinematic',
-    },
-    {
-      sceneNumber: 4,
-      prompt: 'Show the benefit in context.',
-      visualPrompt: 'Wide lifestyle scene showing the outcome.',
-      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
-      durationSeconds: 6,
-      referencedMedia: [],
-      transitionNotes: 'Soft dissolve.',
-      style: 'cinematic',
-    },
-    {
-      sceneNumber: 5,
-      prompt: 'End on a clean call to action.',
-      visualPrompt: 'Hero product shot with simple background.',
-      videoPrompt: 'Animate the scene with natural subject motion and a smooth camera move.',
-      durationSeconds: 6,
-      referencedMedia: [],
-      transitionNotes: 'Fade out.',
-      style: 'cinematic',
-    },
-  ],
-};
-
-const PROMPT_SNAPSHOT = {
-  schemaVersion: 1,
-  blocks: [{ type: 'text', value: 'Make a product launch storyboard.' }],
-};
-
-const MEDIA_CONTEXT = {
-  files: [
-    {
-      fileId: '00000000-0000-4000-8000-000000000001',
-      mediaType: 'image',
-      storageUri: 's3://bucket/stable-key.jpg',
-      hasThumbnail: true,
-    },
-  ],
-};
-
-function makeRow(overrides: Record<string, unknown> = {}) {
-  return {
-    job_id: '00000000-0000-4000-8000-000000000010',
-    draft_id: '00000000-0000-4000-8000-000000000020',
-    user_id: '00000000-0000-4000-8000-000000000030',
-    status: 'completed',
-    model: 'gpt-4.1',
-    prompt_snapshot_json: PROMPT_SNAPSHOT,
-    media_context_json: MEDIA_CONTEXT,
-    plan_json: VALID_PLAN,
-    error_message: null,
-    created_at: NOW,
-    updated_at: NOW,
-    completed_at: NOW,
-    failed_at: null,
-    ...overrides,
-  };
-}
 
 describe('storyboardPlanJob.repository', () => {
   beforeEach(() => {
@@ -244,10 +156,10 @@ describe('storyboardPlanJob.repository', () => {
   it('maps MySQL JSON columns returned as strings', async () => {
     mockQuery.mockResolvedValueOnce([
       [
-        makeRow({
+        makeStoryboardPlanJobRow({
           prompt_snapshot_json: JSON.stringify(PROMPT_SNAPSHOT),
           media_context_json: JSON.stringify(MEDIA_CONTEXT),
-          plan_json: JSON.stringify(VALID_PLAN),
+          plan_json: JSON.stringify(LEGACY_VALID_PLAN),
         }),
       ],
     ]);
@@ -260,7 +172,7 @@ describe('storyboardPlanJob.repository', () => {
   });
 
   it('maps MySQL JSON columns returned as parsed objects', async () => {
-    mockQuery.mockResolvedValueOnce([[makeRow()]]);
+    mockQuery.mockResolvedValueOnce([[makeStoryboardPlanJobRow()]]);
 
     const job = await findByJobId('job-1');
 
@@ -274,7 +186,7 @@ describe('storyboardPlanJob.repository', () => {
       ...VALID_PLAN,
       scenes: VALID_PLAN.scenes.map(({ videoPrompt: _videoPrompt, ...scene }) => scene),
     };
-    mockQuery.mockResolvedValueOnce([[makeRow({ plan_json: legacyPlan })]]);
+    mockQuery.mockResolvedValueOnce([[makeStoryboardPlanJobRow({ plan_json: legacyPlan })]]);
 
     const job = await findByJobId('job-1');
 
@@ -314,7 +226,7 @@ describe('storyboardPlanJob.repository', () => {
   });
 
   it('rejects schema-invalid completed rows when fetched', async () => {
-    mockQuery.mockResolvedValueOnce([[makeRow({ plan_json: { ...VALID_PLAN, scenes: [] } })]]);
+    mockQuery.mockResolvedValueOnce([[makeStoryboardPlanJobRow({ plan_json: { ...VALID_PLAN, scenes: [] } })]]);
 
     await expect(findByJobId('job-1')).rejects.toThrow();
   });
@@ -370,7 +282,7 @@ describe('storyboardPlanJob.repository', () => {
   });
 
   it('finds the latest completed plan for a draft without raw deleted-draft shortcuts', async () => {
-    mockQuery.mockResolvedValueOnce([[makeRow()]]);
+    mockQuery.mockResolvedValueOnce([[makeStoryboardPlanJobRow()]]);
 
     const job = await findLatestCompletedByDraftId('draft-1');
 

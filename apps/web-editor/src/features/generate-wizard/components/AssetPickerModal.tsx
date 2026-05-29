@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 
 import { useAssets } from '@/features/generate-wizard/hooks/useAssets';
+import { useBulkFileStreamUrls } from '@/shared/hooks/useBulkFileStreamUrls';
 
 import type { AssetKind, AssetSummary } from '@/features/generate-wizard/types';
 import type { UploadTarget } from '@/shared/file-upload/types';
@@ -22,19 +23,11 @@ import {
 } from './assetPickerModalStyles';
 import { stateStyles } from './mediaGalleryStyles';
 
-// ---------------------------------------------------------------------------
-// Module-level constants
-// ---------------------------------------------------------------------------
-
 const MEDIA_TYPE_LABELS: Record<AssetKind, string> = {
   video: 'Insert Video',
   image: 'Insert Image',
   audio: 'Insert Audio',
 };
-
-// ---------------------------------------------------------------------------
-// Loading / error / empty sub-views
-// ---------------------------------------------------------------------------
 
 function PickerSkeleton(): React.ReactElement {
   return (
@@ -62,10 +55,6 @@ function PickerEmpty(): React.ReactElement {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Close (X) icon
-// ---------------------------------------------------------------------------
-
 function CloseIcon(): React.ReactElement {
   return (
     <svg
@@ -85,10 +74,6 @@ function CloseIcon(): React.ReactElement {
     </svg>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
 
 export interface AssetPickerModalProps {
   /** Which asset kind to list. */
@@ -114,22 +99,8 @@ export interface AssetPickerModalProps {
   scope?: 'draft' | 'all';
 }
 
-// ---------------------------------------------------------------------------
-// AssetPickerModal
-// ---------------------------------------------------------------------------
-
 /**
  * Modal dialog for picking a single asset of a specific media type.
- *
- * - Dimensions: 520×580px, centered, dark backdrop rgba(0,0,0,0.6).
- * - Title: "Insert Video" / "Insert Image" / "Insert Audio" computed from `mediaType`.
- * - Body: type-filtered card grid (AssetThumbCard for video/image, AudioRowCard for audio).
- * - Close: Esc key, backdrop click, or X button. Does NOT close on card hover or scroll.
- * - Pick: fires `onPick(asset)` then closes.
- * - Focus trap: moves focus to the dialog on open; returns focus to `triggerRef` on close.
- * - ARIA: role="dialog" + aria-modal="true" + aria-labelledby.
- * - Upload affordance: opt-in via `uploadTarget` prop (added 2026-04-27, SB-UPLOAD-1).
- *   Upload rendering is delegated to AssetPickerUploadAffordance.
  */
 export function AssetPickerModal({
   mediaType,
@@ -144,20 +115,21 @@ export function AssetPickerModal({
   const titleId = 'asset-picker-title';
 
   const { data, isLoading, isError } = useAssets({ type: mediaType, draftId, scope });
-
-  // ── Focus management ─────────────────────────────────────────────────────
+  const imageStreamFileIds = React.useMemo(
+    () => (data?.items ?? [])
+      .filter((asset) => asset.type === 'image' && asset.thumbnailUrl === null)
+      .map((asset) => asset.id),
+    [data?.items],
+  );
+  const { urls: imageStreamUrls } = useBulkFileStreamUrls(imageStreamFileIds);
 
   useEffect(() => {
-    // Move focus into the dialog when it mounts
     dialogRef.current?.focus();
 
     return () => {
-      // Return focus to the trigger when the modal unmounts
       triggerRef?.current?.focus();
     };
   }, [triggerRef]);
-
-  // ── Keyboard handler ─────────────────────────────────────────────────────
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -169,19 +141,14 @@ export function AssetPickerModal({
     [onClose],
   );
 
-  // ── Backdrop click ───────────────────────────────────────────────────────
-
   const handleBackdropClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      // Only close when the click target is the backdrop itself, not the dialog
       if (e.target === e.currentTarget) {
         onClose();
       }
     },
     [onClose],
   );
-
-  // ── Pick handler ─────────────────────────────────────────────────────────
 
   const handlePick = useCallback(
     (asset: AssetSummary) => {
@@ -190,8 +157,6 @@ export function AssetPickerModal({
     },
     [onPick, onClose],
   );
-
-  // ── Upload complete callback ─────────────────────────────────────────────
 
   const handleUploadComplete = useCallback(
     (fileId: string, file: File) => {
@@ -207,8 +172,6 @@ export function AssetPickerModal({
     },
     [mediaType, handlePick],
   );
-
-  // ── Body content ─────────────────────────────────────────────────────────
 
   let bodyContent: React.ReactElement;
   if (isLoading) {
@@ -229,7 +192,16 @@ export function AssetPickerModal({
     bodyContent = (
       <div style={thumbGridStyle}>
         {data.items.map((asset) => (
-          <AssetThumbCard key={asset.id} asset={asset} onAssetSelected={handlePick} />
+          <AssetThumbCard
+            key={asset.id}
+            asset={asset}
+            onAssetSelected={handlePick}
+            previewUrl={
+              asset.type === 'image' && asset.thumbnailUrl === null
+                ? (imageStreamUrls[asset.id] ?? null)
+                : undefined
+            }
+          />
         ))}
       </div>
     );
@@ -238,13 +210,11 @@ export function AssetPickerModal({
   const title = MEDIA_TYPE_LABELS[mediaType];
 
   return (
-    // Backdrop — clicking it closes the modal
     <div
       style={backdropStyle}
       onClick={handleBackdropClick}
       data-testid="picker-backdrop"
     >
-      {/* Dialog — Esc key listener lives here so it captures bubbled events */}
       <div
         ref={dialogRef}
         role="dialog"
@@ -255,7 +225,6 @@ export function AssetPickerModal({
         tabIndex={-1}
         data-testid="picker-dialog"
       >
-        {/* Header */}
         <div style={headerStyle}>
           <div style={headerTextStyle}>
             <h2 id={titleId} style={titleStyle}>
@@ -275,9 +244,7 @@ export function AssetPickerModal({
           </button>
         </div>
 
-        {/* Scrollable body */}
         <div style={bodyStyle} data-testid="picker-body">
-          {/* Upload affordance — rendered only when uploadTarget is provided */}
           {uploadTarget && (
             <AssetPickerUploadAffordance
               mediaType={mediaType}

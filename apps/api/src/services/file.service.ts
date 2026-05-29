@@ -14,6 +14,8 @@ import { enqueueIngestJob } from '@/queues/jobs/enqueue-ingest.js';
 /** Presigned URL expiry — 15 minutes per §11 security rules. */
 const PRESIGNED_URL_EXPIRY_SECONDS = 15 * 60;
 
+export const MAX_BULK_STREAM_URLS = 100;
+
 /** Maximum file size accepted for upload (2 GiB). */
 const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
 
@@ -173,6 +175,8 @@ export type ListFilesResult = {
   nextCursor: string | null;
 };
 
+export type BulkStreamUrlsResult = { urls: Record<string, string>; missingFileIds: string[] };
+
 function encodeCursor(updatedAt: Date, fileId: string): string {
   return Buffer.from(`${updatedAt.toISOString()}|${fileId}`, 'utf8').toString('base64');
 }
@@ -223,6 +227,24 @@ export async function streamUrl(fileId: string, userId: string, s3: S3Client): P
   if (!file) throw new NotFoundError(`File "${fileId}" not found`);
   const { bucket, key } = parseStorageUri(file.storageUri);
   return getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: PRESIGNED_URL_EXPIRY_SECONDS });
+}
+
+export async function streamUrls(fileIds: string[], userId: string, s3: S3Client): Promise<BulkStreamUrlsResult> {
+  const uniqueFileIds = [...new Set(fileIds)];
+  if (uniqueFileIds.length === 0) throw new ValidationError('fileIds must contain at least one file ID');
+  if (uniqueFileIds.length > MAX_BULK_STREAM_URLS) {
+    throw new ValidationError(`fileIds must contain at most ${MAX_BULK_STREAM_URLS} unique IDs`);
+  }
+  const files = await fileRepository.findManyByIdsForUser(uniqueFileIds, userId);
+  const filesById = new Map(files.map((file) => [file.fileId, file]));
+  const urls: Record<string, string> = {};
+  for (const fileId of uniqueFileIds) {
+    const file = filesById.get(fileId);
+    if (!file) continue;
+    const { bucket, key } = parseStorageUri(file.storageUri);
+    urls[fileId] = await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: PRESIGNED_URL_EXPIRY_SECONDS });
+  }
+  return { urls, missingFileIds: uniqueFileIds.filter((fileId) => !(fileId in urls)) };
 }
 
 /**

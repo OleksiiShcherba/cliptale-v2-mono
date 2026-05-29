@@ -9,6 +9,7 @@
 import React from 'react';
 
 import { useAssets } from '@/features/generate-wizard/hooks/useAssets';
+import { useBulkFileStreamUrls } from '@/shared/hooks/useBulkFileStreamUrls';
 
 import type { AssetSummary } from '../types';
 
@@ -29,9 +30,15 @@ interface AssetGroupProps {
   label: string;
   assets: AssetSummary[];
   onAssetSelected: (asset: AssetSummary) => void;
+  previewUrls: Record<string, string>;
 }
 
-function AssetGroup({ label, assets, onAssetSelected }: AssetGroupProps): React.ReactElement {
+function AssetGroup({
+  label,
+  assets,
+  onAssetSelected,
+  previewUrls,
+}: AssetGroupProps): React.ReactElement {
   const isAudio = assets[0]?.type === 'audio';
 
   return (
@@ -46,7 +53,16 @@ function AssetGroup({ label, assets, onAssetSelected }: AssetGroupProps): React.
       ) : (
         <div style={groupStyles.thumbGrid}>
           {assets.map((asset) => (
-            <AssetThumbCard key={asset.id} asset={asset} onAssetSelected={onAssetSelected} />
+            <AssetThumbCard
+              key={asset.id}
+              asset={asset}
+              onAssetSelected={onAssetSelected}
+              previewUrl={
+                asset.type === 'image' && asset.thumbnailUrl === null
+                  ? (previewUrls[asset.id] ?? null)
+                  : undefined
+              }
+            />
           ))}
         </div>
       )}
@@ -74,26 +90,47 @@ export function MediaGalleryRecentBody({
   onScopeToggle,
 }: MediaGalleryRecentBodyProps): React.ReactElement {
   const { data, isLoading, isError } = useAssets({ type: 'all', draftId, scope });
-
-  if (isLoading) return <GallerySkeleton />;
-  if (isError) return <GalleryError />;
-
   const items = data?.items ?? [];
   const videos = items.filter((a) => a.type === 'video');
   const images = items.filter((a) => a.type === 'image');
   const audios = items.filter((a) => a.type === 'audio');
+  const imageStreamFileIds = React.useMemo(
+    () => items
+      .filter((asset) => asset.type === 'image' && asset.thumbnailUrl === null)
+      .map((asset) => asset.id),
+    [items],
+  );
+  const { urls: imageStreamUrls } = useBulkFileStreamUrls(imageStreamFileIds);
+
+  if (isLoading) return <GallerySkeleton />;
+  if (isError) return <GalleryError />;
 
   return (
     <>
       {items.length === 0 && <GalleryEmpty />}
       {videos.length > 0 && (
-        <AssetGroup label="Videos" assets={videos} onAssetSelected={onAssetSelected} />
+        <AssetGroup
+          label="Videos"
+          assets={videos}
+          onAssetSelected={onAssetSelected}
+          previewUrls={imageStreamUrls}
+        />
       )}
       {images.length > 0 && (
-        <AssetGroup label="Images" assets={images} onAssetSelected={onAssetSelected} />
+        <AssetGroup
+          label="Images"
+          assets={images}
+          onAssetSelected={onAssetSelected}
+          previewUrls={imageStreamUrls}
+        />
       )}
       {audios.length > 0 && (
-        <AssetGroup label="Audio" assets={audios} onAssetSelected={onAssetSelected} />
+        <AssetGroup
+          label="Audio"
+          assets={audios}
+          onAssetSelected={onAssetSelected}
+          previewUrls={imageStreamUrls}
+        />
       )}
 
       {/* Scope toggle — sticky at bottom of the scroll container, only when draftId present */}
