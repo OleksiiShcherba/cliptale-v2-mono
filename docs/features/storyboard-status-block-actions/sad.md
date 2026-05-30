@@ -4,7 +4,7 @@ owner: "Tech Lead"
 reviewers: ["Tech Lead", "Security Lead"]
 updated_at: "2026-05-30"
 feature_size: "S"
-target_surfaces: []  # filled in §4 — subset of: backend-service | web-frontend | mobile-app | desktop-app | cli | worker | library-sdk. Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
+target_surfaces: [web-frontend]  # §4 decision — single surface; backend reused unchanged. Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
 ---
 
 # Software Architecture Document — storyboard-status-block-actions
@@ -115,11 +115,17 @@ C4Context
      📋 Write: 3–4 choices; each a heading + 2–3 sentences of rationale.
      📌 «Store content as a table of typed blocks» is a pillar — ADR-0001 grows from it. -->
 
+**Target surface:** `web-frontend` (single) — the existing `apps/web-editor` React SPA. The generation backend (api + media-worker) is reused unchanged. Single-surface, reversible → inline note, no ADR. **UI architecture:** reuse the existing client-rendered SPA (React 18 + Vite, React-Router v7) — no SSR/hybrid change; this feature adds components to an existing screen, so no new UI-architecture decision is warranted (inline note, no ADR).
+
 **Top strategic choices (the seeds for ADRs):**
 
-1. **<e.g. Module isolation through events>** — <2–3 sentences citing quality goals + constraints>.
-2. **<e.g. Single-store persistence>** — <2–3 sentences>.
-3. **<e.g. Server-rendered read side>** — <2–3 sentences>.
+1. **Reuse the existing generation-start path; gate Regenerate safety by action type** *(→ ADR-0001)* — Scene Regenerate calls the existing destructive plan-start (`planGeneration.start`/`retry`, which rebuilds the canvas) behind a mandatory loss-enumerating confirmation; illustration Regenerate calls the additive illustration-start (`illustrationGeneration.start`) with no confirmation. This honours the "no new generation-timing budget" constraint (spec §6) and the destructive-action-safety quality goal (§1 QG-1). The single-generation invariant (AC-07) is structural: choosing Regenerate immediately moves the block out of its completed state, removing the menu — so a rapid duplicate trigger has no menu to act on, backed by the existing start-guard in the plan hook.
+
+2. **Owner-gate the status menu by not rendering it for non-owners** *(→ ADR-0002)* — The kebab (⋮) menu — the sole host of both actions — is not rendered when the signed-in user (`useAuth()`) is not the draft's Creator (AC-09). No new server boundary is introduced: generation ownership is already enforced server-side, and Hide is pure client session state. The "Ref"-removal and visual-consistency styling are independent of ownership and apply to **every** viewer.
+
+3. **Hide is ephemeral, session-scoped client state — no persistence** — Hiding a completed block sets session-only UI state; it is not written to the server (spec §3 non-goal). A hidden block re-appears on reload or whenever that block re-enters a new generation cycle (including indirectly — a scene Regenerate that rebuilds the canvas and restarts illustrations re-shows a previously hidden "Illustrations ready" block). Where this state lives is a §5 building-block decision (reversible, single-module → no ADR).
+
+4. **Extend the existing controls in place** — The status menu and the destructive-confirmation modal are added to the existing `StoryboardPlanControls.tsx` cluster following repo conventions (co-located inline `*.styles.ts`; feature-local modal with focus-trap + Escape, per `PrincipalImageApprovalModal.tsx`). No restructuring of the storyboard module; in-progress and failed block states are untouched (spec §3 non-goal).
 
 Each tactical decision in later sections should trace to one of these seeds. Tactical decisions that *contradict* a strategic choice are red flags — surface them in §11.
 
