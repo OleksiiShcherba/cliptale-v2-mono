@@ -275,10 +275,10 @@ sequenceDiagram
 
 | # | Title | Status | Section |
 |---|---|---|---|
-| <NNNN> | <imperative — e.g. "Use a sliding-window counter for rate limiting"> | Accepted | §<N> |
-| <NNNN> | <imperative — e.g. "Co-locate the worker in the API process"> | Accepted | §<N> |
+| 0001 | Reuse the existing generation-start path and gate Regenerate safety by action type | Accepted | §4 |
+| 0002 | Owner-gate the status menu by not rendering it for non-owners | Accepted | §4, §8 |
 
-ADR files live under `docs/features/<slug>/adr/NNNN-<title>.md`.
+ADR files live under `docs/features/storyboard-status-block-actions/adr/NNNN-<title>.md`.
 
 ## 10. Quality requirements
 
@@ -289,22 +289,22 @@ ADR files live under `docs/features/<slug>/adr/NNNN-<title>.md`.
      round ≤250ms to ≤300ms — that's a critic F6 hit).
      📌 e.g. «p95 ≤ 500 ms on a block update, verified by a 100 req/s load test». -->
 
-Each top-3 goal from §1 expanded into a full scenario:
+Each top-3 goal from §1 expanded into a full scenario. Numbers are verbatim from spec §6 NFR.
 
-**QG-1. <quality attribute>**
-- **When:** <trigger condition>
-- **Then:** <expected behaviour with numbers from spec §6 NFR>
-- **How verify:** <test / chaos drill / load test / metric>
+**QG-1. Destructive-action safety**
+- **When:** a Creator triggers Regenerate on the "Generated scenes applied" block.
+- **Then:** 100% of scene-Regenerate triggers show the warning before any overwrite — and the warning enumerates whichever of scenes / illustrations / music presently exist (AC-08).
+- **How verify:** E2E test asserts the warning precedes regeneration (spec §6); cancel/dismiss leaves scenes, illustrations, and music untouched (AC-05).
 
-**QG-2. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-2. Accessibility**
+- **When:** a Creator navigates a completed status block by keyboard only.
+- **Then:** the status menu is keyboard-reachable and operable — focus + activate + Escape to close.
+- **How verify:** axe / keyboard-nav check in E2E (spec §6).
 
-**QG-3. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-3. Responsiveness**
+- **When:** a Creator activates the status menu.
+- **Then:** menu content is visible ≤ 100 ms from activation (pure client render).
+- **How verify:** manual UX check / interaction profiling — **non-gating** (not a CI pass/fail check), per spec §6.
 
 ## 11. Risks and technical debt
 
@@ -318,12 +318,13 @@ Each top-3 goal from §1 expanded into a full scenario:
 
 | Risk / debt | Severity | Mitigation | Owner |
 |---|---|---|---|
-| <e.g. Worker lag may reach hours during a downstream outage> | Medium | <alert >10 min, on-call playbook, retry backoff> | <DevOps> |
-| <e.g. No event-schema versioning in v1> | Medium | <ADR-NNNN planned for v2, tolerate unknown fields> | <Backend> |
-| Open architectural decision: <decision-headline> | Open question | Resolve before <stage trigger or YYYY-MM-DD>; <inline rationale from the Save-as-OQ> | <owner> |
+| Accidental destructive scene Regenerate discards scenes / illustrations / music (product risk) | Medium | Mandatory loss-enumerating confirm (ADR-0001); KPI tracks recoveries ≤ 2% of events (spec §7) | Steven Hayes (PM) |
+| Client render-gate is not a security boundary for Regenerate | Low | Generation backend independently enforces draft ownership; render-gate is UX-only (ADR-0002) | Security Lead |
+| Illustration Regenerate may cause style drift / unexpected re-approval on scenes the Creator liked | Open question | Resolve before `sdd:tasks`; default now: re-run all scenes as chosen, surface re-approval as it works today (spec §8) | Steven Hayes (PM) |
+| Superseded illustration files are retained indefinitely (no cleanup) | Open question | Resolve at follow-up after launch; default now: keep them, no cleanup (spec §8) | Tech Lead |
 
 **Accepted debt (acceptable in v1, plan to fix later):**
-- <e.g. the entity is immutable / unversioned — OK for v1, may need audit versioning in v2>
+- **Regenerate concurrency = last-write-wins.** A scene Regenerate that races a pending autosave or a second open tab keeps today's last-write-wins behaviour — Regenerate reuses the unchanged generation-start path and adds no new coordination (spec §8 OQ, resolved at design; ADR-0001 neutral consequence). Revisit if multi-tab editing becomes a supported scenario.
 
 ## 12. Glossary
 
@@ -334,6 +335,13 @@ Each top-3 goal from §1 expanded into a full scenario:
 
 | Term | Meaning |
 |---|---|
-| <e.g. domain object A> | <its meaning in this domain> |
-| <e.g. domain object B> | <its meaning> |
-| <e.g. domain invariant name> | <the rule, in plain language> |
+| Creator | Signed-in owner of a storyboard draft; the only role that may use the status menu (CONTEXT glossary). |
+| Completed status block | A status block in its success state ("Generated scenes applied" or "Illustrations ready") — the only state that gains the menu. |
+| Status menu | The kebab (⋮) menu on a completed block exposing Regenerate and Hide; rendered only for the Creator. |
+| Regenerate | Status-menu action that re-runs the underlying generation via the existing start path; destructive for scenes, additive for illustrations. |
+| Hide | Status-menu action that removes a completed block from the canvas for the current session only (not persisted). |
+| Destructive Regenerate | Scene-plan Regenerate — rebuilds the canvas, discarding present scenes / illustrations / music; gated by a mandatory confirmation. |
+| Additive Regenerate | Illustration Regenerate — produces fresh images without deleting previously generated files; no confirmation. |
+| Single-generation invariant | At most one generation runs per draft at a time; enforced structurally because choosing Regenerate removes the menu (AC-07). |
+| Owner gate | The rule that the kebab menu is not rendered in the DOM for a non-owner (AC-09); styling consistency still applies to all viewers. |
+| Ref box | The small reference-thumbnail preview on the illustration block; removed on the completed state for visual consistency (AC-04). |
