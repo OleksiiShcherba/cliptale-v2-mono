@@ -191,6 +191,8 @@ interface StoryboardIllustrationControlsProps extends StoryboardStatusMenuWiring
   error: string | null;
   isBlocking: boolean;
   onStart: () => void;
+  /** When the sibling plan block is hidden, reflow up into its (top) slot (AC-02). */
+  reflowToTop?: boolean;
 }
 
 function getReferencePreviewFallback(
@@ -279,6 +281,7 @@ export function StoryboardIllustrationControls({
   isOwner = false,
   onRegenerate,
   onHide,
+  reflowToTop = false,
 }: StoryboardIllustrationControlsProps): React.ReactElement {
   const copy = getStoryboardIllustrationCopy({ status, phase });
   const isSceneFailure = status === 'failed' && phase === 'scene';
@@ -287,7 +290,10 @@ export function StoryboardIllustrationControls({
   const isDisabled = isBlocking || isSceneFailure;
 
   return (
-    <div style={{ ...s.control, ...s.illustrationControl }} data-testid="storyboard-illustration-controls">
+    <div
+      style={reflowToTop ? s.control : { ...s.control, ...s.illustrationControl }}
+      data-testid="storyboard-illustration-controls"
+    >
       <div style={s.controlText}>
         <span style={s.controlTitle}>{copy.title}</span>
         <span

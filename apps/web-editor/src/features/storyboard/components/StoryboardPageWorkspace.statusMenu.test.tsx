@@ -175,4 +175,17 @@ describe('StoryboardPageWorkspace — status menu wiring (T6 integration)', () =
     expect(screen.queryByTestId('storyboard-plan-controls')).toBeNull();
     expect(screen.getByTestId('storyboard-illustration-controls')).toBeTruthy();
   });
+
+  it('reflows the sibling up into the freed top slot when the plan block is hidden (AC-02)', () => {
+    renderWorkspace();
+    const illustration = screen.getByTestId('storyboard-illustration-controls');
+    // While both are shown, the illustration block sits in the lower slot.
+    expect(illustration.style.top).toBe('78px');
+
+    fireEvent.click(screen.getAllByTestId('storyboard-status-menu-trigger')[0]);
+    fireEvent.click(screen.getByTestId('storyboard-status-menu-hide'));
+
+    // With the plan block gone, the illustration block reflows up to the top slot.
+    expect(screen.getByTestId('storyboard-illustration-controls').style.top).toBe('16px');
+  });
 });

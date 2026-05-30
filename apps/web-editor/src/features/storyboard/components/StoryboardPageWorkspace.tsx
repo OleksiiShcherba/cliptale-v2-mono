@@ -204,6 +204,7 @@ export function StoryboardPageWorkspace({
             isOwner={isOwner}
             onRegenerate={handleIllustrationRegenerate}
             onHide={handleIllustrationHide}
+            reflowToTop={hiddenBlocks.isHidden('plan')}
           />
         )}
         {isLoading ? (
