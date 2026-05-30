@@ -244,18 +244,7 @@ sequenceDiagram
      🎯 N/A allowed for XS/S that reuses an existing deployment unit with no change.
      Deployment-diagram scaffold → templates/deployment.md. -->
 
-<Topology in 2–3 sentences. Where it runs, replicas, scaling thresholds.>
-
-**Monitoring:**
-- <Metrics — e.g. `<metric_name>`>
-- <Alerts — e.g. «worker lag > 10 min → page on-call»>
-- <Tracing — e.g. spans on the request boundary>
-
-**Scaling thresholds:**
-- <e.g. comfortable in one table up to N rows/year>
-- <e.g. partition by quarter above N rows/year>
-
-<!-- For XS/S with no deployment change: <!-- N/A: reuses existing deployment unit, no infra change --> -->
+<!-- N/A: reuses the existing `web-editor` deployment unit; frontend-only, no new container, replica, queue, or scaling threshold. Regenerate re-uses existing api/media-worker capacity — no new generation-timing budget (spec §6). Product adoption is tracked via the spec §7 KPIs (client analytics), not infrastructure metrics. -->
 
 ## 8. Crosscutting concepts
 
@@ -267,13 +256,15 @@ sequenceDiagram
 
 | Concept | Convention | Where defined |
 |---|---|---|
-| Logging | <e.g. structured, fields `module=<name>`> | <convention file §X or here> |
-| Authentication | <e.g. token-based via middleware> | <convention file §X> |
-| Error handling | <e.g. domain sentinel → ports error mapping → JSON> | <convention file §X> |
-| ID strategy | <e.g. sortable time-based ID in the app layer> | <convention file §X> |
-| Internationalisation | <e.g. N/A, single language> | — |
-| Observability | <e.g. tracing on the request boundary> | — |
-| Events | <module-specific patterns, if any> | <here> |
+| Authorization | Owner-gate: render the kebab menu only when `useAuth()` user id === draft owner id; non-owners get no menu in the DOM. No new server boundary — generation ownership already enforced server-side. | ADR-0002, §4 |
+| Regenerate safety | Action-type gate: destructive scene Regenerate behind a mandatory loss-enumerating confirm; additive illustration Regenerate runs directly. Single-generation invariant is structural (leaving completed state removes the menu) + existing start-guard. | ADR-0001, §4 |
+| Error handling | A Regenerate that fails falls through to the block's **existing** failed state — legacy copy + Retry control, no status menu (spec §1 ¶3). Canvas integrity on mid-run failure follows unchanged existing generation behaviour. | spec §1, §3; existing hooks |
+| State management | Hide is **session-only** ephemeral UI state owned by the storyboard workspace (not persisted, not in the global timeline `ephemeral-store`); re-shown on reload or a new generation cycle. | §4, §5 |
+| Accessibility | Menu is keyboard-reachable (in tab order) and operable (focus → activate → Escape); confirm modal uses the feature-local focus-trap + Escape pattern (`PrincipalImageApprovalModal.tsx`). | spec §6; §1 QG-2 |
+| Styling | Plain inline `CSSProperties` in co-located `*.styles.ts`; design tokens are hardcoded style constants (palette / `docs/design-guide.md`). | architecture-map §Conventions |
+| Logging / Observability | No new server logging; client behaviour observed via the spec §7 KPIs (analytics). | spec §7 |
+| Internationalisation | N/A — single-language UI strings, matching existing storyboard copy. | — |
+| Events | N/A — no new domain events; reuses existing realtime generation-status events consumed by the hooks. | architecture-map |
 
 ## 9. Architecture decisions
 
