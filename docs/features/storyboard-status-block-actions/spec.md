@@ -160,3 +160,48 @@ The menu is offered **only on the completed state** of each block — never whil
 - [ ] When a Creator Regenerates illustrations (re-run all scenes), should the principal-image / visual-style approval gate re-trigger, and is it acceptable that scenes the Creator was happy with may receive different images (style drift)? Default now: re-run all scenes as the Creator chose; surface any re-approval as it works today. — owner: Steven Hayes (PM), due: before sdd:tasks
 - [ ] Should superseded illustration files be cleaned up later, given Regenerate retains old files in storage indefinitely? Default now: keep them, no cleanup. — owner: Tech Lead, due: follow-up after launch
 - [ ] How should a Regenerate that races a pending autosave or a second open tab behave (last-write-wins today)? Default now: accept current behavior. — owner: Tech Lead, due: sdd:design
+
+## Test plan
+
+> Frontend-only feature (`target_surfaces: [web-frontend]`), **no datastore and no new persistence** (see `data-model.md`) — so there is **no integration-against-a-real-DB tier and no migration test**. Coverage uses the frontend "testing trophy" tiers: **component** (a UI piece in isolation), **visual-regression** (rendered UI diffed against a baseline), **e2e-through-UI** (the flow driven through the real UI). Concrete runners/tools are detected by `implement` against the repo — none are named here.
+
+### Coverage (every §5 AC → ≥1 test)
+
+| AC | Test (named from intent) | Level(s) | Notes |
+|---|---|---|---|
+| AC-01 | `regenerate-scenes confirm runs generation and clears completed state` | e2e-through-UI | Open status menu → Regenerate → confirm warning → block leaves completed state at once (menu gone) and shows the same in-progress UI as a first run. Generation-start stubbed (below). |
+| AC-02 | `hide removes only that block and sibling reflows up` + `hidden block re-shows on a new generation cycle` | e2e-through-UI + component | UI test: Hide one block, assert it is gone, sibling not hidden and reflows, no un-hide affordance, editing continues. Component test: a hidden block re-mounts/re-shows when its block re-enters a generation cycle (incl. the indirect scene-Regenerate→fresh-illustration-run case). |
+| AC-03 | `regenerate-illustrations runs without confirmation and is additive` | e2e-through-UI | Open menu → Regenerate (no confirm dialog appears) → block leaves completed state, in-progress UI shows; assert no destructive-warning step and that the start call is the illustration path. |
+| AC-04 | `illustrations-ready matches generated-scenes-applied with no Ref box` | visual-regression + component | Visual: completed "Illustrations ready" block diffed against a baseline so it reads as its sibling. Component: assert the "Ref" thumbnail box is absent and the kebab status menu is present. Applies to every viewer (Ref-box removal is not owner-gated). |
+| AC-05 | `cancelling the scene warning runs no regeneration` | e2e-through-UI | Open warning → Cancel/dismiss → assert no generation-start fired and scenes/illustrations/music are untouched. Dedicated error/accidental-action row (not folded into AC-01). |
+| AC-06 | `status menu is absent while in-progress or failed` | component | Render the block in in-progress and in failed states; assert no kebab/status menu (so Regenerate/Hide are unreachable). Pure conditional-render — component-only confirmed. |
+| AC-07 | `rapid double Regenerate starts exactly one generation` | component | Activating Regenerate unmounts the menu (block leaves completed state); a second activation has no menu to act on → exactly one generation-start. Asserted via a single start-path invocation. |
+| AC-08 | `confirm dialog enumerates only the present losses` | component + e2e-through-UI | Component: given draft state with/without each of scenes·illustrations·music, the single dialog lists exactly the categories that presently exist (absent ones omitted). E2E: confirm → canvas rebuilt from the new scene plan. |
+| AC-09 | `non-owner sees no kebab status menu` | component | Render completed blocks as a signed-in non-owner (`useAuth` id ≠ draft owner); assert the kebab status menu is not in the DOM at all — neither Regenerate nor Hide. Pure owner gate — component-only confirmed. |
+
+### NFR coverage (§6)
+
+| NFR | Coverage |
+|---|---|
+| Destructive-action safety (100% of scene-Regenerate show the warning first) | Asserted in the AC-01 / AC-05 / AC-08 e2e-through-UI flows: the warning always precedes any scene overwrite. |
+| Accessibility — status menu keyboard-reachable & operable (focus + activate + Escape) | Asserted in e2e-through-UI: the kebab is in the tab order, opens via keyboard, actions activate, Escape closes; plus an automated a11y assertion on the open menu. |
+| Status-menu open latency (≤100 ms) | **Non-gating** per §6 (pure client render) — not a CI pass/fail check; observed via manual UX/interaction profiling, not a written test. |
+| No generation-latency regression | Verified by code review that Regenerate calls the unchanged generation-start path; this feature owns no new perf/load test. |
+
+### Integration strategy
+
+No integration-against-a-real-dependency tier: this feature owns no datastore, queue, or backend. The only external dependency the flows touch is the **existing generation-start path**, which is **stubbed at the network boundary** (request intercepted; assert the block enters in-progress and exactly one start fires) — this feature's unit under test is the UI transition, not the generation backend it reuses unchanged.
+
+### Test data & cleanup
+
+- **Component / visual-regression:** rendered from props/fixtures for each block state (completed · in-progress · failed) and each owner context (owner vs non-owner). Hide and menu state are session-only React state — each test mounts fresh; nothing to clean.
+- **e2e-through-UI:** owner and non-owner identities come from the repo's existing user factories using `*@example.test` emails (PII guard, per `data-model.md`). Generation-start is stubbed, so no real generation runs and no media/files are produced. Cleanup boundary: **per-test** — session-only UI state resets on a fresh page load; no DB or storage teardown needed.
+
+### Load
+
+<!-- N/A: no numeric throughput/latency NFR — the only number (≤100 ms menu open) is explicitly non-gating client render -->
+
+### CI placement
+
+- **Every PR:** component + visual-regression (fast, isolated) and the e2e-through-UI flows (light — generation-start is stubbed, so no real backend run).
+- Split is advice; the repo's CI and `implement` own the actual wiring. No scheduled/pre-release heavy suite is warranted (no load tier).
