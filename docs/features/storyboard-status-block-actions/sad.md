@@ -198,23 +198,42 @@ C4Container
      📌 e.g. «author → web: composes draft → web → content API: save». Seed the primary flow(s) here;
      the `sequences` stage then covers every §5 AC (no cap). Never N/A for M+; XS/S keeps ≥1 happy-path flow. -->
 
-**Critical flow 1: <flow name>**
+**Critical flow 1: Regenerate applied scenes (destructive, confirmed)** — AC-01, AC-05, AC-07, AC-08.
 
 ```mermaid
 sequenceDiagram
-    actor Actor
-    participant Web
-    participant Service
-    participant Store
-    Actor->>Web: <action>
-    Web->>Service: <call>
-    Service->>Store: <write>
-    Store-->>Service: ok
-    Service-->>Web: result
-    Web-->>Actor: confirmation
+    actor Creator
+    participant Menu as Status menu
+    participant Modal as Confirm modal
+    participant Workspace
+    participant PlanGen as Plan generation (existing start path)
+    participant Backend
+    Creator->>Menu: Hover/focus completed block, open menu
+    Creator->>Menu: Choose Regenerate
+    Menu->>Modal: Open; enumerate present losses (scenes / illustrations / music)
+    Creator->>Modal: Confirm
+    Modal->>Workspace: Leave completed state at once (menu disappears)
+    Workspace->>PlanGen: Start scene generation (reuse existing path)
+    PlanGen->>Backend: Re-run scene plan
+    Backend-->>Workspace: In-progress status (same UI as a first run)
+    Workspace-->>Creator: Show in-progress UI
 ```
 
-**Critical flow 2: <e.g. async event propagation>** — <if applicable, otherwise N/A>.
+**Critical flow 2: Hide a completed block (session-only)** — AC-02.
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Menu as Status menu
+    participant Workspace
+    participant Controls as Status blocks
+    Creator->>Menu: Open menu, choose Hide
+    Menu->>Workspace: Mark this block hidden (session-only state)
+    Workspace->>Controls: Re-render without the hidden block
+    Controls-->>Creator: Sibling block reflows up into freed space
+```
+
+> The additive illustration Regenerate (AC-03) is flow 1 without the Confirm-modal step — Regenerate calls the illustration start path directly. The `sequences` stage expands the full set (cancel/dismiss AC-05, owner-gating AC-09, re-show-on-new-cycle AC-02) against the §5 building blocks.
 
 ## 7. Deployment view
 
