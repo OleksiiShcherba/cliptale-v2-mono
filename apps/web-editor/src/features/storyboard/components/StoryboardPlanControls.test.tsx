@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 vi.mock('@/lib/api-client', () => ({
   buildAuthenticatedUrl: (url: string) => url,
@@ -74,5 +74,85 @@ describe('StoryboardPlanControls / StoryboardIllustrationControls — visual con
     expect(screen.getByText('Illustrations ready')).toBeTruthy();
     expect(screen.getByLabelText('Illustrations complete')).toBeTruthy();
     expect(screen.queryByTestId('storyboard-reference-preview')).toBeNull();
+  });
+});
+
+describe('StoryboardPlanControls — status menu mounting (AC-06, AC-09)', () => {
+  const PLAN_NON_COMPLETED: Array<React.ComponentProps<typeof StoryboardPlanControls>['status']> = [
+    'idle', 'queued', 'running', 'applying', 'failed',
+  ];
+
+  it('renders the status menu on the completed scene block for the owner', () => {
+    render(
+      <StoryboardPlanControls
+        status="completed" error={null} isBlocking={false} onRetry={vi.fn()}
+        isOwner onRegenerate={vi.fn()} onHide={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('storyboard-status-menu-trigger')).toBeTruthy();
+  });
+
+  it('renders the status menu on the completed illustration block for the owner', () => {
+    render(
+      <StoryboardIllustrationControls
+        status="completed" phase="scene" reference={null} error={null} isBlocking={false}
+        onStart={vi.fn()} isOwner onRegenerate={vi.fn()} onHide={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('storyboard-status-menu-trigger')).toBeTruthy();
+  });
+
+  it('does not render the status menu for a non-owner on the completed block (AC-09)', () => {
+    render(
+      <StoryboardPlanControls
+        status="completed" error={null} isBlocking={false} onRetry={vi.fn()}
+        isOwner={false} onRegenerate={vi.fn()} onHide={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId('storyboard-status-menu-trigger')).toBeNull();
+  });
+
+  it('never renders the status menu on non-completed scene states even for an owner (AC-06)', () => {
+    for (const status of PLAN_NON_COMPLETED) {
+      const { unmount } = render(
+        <StoryboardPlanControls
+          status={status} error={status === 'failed' ? 'boom' : null} isBlocking={false}
+          onRetry={vi.fn()} isOwner onRegenerate={vi.fn()} onHide={vi.fn()}
+        />,
+      );
+      expect(screen.queryByTestId('storyboard-status-menu-trigger')).toBeNull();
+      unmount();
+    }
+  });
+
+  it('never renders the status menu on non-completed illustration states even for an owner (AC-06)', () => {
+    for (const status of ['idle', 'queued', 'running', 'failed'] as const) {
+      const { unmount } = render(
+        <StoryboardIllustrationControls
+          status={status} phase="scene" reference={null} error={status === 'failed' ? 'boom' : null}
+          isBlocking={false} onStart={vi.fn()} isOwner onRegenerate={vi.fn()} onHide={vi.fn()}
+        />,
+      );
+      expect(screen.queryByTestId('storyboard-status-menu-trigger')).toBeNull();
+      unmount();
+    }
+  });
+
+  it('wires onRegenerate and onHide through the mounted menu', () => {
+    const onRegenerate = vi.fn();
+    const onHide = vi.fn();
+    render(
+      <StoryboardPlanControls
+        status="completed" error={null} isBlocking={false} onRetry={vi.fn()}
+        isOwner onRegenerate={onRegenerate} onHide={onHide}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('storyboard-status-menu-trigger'));
+    fireEvent.click(screen.getByTestId('storyboard-status-menu-regenerate'));
+    expect(onRegenerate).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId('storyboard-status-menu-trigger'));
+    fireEvent.click(screen.getByTestId('storyboard-status-menu-hide'));
+    expect(onHide).toHaveBeenCalledTimes(1);
   });
 });

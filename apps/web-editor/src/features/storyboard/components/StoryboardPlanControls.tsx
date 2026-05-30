@@ -15,9 +15,22 @@ import { buildAuthenticatedUrl } from '@/lib/api-client';
 import { config } from '@/lib/config';
 
 import { storyboardPlanControlStyles as s } from './StoryboardPlanControls.styles';
+import { StoryboardStatusMenu } from './StoryboardStatusMenu';
 import { SUCCESS } from './storyboardPageStyles';
 
-interface StoryboardPlanControlsProps {
+/**
+ * Owner-gated status-menu wiring shared by both completed status blocks.
+ * The menu only mounts on the completed state (AC-06) and only renders for the
+ * draft owner (AC-09, enforced inside StoryboardStatusMenu). Defaults keep the
+ * props optional so callers that do not (yet) wire the menu still type-check.
+ */
+interface StoryboardStatusMenuWiring {
+  isOwner?: boolean;
+  onRegenerate?: () => void;
+  onHide?: () => void;
+}
+
+interface StoryboardPlanControlsProps extends StoryboardStatusMenuWiring {
   status: StoryboardPlanGenerationStatus;
   error: string | null;
   isBlocking: boolean;
@@ -56,6 +69,9 @@ export function StoryboardPlanControls({
   error,
   isBlocking,
   onRetry,
+  isOwner = false,
+  onRegenerate,
+  onHide,
 }: StoryboardPlanControlsProps): React.ReactElement {
   const copy = STORYBOARD_PLAN_STATUS_COPY[status];
   const isDisabled = isBlocking;
@@ -77,6 +93,14 @@ export function StoryboardPlanControls({
           <span aria-label="Generation complete" style={{ color: SUCCESS, fontSize: '12px', fontWeight: 600 }}>
             Done
           </span>
+        )}
+        {status === 'completed' && (
+          <StoryboardStatusMenu
+            isOwner={isOwner}
+            label={copy.title}
+            onRegenerate={() => onRegenerate?.()}
+            onHide={() => onHide?.()}
+          />
         )}
         {showRetry && (
           <button
@@ -160,7 +184,7 @@ function getStoryboardIllustrationCopy(params: {
   };
 }
 
-interface StoryboardIllustrationControlsProps {
+interface StoryboardIllustrationControlsProps extends StoryboardStatusMenuWiring {
   status: StoryboardIllustrationLifecycleStatus;
   phase: StoryboardIllustrationLifecyclePhase;
   reference: StoryboardIllustrationReferenceStatus | null;
@@ -252,6 +276,9 @@ export function StoryboardIllustrationControls({
   error,
   isBlocking,
   onStart,
+  isOwner = false,
+  onRegenerate,
+  onHide,
 }: StoryboardIllustrationControlsProps): React.ReactElement {
   const copy = getStoryboardIllustrationCopy({ status, phase });
   const isSceneFailure = status === 'failed' && phase === 'scene';
@@ -280,6 +307,14 @@ export function StoryboardIllustrationControls({
         <span aria-label="Illustrations complete" style={{ color: SUCCESS, fontSize: '12px', fontWeight: 600 }}>
           Done
         </span>
+      )}
+      {status === 'completed' && (
+        <StoryboardStatusMenu
+          isOwner={isOwner}
+          label={copy.title}
+          onRegenerate={() => onRegenerate?.()}
+          onHide={() => onHide?.()}
+        />
       )}
       {isReferenceFailure && (
         <button
