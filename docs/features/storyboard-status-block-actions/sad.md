@@ -21,21 +21,23 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      ¶4 is the override slot — critic `Override` resolutions emit «Decision override: <headline>
      — rationale: <reason>» bullets here so downstream skills see the deliberate choice. -->
 
-**Intent.** <One paragraph from spec §2 Goals — what we're building and for whom.>
+**Intent.** Give each **completed** storyboard status block ("Generated scenes applied", "Illustrations ready") a kebab (⋮) **status menu** — revealed on hover/focus, kept in the tab order — exposing two in-place actions for the draft's **Creator**: **Regenerate** (re-runs the underlying generation) and **Hide** (removes the block for the current session). Scene Regenerate is destructive (overwrites the canvas) and is gated by a single confirmation that enumerates present losses; illustration Regenerate is additive (no confirmation). The "Illustrations ready" block drops its stray "Ref" preview so the two completed blocks read as one consistent control. This is a frontend-only change to existing storyboard Step-2 controls — no new backend, no new data.
 
 **Top-3 quality goals (1-liners; full scenarios in §10):**
 
-1. <e.g. "Availability under partial failure of a downstream module">
-2. <e.g. "Read performance for the dashboard under data-scale growth">
-3. <e.g. "Recoverability with <30 min RTO">
+1. **Destructive-action safety** — 100% of scene-Regenerate triggers show the loss-enumerating warning before any overwrite (spec §6).
+2. **Accessibility** — the status menu is keyboard-reachable and fully operable (focus → activate → Escape to close) (spec §6).
+3. **Responsiveness** — status-menu open latency ≤ 100 ms from activation to visible menu content (spec §6, non-gating).
 
 **Stakeholders.**
 
 | Role | Interest | Sign-off owner? |
 |---|---|---|
-| <author role from glossary> | <feature usage> | No |
-| <consumer role from glossary> | <read usage> | No |
+| Creator | Owns the draft; uses Regenerate / Hide on completed blocks | No |
+| Non-owner viewer | Sees the consistent completed blocks but no status menu (AC-09) | No |
+| Steven Hayes (PM) | Feature owner; usability outcome + KPIs | No |
 | Tech Lead | SAD approval | Yes |
+| Security Lead | Confirms no new authz boundary (reuses existing ownership) | No |
 
 <!-- Decision overrides (¶4) — populated by the critic resolution loop, empty otherwise. -->
 
@@ -48,23 +50,26 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      Never N/A — every feature inherits at least Conventions + Technical. -->
 
 **Technical.**
-- <Language + version>
-- <Framework(s) + version>
-- <Datastore(s) + version>
-- <Architecture convention — e.g. the layering style from the project convention file>
+- TypeScript 5.4+ (strict, ESM); Node ≥20 monorepo (Turborepo + npm workspaces).
+- React 18 + Vite 5 SPA (`apps/web-editor`); React-Router v7; TanStack Query 5.
+- Client state: custom external store + `useSyncExternalStore` + Immer (`store/project-store.ts`); ephemeral UI state in `store/ephemeral-store.ts`. **No Zustand/Redux.**
+- Styling: plain inline `CSSProperties` in co-located `*.styles.ts` (no Tailwind / CSS-modules / styled-components).
+- **No backend, no datastore, no migration.** Regenerate reuses the existing generation-start paths already in the storyboard hooks (`useStoryboardPlanGeneration.start`/`retry`, `useStoryboardIllustrations.start`).
 
 **Organisational.**
-- <Effort budget — e.g. 3 person-weeks>
-- <Deadline — e.g. 2026-Q3 hard>
-- <Team composition>
+- Effort budget: S (small, frontend-only — single component cluster under `features/storyboard/`).
+- Deadline: none stated (usability improvement).
+- Team: one frontend engineer; PM owner Steven Hayes; reviewers Tech Lead + Security Lead.
 
 **Conventions.**
-- <Link to the project's convention file>
-- <Naming, ID strategy, error-handling pattern>
+- Architecture map: [`docs/architecture-map.md`](../../architecture-map.md) (canonical for layering, conventions, datastores).
+- Feature code under `apps/web-editor/src/features/storyboard/`; the two status blocks render in `StoryboardPlanControls.tsx`, wired in `StoryboardPageWorkspace.tsx`.
+- Co-located `*.styles.ts` inline styles; design tokens are hardcoded `*.styles.ts` constants (palette/`docs/design-guide.md`).
+- **Shared-migration rule:** a module gaining a 2nd consumer migrates to `shared/` in the same PR.
+- Modal pattern: feature-local React modal with focus-trap + Escape (precedent: `PrincipalImageApprovalModal.tsx`).
 
 **Regulatory / external.**
-- <e.g. data-retention / deletion behaviour per ADR-NNNN>
-- <e.g. applicable compliance controls, or N/A with a reason>
+- N/A — no new data, no PII, no new external interface. Hide state is session-only client state and is not persisted. Authorization reuses the existing draft-ownership rule already enforced by the generation backend (spec §6.1).
 
 ## 3. Context and scope
 
@@ -75,30 +80,31 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      Trust boundary — the line past which you don't trust data without checking it.
      Never N/A — greenfield still draws the planned actors + external systems. -->
 
-<Business context in 2–3 sentences. What the system does for whom.>
+A Creator builds a storyboard draft in the web-editor (Step 2). The two top-left status blocks reflect generation state; today they are terminal once complete. This feature adds Creator-only in-place actions (Regenerate, Hide) to the completed state of those blocks. The change lives entirely inside the `web-editor` SPA; the generation backend (api + media-worker) is reused unchanged — Regenerate simply re-invokes the existing start path, and ownership is enforced exactly as it is today.
 
-<!-- brownfield: <one-line scan summary> (or «N/A — greenfield repo» if no source existed) -->
+<!-- brownfield: existing `features/storyboard/` module — `StoryboardPlanControls.tsx` renders both completed blocks; wired in `StoryboardPageWorkspace.tsx`; generation via the plan/illustration hooks; current-user identity via `useAuth()`. -->
 
 **External systems (in / out):**
 
 | Actor or system | Type | Interaction |
 |---|---|---|
-| <author role> | Person | <what they do> |
-| <external service> | System (internal/external) | <interaction> |
-| <identity provider> | System (external) | <provides auth tokens> |
+| Creator | Person | Opens the status menu on a completed block; triggers Regenerate / Hide |
+| Non-owner viewer | Person | Views the draft's completed blocks; the menu is not rendered for them |
+| ClipTale backend (api + media-worker) | System (internal, reused) | Starts scene-plan / illustration generation; enforces draft ownership |
+| Identity (AuthProvider / `GET /auth/me`) | System (internal, reused) | Supplies the signed-in user id used to owner-gate the menu |
 
 **C4 Context (L1):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. -->
 
 ```mermaid
 C4Context
-    title <feature> — System Context
+    title storyboard-status-block-actions — System Context
 
-    Person(actor, "<Actor role>", "<intent>")
-    System(app, "<Our system>", "<one-sentence description>")
-    System_Ext(ext, "<External system>", "<one-sentence description>")
+    Person(creator, "Creator", "Edits a storyboard draft; acts on completed status blocks")
+    System(web, "web-editor (storyboard)", "React SPA hosting the status blocks + status menu")
+    System_Ext(backend, "ClipTale backend", "api + media-worker: starts generation, enforces draft ownership")
 
-    Rel(actor, app, "<interaction>", "<protocol>")
-    Rel(app, ext, "<interaction>", "<protocol>")
+    Rel(creator, web, "Opens status menu, triggers Regenerate / Hide", "HTTPS")
+    Rel(web, backend, "Re-runs scene-plan / illustration generation (existing start path)", "REST / WS")
 ```
 
 ## 4. Solution strategy
