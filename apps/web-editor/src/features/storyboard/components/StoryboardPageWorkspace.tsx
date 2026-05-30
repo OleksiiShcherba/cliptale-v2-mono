@@ -13,6 +13,8 @@ import type {
   OnNodesChange,
 } from '@xyflow/react';
 
+import { AuthContext } from '@/features/auth/hooks/useAuth';
+import { useStoryboardHiddenBlocks } from '@/features/storyboard/hooks/useStoryboardHiddenBlocks';
 import type { UseStoryboardPlanGenerationResult } from '@/features/storyboard/hooks/useStoryboardPlanGeneration';
 import type { UseStoryboardIllustrationsResult } from '@/features/storyboard/hooks/useStoryboardIllustrations';
 import type { StoryboardMusicBlock, StoryboardSidebarTab } from '@/features/storyboard/types';
@@ -28,6 +30,10 @@ import {
   StoryboardPlanBlockingOverlay,
   StoryboardPlanControls,
 } from './StoryboardPlanControls';
+import {
+  StoryboardRegenerateConfirmModal,
+  type StoryboardRegenerateLossCategory,
+} from './StoryboardRegenerateConfirmModal';
 import { storyboardPageStyles as s, ERROR } from './storyboardPageStyles';
 
 interface StoryboardPageWorkspaceProps {
@@ -69,6 +75,10 @@ interface StoryboardPageWorkspaceProps {
   planGeneration: UseStoryboardPlanGenerationResult;
   illustrationGeneration: UseStoryboardIllustrationsResult;
   isPlanBlocking: boolean;
+  /** Draft owner's user id — compared against the signed-in user for the owner gate (AC-09). */
+  draftOwnerId: string | null;
+  /** Whether the draft currently has any music block — drives loss enumeration (AC-08). */
+  hasMusic: boolean;
 }
 
 export function StoryboardPageWorkspace({
@@ -101,7 +111,59 @@ export function StoryboardPageWorkspace({
   planGeneration,
   illustrationGeneration,
   isPlanBlocking,
+  draftOwnerId,
+  hasMusic,
 }: StoryboardPageWorkspaceProps): React.ReactElement {
+  // AC-09 owner gate: only the draft's owner ever sees the status menu. Read the
+  // auth context defensively — outside an AuthProvider (e.g. isolated tests) the
+  // gate simply closes (no menu) rather than throwing.
+  const user = React.useContext(AuthContext)?.user ?? null;
+  const isOwner = Boolean(user && draftOwnerId && user.userId === draftOwnerId);
+
+  const hiddenBlocks = useStoryboardHiddenBlocks({
+    planStatus: planGeneration.status,
+    illustrationStatus: illustrationGeneration.status,
+  });
+
+  // The destructive scene Regenerate is gated by a single confirm modal (AC-05).
+  const [isSceneConfirmOpen, setIsSceneConfirmOpen] = React.useState(false);
+
+  // AC-08: enumerate only the loss categories that presently exist in the draft.
+  const sceneLosses = React.useMemo<StoryboardRegenerateLossCategory[]>(() => {
+    const losses: StoryboardRegenerateLossCategory[] = [];
+    if (nodes.some((node) => node.type === 'scene-block')) losses.push('scenes');
+    if (illustrationGeneration.status === 'completed') losses.push('illustrations');
+    if (hasMusic) losses.push('music');
+    return losses;
+  }, [nodes, illustrationGeneration.status, hasMusic]);
+
+  const handleSceneRegenerate = React.useCallback(() => {
+    setIsSceneConfirmOpen(true);
+  }, []);
+
+  const handleSceneRegenerateConfirm = React.useCallback(() => {
+    // Close first so a duplicate confirm has no modal to act on, then start
+    // exactly one generation — the block leaves its completed state at once
+    // (status → queued), so its menu unmounts too (AC-01, AC-07).
+    setIsSceneConfirmOpen(false);
+    void planGeneration.start();
+  }, [planGeneration]);
+
+  const handleSceneRegenerateCancel = React.useCallback(() => {
+    setIsSceneConfirmOpen(false);
+  }, []);
+
+  // AC-03: illustration Regenerate is additive — start directly, no confirmation.
+  const handleIllustrationRegenerate = React.useCallback(() => {
+    void illustrationGeneration.start();
+  }, [illustrationGeneration]);
+
+  const handlePlanHide = React.useCallback(() => hiddenBlocks.hide('plan'), [hiddenBlocks]);
+  const handleIllustrationHide = React.useCallback(
+    () => hiddenBlocks.hide('illustration'),
+    [hiddenBlocks],
+  );
+
   return (
     <div style={s.body}>
       <nav style={s.sidebar} aria-label="Storyboard panel tabs" data-testid="storyboard-sidebar">
@@ -120,20 +182,30 @@ export function StoryboardPageWorkspace({
       {activeTab === 'effects' && <EffectsPanel selectedBlockId={selectedBlockId} />}
 
       <div style={s.canvasArea} data-testid="storyboard-canvas" aria-label="Storyboard canvas">
-        <StoryboardPlanControls
-          status={planGeneration.status}
-          error={planGeneration.error}
-          isBlocking={isPlanBlocking}
-          onRetry={() => { void planGeneration.retry(); }}
-        />
-        <StoryboardIllustrationControls
-          status={illustrationGeneration.status}
-          phase={illustrationGeneration.phase}
-          reference={illustrationGeneration.reference}
-          error={illustrationGeneration.error}
-          isBlocking={illustrationGeneration.isBlocking || isPlanBlocking}
-          onStart={() => { void illustrationGeneration.start(); }}
-        />
+        {!hiddenBlocks.isHidden('plan') && (
+          <StoryboardPlanControls
+            status={planGeneration.status}
+            error={planGeneration.error}
+            isBlocking={isPlanBlocking}
+            onRetry={() => { void planGeneration.retry(); }}
+            isOwner={isOwner}
+            onRegenerate={handleSceneRegenerate}
+            onHide={handlePlanHide}
+          />
+        )}
+        {!hiddenBlocks.isHidden('illustration') && (
+          <StoryboardIllustrationControls
+            status={illustrationGeneration.status}
+            phase={illustrationGeneration.phase}
+            reference={illustrationGeneration.reference}
+            error={illustrationGeneration.error}
+            isBlocking={illustrationGeneration.isBlocking || isPlanBlocking}
+            onStart={() => { void illustrationGeneration.start(); }}
+            isOwner={isOwner}
+            onRegenerate={handleIllustrationRegenerate}
+            onHide={handleIllustrationHide}
+          />
+        )}
         {isLoading ? (
           <div style={s.canvasPlaceholder} data-testid="canvas-loading">Loading storyboard…</div>
         ) : error ? (
@@ -169,6 +241,14 @@ export function StoryboardPageWorkspace({
       )}
 
       {isPlanBlocking && <StoryboardPlanBlockingOverlay status={planGeneration.status} />}
+
+      {isSceneConfirmOpen && (
+        <StoryboardRegenerateConfirmModal
+          losses={sceneLosses}
+          onConfirm={handleSceneRegenerateConfirm}
+          onCancel={handleSceneRegenerateCancel}
+        />
+      )}
     </div>
   );
 }

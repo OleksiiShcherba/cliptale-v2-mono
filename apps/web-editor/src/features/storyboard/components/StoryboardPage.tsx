@@ -1,10 +1,11 @@
 import '@xyflow/react/dist/style.css';
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Edge as FlowEdge, Node, NodeMouseHandler } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { fetchDraft } from '@/features/generate-wizard/api';
 import { useAddBlock } from '@/features/storyboard/hooks/useAddBlock';
 import { useAddMusicBlock } from '@/features/storyboard/hooks/useAddMusicBlock';
 import { useHandleAddFromLibrary } from '@/features/storyboard/hooks/useHandleAddFromLibrary';
@@ -48,6 +49,14 @@ export function StoryboardPage(): React.ReactElement {
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
 
   const safeDraftId = draftId ?? '';
+  // Draft owner id for the status-menu owner gate (AC-09). Cached by React Query.
+  const { data: draftMeta } = useQuery({
+    queryKey: ['generation-draft', safeDraftId],
+    queryFn: () => fetchDraft(safeDraftId),
+    enabled: safeDraftId !== '',
+    staleTime: 5 * 60 * 1000,
+  });
+  const draftOwnerId = draftMeta?.userId ?? null;
   const { openStep3Modal, step3Modal } = useStep3Generation(safeDraftId);
   const { nodes, edges, isLoading, error, setNodes, setEdges, removeNode, reload } =
     useStoryboardCanvas(safeDraftId);
@@ -251,6 +260,7 @@ export function StoryboardPage(): React.ReactElement {
           onCloseHistory={() => setIsHistoryOpen(false)} onRestore={handleRestore}
           planGeneration={planGeneration} illustrationGeneration={illustrationGeneration}
           isPlanBlocking={isPlanBlocking}
+          draftOwnerId={draftOwnerId} hasMusic={musicBlocks.length > 0}
         />
         <StoryboardPageFooter isNextDisabled={isStep3Disabled || isMusicBlockingStep3} onBack={handleBack} onNext={handleNext} />
         {editingBlock !== null && (
