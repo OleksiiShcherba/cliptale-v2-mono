@@ -210,7 +210,7 @@ sequenceDiagram
     participant Backend
     Creator->>Menu: Hover/focus completed block, open menu
     Creator->>Menu: Choose Regenerate
-    Menu->>Modal: Open; enumerate present losses (scenes / illustrations / music)
+    Menu->>Modal: Open and enumerate present losses (scenes / illustrations / music)
     Creator->>Modal: Confirm
     Modal->>Workspace: Leave completed state at once (menu disappears)
     Workspace->>PlanGen: Start scene generation (reuse existing path)
@@ -234,6 +234,107 @@ sequenceDiagram
 ```
 
 > The additive illustration Regenerate (AC-03) is flow 1 without the Confirm-modal step — Regenerate calls the illustration start path directly. The `sequences` stage expands the full set (cancel/dismiss AC-05, owner-gating AC-09, re-show-on-new-cycle AC-02) against the §5 building blocks.
+
+<!-- sequences stage — additive flows below. Participants are the generic vocabulary
+     (User=<user>, UI=<ui>, Service=<service>, Store=<data-store>); they read more abstract than the
+     two design-stage seed flows above (which used named §5 blocks) — that style delta is intentional
+     and flagged in the closing note. Flows 1–2 above are untouched. -->
+
+### Regenerate illustrations (additive, no confirmation) — AC-03
+
+```mermaid
+sequenceDiagram
+    autonumber
+    %% User=<user> (Creator), UI=<ui> (status block + kebab menu), Service=<service> (existing illustration start path), Store=<data-store> (generated illustration files)
+    actor User as Creator
+    participant UI
+    participant Service
+    participant Store
+    Note over User,UI: Precondition: every scene has an illustration, block shows "Illustrations ready" (completed), viewer is the owner
+    User->>UI: Hover/focus block, open status menu
+    User->>UI: Choose Regenerate (additive — no confirmation step)
+    UI->>UI: Leave completed state at once (menu disappears)
+    UI->>Service: Start illustration generation (reuse existing additive start path)
+    Service->>Store: Write fresh illustration files
+    Note over Service,Store: persists new illustration files — previously generated files are retained, not deleted
+    Store-->>Service: Stored
+    Service-->>UI: In-progress status (same UI as a first run)
+    UI-->>User: Show in-progress UI, scene images replaced as fresh ones arrive
+    alt Rapid duplicate Regenerate before the state change lands
+        User->>UI: Activate Regenerate again
+        Note over UI: No menu present (block already left completed state) — no second generation starts (AC-07)
+    end
+    Note over User,UI: Postcondition: exactly one illustration generation running — old image files retained in storage
+```
+
+### Cancel or dismiss the scene-Regenerate warning — AC-05
+
+```mermaid
+sequenceDiagram
+    autonumber
+    %% User=<user> (Creator), UI=<ui> (status block + menu + confirm modal), Service=<service> (existing scene-plan start path)
+    actor User as Creator
+    participant UI
+    participant Service
+    Note over User,UI: Precondition: "Generated scenes applied" completed block, owner opened the menu and chose Regenerate
+    UI->>UI: Open confirm modal, enumerate present losses (whichever of scenes / illustrations / music exist)
+    alt Creator confirms
+        User->>UI: Confirm
+        UI->>UI: Leave completed state (menu disappears)
+        UI->>Service: Start scene generation (destructive canvas rebuild)
+        Service-->>UI: In-progress status
+    else Creator cancels or dismisses (Cancel / Escape / backdrop)
+        User->>UI: Cancel or dismiss the warning
+        UI->>UI: Close modal, block stays in its completed state
+        Note over UI,Service: No regeneration starts — existing scenes, illustrations, and music remain untouched (AC-05)
+    end
+    Note over User,UI: Postcondition: regeneration runs only on confirm, cancel is a no-op
+```
+
+### Render a completed status block — owner gate, state gate, visual consistency — AC-04, AC-06, AC-09
+
+```mermaid
+sequenceDiagram
+    autonumber
+    %% User=<user> (Creator OR non-owner viewer), UI=<ui> (status block renderer + menu)
+    actor User
+    participant UI
+    Note over User,UI: Precondition: a status block is about to render, signed-in user id already resolved (useAuth)
+    User->>UI: View the storyboard draft
+    UI->>UI: Render block in consistent style with no "Ref" thumbnail box (applies to every viewer, owner or not) (AC-04)
+    alt Block state is in-progress or failed
+        Note over UI: No status menu rendered — Regenerate / Hide unavailable until the block is completed (AC-06)
+    else Block state is completed
+        alt Viewer is the draft owner
+            UI-->>User: Render the kebab (⋮) status menu (Regenerate + Hide), keyboard-reachable and operable
+        else Viewer is not the owner
+            Note over UI: Kebab menu not rendered in the DOM — neither Regenerate nor Hide is exposed (AC-09)
+        end
+    end
+    Note over User,UI: Postcondition: menu exists only for an owner on a completed block — styling is consistent for all viewers
+```
+
+### Re-show a hidden block on a new generation cycle — AC-02 (indirect re-show)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    %% User=<user> (Creator), UI=<ui> (status blocks + session-only hidden state), Service=<service> (existing generation start path)
+    actor User as Creator
+    participant UI
+    participant Service
+    Note over User,UI: Precondition: an "Illustrations ready" block was hidden this session (session-only state, no un-hide affordance)
+    User->>UI: Trigger a new generation cycle (e.g. a scene Regenerate that rebuilds the canvas and restarts illustrations)
+    UI->>Service: Start generation (existing start path)
+    Service-->>UI: New cycle begins, block re-enters in-progress, then completes
+    UI->>UI: Re-create and re-show the block (clears the session hidden flag for that block)
+    UI-->>User: Previously hidden block is visible again on completion (AC-02)
+    Note over User,UI: Postcondition: hidden state survives neither a new generation cycle nor a page reload
+```
+
+> **Coverage (sequences stage).** **Use-case pass (§4):** US-01→Flow 1; US-02→Flow 1 + Cancel-warning flow; US-03→Regenerate-illustrations flow; US-04→Flow 2 (Hide) + Re-show flow; US-05→Render flow; US-06→Render flow. **AC pass (§5):** AC-01→Flow 1; AC-02→Flow 2 + Re-show flow; AC-03→Regenerate-illustrations flow; AC-04→Render flow (the "Ref"-box removal + styling is render-time; its behavioural part — menu for owners only — is the `alt` in the Render flow); AC-05→Cancel-warning flow; AC-06→Render flow (state-gate `alt`); AC-07→Flow 1 + the rapid-duplicate `alt` in the Regenerate-illustrations flow (structural — leaving completed state removes the menu); AC-08→Flow 1 (loss enumeration); AC-09→Render flow (owner-gate `alt`). No §4 user story and no §5 AC is left uncovered.
+>
+> **Flags for `design` / `data-model`.** (1) The new flows use the **generic participant vocabulary** (`<user>`/`<ui>`/`<service>`/`<data-store>`) per the runtime-view convention; the two seed flows above use named §5 blocks — a deliberate style delta, not a conflict. (2) **No new persistence** — the only persist note (fresh illustration files, old files retained) is a property of the **existing** illustration-generation backend, owned server-side; this frontend-only feature introduces no new entity for `data-model` to index. (3) All flows are **sync**; the single-generation invariant (AC-07) is structural, so no idempotency-key / dead-letter modeling is needed.
 
 ## 7. Deployment view
 
