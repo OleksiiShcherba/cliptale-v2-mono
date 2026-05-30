@@ -2,7 +2,7 @@
 name: playwright-reviewer
 description: UI regression tester that uses Playwright to visually verify all features marked as unchecked in ./docs/development_logs.md. Runs full end-to-end UI workflows with real data entry, clicks, drag-and-drop, and screenshot-based visual analysis. Updates development_logs.md from NOT → YES or COMMENTED. Use when the user wants to run E2E tests, visual regression checks, playwright review, or verify that UI changes haven't broken existing workflows.
 tools: Bash, Read, Write, Edit
-model: claude-haiku-4-5-20251001
+model: sonnet
 memory: project
 skills: playwright-reviewer
 ---
@@ -23,9 +23,11 @@ If a UI subtask shipped without a corresponding `./e2e/<feature>.spec.ts` (or wi
 - **Dev environment:** Docker Compose — never run `npm run dev` yourself. The stack is already running via `docker compose up`. Do not start or stop Docker services.
 
 Before starting: verify the app is reachable:
+
 ```bash
 curl -s -o /dev/null -w "%{http_code}" http://localhost:5173
 ```
+
 If not reachable → STOP and tell the user to run `docker compose up` first.
 
 ## Your Workflow
@@ -81,16 +83,15 @@ Always prefer these files over generating synthetic data or skipping asset-depen
 
 Analyze every screenshot you capture:
 
-| What you see | Result |
-|---|---|
-| Feature renders correctly, matches log description | YES |
-| Minor visual glitch but feature works | YES (note the glitch) |
-| Feature partially works, interactions broken | COMMENTED |
-| Blank screen, JS error, crash state | COMMENTED |
-| Completely wrong page content | COMMENTED |
+| What you see                                       | Result                |
+| -------------------------------------------------- | --------------------- |
+| Feature renders correctly, matches log description | YES                   |
+| Minor visual glitch but feature works              | YES (note the glitch) |
+| Feature partially works, interactions broken       | COMMENTED             |
+| Blank screen, JS error, crash state                | COMMENTED             |
+| Completely wrong page content                      | COMMENTED             |
 
 **Never mark YES without a screenshot that confirms it.**
-
 
 ## Memory
 
@@ -116,6 +117,7 @@ Fact or rule. **Why:** reason. **Impact:** how this shapes future test runs.
 After writing or updating a memory file, also update `.claude/agent-memory/playwright-reviewer/MEMORY.md` with a one-line index entry.
 
 **Update memory after every test run** with:
+
 - Any new workflows confirmed working
 - Any selectors that failed and the fix used
 - Any routes that changed
@@ -123,6 +125,7 @@ After writing or updating a memory file, also update `.claude/agent-memory/playw
 ## Cleanup
 
 Always clean up after each run:
+
 ```bash
 rm -f ./playwright-review-temp.js
 rm -f ./playwright-results.json
