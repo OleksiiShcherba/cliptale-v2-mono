@@ -17,7 +17,7 @@ When a Creator builds a storyboard draft, two status blocks appear in the top-le
 
 The trigger is usability friction reported during storyboard editing: Creators expect to act on a completed status block (re-run it or get it out of the way) the way they would with any modern editor's status chip, and the two blocks should look and behave consistently. This is a small, self-contained UI adjustment to existing controls — no new backend.
 
-The committed approach: give each **completed status block** a hidden kebab (⋮) **status menu** with two actions — **Regenerate** (re-runs the underlying generation) and **Hide** (removes the block for the current session). "Generated scenes applied" Regenerate is destructive (it overwrites the canvas), so it is gated by a **single confirmation dialog** that enumerates the present losses (whichever of scenes, manual edits, illustrations, and music currently exist); "Illustrations ready" Regenerate is additive (it produces fresh images without deleting previously generated files, and needs **no confirmation step**). The "Illustrations ready" block drops its "Ref" box so it matches "Generated scenes applied" exactly.
+The committed approach: give each **completed status block** a kebab (⋮) **status menu** — revealed on pointer hover or keyboard focus of the block, and kept in the tab order so it is reachable without a pointer — with two actions: **Regenerate** (re-runs the underlying generation) and **Hide** (removes the block for the current session). "Generated scenes applied" Regenerate is destructive (it overwrites the canvas), so it is gated by a **single confirmation dialog** that enumerates the present losses (whichever of scenes, illustrations, and music currently exist); "Illustrations ready" Regenerate is additive (it produces fresh images without deleting previously generated files, and needs **no confirmation step**). The "Illustrations ready" block drops its "Ref" box so it matches "Generated scenes applied" exactly.
 
 The menu is offered **only on the completed state** of each block — never while generation is in progress or after a failure (those states keep their existing copy and controls), which keeps a Creator from hiding an in-flight or failed status or re-running a job that is already running. If a Regenerate itself fails, the block falls through to its existing **failed** state — the legacy copy and Retry control, with no status menu — and canvas integrity on a mid-run failure follows the unchanged existing generation behavior.
 
@@ -46,13 +46,13 @@ The menu is offered **only on the completed state** of each block — never whil
 
 **As a** Creator
 **I want** a clear warning of exactly what I will lose before scenes regenerate
-**So that** I do not accidentally discard scenes, manual edits, illustrations, or music
+**So that** I do not accidentally discard scenes, illustrations, or music
 
 ### US-03: Regenerate illustrations non-destructively
 
 **As a** Creator
 **I want** to re-run illustration generation from the "Illustrations ready" block
-**So that** I get fresh scene images without losing the ones already generated
+**So that** I get fresh scene images while the previously generated image files are retained (the visible image on each scene is replaced; the older files are not deleted)
 
 ### US-04: Hide a completed status block
 
@@ -78,31 +78,31 @@ The menu is offered **only on the completed state** of each block — never whil
 
 **Given** a Creator viewing their storyboard draft whose scene plan has finished and shows "Generated scenes applied"
 **When** the Creator opens the status menu, chooses Regenerate, and confirms the warning
-**Then** the system re-runs scene generation and the Creator sees the block return to its generating state
+**Then** the block immediately leaves its completed state (the status menu disappears at once) and re-runs scene generation, showing the same in-progress UI as a first-time run
 
 ### AC-02 (US-04) — happy path
 
 **Given** a Creator viewing a completed status block
 **When** the Creator opens the status menu and chooses Hide
-**Then** that block alone is removed from the top-left (the sibling block, if shown, is unaffected) with no in-session un-hide affordance, and it stays hidden until either the page is reloaded or that block re-enters a new generation cycle (which re-creates and re-shows it); the Creator can continue editing
+**Then** that block alone is removed from the top-left and the sibling block, if shown, is not hidden and reflows up into the freed space; there is no in-session un-hide affordance, and the block stays hidden until either the page is reloaded or that block re-enters a new generation cycle — which re-creates and re-shows it, including when the cycle is driven indirectly (e.g. a scene Regenerate that rebuilds the canvas and starts a fresh illustration run re-shows a previously hidden "Illustrations ready" block); the Creator can continue editing
 
 ### AC-03 (US-03) — happy path
 
 **Given** a Creator viewing their draft where every scene already has an illustration and the block shows "Illustrations ready"
 **When** the Creator opens the status menu and chooses Regenerate (no confirmation step — illustration Regenerate is additive)
-**Then** the system generates fresh illustrations for the scenes, replacing the image shown on each scene block while the previously generated image files are retained (not removed), and the block returns to its generating state
+**Then** the block immediately leaves its completed state (the status menu disappears at once) and the system generates fresh illustrations for the scenes, replacing the image shown on each scene block while the previously generated image files are retained (not removed), showing the same in-progress UI as a first-time run
 
 ### AC-04 (US-05) — happy path
 
 **Given** a Creator viewing a draft whose illustrations have finished
 **When** the "Illustrations ready" block is shown
-**Then** it appears in the same visual style as "Generated scenes applied" with the same status menu and no "Ref" thumbnail box
+**Then** it appears in the same visual style as "Generated scenes applied" with the same status menu and no "Ref" thumbnail box; the "Ref"-box removal and visual-consistency styling apply to every viewer of the draft regardless of ownership (only the kebab status menu itself is owner-gated, per AC-09)
 
 ### AC-05 (US-02) — error / accidental-action prevention
 
 **Given** a Creator who has opened the warning before regenerating scenes
 **When** the Creator cancels or dismisses the warning
-**Then** no regeneration runs and the existing scenes, manual edits, illustrations, and music remain untouched
+**Then** no regeneration runs and the existing scenes, illustrations, and music remain untouched
 
 ### AC-06 (US-06) — state-based availability
 
@@ -120,7 +120,7 @@ The menu is offered **only on the completed state** of each block — never whil
 
 **Given** a Creator whose draft has scenes with attached illustrations and music
 **When** the Creator confirms Regenerate on "Generated scenes applied"
-**Then** a single confirmation dialog has enumerated whichever of the current scenes, manual edits, illustrations, and music presently exist as the items that will be replaced (categories absent from the draft are omitted), and on confirmation the canvas is rebuilt from the new scene plan
+**Then** a single confirmation dialog has enumerated whichever of the current scenes, illustrations, and music presently exist as the items that will be replaced (categories absent from the draft are omitted), and on confirmation the canvas is rebuilt from the new scene plan — which discards any in-place edits to those scenes as an inherent consequence of the rebuild
 
 ### AC-09 (US-04) — authorization
 
@@ -132,7 +132,7 @@ The menu is offered **only on the completed state** of each block — never whil
 
 | Aspect | Target | Measurement |
 |---|---|---|
-| Status menu open latency | ≤ 100 ms perceived | manual UX check / interaction profiling in CI E2E |
+| Status menu open latency | ≤ 100 ms from activation to menu content visible | manual UX check / interaction profiling (non-gating — not asserted as a CI pass/fail check; pure client render) |
 | Destructive-action safety | 100% of scene-Regenerate triggers show the warning before any overwrite | E2E test asserts warning precedes regeneration |
 | Accessibility | Status menu is keyboard-reachable and operable (focus + activate + Escape to close) | axe/keyboard-nav check in E2E |
 | No generation-latency regression | Regenerate reuses the existing generation-start path; this feature owns no new generation-timing budget | confirmed by code review that Regenerate calls the unchanged start path (no new perf test owned here) |
