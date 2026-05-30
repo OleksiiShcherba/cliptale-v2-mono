@@ -15,3 +15,7 @@ test-results/
 
 # Claude agent memory (local only)
 .claude/agent-memory/
+
+# SDD per-developer settings + worktrees (local only)
+.claude/*.local.md
+.worktrees/
