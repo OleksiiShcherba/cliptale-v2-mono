@@ -270,7 +270,12 @@ export function StoryboardIllustrationControls({
           {status === 'failed' ? (error ?? copy.meta) : copy.meta}
         </span>
       </div>
-      <StoryboardReferencePreview reference={reference} isSceneGenerationActive={isSceneGenerationActive} />
+      {/* AC-04: the completed "Illustrations ready" block drops the "Ref" box for
+          every viewer so it reads as its sibling. In-progress / failed states
+          keep the preview (spec non-goal: those states are unchanged). */}
+      {status !== 'completed' && (
+        <StoryboardReferencePreview reference={reference} isSceneGenerationActive={isSceneGenerationActive} />
+      )}
       {status === 'completed' && (
         <span aria-label="Illustrations complete" style={{ color: SUCCESS, fontSize: '12px', fontWeight: 600 }}>
           Done
