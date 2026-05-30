@@ -141,39 +141,51 @@ Each tactical decision in later sections should trace to one of these seeds. Tac
      just one surface's container — swap/add per what was declared in §4. → _shared/surfaces.md
      📌 e.g. «web app, content API, media worker, datastore, object store, CDN». -->
 
-<One paragraph: layered / hexagonal / clean / event-driven, and why.>
+The single surface is the **web-editor SPA**, organized as feature-vertical slices (`features/` + cross-feature `shared/` + global `store/` + `lib/`). This feature is a thin presentational addition inside the existing `storyboard` feature slice: new presentational components (status menu, confirmation modal) plus state lifted into the storyboard workspace, all driving the **already-existing** generation hooks. No new layer, store, or backend interface is introduced; the building blocks are reused (generation hooks, `useAuth`) or feature-local (the new components and the session-only hidden-block state).
 
-**Internal decomposition:**
+**Internal decomposition** (✚ new, ✎ modified; everything else reused unchanged):
 
 ```
-<e.g. modules/<feature>/>
-├── domain/       <entities + sentinel errors>
-├── app/          <use cases / services>
-├── infra/        <repository + integration impl>
-├── ports/        <handlers, DTOs, error mapping>
-└── wiring        <self-wiring entry point>
+apps/web-editor/src/features/storyboard/
+├── components/
+│   ├── StoryboardPlanControls.tsx            ✎ add status menu to the completed state of both blocks;
+│   │                                            drop the "Ref" preview on the completed illustration block
+│   ├── StoryboardPlanControls.styles.ts      ✎ menu + visual-consistency styles
+│   ├── StoryboardStatusMenu.tsx              ✚ kebab (⋮) menu — Regenerate + Hide; owner-gated render,
+│   │                                            hover/focus reveal, keyboard-operable (focus/activate/Escape)
+│   ├── StoryboardStatusMenu.styles.ts        ✚ co-located inline styles
+│   ├── StoryboardRegenerateConfirmModal.tsx  ✚ destructive scene-Regenerate confirm — focus-trap + Escape,
+│   │                                            enumerates present losses (scenes / illustrations / music)
+│   ├── StoryboardRegenerateConfirmModal.styles.ts ✚
+│   └── StoryboardPageWorkspace.tsx           ✎ owns session-only hidden-block state; passes block visibility,
+│                                                isOwner, and Regenerate/Hide handlers down to the controls
+└── hooks/
+    ├── useStoryboardPlanGeneration.ts        ↺ reused — start()/retry() is the destructive scene-Regenerate path
+    └── useStoryboardIllustrations.ts         ↺ reused — start() is the additive illustration-Regenerate path
+shared / store:
+    features/auth/hooks/useAuth.ts            ↺ reused — signed-in user id for the owner gate
 ```
 
-**C4 Container (L2):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. ONE Container per declared target_surface (frontmatter); the web container below is one example surface. -->
+**C4 Container (L2):** <!-- one container per declared target_surface (web-frontend); backend containers shown as reused context -->
 
 ```mermaid
 C4Container
-    title <feature> — Containers
+    title storyboard-status-block-actions — Containers
 
-    Person(actor, "<Actor>")
+    Person(creator, "Creator", "Draft owner")
+    Person(viewer, "Non-owner viewer", "Sees blocks, no menu")
 
-    Container_Boundary(app, "<Our system>") {
-        Container(web, "<Web/UI>", "<technology>", "<purpose>")
-        Container(api, "<API/handler>", "<technology>", "<purpose>")
-        ContainerDb(db, "<Datastore>", "<technology>", "<purpose>")
+    Container_Boundary(webeditor, "web-editor (SPA)") {
+        Container(controls, "Storyboard status blocks + status menu", "React 18 + inline CSS", "Renders completed-block menu (owner-gated), confirm modal, and session-only hidden-block state")
     }
 
-    System_Ext(ext, "<External>", "<purpose>")
+    Container(api, "api", "Express 4 + ws", "Starts scene-plan / illustration generation; enforces draft ownership")
+    Container(mediaw, "media-worker", "BullMQ", "Runs the generation jobs")
 
-    Rel(actor, web, "<interaction>", "<protocol>")
-    Rel(web, api, "<calls>")
-    Rel(api, db, "<reads/writes>", "<driver>")
-    Rel(api, ext, "<emits>", "<protocol>")
+    Rel(creator, controls, "Opens menu; Regenerate / Hide", "HTTPS")
+    Rel(viewer, controls, "Views blocks (menu not rendered)", "HTTPS")
+    Rel(controls, api, "Re-runs generation via existing start path", "REST / WS")
+    Rel(api, mediaw, "Enqueues generation job", "BullMQ")
 ```
 
 ## 6. Runtime view
