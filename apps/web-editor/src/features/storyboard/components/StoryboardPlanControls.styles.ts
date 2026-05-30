@@ -30,6 +30,10 @@ export const storyboardPlanControlStyles = {
 
   illustrationControl: {
     top: '78px',
+    // Sit just below the plan block's stacking context so the plan block's
+    // open status-menu dropdown (which extends down over this block) stays
+    // clickable instead of being intercepted by this sibling.
+    zIndex: 11,
   } as React.CSSProperties,
 
   controlText: {

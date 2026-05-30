@@ -138,6 +138,25 @@ describe('StoryboardPlanControls — status menu mounting (AC-06, AC-09)', () =>
     }
   });
 
+  it('keeps the completed illustration block below the plan block so the plan menu dropdown stays clickable', () => {
+    const { unmount } = render(
+      <StoryboardPlanControls status="completed" error={null} isBlocking={false} onRetry={vi.fn()} isOwner />,
+    );
+    const planZ = Number(screen.getByTestId('storyboard-plan-controls').style.zIndex);
+    unmount();
+
+    render(
+      <StoryboardIllustrationControls
+        status="completed" phase="scene" reference={null} error={null} isBlocking={false}
+        onStart={vi.fn()} isOwner
+      />,
+    );
+    const illustrationZ = Number(screen.getByTestId('storyboard-illustration-controls').style.zIndex);
+    // The plan block's status-menu dropdown extends down over the illustration
+    // block; the illustration block must not paint above it (pointer interception).
+    expect(illustrationZ).toBeLessThan(planZ);
+  });
+
   it('wires onRegenerate and onHide through the mounted menu', () => {
     const onRegenerate = vi.fn();
     const onHide = vi.fn();
