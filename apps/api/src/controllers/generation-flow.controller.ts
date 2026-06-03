@@ -79,6 +79,9 @@ function toJobState(job: AiGenerationJob) {
     outputFileId: job.outputFileId ?? null,
     resultUrl: job.resultUrl ?? null,
     errorMessage: job.errorMessage ?? null,
+    // Lets the client pick the LATEST run per block (a later successful run must
+    // override an earlier failed one on reload).
+    createdAt: job.createdAt.toISOString(),
   };
 }
 

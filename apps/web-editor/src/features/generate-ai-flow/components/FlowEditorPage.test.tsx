@@ -173,6 +173,39 @@ describe('FlowEditorPage', () => {
     expect(mockGetFileUrl).toHaveBeenCalledWith('file-1');
   });
 
+  it('shows the LATEST run on reload — a newer successful job overrides an older failed one', async () => {
+    // A generation block with two runs: an older FAILED attempt (the pre-fix fal 422) and
+    // a newer successful one. On reload the result must show the success, not the stale fail.
+    mockGetFlow.mockResolvedValue({
+      flowId: 'flow-1',
+      title: 'My flow',
+      version: 3,
+      canvas: {
+        schemaVersion: 1 as const,
+        blocks: [
+          { blockId: 'g1', type: 'generation' as const, position: { x: 0, y: 0 }, params: { modelId: GEN_MODEL } },
+          { blockId: 'r1', type: 'result' as const, position: { x: 320, y: 0 }, params: { sourceBlockId: 'g1' } },
+        ],
+        edges: [{ edgeId: 'e1', sourceBlockId: 'g1', sourceHandle: 'out', targetBlockId: 'r1', targetHandle: 'in' }],
+      },
+      jobs: [
+        { jobId: 'job-old', blockId: 'g1', status: 'failed', progress: 0, outputFileId: null, resultUrl: null, errorMessage: 'fal 422 image_urls', createdAt: '2026-06-02T10:00:00.000Z' },
+        { jobId: 'job-new', blockId: 'g1', status: 'done', progress: 100, outputFileId: 'file-1', resultUrl: null, errorMessage: null, createdAt: '2026-06-02T11:00:00.000Z' },
+      ],
+      createdAt: '2026-06-03T00:00:00.000Z',
+      updatedAt: '2026-06-03T00:00:00.000Z',
+    });
+    mockGetFileUrl.mockResolvedValue('https://cdn.test/result.png');
+
+    renderPage();
+
+    await waitFor(() => expect(document.querySelector('[data-block-id="r1"]')).not.toBeNull());
+    const img = (await screen.findByTestId('result-media-image')) as HTMLImageElement;
+    expect(img.src).toContain('result.png');
+    // The stale failed state is NOT shown.
+    expect(screen.queryByText(/generation failed/i)).toBeNull();
+  });
+
   it('renders the loaded blocks on the canvas', async () => {
     renderPage();
     await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).not.toBeNull());

@@ -607,6 +607,7 @@ components:
         outputFileId: { type: [string, "null"], format: uuid, description: "ai_generation_jobs.output_file_id" }
         resultUrl: { type: [string, "null"], description: "ai_generation_jobs.result_url (presigned)" }
         errorMessage: { type: [string, "null"], description: "failure reason in plain language (AC-09)" }
+        createdAt: { type: string, format: date-time, description: "ai_generation_jobs.created_at — client picks the latest run per block" }
 
     JobStatus:
       description: the existing GET /ai/jobs/{jobId} body, extended with flowId/blockId for this feature

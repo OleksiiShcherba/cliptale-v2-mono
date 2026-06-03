@@ -76,6 +76,8 @@ export type JobState = {
   outputFileId: string | null;
   resultUrl: string | null;
   errorMessage: string | null;
+  /** ISO timestamp — lets the UI pick the latest run per block on reload. */
+  createdAt?: string;
 };
 
 // ── Generate surface (← contracts/openapi.yaml estimate + generate) ──────────

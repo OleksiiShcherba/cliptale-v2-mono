@@ -241,6 +241,32 @@ describe('getFlow handler', () => {
 
     expect(next).toHaveBeenCalledWith(err);
   });
+
+  it('maps each job to a JobState carrying createdAt (so the client can pick the latest run)', async () => {
+    const job = {
+      jobId: 'job-1',
+      blockId: 'g1',
+      status: 'completed',
+      progress: 100,
+      outputFileId: 'file-1',
+      resultUrl: null,
+      errorMessage: null,
+      createdAt: new Date('2026-06-02T00:00:00Z'),
+    } as never;
+    mockService.openFlow.mockResolvedValueOnce({ flow: FLOW_RECORD, jobs: [job] });
+    const req = makeReq({ params: { flowId: 'flow-aaa' } });
+    const { res, json } = makeRes();
+    const next = makeNext();
+
+    await getFlow(req, res, next);
+
+    const arg = (json as ReturnType<typeof vi.fn>).mock.calls[0]![0] as { jobs: Array<Record<string, unknown>> };
+    expect(arg.jobs[0]).toMatchObject({
+      jobId: 'job-1',
+      blockId: 'g1',
+      createdAt: '2026-06-02T00:00:00.000Z',
+    });
+  });
 });
 
 // ── renameFlow ────────────────────────────────────────────────────────────────

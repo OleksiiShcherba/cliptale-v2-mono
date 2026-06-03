@@ -121,9 +121,15 @@ function FlowEditor({
   const onCanvasChange = React.useCallback((c: FlowCanvasDoc) => setCanvas(c), []);
 
   // ── Job states from the (polled) flow read — the reattach/preview source ─────
+  // A generation block can have several runs (e.g. a failed attempt then a successful
+  // retry). Keep the LATEST run per block so a stale failed job never overrides a newer
+  // successful one on reload (createdAt; falls back to backend oldest-first ordering).
   const jobsByBlock = React.useMemo(() => {
     const map: Record<string, JobState> = {};
-    for (const j of flow.jobs) map[j.blockId] = j;
+    for (const j of flow.jobs) {
+      const cur = map[j.blockId];
+      if (!cur || (j.createdAt ?? '') >= (cur.createdAt ?? '')) map[j.blockId] = j;
+    }
     return map;
   }, [flow.jobs]);
 
@@ -241,9 +247,11 @@ function FlowEditor({
   );
 
   // ── Resolve the preview URL for completed result blocks ─────────────────────
+  // Keyed by the generation block id (jobsByBlock keys), resolving only the LATEST run
+  // per block so the preview matches the job the result block shows.
   const [previewUrls, setPreviewUrls] = React.useState<Record<string, string>>({});
   React.useEffect(() => {
-    for (const job of flow.jobs) {
+    for (const job of Object.values(jobsByBlock)) {
       if (job.status !== 'done') continue;
       if (previewUrls[job.blockId]) continue;
       if (job.resultUrl) {
@@ -254,7 +262,7 @@ function FlowEditor({
         });
       }
     }
-  }, [flow.jobs, previewUrls]);
+  }, [jobsByBlock, previewUrls]);
 
   // The live generation job (from useFlowGeneration) overlays the polled state for the
   // block currently being generated, so progress/preview update without a full refetch.
