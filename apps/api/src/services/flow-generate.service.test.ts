@@ -45,6 +45,18 @@ vi.mock('@/lib/redis.js', () => ({
   redis: { set: vi.fn(), get: vi.fn(), del: vi.fn().mockResolvedValue(1) },
 }));
 
+// The asset resolver rewrites image/audio file ids → presigned URLs before enqueue.
+// Mocked here (it pulls in S3/config) to a deterministic rewrite so we can assert the
+// flow wires it and forwards the resolved options (not raw file ids) to the worker.
+vi.mock('@/services/aiGeneration.assetResolver.js', () => ({
+  resolveAssetImageUrls: vi.fn(async ({ options }: { options: Record<string, unknown> }) => {
+    const out = { ...options };
+    if (Array.isArray(out['image_urls'])) out['image_urls'] = out['image_urls'].map((v) => `https://signed/${String(v)}`);
+    if (typeof out['image_url'] === 'string') out['image_url'] = `https://signed/${out['image_url']}`;
+    return out;
+  }),
+}));
+
 // We also want to assert no external HTTP calls ever happen.
 // Mock fetch globally — if estimateBlockCost calls fetch it will fail the spy.
 const fetchSpy = vi.spyOn(globalThis, 'fetch');
@@ -55,10 +67,13 @@ import * as aiGenerationJobRepository from '@/repositories/aiGenerationJob.repos
 import { enqueueAiGenerateJob } from '@/queues/jobs/enqueue-ai-generate.js';
 import { checkFlowRateLimit } from '@/lib/flow-rate-limit.js';
 import { redis } from '@/lib/redis.js';
+import { AI_MODELS } from '@ai-video-editor/api-contracts';
+import { resolveAssetImageUrls } from '@/services/aiGeneration.assetResolver.js';
 import {
   estimateBlockCost,
   validateGenerateGate,
   generate,
+  buildJobOptions,
 } from './flow-generate.service.js';
 import {
   NotFoundError,
@@ -231,6 +246,8 @@ const OTHER_USER_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const LTX_MODEL_ID = 'fal-ai/ltx-2-19b/image-to-video';
 // kling/o3 requires image_url (image) + exactly one of prompt | multi_prompt (group 'prompt_mode').
 const KLING_MODEL_ID = 'fal-ai/kling-video/o3/standard/image-to-video';
+// nano-banana-2/edit requires prompt (text) + image_urls (image_url_list — a LIST field).
+const EDIT_MODEL_ID = 'fal-ai/nano-banana-2/edit';
 
 function genBlock(modelId: string, params: Record<string, unknown> = {}) {
   return {
@@ -723,6 +740,88 @@ describe('generate — idempotency on a repeated Idempotency-Key (AC-01)', () =>
     // Still only ONE create + ONE enqueue across both calls.
     expect(aiGenerationJobRepository.createJob).toHaveBeenCalledTimes(1);
     expect(enqueueAiGenerateJob).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// buildJobOptions — multi (image_url_list) handle must be an ARRAY (fal 422 fix)
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe('buildJobOptions — image_url_list handle', () => {
+  const EDIT_MODEL = AI_MODELS.find((m) => m.id === EDIT_MODEL_ID)!;
+
+  it('wraps a single connected image into an array for an image_url_list field', () => {
+    const canvas: FlowCanvas = {
+      blocks: [
+        genBlock(EDIT_MODEL_ID),
+        assetContentBlock(IMAGE_BLOCK_ID, FILE_ID),
+        textContentBlock(TEXT_BLOCK_ID, 'edit it'),
+      ],
+      edges: [edge(IMAGE_BLOCK_ID, 'image_urls'), edge(TEXT_BLOCK_ID, 'prompt')],
+    };
+
+    const opts = buildJobOptions(
+      { block: canvas.blocks[0]!, model: EDIT_MODEL } as never,
+      canvas,
+    );
+
+    expect(Array.isArray(opts['image_urls'])).toBe(true);
+    expect(opts['image_urls']).toEqual([FILE_ID]);
+    expect(opts['prompt']).toBe('edit it');
+  });
+
+  it('collects multiple connections into the same list handle', () => {
+    const IMG2 = '55555555-5555-4555-8555-555555555555';
+    const FILE2 = '66666666-6666-4666-8666-666666666666';
+    const canvas: FlowCanvas = {
+      blocks: [
+        genBlock(EDIT_MODEL_ID),
+        assetContentBlock(IMAGE_BLOCK_ID, FILE_ID),
+        assetContentBlock(IMG2, FILE2),
+      ],
+      edges: [edge(IMAGE_BLOCK_ID, 'image_urls'), edge(IMG2, 'image_urls')],
+    };
+
+    const opts = buildJobOptions(
+      { block: canvas.blocks[0]!, model: EDIT_MODEL } as never,
+      canvas,
+    );
+
+    expect(opts['image_urls']).toEqual([FILE_ID, FILE2]);
+  });
+});
+
+describe('generate — image file ids resolve to presigned URL arrays (fal 422 fix)', () => {
+  it('enqueues image_urls as an ARRAY of resolved https URLs, never a raw file id', async () => {
+    const canvas: FlowCanvas = {
+      blocks: [
+        genBlock(EDIT_MODEL_ID),
+        assetContentBlock(IMAGE_BLOCK_ID, FILE_ID),
+        textContentBlock(TEXT_BLOCK_ID, 'edit'),
+      ],
+      edges: [edge(IMAGE_BLOCK_ID, 'image_urls'), edge(TEXT_BLOCK_ID, 'prompt')],
+    };
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas));
+    vi.mocked(findByIdForUser).mockResolvedValue(ownedReadyFile('image'));
+    allowRateLimit();
+    vi.mocked(redis.set).mockResolvedValue('OK');
+    vi.mocked(redis.get).mockResolvedValue(null);
+
+    await generate({
+      flowId: FLOW_ID,
+      blockId: BLOCK_ID,
+      userId: USER_ID,
+      version: 1,
+      idempotencyKey: `${IDEM_KEY}-edit`,
+    });
+
+    expect(resolveAssetImageUrls).toHaveBeenCalled();
+
+    const enqArg = vi.mocked(enqueueAiGenerateJob).mock.calls.at(-1)![0];
+    expect(enqArg.options['image_urls']).toEqual([`https://signed/${FILE_ID}`]);
+
+    const createArg = vi.mocked(aiGenerationJobRepository.createJob).mock.calls.at(-1)![0];
+    expect(createArg.options['image_urls']).toEqual([`https://signed/${FILE_ID}`]);
   });
 });
 

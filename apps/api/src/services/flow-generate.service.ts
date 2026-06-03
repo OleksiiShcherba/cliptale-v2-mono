@@ -28,6 +28,7 @@ import { checkFlowRateLimit } from '@/lib/flow-rate-limit.js';
 import { redis } from '@/lib/redis.js';
 import { publishAiJobUpdatedById } from '@/lib/realtimePublisher.js';
 import { enqueueAiGenerateJob } from '@/queues/jobs/enqueue-ai-generate.js';
+import { resolveAssetImageUrls } from '@/services/aiGeneration.assetResolver.js';
 import * as aiGenerationJobRepository from '@/repositories/aiGenerationJob.repository.js';
 import { findFlowById } from '@/repositories/generation-flow.repository.js';
 import {
@@ -451,7 +452,7 @@ function idempotencyRedisKey(userId: string, idempotencyKey: string): string {
  * result sources contribute their fileId. This keeps the canvas → job mapping in
  * one place so every modality (image/video/audio) flows through this single path.
  */
-function buildJobOptions(validated: ValidatedGate, canvas: FlowCanvas): Record<string, unknown> {
+export function buildJobOptions(validated: ValidatedGate, canvas: FlowCanvas): Record<string, unknown> {
   const { block, model } = validated;
 
   const options: Record<string, unknown> = {};
@@ -462,23 +463,34 @@ function buildJobOptions(validated: ValidatedGate, canvas: FlowCanvas): Record<s
   }
 
   // 2. Values fed in by connected content/result blocks, keyed by target handle.
+  //    A multi handle (`image_url_list`, e.g. nano-banana-2/edit's `image_urls`) may
+  //    have several incoming edges and MUST be an array — the asset resolver requires
+  //    a list and the provider rejects a bare string (422 list_type). Single-value
+  //    fields keep the first connection's value.
   for (const field of model.inputSchema.fields) {
-    const edge = canvas.edges.find(
+    const fieldEdges = canvas.edges.filter(
       (e) => e.targetBlockId === block.blockId && e.targetHandle === field.name,
     );
-    if (!edge) continue;
-    const source = canvas.blocks.find((b) => b.blockId === edge.sourceBlockId);
-    if (!source) continue;
+    if (fieldEdges.length === 0) continue;
 
-    const contentType =
-      typeof source.params['contentType'] === 'string' ? source.params['contentType'] : undefined;
+    const values: unknown[] = [];
+    for (const e of fieldEdges) {
+      const source = canvas.blocks.find((b) => b.blockId === e.sourceBlockId);
+      if (!source) continue;
+      const contentType =
+        typeof source.params['contentType'] === 'string' ? source.params['contentType'] : undefined;
 
-    if (contentType === 'text' || field.modality === 'text') {
-      if (typeof source.params['text'] === 'string') options[field.name] = source.params['text'];
-    } else if (typeof source.params['fileId'] === 'string') {
-      // Asset or result source → its library file id (worker resolves to a URL, T13).
-      options[field.name] = source.params['fileId'];
+      if (contentType === 'text' || field.modality === 'text') {
+        if (typeof source.params['text'] === 'string') values.push(source.params['text']);
+      } else if (typeof source.params['fileId'] === 'string') {
+        // Asset or result source → its library file id; resolveAssetImageUrls (below)
+        // rewrites image/audio file ids to presigned URLs before enqueue.
+        values.push(source.params['fileId']);
+      }
     }
+    if (values.length === 0) continue;
+
+    options[field.name] = field.type === 'image_url_list' ? values : values[0];
   }
 
   return options;
@@ -552,7 +564,14 @@ export async function generate(params: GenerateParams): Promise<GenerateAccepted
     }
 
     // 4. Create the job + enqueue — the ONE ai-generate path. All modalities here.
-    const options = buildJobOptions(validated, validated.canvas);
+    //    Image/audio file ids are rewritten to short-lived presigned HTTPS URLs the
+    //    worker forwards verbatim — the provider needs real URLs, not internal ids.
+    const builtOptions = buildJobOptions(validated, validated.canvas);
+    const options = await resolveAssetImageUrls({
+      model: validated.model,
+      options: builtOptions,
+      userId,
+    });
     const prompt = derivePrompt(options);
     const jobId = randomUUID();
 
