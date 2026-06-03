@@ -299,6 +299,40 @@ export function useFlowCanvas(options: UseFlowCanvasOptions = {}) {
     return blockId;
   }, []);
 
+  /**
+   * Add a result block for a generation block, wiring the visible gen→result edge
+   * (generation `out` → result `in`) so the produced result is connected on the canvas,
+   * not just linked by `params.sourceBlockId`. Returns the new result blockId.
+   */
+  const addResultBlock = useCallback(
+    (genBlockId: string | undefined, position: { x: number; y: number }) => {
+      const blockId = genId('result');
+      const block: FlowBlock = {
+        blockId,
+        type: 'result',
+        position,
+        params: { sourceBlockId: genBlockId },
+      };
+      setCanvas((c) => {
+        const edges: FlowEdge[] = genBlockId
+          ? [
+              ...c.edges,
+              {
+                edgeId: genId('edge'),
+                sourceBlockId: genBlockId,
+                sourceHandle: OUTPUT_HANDLE,
+                targetBlockId: blockId,
+                targetHandle: 'in',
+              },
+            ]
+          : c.edges;
+        return { ...c, blocks: [...c.blocks, block], edges };
+      });
+      return blockId;
+    },
+    [],
+  );
+
   /** Attempt to add an edge; rejects (and reports) an incompatible drop. */
   const connect = useCallback(
     (conn: Connection): boolean => {
@@ -383,6 +417,7 @@ export function useFlowCanvas(options: UseFlowCanvasOptions = {}) {
     handles,
     addContentBlock,
     addGenerationBlock,
+    addResultBlock,
     connect,
     isValidConnection,
     changeModel,

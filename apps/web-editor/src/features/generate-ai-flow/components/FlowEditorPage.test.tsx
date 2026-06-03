@@ -277,6 +277,35 @@ describe('FlowEditorPage', () => {
     await waitFor(() => expect(screen.queryByTestId('inspector-panel')).toBeNull());
   });
 
+  it('auto-connects the result block to its generation block on Generate (gen→result edge)', async () => {
+    renderPage();
+    await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).not.toBeNull());
+
+    const genNode = document.querySelector('[data-block-id="g1"]') as HTMLElement;
+    const generateBtn = Array.from(genNode.querySelectorAll('button')).find(
+      (b) => b.getAttribute('aria-label') === 'Generate',
+    );
+    fireEvent.click(generateBtn as HTMLElement);
+    const dialog = await screen.findByRole('dialog', { name: /confirm generation/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Generate' }));
+
+    // The accepted Generate creates a result block AND a visible gen→result edge,
+    // which autosave then persists — assert the edge reached the saved canvas.
+    await waitFor(
+      () => {
+        const lastSave = mockSaveCanvas.mock.calls.at(-1);
+        const edges = (lastSave?.[1]?.canvas?.edges ?? []) as Array<{
+          sourceBlockId: string;
+          targetBlockId: string;
+        }>;
+        expect(
+          edges.some((e) => e.sourceBlockId === 'g1' && e.targetBlockId.startsWith('result-')),
+        ).toBe(true);
+      },
+      { timeout: 2500 },
+    );
+  });
+
   it('opens the cost confirm modal when Generate is pressed on a generation block', async () => {
     renderPage();
     await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).not.toBeNull());

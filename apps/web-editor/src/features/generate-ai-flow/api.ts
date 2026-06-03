@@ -129,14 +129,17 @@ export async function saveCanvas(flowId: string, payload: CanvasSave): Promise<C
 }
 
 /**
- * GET /files/:fileId  (falls back to /assets/:fileId)
+ * GET /files/:fileId/stream → `{ url }` (a short-lived presigned HTTPS URL).
  * Resolves a produced result asset to a displayable/streamable URL, for the
  * dominant media preview in a completed result block (AC-08). The asset lives in
  * the owner's general library, linked to this flow (AC-01).
+ *
+ * NOTE: this is the same owner-scoped endpoint the content-block preview uses
+ * (useFileStreamUrl). The bare `/files/:id` route does NOT exist — hitting it
+ * returned null and broke the result preview.
  */
 export async function getFileUrl(fileId: string): Promise<string | null> {
-  let res = await apiClient.get(`/files/${fileId}`);
-  if (!res.ok) res = await apiClient.get(`/assets/${fileId}`);
+  const res = await apiClient.get(`/files/${fileId}/stream`);
   if (!res.ok) return null;
   const data = (await res.json()) as { url?: string | null };
   return data.url ?? null;

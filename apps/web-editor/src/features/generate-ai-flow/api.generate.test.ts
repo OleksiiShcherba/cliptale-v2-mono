@@ -25,7 +25,7 @@ vi.mock('@/lib/config', () => ({
   config: { apiBaseUrl: 'http://api.test' },
 }));
 
-import { estimateGeneration, generateBlock } from './api';
+import { estimateGeneration, generateBlock, getFileUrl } from './api';
 
 function jsonResponse(status: number, body: unknown): Response {
   return {
@@ -88,5 +88,21 @@ describe('generateBlock', () => {
     });
     expect(out.jobId).toBe('j1');
     expect(out.status).toBe('queued');
+  });
+});
+
+describe('getFileUrl', () => {
+  it('GETs the file STREAM endpoint and returns the presigned url (result preview AC-08)', async () => {
+    mockGet.mockResolvedValue(jsonResponse(200, { url: 'https://cdn.test/result.png' }));
+
+    const url = await getFileUrl('file-9');
+
+    expect(mockGet).toHaveBeenCalledWith('/files/file-9/stream');
+    expect(url).toBe('https://cdn.test/result.png');
+  });
+
+  it('returns null when the file is not resolvable', async () => {
+    mockGet.mockResolvedValue(jsonResponse(404, {}));
+    expect(await getFileUrl('missing')).toBeNull();
   });
 });

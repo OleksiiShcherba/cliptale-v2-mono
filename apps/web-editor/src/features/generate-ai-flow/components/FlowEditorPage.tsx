@@ -188,13 +188,8 @@ function FlowEditor({
       if (!exists) {
         const genBlk = c.canvas.blocks.find((b) => b.blockId === generatingBlockId);
         const pos = genBlk ? { x: genBlk.position.x + 320, y: genBlk.position.y } : { x: 320, y: 0 };
-        const block: FlowBlock = {
-          blockId: `result-${Date.now().toString(36)}`,
-          type: 'result',
-          position: pos,
-          params: { sourceBlockId: generatingBlockId },
-        };
-        c.setCanvas((prev) => ({ ...prev, blocks: [...prev.blocks, block] }));
+        // Auto-create the result block AND the visible gen→result connection.
+        c.addResultBlock(generatingBlockId, pos);
       }
     }
     void queryClient.invalidateQueries({ queryKey: QUERY_KEY(flow.flowId) });
@@ -220,15 +215,9 @@ function FlowEditor({
   const handleAddResult = () => {
     const c = controllerRef.current;
     if (!c) return;
-    // A result block sourced from the most recent generation block (if any).
+    // A result block sourced from (and connected to) the most recent generation block.
     const gen = [...c.canvas.blocks].reverse().find((b) => b.type === 'generation');
-    const block: FlowBlock = {
-      blockId: `result-${Date.now().toString(36)}`,
-      type: 'result',
-      position: nextPos(),
-      params: { sourceBlockId: gen?.blockId },
-    };
-    c.setCanvas((prev) => ({ ...prev, blocks: [...prev.blocks, block] }));
+    c.addResultBlock(gen?.blockId, nextPos());
   };
 
   // ── Model change → reconcile through the controller (rebuild handles + prune) ─
