@@ -100,7 +100,11 @@ export type AiGenerationSubmitResponse = {
  *
  * - `kind: 'project'` → calls `POST /projects/:id/ai/generate`; assets endpoint `GET /projects/:id/assets`
  * - `kind: 'draft'`   → calls `POST /generation-drafts/:id/ai/generate`; assets endpoint `GET /generation-drafts/:id/assets`
+ * - `kind: 'library'` → the Creator's whole general library; assets endpoint `GET /files`.
+ *   Used by surfaces with no project/draft scope (e.g. the generate-ai-flow canvas).
+ *   It is asset-source only — it has no `ai/generate` route.
  */
 export type AiGenerationContext =
   | { kind: 'project'; id: string }
-  | { kind: 'draft'; id: string };
+  | { kind: 'draft'; id: string }
+  | { kind: 'library' };

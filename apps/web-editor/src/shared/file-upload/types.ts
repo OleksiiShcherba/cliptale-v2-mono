@@ -1,7 +1,10 @@
 /** Where the uploaded file will be linked after finalization. */
 export type UploadTarget =
   | { kind: 'project'; projectId: string }
-  | { kind: 'draft'; draftId: string };
+  | { kind: 'draft'; draftId: string }
+  // The Creator's general library: the file is already there after finalize, so there
+  // is no container to link to (used by surfaces with no project/draft scope).
+  | { kind: 'library' };
 
 /** Per-file upload state tracked by useFileUpload. */
 export type UploadEntry = {

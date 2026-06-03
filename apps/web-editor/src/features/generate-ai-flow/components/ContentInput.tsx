@@ -22,13 +22,10 @@ import {
   BORDER,
 } from './flowNodeStyles';
 
-// Context used for the library picker — flows don't have a project/draft context
-// at this stage, so we use a fixed "flow" kind and pass the block id.
-// The AssetPickerField accepts AiGenerationContext which is project|draft.
-// We resolve this by creating a stable project context stub that the caller
-// can provide; for now we pass a project context with a placeholder id.
-// T20 (or the caller) can pass the real context when needed.
-const FLOW_ASSET_CONTEXT = { kind: 'project' as const, id: '__flow__' };
+// Flows have no project/draft scope — content blocks pull from (and upload into) the
+// Creator's whole general library, which the backend Generate gate resolves directly
+// by fileId (findByIdForUser). So the picker uses the 'library' asset context.
+const FLOW_ASSET_CONTEXT = { kind: 'library' as const };
 
 export type ContentInputProps = {
   block: FlowBlock;
@@ -155,9 +152,9 @@ function AssetInput({
   const reportedFileId = useRef<string>('');
 
   const { entries, uploadFiles } = useFileUpload({
-    // Upload to a generic flow target — the link step is handled separately.
-    // We only need the fileId after upload; linking to the flow happens via T20.
-    target: { kind: 'project', projectId: '__flow__' },
+    // Upload straight into the Creator's general library; finalize places it there and
+    // the block stores the returned fileId (the Generate gate resolves it by owner).
+    target: { kind: 'library' },
     onUploadComplete: (fileId) => {
       reportedFileId.current = fileId;
       onBlockParamsChange({ contentType: 'asset', fileId });
@@ -219,7 +216,7 @@ function AssetInput({
         value={currentFileId || undefined}
         onChange={handleLibraryPick}
         label={`Pick ${mediaLabel} from library`}
-        mediaType={mediaType === 'video' ? 'image' : mediaType}
+        mediaType={mediaType}
       />
     </div>
   );

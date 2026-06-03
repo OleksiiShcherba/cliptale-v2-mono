@@ -202,5 +202,27 @@ describe('ai-generation/api', () => {
         getContextAssets({ kind: 'project', id: 'proj-1' }),
       ).rejects.toThrow('Failed to get assets (403): Forbidden');
     });
+
+    // Library context — the Creator's whole general library (GET /files), used by the
+    // generate-ai-flow content blocks which have no project/draft scope.
+    it('calls GET /files and adapts FileSummary items when context.kind is "library"', async () => {
+      mockApiClient.get.mockResolvedValue(
+        okResponse({
+          items: [
+            { id: 'f1', kind: 'image', mimeType: 'image/png', displayName: 'pic.png', status: 'ready' },
+            { id: 'f2', kind: 'audio', mimeType: null, displayName: null, status: 'ready' },
+          ],
+          nextCursor: null,
+        }),
+      );
+
+      const result = await getContextAssets({ kind: 'library' });
+
+      expect(mockApiClient.get).toHaveBeenCalledWith('/files');
+      expect(result).toEqual([
+        { id: 'f1', filename: 'pic.png', contentType: 'image/png', status: 'ready' },
+        { id: 'f2', filename: 'f2', contentType: '', status: 'ready' },
+      ]);
+    });
   });
 });

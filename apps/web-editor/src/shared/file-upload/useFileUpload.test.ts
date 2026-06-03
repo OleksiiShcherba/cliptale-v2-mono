@@ -44,6 +44,7 @@ class MockXhr {
 
 const PROJECT_TARGET = { kind: 'project' as const, projectId: 'project-1' };
 const DRAFT_TARGET = { kind: 'draft' as const, draftId: 'draft-1' };
+const LIBRARY_TARGET = { kind: 'library' as const };
 
 describe('useFileUpload', () => {
   beforeEach(() => {
@@ -111,6 +112,28 @@ describe('useFileUpload', () => {
   });
 
   // ── Draft target ──────────────────────────────────────────────────────────
+
+  // ── Library target ────────────────────────────────────────────────────────
+  // A library upload finalizes the file into the user's general library; there is
+  // no project/draft container to link to, so neither link endpoint is called.
+
+  it('skips both link endpoints for a library target but still completes the upload', async () => {
+    const onUploadComplete = vi.fn();
+    const { result } = renderHook(() =>
+      useFileUpload({ target: LIBRARY_TARGET, onUploadComplete }),
+    );
+    const file = new File(['data'], 'pic.png', { type: 'image/png' });
+
+    act(() => result.current.uploadFiles([file]));
+    await vi.waitFor(() => expect(xhrInstances.length).toBeGreaterThan(0));
+    act(() => xhrInstances[0].triggerLoad());
+    await vi.waitFor(() => expect(result.current.entries[0]?.status).toBe('done'));
+
+    expect(result.current.entries[0].status).toBe('done');
+    expect(mockLinkFileToProject).not.toHaveBeenCalled();
+    expect(mockLinkFileToDraft).not.toHaveBeenCalled();
+    expect(onUploadComplete).toHaveBeenCalledWith('file-1');
+  });
 
   it('calls linkFileToDraft (not linkFileToProject) for draft target', async () => {
     const { result } = renderHook(() => useFileUpload({ target: DRAFT_TARGET }));

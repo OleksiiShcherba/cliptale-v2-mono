@@ -46,13 +46,16 @@ function uploadViaXhr(url: string, file: File, onProgress: (pct: number) => void
  * Calls the appropriate link endpoint based on the upload target.
  * Project target → POST /projects/:id/files.
  * Draft target   → POST /generation-drafts/:id/files.
+ * Library target → no-op: finalize already placed the file in the user's general
+ *                  library, so there is no container to link it to.
  */
 async function linkFile(target: UploadTarget, fileId: string): Promise<void> {
   if (target.kind === 'project') {
     await linkFileToProject(target.projectId, fileId);
-  } else {
+  } else if (target.kind === 'draft') {
     await linkFileToDraft(target.draftId, fileId);
   }
+  // target.kind === 'library' → nothing to link.
 }
 
 /**

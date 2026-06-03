@@ -41,6 +41,10 @@ export async function submitGeneration(
   context: AiGenerationContext,
   request: AiGenerationRequest,
 ): Promise<AiGenerationSubmitResponse> {
+  if (context.kind === 'library') {
+    // The library context is an asset SOURCE only — it has no generate route.
+    throw new Error('submitGeneration is not supported for the library context.');
+  }
   const url =
     context.kind === 'project'
       ? `/projects/${context.id}/ai/generate`
@@ -58,11 +62,15 @@ export async function submitGeneration(
  *
  * - `{ kind: 'project', id }` → `GET /projects/:id/assets`
  * - `{ kind: 'draft',   id }` → `GET /generation-drafts/:id/assets`
+ * - `{ kind: 'library' }`     → `GET /files` (the Creator's whole general library)
  *
  * Replaces the former direct dependency on `@/features/asset-manager/api`
  * in `AssetPickerField`, satisfying §14 (no cross-feature imports in shared/).
  */
 export async function getContextAssets(context: AiGenerationContext): Promise<AssetSummary[]> {
+  if (context.kind === 'library') {
+    return getLibraryAssets();
+  }
   const url =
     context.kind === 'project'
       ? `/projects/${context.id}/assets`
@@ -73,6 +81,34 @@ export async function getContextAssets(context: AiGenerationContext): Promise<As
     throw new Error(`Failed to get assets (${res.status}): ${body}`);
   }
   return res.json() as Promise<AssetSummary[]>;
+}
+
+/** One row of the general-library list (`GET /files`) — the fields the picker needs. */
+type LibraryFileSummary = {
+  id: string;
+  mimeType: string | null;
+  displayName: string | null;
+  status: string;
+};
+
+/**
+ * Lists the signed-in Creator's general library (`GET /files`, owner-scoped, ready
+ * files only) and adapts each row to the picker's {@link AssetSummary} shape. Used
+ * by surfaces with no project/draft scope (the generate-ai-flow content blocks).
+ */
+async function getLibraryAssets(): Promise<AssetSummary[]> {
+  const res = await apiClient.get('/files');
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to get assets (${res.status}): ${body}`);
+  }
+  const data = (await res.json()) as { items: LibraryFileSummary[] };
+  return data.items.map((f) => ({
+    id: f.id,
+    filename: f.displayName ?? f.id,
+    contentType: f.mimeType ?? '',
+    status: f.status,
+  }));
 }
 
 /**

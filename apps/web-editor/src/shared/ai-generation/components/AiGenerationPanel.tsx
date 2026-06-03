@@ -127,11 +127,12 @@ export function AiGenerationPanel({
     invalidatedJobIdsRef.current.add(currentJob.jobId);
     if (context.kind === 'project') {
       void queryClient.invalidateQueries({ queryKey: ['assets', context.id] });
-    } else {
+    } else if (context.kind === 'draft') {
       void queryClient.invalidateQueries({ queryKey: ['assets', context.kind, context.id] });
       void queryClient.invalidateQueries({ queryKey: ['generate-wizard', 'assets', context.id] });
     }
-  }, [currentJob, context.kind, context.id, queryClient]);
+    // The 'library' context never reaches this legacy panel (project/draft only).
+  }, [currentJob, context, queryClient]);
 
   const canSubmit = !!selectedModel && !isGenerating && hasAllRequired(selectedModel, optionValues);
 

@@ -11,7 +11,7 @@ import { aiGenerationPanelStyles as s } from './aiGenerationPanelStyles';
 export type AssetPickerMode = 'single' | 'multi';
 
 /** Media type filter for the asset picker. */
-export type AssetPickerMediaType = 'image' | 'audio';
+export type AssetPickerMediaType = 'image' | 'audio' | 'video';
 
 /** Props for the AssetPickerField component. */
 export interface AssetPickerFieldProps {
@@ -49,8 +49,11 @@ export function AssetPickerField({
 }: AssetPickerFieldProps) {
   const [isPickerOpen, setIsPickerOpen] = useState(false);
 
+  // Noun used in the picker's prompts/labels (image / audio / video).
+  const mediaNoun = mediaType;
+
   const { data: assets = [], isLoading, isError } = useQuery({
-    queryKey: ['assets', context.kind, context.id],
+    queryKey: ['assets', context.kind, 'id' in context ? context.id : 'library'],
     queryFn: () => getContextAssets(context),
     enabled: isPickerOpen,
   });
@@ -116,7 +119,7 @@ export function AssetPickerField({
             style={s.assetPickerEmpty}
             onClick={() => setIsPickerOpen(true)}
           >
-            {mediaType === 'audio' ? 'Pick an audio asset…' : 'Pick an image asset…'}
+            {`Pick ${mediaNoun === 'video' ? 'a' : 'an'} ${mediaNoun} asset…`}
           </button>
         ))}
 
@@ -144,7 +147,7 @@ export function AssetPickerField({
             style={s.assetPickerPickButton}
             onClick={() => setIsPickerOpen(true)}
           >
-            {mediaType === 'audio' ? '+ Add audio asset' : '+ Add image asset'}
+            {`+ Add ${mediaNoun} asset`}
           </button>
         </>
       )}
@@ -156,9 +159,7 @@ export function AssetPickerField({
             {isError && <p style={s.fieldHelp}>Could not load assets</p>}
             {!isLoading && !isError && filteredAssets.length === 0 && (
               <p style={s.fieldHelp}>
-                {mediaType === 'audio'
-                  ? 'No audio assets yet — upload one first.'
-                  : 'No image assets yet — upload one first.'}
+                {`No ${mediaNoun} assets yet — upload one first.`}
               </p>
             )}
             {filteredAssets.map((asset) => {
