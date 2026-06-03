@@ -17,6 +17,7 @@ import React from 'react';
 
 import type { FlowBlock, FlowCanvas } from '@ai-video-editor/project-schema';
 import { getModelById } from '../hooks/useFlowCanvas';
+import { AI_MODELS } from '@ai-video-editor/api-contracts';
 import type { FalFieldSchema } from '@ai-video-editor/api-contracts';
 import { ContentInput } from './ContentInput';
 import {
@@ -40,6 +41,12 @@ export type InspectorProps = {
    * @param patch    Partial params to merge onto the block.
    */
   onBlockParamsChange: (blockId: string, patch: Record<string, unknown>) => void;
+  /**
+   * Called when the user picks a different model on a generation block. The page
+   * routes this through useFlowCanvas.changeModel so handles rebuild and now-
+   * incompatible input edges are pruned with a notice (AC-07).
+   */
+  onModelChange?: (blockId: string, modelId: string) => void;
 };
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -90,7 +97,12 @@ const sectionHeaderStyle: React.CSSProperties = {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function Inspector({ selectedBlockId, canvas, onBlockParamsChange }: InspectorProps): React.ReactElement {
+export function Inspector({
+  selectedBlockId,
+  canvas,
+  onBlockParamsChange,
+  onModelChange,
+}: InspectorProps): React.ReactElement {
   if (!selectedBlockId) return <></>;
 
   const block = canvas.blocks.find((b) => b.blockId === selectedBlockId);
@@ -112,6 +124,11 @@ export function Inspector({ selectedBlockId, canvas, onBlockParamsChange }: Insp
   if (block.type === 'generation') {
     return (
       <div style={panelStyle} data-testid="inspector-panel">
+        <div style={sectionHeaderStyle}>Model</div>
+        <ModelPicker
+          block={block}
+          onModelChange={(modelId) => onModelChange?.(selectedBlockId, modelId)}
+        />
         <div style={sectionHeaderStyle}>Parameters</div>
         <GenerationParamFields
           block={block}
@@ -124,6 +141,61 @@ export function Inspector({ selectedBlockId, canvas, onBlockParamsChange }: Insp
   }
 
   return <></>;
+}
+
+// ── Model picker (AC-15 / AC-07) ──────────────────────────────────────────────
+
+/** Catalog group → display label for the optgroups. */
+const GROUP_LABELS: Record<string, string> = {
+  images: 'Image',
+  videos: 'Video',
+  audio: 'Audio',
+};
+
+/**
+ * The model `<select>` for a generation block. Choosing a different model routes
+ * through `onModelChange` → useFlowCanvas.changeModel, which rebuilds the input
+ * handles and prunes now-incompatible connections with a notice (AC-07).
+ */
+function ModelPicker({
+  block,
+  onModelChange,
+}: {
+  block: FlowBlock;
+  onModelChange: (modelId: string) => void;
+}): React.ReactElement {
+  const modelId = (block.params.modelId as string | undefined) ?? '';
+
+  // Group the catalog by media group so the list stays scannable.
+  const groups: Record<string, typeof AI_MODELS[number][]> = {};
+  for (const m of AI_MODELS) {
+    (groups[m.group] ??= []).push(m);
+  }
+
+  return (
+    <div style={fieldGroupStyle}>
+      <label htmlFor="generation-model" style={labelStyle}>
+        Model
+      </label>
+      <select
+        id="generation-model"
+        aria-label="Model"
+        value={modelId}
+        onChange={(e) => onModelChange(e.target.value)}
+        style={inputStyle}
+      >
+        {Object.entries(groups).map(([group, models]) => (
+          <optgroup key={group} label={GROUP_LABELS[group] ?? group}>
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+    </div>
+  );
 }
 
 // ── Generation param fields ───────────────────────────────────────────────────

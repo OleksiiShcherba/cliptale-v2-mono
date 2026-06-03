@@ -48,4 +48,23 @@ describe('CostConfirmModal', () => {
     render(<CostConfirmModal estimate={ESTIMATE} onConfirm={vi.fn()} onCancel={vi.fn()} />);
     expect(screen.getByText(/best-effort estimate/i)).toBeDefined();
   });
+
+  // F4: a blocked Generate (422 gate / 409 stale-version) returns to the gate with a
+  // plain-language reason — the modal must surface it, not stay silently open.
+  it('renders the error in a role=alert when one is supplied (F4)', () => {
+    render(
+      <CostConfirmModal
+        estimate={ESTIMATE}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+        error="Connect a text input to “Prompt” before generating."
+      />,
+    );
+    expect(screen.getByRole('alert').textContent).toContain('Connect a text input');
+  });
+
+  it('shows no alert when there is no error', () => {
+    render(<CostConfirmModal estimate={ESTIMATE} onConfirm={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
 });

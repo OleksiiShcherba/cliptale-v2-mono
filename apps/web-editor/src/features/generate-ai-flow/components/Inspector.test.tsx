@@ -12,7 +12,7 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { FlowBlock, FlowCanvas } from '@ai-video-editor/project-schema';
@@ -202,6 +202,39 @@ describe('Inspector — generation block optional params', () => {
     );
     // Inspector should be empty / not show param fields
     expect(container.textContent?.trim()).toBe('');
+  });
+
+  // F2 (AC-15 / AC-07): the Inspector is the surface where a Creator picks/changes
+  // the generation block's model — without it changeModel/reconcile is unreachable.
+  it('renders a model picker defaulting to the block\'s current model', () => {
+    const block = makeGenerationBlock();
+    render(
+      <Inspector
+        selectedBlockId="g1"
+        canvas={makeCanvas(block)}
+        onBlockParamsChange={vi.fn()}
+        onModelChange={vi.fn()}
+      />,
+    );
+    const sel = screen.getByLabelText(/^model$/i) as HTMLSelectElement;
+    expect(sel.value).toBe(LTX_MODEL_ID);
+  });
+
+  it('calls onModelChange(blockId, newModelId) when a different model is chosen', () => {
+    const onModelChange = vi.fn();
+    const block = makeGenerationBlock();
+    render(
+      <Inspector
+        selectedBlockId="g1"
+        canvas={makeCanvas(block)}
+        onBlockParamsChange={vi.fn()}
+        onModelChange={onModelChange}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText(/^model$/i), {
+      target: { value: 'elevenlabs/text-to-speech' },
+    });
+    expect(onModelChange).toHaveBeenCalledWith('g1', 'elevenlabs/text-to-speech');
   });
 
   it('renders optional param fields for the selected generation block', () => {

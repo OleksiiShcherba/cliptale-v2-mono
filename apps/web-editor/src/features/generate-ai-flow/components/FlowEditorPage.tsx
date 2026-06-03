@@ -152,7 +152,9 @@ function FlowEditor({
   const generation = useFlowGeneration({
     flowId: flow.flowId,
     blockId: generatingBlockId ?? '',
-    version: flow.version,
+    // F1/AC-01: generate against the autosave-bumped version, not the loaded one —
+    // a stale version is rejected with 409, so any edit before Generate would fail.
+    version: localVersion,
     initialJobState: reattachState,
   });
 
@@ -206,7 +208,13 @@ function FlowEditor({
     return { x: 40 + addCounter.current * 24, y: 40 + addCounter.current * 24 };
   };
 
-  const handleAddContent = () => controllerRef.current?.addContentBlock('text', nextPos());
+  // Content blocks come in all four modalities (AC-15) — a small menu off the toolbar
+  // lets the Creator add text / image / audio / video, not just text (F3).
+  const [contentMenuOpen, setContentMenuOpen] = React.useState(false);
+  const addContent = (modality: 'text' | 'image' | 'audio' | 'video') => {
+    controllerRef.current?.addContentBlock(modality, nextPos());
+    setContentMenuOpen(false);
+  };
   const handleAddGeneration = () =>
     controllerRef.current?.addGenerationBlock(DEFAULT_MODEL_ID, nextPos());
   const handleAddResult = () => {
@@ -222,6 +230,13 @@ function FlowEditor({
     };
     c.setCanvas((prev) => ({ ...prev, blocks: [...prev.blocks, block] }));
   };
+
+  // ── Model change → reconcile through the controller (rebuild handles + prune) ─
+  const handleModelChange = React.useCallback((blockId: string, modelId: string) => {
+    // changeModel prunes now-incompatible edges and fires onEdgesPruned → the notice
+    // banner below, preserving any existing result block + its library link (AC-07).
+    controllerRef.current?.changeModel(blockId, modelId);
+  }, []);
 
   // ── Inspector param edits → write back through the controller ───────────────
   const handleBlockParamsChange = React.useCallback(
@@ -310,7 +325,30 @@ function FlowEditor({
           <span data-testid="autosave-status" style={{ fontSize: 11, color: TEXT_SECONDARY }}>
             {autosaveStatus} v{localVersion}
           </span>
-          <ToolbarButton onClick={handleAddContent} label="Add content" />
+          <div style={{ position: 'relative' }}>
+            <ToolbarButton
+              onClick={() => setContentMenuOpen((o) => !o)}
+              label="Add content"
+              aria-haspopup="menu"
+              aria-expanded={contentMenuOpen}
+            />
+            {contentMenuOpen && (
+              <div role="menu" style={menuStyle}>
+                {(['text', 'image', 'audio', 'video'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    role="menuitem"
+                    aria-label={`Add ${m} content`}
+                    onClick={() => addContent(m)}
+                    style={menuItemStyle}
+                  >
+                    {m.charAt(0).toUpperCase() + m.slice(1)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <ToolbarButton onClick={handleAddGeneration} label="Add generation" />
           <ToolbarButton onClick={handleAddResult} label="Add result" />
         </div>
@@ -325,6 +363,13 @@ function FlowEditor({
       {notice && (
         <div role="status" style={noticeStyle}>
           {notice}
+        </div>
+      )}
+      {/* Generation error outside the gate (e.g. an estimate failure that returned to
+          idle). A gate failure during confirm is shown inside the modal below. (F4) */}
+      {generation.error && generation.phase !== 'confirming' && (
+        <div role="alert" style={alertStyle}>
+          {generation.error}
         </div>
       )}
 
@@ -348,6 +393,7 @@ function FlowEditor({
           selectedBlockId={selectedBlockId}
           canvas={canvas}
           onBlockParamsChange={handleBlockParamsChange}
+          onModelChange={handleModelChange}
         />
       </div>
 
@@ -356,6 +402,7 @@ function FlowEditor({
         <CostConfirmModal
           estimate={generation.estimate}
           submitting={false}
+          error={generation.error}
           onCancel={() => {
             generation.cancel();
             setGeneratingBlockId(null);
@@ -428,12 +475,17 @@ function ChromeMessage({
   );
 }
 
-function ToolbarButton({ onClick, label }: { onClick: () => void; label: string }): React.ReactElement {
+function ToolbarButton({
+  onClick,
+  label,
+  ...rest
+}: { onClick: () => void; label: string } & React.ButtonHTMLAttributes<HTMLButtonElement>): React.ReactElement {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={label}
+      {...rest}
       style={{
         padding: '6px 12px',
         background: 'transparent',
@@ -495,4 +547,31 @@ const noticeStyle: React.CSSProperties = {
   color: PRIMARY,
   fontSize: 13,
   borderBottom: `1px solid ${BORDER}`,
+};
+
+const menuStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 'calc(100% + 4px)',
+  left: 0,
+  zIndex: 50,
+  display: 'flex',
+  flexDirection: 'column',
+  minWidth: 140,
+  background: SURFACE_ELEVATED,
+  border: `1px solid ${BORDER}`,
+  borderRadius: 6,
+  padding: 4,
+  boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+};
+
+const menuItemStyle: React.CSSProperties = {
+  textAlign: 'left',
+  padding: '6px 10px',
+  background: 'transparent',
+  color: TEXT_PRIMARY,
+  border: 'none',
+  borderRadius: 4,
+  fontSize: 12,
+  fontFamily: 'Inter, sans-serif',
+  cursor: 'pointer',
 };

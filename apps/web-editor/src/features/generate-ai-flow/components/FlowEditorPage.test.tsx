@@ -15,7 +15,7 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -139,13 +139,103 @@ describe('FlowEditorPage', () => {
     expect(document.querySelector('[data-block-id="c1"]')).not.toBeNull();
   });
 
-  it('adds a content block via the toolbar', async () => {
+  it('adds a text content block via the toolbar menu', async () => {
     renderPage();
     await waitFor(() => expect(screen.getByTestId('flow-canvas')).toBeDefined());
     const before = document.querySelectorAll('[data-testid="content-node"]').length;
     fireEvent.click(screen.getByRole('button', { name: /add content/i }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /add text content/i }));
     await waitFor(() =>
       expect(document.querySelectorAll('[data-testid="content-node"]').length).toBe(before + 1),
+    );
+  });
+
+  // F3 (AC-15 / AC-13): all four content modalities must be assemblable, not just text.
+  it('adds image / audio / video content blocks via the content menu (AC-15)', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByTestId('flow-canvas')).toBeDefined());
+    const before = document.querySelectorAll('[data-testid="content-node"]').length;
+    for (const modality of ['image', 'audio', 'video']) {
+      fireEvent.click(screen.getByRole('button', { name: /add content/i }));
+      fireEvent.click(
+        await screen.findByRole('menuitem', { name: new RegExp(`add ${modality} content`, 'i') }),
+      );
+    }
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-testid="content-node"]').length).toBe(before + 3),
+    );
+  });
+
+  // F2 (AC-15 / AC-07): the model is pickable in the Inspector and a change persists,
+  // so the reconcile path is reachable end-to-end (not dead code).
+  it('lets the Creator pick/change a generation block model via the Inspector (AC-15/AC-07)', async () => {
+    renderPage();
+    await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).not.toBeNull());
+
+    const genNode = document.querySelector('[data-block-id="g1"]') as HTMLElement;
+    const selectModelBtn = Array.from(genNode.querySelectorAll('button')).find(
+      (b) => b.getAttribute('aria-label') === 'Select model',
+    );
+    fireEvent.click(selectModelBtn as HTMLElement);
+
+    const modelSelect = (await screen.findByLabelText(/^model$/i)) as HTMLSelectElement;
+    expect(modelSelect.value).toBe(GEN_MODEL);
+
+    fireEvent.change(modelSelect, { target: { value: 'elevenlabs/text-to-speech' } });
+    await waitFor(() =>
+      expect((screen.getByLabelText(/^model$/i) as HTMLSelectElement).value).toBe(
+        'elevenlabs/text-to-speech',
+      ),
+    );
+  });
+
+  // F1 (AC-01): Generate must carry the autosave-bumped version, not the stale loaded
+  // version — else the first edit makes every Generate 409 silently.
+  it('generate sends the autosave-bumped flow version, not the stale loaded one (AC-01)', async () => {
+    renderPage();
+    await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).not.toBeNull());
+
+    // Edit the canvas → autosave bumps the server version 3 → 4.
+    fireEvent.click(screen.getByRole('button', { name: /add generation/i }));
+    await waitFor(() => expect(mockSaveCanvas).toHaveBeenCalled(), { timeout: 2500 });
+    await waitFor(() =>
+      expect(screen.getByTestId('autosave-status').textContent).toContain('v4'),
+    );
+
+    // Generate on g1 → confirm.
+    const genNode = document.querySelector('[data-block-id="g1"]') as HTMLElement;
+    const generateBtn = Array.from(genNode.querySelectorAll('button')).find(
+      (b) => b.getAttribute('aria-label') === 'Generate',
+    );
+    fireEvent.click(generateBtn as HTMLElement);
+    const dialog = await screen.findByRole('dialog', { name: /confirm generation/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Generate' }));
+
+    await waitFor(() => expect(mockGenerateBlock).toHaveBeenCalled());
+    expect(mockGenerateBlock.mock.calls.at(-1)![2]).toMatchObject({ version: 4 });
+  });
+
+  // F4 (AC-03/05/06/17): a blocked Generate must tell the Creator, in plain language,
+  // what to fix — the error must reach the screen, not be swallowed.
+  it('surfaces a blocked-generation error message in plain language (AC-03/05/06/17)', async () => {
+    mockGenerateBlock.mockRejectedValueOnce(
+      Object.assign(new Error('Connect a text input to “Prompt” before generating.'), {
+        status: 422,
+      }),
+    );
+    renderPage();
+    await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).not.toBeNull());
+
+    const genNode = document.querySelector('[data-block-id="g1"]') as HTMLElement;
+    const generateBtn = Array.from(genNode.querySelectorAll('button')).find(
+      (b) => b.getAttribute('aria-label') === 'Generate',
+    );
+    fireEvent.click(generateBtn as HTMLElement);
+    const dialog = await screen.findByRole('dialog', { name: /confirm generation/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Generate' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toContain('Connect a text input'),
     );
   });
 

@@ -13,7 +13,7 @@
 import React from 'react';
 
 import type { CostEstimate } from '../types';
-import { BORDER, PRIMARY, SURFACE_ELEVATED, TEXT_PRIMARY, TEXT_SECONDARY } from './flowNodeStyles';
+import { BORDER, ERROR, PRIMARY, SURFACE_ELEVATED, TEXT_PRIMARY, TEXT_SECONDARY } from './flowNodeStyles';
 
 export interface CostConfirmModalProps {
   estimate: CostEstimate;
@@ -21,6 +21,12 @@ export interface CostConfirmModalProps {
   onCancel: () => void;
   /** True while the Generate request is in flight (confirm disabled). */
   submitting?: boolean;
+  /**
+   * A plain-language failure reason from a blocked Generate (422 gate / 409 stale
+   * version). When set, the gate stays open and shows it so the Creator knows what
+   * to fix (AC-03/05/06/17/F4).
+   */
+  error?: string | null;
 }
 
 const overlay: React.CSSProperties = {
@@ -53,6 +59,7 @@ export function CostConfirmModal({
   onConfirm,
   onCancel,
   submitting = false,
+  error = null,
 }: CostConfirmModalProps): React.ReactElement {
   const { currency, amount } = estimate.estimate;
 
@@ -85,6 +92,23 @@ export function CostConfirmModal({
           This is a best-effort estimate{estimate.bestEffort ? '' : ''}; the final charge
           may differ.
         </p>
+
+        {error && (
+          <div
+            role="alert"
+            style={{
+              margin: 0,
+              padding: '8px 12px',
+              borderRadius: 8,
+              background: '#3B1D1D',
+              color: '#FCA5A5',
+              border: `1px solid ${ERROR}`,
+              fontSize: 13,
+            }}
+          >
+            {error}
+          </div>
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
           <button
