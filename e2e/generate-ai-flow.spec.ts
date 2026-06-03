@@ -389,10 +389,23 @@ test.describe('generate-ai-flow — full journey (AC-01, AC-08b, AC-10, AC-10b)'
     await expect(resultImg).toBeVisible({ timeout: 15_000 });
     await expect(resultImg).toHaveAttribute('src', RESULT_URL);
 
-    // And it is in the owner's general library, linked to this flow (AC-01).
-    // The result block carries the source linkage; the library row is fetchable.
-    const libResp = await page.request.get(`${E2E_API_URL}/files/${OUTPUT_FILE_ID}`);
-    expect(libResp.ok()).toBeTruthy();
+    // And it is in the owner's general library, linked to THIS flow (AC-01).
+    // Fetch from PAGE context (page.evaluate→fetch), so the request routes
+    // through the same network stub that models the backend — page.request()
+    // bypasses page.route() in this Playwright, which is why a direct
+    // page.request.get() would escape the stub and hit the real api. The
+    // authoritative asset-iff-success + flow_files linkage invariant is proven
+    // against real MySQL in the T13 worker + T21 integration suites; here we
+    // assert the UI-reachable library row exists AND carries the flow link.
+    const libRow = await page.evaluate(
+      async ({ apiUrl, fileId }: { apiUrl: string; fileId: string }) => {
+        const r = await fetch(`${apiUrl}/files/${fileId}`);
+        return { ok: r.ok, body: r.ok ? await r.json() : null };
+      },
+      { apiUrl: E2E_API_URL, fileId: OUTPUT_FILE_ID },
+    );
+    expect(libRow.ok).toBeTruthy();
+    expect(libRow.body?.flowId).toBe(FLOW_ID);
   });
 
   test('reload restores canvas + connections + prior result (AC-10)', async ({ page }) => {
