@@ -11,7 +11,7 @@
 | T4 | Flow-canvas Zod schema + job-payload extension | domain | Backend Lead | M | — | done |
 | T5 | Catalog modality + exclusiveGroup + backfill | domain | Backend Lead | M | — | done |
 | T6 | generation-flow.repository | infra | Backend Lead | M | T1, T4 | done |
-| T7 | flow-file pivot repo + ai-job back-links | infra | Backend Lead | M | T2, T3 | todo |
+| T7 | flow-file pivot repo + ai-job back-links | infra | Backend Lead | M | T2, T3 | done |
 | T8 | generation-flow.service | app | Backend Lead | M | T6 | todo |
 | T9 | flow-pricing + cost-estimate service | app | Backend Lead | S | T5 | todo |
 | T10 | per-Creator Redis rate limit | app | Backend Lead | S | — | done |

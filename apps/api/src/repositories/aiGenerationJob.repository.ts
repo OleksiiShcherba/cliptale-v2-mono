@@ -26,7 +26,7 @@ export type AiCapability =
   | 'speech_to_speech'
   | 'music_generation';
 
-/** Full job record as stored in ai_generation_jobs (after migrations 025 + 026). */
+/** Full job record as stored in ai_generation_jobs (after migrations 025 + 026 + 048). */
 export type AiGenerationJob = {
   jobId: string;
   userId: string;
@@ -39,6 +39,10 @@ export type AiGenerationJob = {
   outputFileId: string | null;
   /** Set when the job was submitted via POST /generation-drafts/:id/ai/generate. */
   draftId: string | null;
+  /** Set when the job was submitted via the generate-ai-flow canvas (migration 048). */
+  flowId: string | null;
+  /** Canvas block id that triggered this run; lives inside generation_flows.canvas JSON. */
+  blockId: string | null;
   resultUrl: string | null;
   errorMessage: string | null;
   createdAt: Date;
@@ -56,6 +60,8 @@ type JobRow = RowDataPacket & {
   progress: number;
   output_file_id: string | null;
   draft_id: string | null;
+  flow_id: string | null;
+  block_id: string | null;
   result_url: string | null;
   error_message: string | null;
   created_at: Date;
@@ -74,6 +80,8 @@ function mapRow(row: JobRow): AiGenerationJob {
     progress: row.progress,
     outputFileId: row.output_file_id,
     draftId: row.draft_id,
+    flowId: row.flow_id,
+    blockId: row.block_id,
     resultUrl: row.result_url,
     errorMessage: row.error_message,
     createdAt: row.created_at,
@@ -189,4 +197,45 @@ export async function setOutputFile(
       [draftId, outputFileId],
     );
   }
+}
+
+/**
+ * Records the generation flow + canvas block that owns this job (migration 048).
+ *
+ * Mirrors `setDraftId` exactly — called immediately after a job is enqueued via
+ * the canvas Generate endpoint so the worker can link the result into flow_files
+ * on completion (T13), and so the reattach query (AC-08b) can find all result-block
+ * job states for one flow.
+ *
+ * No FK on flow_id/block_id by design (ADR-0001/ADR-0007): the job lifecycle is
+ * independent of the flow — deleting/soft-deleting a flow does NOT cancel in-flight
+ * jobs; an orphaned flow_id is harmless.
+ */
+export async function setFlowLink(
+  jobId: string,
+  flowId: string,
+  blockId: string,
+): Promise<void> {
+  await pool.execute(
+    'UPDATE ai_generation_jobs SET flow_id = ?, block_id = ? WHERE job_id = ?',
+    [flowId, blockId, jobId],
+  );
+}
+
+/**
+ * Returns ALL job rows linked to a given flow_id.
+ *
+ * This is the reattach query (Flow 2 / AC-08b): when a Creator reopens a flow,
+ * the UI fetches all result-block job states for that flow so it can reattach
+ * each result block to its in-flight or completed generation.
+ *
+ * No owner-scoping here — the service layer (T8) enforces that the caller already
+ * owns the flow before calling this function.
+ */
+export async function getJobsByFlowId(flowId: string): Promise<AiGenerationJob[]> {
+  const [rows] = await pool.execute<JobRow[]>(
+    'SELECT * FROM ai_generation_jobs WHERE flow_id = ?',
+    [flowId],
+  );
+  return rows.map(mapRow);
 }
