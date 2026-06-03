@@ -69,7 +69,37 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
 
 ## 3. Context and scope
 
-<!-- pending Socratic walk -->
+The Generate AI flow is a new owner-scoped workspace inside the existing ClipTale web editor. A signed-in Creator assembles a node graph, presses Generate per block, and receives results into both the canvas and their general library. ClipTale itself talks to two external systems: paid **AI providers** (fal.ai for image/video, ElevenLabs for audio) and an **S3-compatible object store** for media blobs. The **trust boundary is the API**: every flow list/read/write/delete and every Generate is authenticated (JWT) and owner-filtered there — the browser is untrusted, and Creator-supplied text is passed to providers strictly as content, never interpreted as instructions to ClipTale (spec §6.1).
+
+<!-- brownfield: extends ClipTale (TS monorepo) — reuses the `media-worker` ai-generate pipeline, the user-scoped `files` library, the `@xyflow/react` storyboard canvas family, and the Redis→ws realtime channel; adds a new owner-scoped Flow resource in `api` + a new `generate-ai-flow` web-editor feature. -->
+
+**External systems (in / out):**
+
+| Actor or system | Type | Interaction |
+|---|---|---|
+| Creator | Person | Builds flows, draws typed connections, presses Generate, confirms cost; owns all flows + result assets |
+| AI providers (fal.ai, ElevenLabs) | System (external) | Receive a generation request and return media (paid, per-call); the spend-bearing dependency |
+| Object store (S3) | System (external) | Stores uploaded source media + generated result assets; served via presigned URLs |
+| Identity / JWT auth | System (internal, existing) | The same auth/ACL middleware gates every flow + Generate operation; not re-built here |
+
+**C4 Context (L1):**
+
+```mermaid
+C4Context
+    title generate-ai-flow — System Context
+
+    Person(creator, "Creator", "Builds generation flows; owns all flows and result assets")
+    System(cliptale, "ClipTale", "AI web video editor; hosts the Generate AI flow workspace, the model catalog, the generation pipeline, and the general library")
+    System_Ext(ai, "AI providers", "fal.ai (image/video) + ElevenLabs (audio) — paid, per-call generation")
+    System_Ext(s3, "Object store", "S3-compatible bucket: uploaded media + generated result assets")
+
+    Rel(creator, cliptale, "Assembles flows, presses Generate, confirms cost", "HTTPS / WS")
+    Rel(cliptale, ai, "Submits generation, polls result", "HTTPS")
+    Rel(cliptale, s3, "Stores / serves media", "presigned URL")
+    Rel(creator, s3, "Direct upload / playback", "presigned URL")
+```
+
+**In scope:** a new Generate AI page + flow CRUD; the flow canvas (blocks, typed connections, inspector); server-authoritative Generate (validation, cost gate, rate limit); result→library linkage; async progress + reattach. **Out of scope** (spec §3): replacing the single-model wizard, auto-DAG chain execution, new models/providers, real-time multi-Creator collaboration, multi-output per Generate.
 
 ## 4. Solution strategy
 
