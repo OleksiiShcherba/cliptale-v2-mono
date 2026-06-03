@@ -21,6 +21,7 @@ import { userProjectUiStateRouter } from '@/routes/userProjectUiState.routes.js'
 import { trashRouter } from '@/routes/trash.routes.js';
 import { storyboardRouter } from '@/routes/storyboard.routes.js';
 import { sceneTemplateRouter } from '@/routes/sceneTemplate.routes.js';
+import { generationFlowsRouter } from '@/routes/generation-flows.routes.js';
 import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, ConflictError, UnprocessableEntityError, GoneError } from '@/lib/errors.js';
 import { attachRealtimeWebSocketServer } from '@/lib/realtime.js';
 
@@ -57,6 +58,7 @@ app.use(userProjectUiStateRouter);
 app.use(trashRouter);
 app.use(storyboardRouter);
 app.use(sceneTemplateRouter);
+app.use(generationFlowsRouter);
 
 // Centralized error handler — maps typed errors to HTTP status codes.
 // Must be the last middleware registered.

@@ -1677,6 +1677,214 @@ export const openApiSpec = {
         security: [{ bearerAuth: [] }],
       },
     },
+    // ── generate-ai-flow (T14: AC-04 / AC-08b / AC-10 / AC-19) ──────────────────
+    '/generation-flows': {
+      get: {
+        summary: 'List my generation flows (owner-scoped, most-recent first)',
+        description:
+          'Flow 3 / AC-04. Returns only the calling Creator\'s non-deleted flows, ordered by ' +
+          'updatedAt DESC. Summaries only — no canvas.',
+        operationId: 'listGenerationFlows',
+        tags: ['flows'],
+        parameters: [
+          {
+            in: 'query',
+            name: 'cursor',
+            required: false,
+            description: 'Opaque cursor — id of the last item seen; the page starts after it.',
+            schema: { type: 'string' },
+          },
+          {
+            in: 'query',
+            name: 'limit',
+            required: false,
+            schema: { type: 'integer', minimum: 1, maximum: 100, default: 24 },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'OK',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/FlowSummaryPage' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid bearer token.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+      post: {
+        summary: 'Create a new (empty) generation flow',
+        description: 'US-01 / Flow 3. Creates an owner-scoped flow at version 1 with an empty canvas.',
+        operationId: 'createGenerationFlow',
+        tags: ['flows'],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/FlowCreate' },
+            },
+          },
+        },
+        responses: {
+          201: {
+            description: 'Created',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/Flow' },
+              },
+            },
+          },
+          400: { description: 'Malformed request body (Zod validation).' },
+          401: { description: 'Missing or invalid bearer token.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/generation-flows/{flowId}': {
+      get: {
+        summary: 'Open a flow — canvas + last-known per-block job states',
+        description:
+          'Flow 2 / Flow 3 / AC-10 / AC-08b. Returns the full canvas plus each result block\'s ' +
+          'last-known generation job state. Non-owner → 404 (existence hiding, AC-04).',
+        operationId: 'getGenerationFlow',
+        tags: ['flows'],
+        parameters: [
+          {
+            in: 'path',
+            name: 'flowId',
+            required: true,
+            description: 'generation_flows.flow_id',
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        responses: {
+          200: {
+            description: 'OK',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/Flow' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid bearer token.' },
+          404: { description: 'Flow does not exist or is not owned by the caller (existence hiding, AC-04).' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+      patch: {
+        summary: 'Rename a flow',
+        description: 'US-01 / Flow 3. Metadata-only update of the title.',
+        operationId: 'renameGenerationFlow',
+        tags: ['flows'],
+        parameters: [
+          {
+            in: 'path',
+            name: 'flowId',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/FlowRename' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'OK',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/FlowSummary' },
+              },
+            },
+          },
+          400: { description: 'Malformed request body (Zod validation).' },
+          401: { description: 'Missing or invalid bearer token.' },
+          404: { description: 'Flow not found or not owned by caller.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+      delete: {
+        summary: 'Delete a flow (soft) — library assets preserved',
+        description:
+          'Flow 9 / AC-19. Soft-deletes the flow and its flow_files links; generated library ' +
+          'assets are RESTRICTed and survive. Non-owner → 404. Idempotent.',
+        operationId: 'deleteGenerationFlow',
+        tags: ['flows'],
+        parameters: [
+          {
+            in: 'path',
+            name: 'flowId',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        responses: {
+          204: { description: 'Deleted (no content).' },
+          401: { description: 'Missing or invalid bearer token.' },
+          404: { description: 'Flow not found or not owned by caller.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/generation-flows/{flowId}/canvas': {
+      put: {
+        summary: 'Autosave the flow canvas (optimistic-lock)',
+        description:
+          'Flow 4/5/6 / AC-10 / AC-10b / AC-15 / AC-16. Replaces the canvas document. ' +
+          'The body carries the PARENT version; a mismatch → 409 (first save stays authoritative). ' +
+          'On success the version is incremented and returned.',
+        operationId: 'saveGenerationFlowCanvas',
+        tags: ['flows'],
+        parameters: [
+          {
+            in: 'path',
+            name: 'flowId',
+            required: true,
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CanvasSave' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Saved',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/CanvasSaveResult' },
+              },
+            },
+          },
+          400: { description: 'Malformed request body (Zod validation).' },
+          401: { description: 'Missing or invalid bearer token.' },
+          404: { description: 'Flow not found or not owned by caller.' },
+          409: {
+            description: 'Version conflict — the flow was saved elsewhere; reload before retrying (AC-10b).',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ApiError' },
+                example: {
+                  error: 'This flow was changed in another tab. Reload to continue.',
+                  code: 'flow.version_conflict',
+                },
+              },
+            },
+          },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
     '/scene-templates/{id}/add-to-storyboard': {
       post: {
         summary: 'Add a scene template to a storyboard draft',
@@ -2930,6 +3138,146 @@ export const openApiSpec = {
             type: 'number',
             description: 'Optional canvas Y position for the new block. Defaults to 400.',
           },
+        },
+      },
+
+      // ── generate-ai-flow schemas (T14: AC-04 / AC-08b / AC-10 / AC-19) ─────
+      /**
+       * Unified error envelope — the repo's existing free-text `error` (required) PLUS
+       * optional machine-readable `code` + `details` (team decision 2026-06-03).
+       * Existing clients that only read `error` are unaffected.
+       */
+      ApiError: {
+        type: 'object',
+        required: ['error'],
+        additionalProperties: false,
+        properties: {
+          error: { type: 'string', description: 'Human-readable message (existing repo field).' },
+          code: {
+            type: 'string',
+            description: 'Machine-readable code, neutral module.error_name convention.',
+            example: 'flow.version_conflict',
+          },
+          details: {
+            type: 'object',
+            description: 'Optional structured context.',
+            additionalProperties: true,
+          },
+        },
+      },
+      FlowSummary: {
+        type: 'object',
+        required: ['flowId', 'title', 'version', 'createdAt', 'updatedAt'],
+        additionalProperties: false,
+        properties: {
+          flowId: { type: 'string', format: 'uuid', description: 'generation_flows.flow_id' },
+          title: { type: 'string', maxLength: 255, description: 'generation_flows.title' },
+          version: { type: 'integer', minimum: 1, description: 'generation_flows.version (optimistic lock)' },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      FlowSummaryPage: {
+        type: 'object',
+        required: ['items', 'nextCursor'],
+        additionalProperties: false,
+        properties: {
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/FlowSummary' },
+          },
+          nextCursor: {
+            type: ['string', 'null'],
+            description: 'Opaque cursor for the next page, or null when there are no more.',
+          },
+        },
+      },
+      JobState: {
+        description: "One result block's last-known job state, embedded in a flow read (reattach, AC-08b).",
+        type: 'object',
+        required: ['jobId', 'blockId', 'status', 'progress'],
+        additionalProperties: false,
+        properties: {
+          jobId: { type: 'string', description: 'ai_generation_jobs.job_id' },
+          blockId: { type: ['string', 'null'], format: 'uuid', description: 'ai_generation_jobs.block_id' },
+          status: {
+            type: 'string',
+            enum: ['queued', 'processing', 'completed', 'failed'],
+            description: "Repo's AiJobStatus.",
+          },
+          progress: { type: 'integer', minimum: 0, maximum: 100 },
+          outputFileId: { type: ['string', 'null'], format: 'uuid' },
+          resultUrl: { type: ['string', 'null'] },
+          errorMessage: { type: ['string', 'null'] },
+        },
+      },
+      Flow: {
+        description: 'A full flow read — summary fields + the canvas document + per-block job states.',
+        type: 'object',
+        required: ['flowId', 'title', 'version', 'canvas', 'jobs', 'createdAt', 'updatedAt'],
+        additionalProperties: false,
+        properties: {
+          flowId: { type: 'string', format: 'uuid' },
+          title: { type: 'string', maxLength: 255 },
+          version: { type: 'integer', minimum: 1 },
+          canvas: {
+            type: 'object',
+            description: 'The whole node graph as an opaque JSON document (generation_flows.canvas, ADR-0002).',
+            additionalProperties: true,
+          },
+          jobs: {
+            type: 'array',
+            description: "Last-known generation job state per result block, for restore + reattach (AC-08b).",
+            items: { $ref: '#/components/schemas/JobState' },
+          },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      FlowCreate: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          title: {
+            type: 'string',
+            maxLength: 255,
+            description: "Optional; defaults to 'Untitled flow'.",
+          },
+        },
+      },
+      FlowRename: {
+        type: 'object',
+        required: ['title'],
+        additionalProperties: false,
+        properties: {
+          title: { type: 'string', minLength: 1, maxLength: 255 },
+        },
+      },
+      CanvasSave: {
+        type: 'object',
+        required: ['version', 'canvas'],
+        additionalProperties: false,
+        properties: {
+          version: {
+            type: 'integer',
+            minimum: 1,
+            description: 'The PARENT version this save is based on; a mismatch → 409 (AC-10b).',
+          },
+          canvas: {
+            type: 'object',
+            description: 'The full new canvas document.',
+            additionalProperties: true,
+          },
+        },
+      },
+      CanvasSaveResult: {
+        type: 'object',
+        required: ['flowId', 'version', 'updatedAt'],
+        additionalProperties: false,
+        properties: {
+          flowId: { type: 'string', format: 'uuid' },
+          version: { type: 'integer', minimum: 1, description: 'The NEW, incremented version.' },
+          updatedAt: { type: 'string', format: 'date-time' },
         },
       },
     },

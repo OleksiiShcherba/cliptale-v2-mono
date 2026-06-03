@@ -18,7 +18,7 @@
 | T11 | Generate validation gate | app | Backend Lead | L | T6, T5 | done |
 | T12 | Generate enqueue — job + link + idempotency | app | Backend Lead | M | T7, T9, T10, T11 | done |
 | T13 | media-worker honors flow_id | app | Backend Lead | M | T7 | done |
-| T14 | flow CRUD controller + routes + OpenAPI | ports | Backend Lead | M | T8 | todo |
+| T14 | flow CRUD controller + routes + OpenAPI | ports | Backend Lead | M | T8 | done |
 | T15 | estimate + generate controllers + routes + OpenAPI | ports | Backend Lead | M | T9, T11, T12 | todo |
 | T16 | FlowListPage + api.ts + /generate-ai route | ui | Frontend Lead | M | T14 | todo |
 | T17 | FlowCanvas + nodes + typed-connect + reconciliation | ui | Frontend Lead | L | T5, T16 | todo |
