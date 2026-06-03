@@ -119,7 +119,67 @@ Each tactical decision in later sections traces to one of these four seeds. Tact
 
 ## 5. Building block view
 
-<!-- pending Socratic walk -->
+**Style.** Layered on the backend (`routes → controllers → services → repositories`, module singletons, no DI — the repo convention) and a self-contained **feature module** on the frontend (`features/generate-ai-flow/` with `components/`, `hooks/`, `api.ts`, `types.ts`, modelled on generate-wizard). The Generate spend path is deliberately split from flow CRUD into its own service so the spend-bearing logic (validation + rate limit + cost gate) is isolated and independently testable for the security review.
+
+**Internal decomposition:**
+
+```
+apps/api/src/
+├── routes/generation-flows.routes.ts          # registered in index.ts after middleware
+├── controllers/generation-flow.controller.ts  # Zod-validate, owner check, error mapping
+├── services/
+│   ├── generation-flow.service.ts             # CRUD, autosave, optimistic-version conflict (ADR-0003)
+│   └── flow-generate.service.ts               # input resolution + validation + rate-limit + cost gate + enqueue (ADR-0004/0005)
+├── repositories/
+│   ├── generation-flow.repository.ts          # generation_flows (JSON canvas blob, ADR-0002)
+│   └── flow-file.repository.ts                # flow_files pivot (ADR-0007)
+├── lib/flow-pricing.ts                         # static per-model pricing table (ADR-0005)
+└── db/migrations/
+    ├── 046_generation_flows.sql                # owner-scoped, soft-delete, version column
+    ├── 047_flow_files.sql                      # pivot: CASCADE on flow, RESTRICT on file
+    └── 048_ai_jobs_flow_id.sql                 # nullable flow_id + block_id on ai_generation_jobs
+
+apps/web-editor/src/features/generate-ai-flow/
+├── components/  FlowListPage · FlowCanvas · {Content,Generation,Result}Node · Inspector · CostConfirmModal
+├── hooks/       useFlowCanvas · useFlowAutosave (version-aware) · useFlowGeneration (reuses shared useJobPolling)
+├── api.ts  types.ts
+   (reuses shared/ai-generation + @xyflow/react; routes added in main.tsx → /generate-ai)
+
+packages/api-contracts/   # catalog schema extension: modality + exclusiveGroup (ADR-0006); OpenAPI for flow + estimate + generate
+packages/project-schema/  # flow-canvas Zod schema (ADR-0002) + extended ai-generate job payload (ADR-0001)
+apps/media-worker/        # ai-generate handler extended to honor jobs.flow_id (ADR-0001/0007) — minimal change
+```
+
+**C4 Container (L2):**
+
+```mermaid
+C4Container
+    title generate-ai-flow — Containers
+
+    Person(creator, "Creator", "Builds flows, presses Generate")
+
+    Container_Boundary(cliptale, "ClipTale") {
+        Container(web, "web-editor", "React 18 + @xyflow/react", "Generate AI page, flow canvas, typed connections, inspector, cost confirm, result blocks")
+        Container(api, "api", "Express 4 + ws", "Flow CRUD + optimistic-lock; server-authoritative Generate (validate + rate-limit + cost); estimate endpoint; realtime relay")
+        Container(worker, "media-worker", "BullMQ + fal.ai / ElevenLabs", "Runs the generation job; writes result to S3 + files; links to the flow")
+        ContainerDb(mysql, "MySQL 8", "InnoDB", "generation_flows, flow_files, ai_generation_jobs, files")
+        ContainerDb(redis, "Redis 7", "Redis", "ai-generate queue, per-Creator rate-limit counter, realtime pub/sub")
+    }
+
+    System_Ext(ai, "AI providers", "fal.ai / ElevenLabs")
+    System_Ext(s3, "Object store", "S3-compatible")
+
+    Rel(creator, web, "Edits flow, presses Generate", "HTTPS / WS")
+    Rel(web, api, "Flow CRUD, estimate, Generate", "REST")
+    Rel(web, api, "Subscribes to job progress", "WS")
+    Rel(web, s3, "Upload / playback", "presigned URL")
+    Rel(api, mysql, "Reads / writes flows + links", "mysql2")
+    Rel(api, redis, "Enqueues job, checks rate limit, publishes", "BullMQ / pub-sub")
+    Rel(worker, redis, "Consumes job, publishes progress", "BullMQ")
+    Rel(worker, mysql, "Updates job, writes file row + pivot", "mysql2")
+    Rel(worker, s3, "Uploads result asset", "AWS SDK v3")
+    Rel(worker, ai, "Generation", "HTTPS")
+```
 
 ## 6. Runtime view
 
