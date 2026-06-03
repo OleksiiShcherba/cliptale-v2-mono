@@ -204,7 +204,7 @@ sequenceDiagram
     Web-->>Creator: shows cost confirmation
     Creator->>Web: confirms
     Web->>API: runs Generate (flow version + block id)
-    API->>API: re-validates inputs / exclusivity / owner; checks per-Creator rate limit
+    API->>API: re-validates inputs / exclusivity / owner, then checks per-Creator rate limit
     API->>Store: creates the job and the result-block link
     API->>Redis: enqueues the ai-generate job
     API-->>Web: job accepted
@@ -244,6 +244,224 @@ sequenceDiagram
         Web-->>Creator: updates the result block
     end
 ```
+
+<!-- Flows below added by `sdd:sequences` (2026-06-03). Participant names reuse the §5 C4-container
+     vocabulary already established by the two seed flows above (inherited from §2 constraints —
+     a brownfield stack, not a premature runtime-view decision) so §6 reads consistently. -->
+
+### Flow 3: Manage flows — list / create / rename / open (US-01, AC-04)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Creator
+    participant Web
+    participant API
+    participant Store as MySQL
+    Note over Creator,Store: Precondition: signed-in Creator on the Generate AI page
+    Creator->>Web: opens the Generate AI page
+    Web->>API: lists my flows
+    API->>Store: reads flows owned by this Creator (not deleted)
+    Store-->>API: owned flow summaries
+    API-->>Web: my flow list
+    Web-->>Creator: shows the flow list
+    Creator->>Web: creates / renames / opens a flow
+    Web->>API: create or rename or open (flow id)
+    API->>Store: writes the flow or reads it with an owner check
+    Note over API,Store: persists generation_flow (owner-scoped, soft-delete)
+    Store-->>API: ack or flow record
+    API-->>Web: result
+    Web-->>Creator: shows the new / renamed / opened flow
+    alt flow not owned by this Creator
+        API-->>Web: not found (no existence disclosure)
+        Web-->>Creator: flow is unavailable
+    end
+    Note over Creator,Store: Postcondition: only the Creator's own flows are listed and openable
+```
+
+### Flow 4: Edit canvas and autosave (US-02 / US-03 / US-04, AC-15 / AC-16 / AC-10b)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Creator
+    participant Web
+    participant API
+    participant Store as MySQL
+    Note over Creator,Store: Precondition: Creator has an open, owned flow canvas
+    Creator->>Web: adds content / generation blocks and selects a model
+    Web->>Web: renders the model's required input handles
+    Creator->>Web: types text / uploads / picks a library asset / edits parameters
+    Web->>Web: retains content and parameter values on the blocks
+    Web->>API: autosaves the canvas (carries the parent version)
+    API->>Store: writes the canvas if the version matches
+    Note over API,Store: persists generation_flow canvas + version (optimistic lock)
+    Store-->>API: ack with the new version
+    API-->>Web: saved (new version)
+    Web-->>Creator: canvas is saved
+    alt stale version (same flow saved from another tab)
+        API-->>Web: conflict — save rejected
+        Web-->>Creator: warns of the conflict, asks to reload (first save stays authoritative)
+    end
+    Note over Creator,Store: Postcondition: blocks, connections, params persisted and reused on the next Generate
+```
+
+### Flow 5: Draw a typed connection (US-03 / US-07, AC-02 / AC-18)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Creator
+    participant Web
+    participant API
+    participant Store as MySQL
+    Note over Creator,Web: Precondition: open flow — handle modality comes from the client-side model catalog
+    Creator->>Web: drags a connection toward an input handle
+    Web->>Web: checks source vs handle modality from the catalog
+    alt modalities match
+        Web-->>Creator: accepts the connection (feedback under 100 ms)
+        Web->>API: autosaves the new connection
+        API->>Store: writes the canvas
+        Note over API,Store: persists generation_flow canvas (edge added)
+        Store-->>API: ack
+        Note over Web,Creator: a result-block output wired here is reused as input on the next Generate (no library re-import)
+    else modalities differ
+        Web-->>Creator: refuses the drop, indicates the handle's expected modality
+    end
+    Note over Creator,Web: Postcondition: only modality-compatible edges exist in the saved canvas
+```
+
+### Flow 6: Change a block's model — handle reconciliation (US-03, AC-07)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Creator
+    participant Web
+    participant API
+    participant Store as MySQL
+    Note over Creator,Web: Precondition: a generation block has inputs connected and a produced result block
+    Creator->>Web: changes the block's selected model
+    Web->>Web: rebuilds input handles for the new model
+    Web->>Web: prunes now-incompatible input connections
+    Web-->>Creator: lists which connections were removed
+    Note over Web,Creator: the existing result block and its library linkage are preserved (only input edges change)
+    Web->>API: autosaves the reconciled canvas
+    API->>Store: writes the canvas
+    Note over API,Store: persists generation_flow canvas (handles + edges changed, result link untouched)
+    Store-->>API: ack
+    API-->>Web: saved
+    Web-->>Creator: canvas reflects the new model's handles
+    Note over Creator,Web: Postcondition: handles match the new model — prior result + linkage intact
+```
+
+### Flow 7: Generate — server-side validation gate (US-05, AC-03 / AC-05 / AC-06 / AC-17)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Creator
+    participant Web
+    participant API
+    participant Store as MySQL
+    participant Redis
+    Note over Creator,Store: Precondition: Creator confirmed the cost and pressed Generate on a block
+    Creator->>Web: confirms cost and runs Generate
+    Web->>API: runs Generate (flow version + block id)
+    API->>Store: reads the canvas, resolves the block's inputs and owner
+    Store-->>API: canvas + referenced assets
+    API->>API: re-validates inputs / exclusivity / content / owner, then checks the per-Creator rate limit
+    alt a required input has no connection
+        API-->>Web: blocked — names the required input to connect (no provider call)
+        Web-->>Creator: shows which input is missing
+    else not exactly one alternative provided
+        API-->>Web: blocked — exactly one of the alternatives required
+        Web-->>Creator: shows the exclusivity message
+    else a referenced library asset is missing
+        API-->>Web: blocked — previously-owned asset missing, must be replaced
+        Web-->>Creator: shows the missing-asset message
+    else a content block is empty or invalid
+        API-->>Web: blocked — names the empty / invalid content block
+        Web-->>Creator: shows what to fix
+    else generation rate limit exceeded
+        API-->>Web: blocked — too many runs, try again shortly
+        Web-->>Creator: shows the rate-limit message
+    else all preconditions satisfied
+        API->>Store: creates the job and the result-block link
+        Note over API,Store: persists ai_generation_job (flow_id, block_id) + flow_files link
+        API->>Redis: enqueues the ai-generate job
+        API-->>Web: job accepted (proceeds as Flow 1)
+        Web-->>Creator: shows the result block producing
+    end
+    Note over Creator,Store: Postcondition: no paid call unless every precondition and the rate limit passed
+```
+
+### Flow 8: Generation outcome at the worker — async (US-05 / US-06, AC-14 / AC-09)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Redis
+    participant Worker as media-worker
+    participant Provider as AI provider
+    participant S3
+    participant Store as MySQL
+    participant Web
+    Note over Redis,Worker: Trigger: an enqueued ai-generate job for a flow block
+    Redis->>Worker: delivers the ai-generate job
+    Worker->>Worker: checks the job idempotency key (skips if already processed)
+    Worker->>Provider: submits the generation
+    Worker->>Redis: publishes progress
+    Redis-->>Web: live progress updates
+    Provider-->>Worker: produced output(s)
+    Note over Worker,Provider: retry up to N times with exponential backoff on transient failure
+    alt successful generation
+        Worker->>Worker: keeps the first output, discards any extras (single result per Generate)
+        Worker->>S3: uploads the result asset
+        Worker->>Store: writes the file row + flow link, marks the job complete
+        Note over Worker,Store: persists file + flow_files link only on success
+        Worker->>Redis: publishes completion
+        Redis-->>Web: completion event (result shown, asset in library)
+    else failed or empty output
+        Worker->>Store: marks the job failed, writes no asset
+        Note over Worker,Store: no library asset is linked for a failed / empty run
+        Worker->>Redis: publishes the failure
+        Redis-->>Web: failed state with a retry option (retry is a fresh, charged Generate)
+    else retries exhausted
+        Worker->>Redis: routes the job to the dead-letter queue
+        Note over Worker,Redis: dead-letter after N failed attempts, surfaced as a failed run
+    end
+    Note over Redis,Store: Postcondition: exactly one asset iff success — failed runs link none
+```
+
+### Flow 9: Delete a flow — library assets preserved (US-01 / US-07, AC-19)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Creator
+    participant Web
+    participant API
+    participant Store as MySQL
+    Note over Creator,Store: Precondition: Creator owns a flow that produced result assets now in the library
+    Creator->>Web: deletes the flow
+    Web->>API: delete (flow id)
+    API->>Store: owner check, then soft-deletes the flow
+    Note over API,Store: cascades flow_files links, RESTRICTs the library asset (asset survives)
+    Store-->>API: flow removed, links dropped, assets retained
+    API-->>Web: deleted
+    Web-->>Creator: flow is gone — generated assets remain in the library
+    alt flow not owned by this Creator
+        API-->>Web: not found (no existence disclosure)
+        Web-->>Creator: flow is unavailable
+    end
+    Note over Creator,Store: Postcondition: flow + linkage removed, library assets preserved (AC-19)
+```
+
+**Flagged for downstream stages** (flag only — not auto-written):
+- *Idempotency strategy* (Flow 8): the ai-generate job needs an idempotency key so a redelivered/duplicate job never double-charges — confirm the existing pipeline already keys on `jobId`, else an ADR is owed.
+- *Dead-letter shape* (Flow 8): "dead-letter after N attempts" reuses the existing BullMQ retry/DLQ config — `tasks`/`data-model` should pin N and the surfaced failed-state mapping.
+- *Heavy-canvas read* (Flow 3 list, Flow 4 reload via §6 Flow 2): the open-latency target (≤1500 ms) drives an index on `generation_flows(owner, deleted_at)` — a `data-model` index hint.
 
 ## 7. Deployment view
 

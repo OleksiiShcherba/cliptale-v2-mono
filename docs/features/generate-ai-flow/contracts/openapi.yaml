@@ -1,0 +1,673 @@
+# DERIVED contract for generate-ai-flow — do not hand-edit field-by-field.
+#   fields + constraints  ← data-model.md (generation_flows, flow_files, ai_generation_jobs cols)
+#   error responses       ← sad.md §6 sequence alt-branches (Flow 1/2/3/4/7/8/9)
+#   endpoint list + shape ← spec.md §4 user stories / §5 acceptance criteria
+#
+# Brownfield deviations from the SDD defaults (all "follow the existing ClipTale API" — see api-sync-report.md):
+#   • Error body  = repo's `{ error }` PLUS additive optional `{ code, details }` (team decision 2026-06-03),
+#                   NOT the bare `{ code, message, details? }` SDD envelope. `error` is the existing free-text key.
+#   • JSON keys   = camelCase (flowId, createdAt, jobId…) — the repo's wire convention, not snake_case.
+#   • Pagination  = `cursor` + `limit` → `{ items, nextCursor }` (mirrors GET /projects/:id/assets), not after/before.
+#   • URL prefix  = none; paths are rooted (the repo mounts routes at `/`), NOT `/api/v1`.
+openapi: 3.1.0
+
+info:
+  title: generate-ai-flow API
+  version: 0.1.0
+  description: |
+    A dedicated, visual, node-based "Generate AI" workspace where a Creator freely combines the
+    existing catalog of AI models across text, image, video and audio. The Creator assembles
+    content blocks and generation blocks on an owner-scoped flow canvas, draws typed connections,
+    and presses Generate one block at a time after a cost confirmation; every result is auto-saved
+    as a reusable asset in the Creator's general library, linked back to the flow.
+
+    This contract covers the new owner-scoped Flow resource and the server-authoritative Generate
+    surface in `api`. It REUSES the existing generation rails (the `ai-generate` BullMQ job →
+    media-worker → S3 + the `files` library → the `cliptale:realtime:v1` ws channel) — the job
+    poll (`GET /ai/jobs/{jobId}`) and model catalog (`GET /ai/models`) endpoints are existing and
+    are documented here only where this feature extends their shape. Async progress is an event
+    contract — see events.md.
+
+servers:
+  - url: https://api.cliptale.com
+    description: Production
+  - url: http://localhost
+    description: Local
+
+# Global default — every operation requires a bearer JWT unless it overrides with `security: []`.
+security:
+  - BearerAuth: []
+
+paths:
+  /generation-flows:
+    get:
+      summary: List my generation flows (owner-scoped, most-recent first)
+      description: |
+        Flow 3 / AC-04. Returns only the calling Creator's non-deleted flows, ordered by `updatedAt`
+        DESC (served by idx_generation_flows_user_active_updated). Summaries only — no canvas.
+      operationId: listGenerationFlows
+      tags: [flows]
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FlowSummaryPage" }
+              example:
+                items:
+                  - flowId: "11111111-1111-4111-8111-111111111111"
+                    title: "Poster → clip experiment"
+                    version: 7
+                    createdAt: "2026-06-01T10:00:00.000Z"
+                    updatedAt: "2026-06-03T09:12:00.000Z"
+                nextCursor: null
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+    post:
+      summary: Create a new (empty) generation flow
+      description: US-01 / Flow 3. Creates an owner-scoped flow at version 1 with an empty canvas.
+      operationId: createGenerationFlow
+      tags: [flows]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FlowCreate" }
+            example:
+              title: "Untitled flow"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Flow" }
+              example:
+                flowId: "11111111-1111-4111-8111-111111111111"
+                title: "Untitled flow"
+                version: 1
+                canvas: { blocks: [], edges: [] }
+                jobs: []
+                createdAt: "2026-06-03T09:00:00.000Z"
+                updatedAt: "2026-06-03T09:00:00.000Z"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /generation-flows/{flowId}:
+    parameters:
+      - $ref: "#/components/parameters/FlowId"
+    get:
+      summary: Open a flow — canvas + last-known per-block job states
+      description: |
+        Flow 2 / Flow 3 / AC-10 / AC-08b. Returns the full canvas plus each result block's
+        last-known generation job state, so the client can restore results and reattach to any
+        in-flight run on reopen. Non-owner → 404 (existence hiding, AC-04).
+      operationId: getGenerationFlow
+      tags: [flows]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Flow" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/FlowNotFound" }
+
+    patch:
+      summary: Rename a flow
+      description: US-01 / Flow 3. Metadata-only update of the title (lightweight; usable from the list page).
+      operationId: renameGenerationFlow
+      tags: [flows]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FlowRename" }
+            example:
+              title: "Poster → clip experiment"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FlowSummary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/FlowNotFound" }
+
+    delete:
+      summary: Delete a flow (soft) — library assets preserved
+      description: |
+        Flow 9 / AC-19. Soft-deletes the flow and its flow_files links; the generated library
+        assets are RESTRICTed and survive. Non-owner → 404. Idempotent.
+      operationId: deleteGenerationFlow
+      tags: [flows]
+      responses:
+        "204": { description: Deleted (no content) }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/FlowNotFound" }
+
+  /generation-flows/{flowId}/canvas:
+    parameters:
+      - $ref: "#/components/parameters/FlowId"
+    put:
+      summary: Autosave the flow canvas (optimistic-lock)
+      description: |
+        Flow 4 / Flow 5 / Flow 6 / AC-10 / AC-10b / AC-15 / AC-16. Replaces the canvas document.
+        The body carries the PARENT `version`; if it no longer matches the stored version the save
+        is rejected with 409 (first save stays authoritative, AC-10b). On success the version is
+        incremented and returned. Block/edge/typed-connection validity is enforced client-side from
+        the model catalog (AC-02/AC-07) — the server persists the canvas as an opaque JSON document
+        (ADR-0002) validated only by the project-schema Zod shape.
+      operationId: saveGenerationFlowCanvas
+      tags: [flows]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CanvasSave" }
+            example:
+              version: 7
+              canvas: { blocks: [], edges: [] }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CanvasSaveResult" }
+              example:
+                flowId: "11111111-1111-4111-8111-111111111111"
+                version: 8
+                updatedAt: "2026-06-03T09:12:00.000Z"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/FlowNotFound" }
+        "409":
+          description: Version conflict — the flow was saved elsewhere; reload before retrying (AC-10b).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "This flow was changed in another tab. Reload to continue."
+                code: "flow.version_conflict"
+                details: { expectedVersion: 8, yourVersion: 7 }
+
+  /generation-flows/{flowId}/blocks/{blockId}/estimate:
+    parameters:
+      - $ref: "#/components/parameters/FlowId"
+      - $ref: "#/components/parameters/BlockId"
+    post:
+      summary: Pre-flight cost estimate for a generation block
+      description: |
+        Flow 1 / ADR-0005. Reads the saved canvas, resolves the block's model + inputs, and returns
+        a BEST-EFFORT cost from the static per-model pricing table (lib/flow-pricing.ts). Advisory
+        only — surfaced in the cost confirmation before the paid call. Non-mutating; no provider call.
+      operationId: estimateGenerationCost
+      tags: [generate]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CostEstimate" }
+              example:
+                flowId: "11111111-1111-4111-8111-111111111111"
+                blockId: "22222222-2222-4222-8222-222222222222"
+                modelId: "fal-ai/ltx-2-19b/image-to-video"
+                estimate: { currency: "USD", amount: 0.42 }
+                bestEffort: true
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/FlowNotFound" }
+        "422":
+          description: The block id is not a generation block in this canvas, or its model is unknown.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "That block is not a generation block."
+                code: "flow.block_not_found"
+                details: { blockId: "22222222-2222-4222-8222-222222222222" }
+
+  /generation-flows/{flowId}/blocks/{blockId}/generate:
+    parameters:
+      - $ref: "#/components/parameters/FlowId"
+      - $ref: "#/components/parameters/BlockId"
+    post:
+      summary: Server-authoritative Generate for one block (spend-bearing)
+      description: |
+        Flow 1 / Flow 7 / Flow 8. The single spend path. The server re-validates ALL preconditions
+        before any provider call — required inputs resolved, alternative-exclusivity satisfied,
+        referenced library assets present, content non-empty/valid, owner check — then checks the
+        per-Creator rate limit (≤ 30/min, ADR-0004). On pass it creates the ai_generation_job
+        (flow_id, block_id) + the result-block link and enqueues the `ai-generate` job, returning
+        202. Progress + outcome arrive asynchronously (events.md / ws scope `ai-job`; poll via
+        GET /ai/jobs/{jobId}). Retry of a failed run is a FRESH Generate (re-shows cost, may charge,
+        counts against the rate limit — AC-09).
+      operationId: generateBlock
+      tags: [generate]
+      parameters:
+        # Spend-bearing + retriable (Flow 8 idempotency note) ⇒ Idempotency-Key required so a
+        # double-submit / network retry never double-charges. Server returns the first job on retry.
+        - in: header
+          name: Idempotency-Key
+          required: true
+          description: client-generated UUID; the server returns the first run's result on retry (TTL 24h).
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GenerateRequest" }
+            example:
+              version: 8
+              acknowledgedCost: { currency: "USD", amount: 0.42 }
+      responses:
+        "202":
+          description: Accepted — job enqueued (proceeds asynchronously, see events.md).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GenerateAccepted" }
+              example:
+                jobId: "33333333-3333-4333-8333-333333333333"
+                blockId: "22222222-2222-4222-8222-222222222222"
+                status: "queued"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/FlowNotFound" }
+        "409":
+          description: Stale flow version — reload before generating (AC-10b semantics on the canvas).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "This flow changed since you opened it. Reload before generating."
+                code: "flow.version_conflict"
+                details: { expectedVersion: 9, yourVersion: 8 }
+        "422":
+          description: |
+            The gate blocked the run before any provider call. The `code` distinguishes the five
+            failure modes (Flow 7 alt-branches): `flow.required_input_missing` (AC-03),
+            `flow.exclusivity_violation` (AC-06), `flow.asset_missing` (AC-05, previously-owned
+            asset only), `flow.content_invalid` (AC-17). A reference to a never-owned asset is a 404
+            (AC-04, existence hiding) — not a 422.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                requiredInputMissing:
+                  value:
+                    error: "Connect a text input before generating."
+                    code: "flow.required_input_missing"
+                    details: { blockId: "22222222-2222-4222-8222-222222222222", input: "prompt" }
+                exclusivityViolation:
+                  value:
+                    error: "Provide exactly one of: prompt, multiPrompt."
+                    code: "flow.exclusivity_violation"
+                    details: { exclusiveGroup: "prompt_mode", provided: ["prompt", "multiPrompt"] }
+                assetMissing:
+                  value:
+                    error: "A library asset this block uses is missing. Replace it and try again."
+                    code: "flow.asset_missing"
+                    details: { blockId: "44444444-4444-4444-8444-444444444444" }
+                contentInvalid:
+                  value:
+                    error: "The text content block is empty."
+                    code: "flow.content_invalid"
+                    details: { blockId: "44444444-4444-4444-8444-444444444444", reason: "empty" }
+        "429":
+          description: |
+            Per-Creator generation rate limit exceeded (ADR-0004, ≤ 30/min). Try again shortly.
+            NOTE: errors.ts has no 429 sentinel yet — see api-sync-report.md drift point 2.
+          headers:
+            Retry-After:
+              description: seconds until the window frees a slot
+              schema: { type: integer }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "Too many generations. Try again in a moment."
+                code: "flow.rate_limited"
+                details: { limitPerMinute: 30 }
+
+  # ── Existing endpoints reused by this feature — documented here ONLY where their shape is extended.
+  /ai/jobs/{jobId}:
+    parameters:
+      - in: path
+        name: jobId
+        required: true
+        schema: { type: string }
+    get:
+      summary: "[existing — reused] Poll a generation job's status"
+      description: |
+        ADR-0001 / AC-08b / AC-09. The EXISTING job-status endpoint, reused for flow generations as
+        the live-poll fallback to the ws `ai-job` channel. This feature EXTENDS its response with the
+        nullable `flowId` + `blockId` back-links (ai_generation_jobs new columns) so the client maps a
+        job to its result block. Owner-scoped; non-owner/absent → 404.
+      operationId: getAiJobStatus
+      tags: [generate]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/JobNotFound" }
+
+  /ai/models:
+    get:
+      summary: "[existing — reused] Model catalog (extended with modality + exclusivityGroup)"
+      description: |
+        ADR-0006 / AC-02 / AC-06 / AC-07. The EXISTING catalog endpoint. This feature EXTENDS each
+        input field with `modality` (drives connect-time handle typing, client-side, ≤100 ms) and
+        `exclusiveGroup` (the "exactly one of" rule, AC-06). The catalog is shared TypeScript in
+        packages/api-contracts (no DB table) — these are code/contract types, not a migration.
+      operationId: listAiModels
+      tags: [catalog]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AiModel" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    FlowId:
+      in: path
+      name: flowId
+      required: true
+      description: generation_flows.flow_id
+      schema: { type: string, format: uuid }
+    BlockId:
+      in: path
+      name: blockId
+      required: true
+      description: canvas block id (lives inside generation_flows.canvas; mirrored to ai_generation_jobs.block_id)
+      schema: { type: string, format: uuid }
+    Cursor:
+      in: query
+      name: cursor
+      description: opaque cursor — id of the last item seen; the page starts after it (repo convention)
+      required: false
+      schema: { type: [string, "null"] }
+    Limit:
+      in: query
+      name: limit
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Unauthorized", code: "auth.unauthorized" }
+    BadRequest:
+      description: Malformed request body or parameters (Zod validation).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Invalid request body.", code: "flow.invalid_request" }
+    FlowNotFound:
+      description: |
+        Flow does not exist OR is not owned by the caller — the two are indistinguishable by design
+        (existence hiding, AC-04 / §8).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Flow not found.", code: "flow.not_found" }
+    JobNotFound:
+      description: Job does not exist or is not owned by the caller (existence hiding).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Job not found.", code: "flow.not_found" }
+
+  schemas:
+    # Unified error envelope — repo's free-text `error` (existing, required) PLUS additive optional
+    # machine-readable `code` (neutral module.error_name) + `details` (team decision 2026-06-03).
+    # Existing clients that only read `error` are unaffected.
+    Error:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+          description: human-readable message (the existing repo field; safe to show to the Creator)
+        code:
+          type: [string, "null"]
+          pattern: "^[a-z_]+\\.[a-z_]+$"
+          description: machine-readable code, neutral `module.error_name` convention; null on legacy errors
+          example: "flow.required_input_missing"
+        details:
+          type: object
+          description: optional structured context (which block/input, conflicting version, …)
+          additionalProperties: true
+
+    # ── Flow resource (← generation_flows) ────────────────────────────────────────────────────────
+    FlowSummary:
+      type: object
+      required: [flowId, title, version, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        flowId: { type: string, format: uuid, description: "generation_flows.flow_id" }
+        title: { type: string, maxLength: 255, description: "generation_flows.title" }
+        version: { type: integer, minimum: 1, description: "generation_flows.version (optimistic lock)" }
+        createdAt: { type: string, format: date-time, description: "generation_flows.created_at" }
+        updatedAt: { type: string, format: date-time, description: "generation_flows.updated_at" }
+
+    Flow:
+      description: A full flow read — summary fields + the canvas document + per-block job states.
+      type: object
+      required: [flowId, title, version, canvas, jobs, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        flowId: { type: string, format: uuid, description: "generation_flows.flow_id" }
+        title: { type: string, maxLength: 255, description: "generation_flows.title" }
+        version: { type: integer, minimum: 1, description: "generation_flows.version" }
+        canvas: { $ref: "#/components/schemas/FlowCanvas" }
+        jobs:
+          type: array
+          description: last-known generation job state per result block, for restore + reattach (AC-08b)
+          items: { $ref: "#/components/schemas/JobState" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    FlowCanvas:
+      type: object
+      description: |
+        The whole node graph (blocks + edges + positions + per-block params) as one opaque JSON
+        document (generation_flows.canvas, ADR-0002). Its shape is validated by the Zod schema in
+        packages/project-schema — NOT by this contract and NOT by the DB. Modeled here as an open
+        object on purpose: blocks/edges have no data-model column, so inventing their fields here
+        would be drift. Consumers treat it as the project-schema canvas type.
+      additionalProperties: true
+
+    FlowCreate:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+          maxLength: 255
+          description: "optional; defaults to 'Untitled flow' (generation_flows.title default)"
+
+    FlowRename:
+      type: object
+      required: [title]
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 255 }
+
+    CanvasSave:
+      type: object
+      required: [version, canvas]
+      additionalProperties: false
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: the PARENT version this save is based on; a mismatch → 409 (AC-10b)
+        canvas: { $ref: "#/components/schemas/FlowCanvas" }
+
+    CanvasSaveResult:
+      type: object
+      required: [flowId, version, updatedAt]
+      additionalProperties: false
+      properties:
+        flowId: { type: string, format: uuid }
+        version: { type: integer, minimum: 1, description: "the NEW, incremented version" }
+        updatedAt: { type: string, format: date-time }
+
+    FlowSummaryPage:
+      type: object
+      required: [items, nextCursor]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/FlowSummary" }
+        nextCursor:
+          type: [string, "null"]
+          description: opaque cursor for the next page, or null when there are no more (repo convention)
+
+    # ── Generate surface ──────────────────────────────────────────────────────────────────────────
+    CostEstimate:
+      type: object
+      required: [flowId, blockId, modelId, estimate, bestEffort]
+      additionalProperties: false
+      properties:
+        flowId: { type: string, format: uuid }
+        blockId: { type: string, format: uuid, description: "canvas generation-block id" }
+        modelId: { type: string, maxLength: 128, description: "ai_generation_jobs.model_id / catalog model id" }
+        estimate: { $ref: "#/components/schemas/Money" }
+        bestEffort:
+          type: boolean
+          description: always true — static-table estimate (ADR-0005), reconciled against actuals out of band
+
+    Money:
+      type: object
+      required: [currency, amount]
+      additionalProperties: false
+      properties:
+        currency: { type: string, description: "ISO 4217 code, e.g. USD" }
+        amount: { type: number, minimum: 0, description: "estimated cost in the currency's major unit" }
+
+    GenerateRequest:
+      type: object
+      required: [version]
+      additionalProperties: false
+      properties:
+        version:
+          type: integer
+          minimum: 1
+          description: the flow version the Creator generated against; stale → 409 (AC-10b)
+        acknowledgedCost:
+          $ref: "#/components/schemas/Money"
+          description: the estimate the Creator confirmed in the cost gate (advisory; the server is authoritative)
+
+    GenerateAccepted:
+      type: object
+      required: [jobId, blockId, status]
+      additionalProperties: false
+      properties:
+        jobId: { type: string, description: "ai_generation_jobs.job_id" }
+        blockId: { type: string, format: uuid, description: "ai_generation_jobs.block_id (the result block's source)" }
+        status:
+          type: string
+          enum: [queued]
+          description: mirrors the existing POST /projects/:id/ai/generate accepted shape
+
+    # ── Job state (← ai_generation_jobs) ──────────────────────────────────────────────────────────
+    JobState:
+      description: one result block's last-known job state, embedded in a flow read (reattach, AC-08b)
+      type: object
+      required: [jobId, blockId, status, progress]
+      additionalProperties: false
+      properties:
+        jobId: { type: string, description: "ai_generation_jobs.job_id" }
+        blockId: { type: string, format: uuid, description: "ai_generation_jobs.block_id" }
+        status: { $ref: "#/components/schemas/JobStatusEnum" }
+        progress: { type: integer, minimum: 0, maximum: 100, description: "ai_generation_jobs.progress" }
+        outputFileId: { type: [string, "null"], format: uuid, description: "ai_generation_jobs.output_file_id" }
+        resultUrl: { type: [string, "null"], description: "ai_generation_jobs.result_url (presigned)" }
+        errorMessage: { type: [string, "null"], description: "failure reason in plain language (AC-09)" }
+
+    JobStatus:
+      description: the existing GET /ai/jobs/{jobId} body, extended with flowId/blockId for this feature
+      type: object
+      required: [jobId, status, progress]
+      additionalProperties: false
+      properties:
+        jobId: { type: string }
+        status: { $ref: "#/components/schemas/JobStatusEnum" }
+        progress: { type: integer, minimum: 0, maximum: 100 }
+        outputFileId: { type: [string, "null"], format: uuid }
+        resultUrl: { type: [string, "null"] }
+        errorMessage: { type: [string, "null"] }
+        flowId: { type: [string, "null"], format: uuid, description: "NEW back-link (ai_generation_jobs.flow_id)" }
+        blockId: { type: [string, "null"], format: uuid, description: "NEW back-link (ai_generation_jobs.block_id)" }
+
+    JobStatusEnum:
+      type: string
+      enum: [queued, running, done, failed]
+      description: repo's AiJobStatus (aiGenerationJob.repository.ts) — verbatim, not invented
+
+    # ── Model catalog (← ADR-0006 catalog schema extension; code, not DB) ─────────────────────────
+    AiModel:
+      type: object
+      required: [id, provider, capability, label, inputSchema]
+      additionalProperties: true
+      properties:
+        id: { type: string, maxLength: 128 }
+        provider: { type: string, enum: [fal, elevenlabs] }
+        capability: { type: string, description: "e.g. text_to_image, image_to_video, text_to_speech" }
+        label: { type: string }
+        inputSchema:
+          type: object
+          required: [fields]
+          properties:
+            fields:
+              type: array
+              items: { $ref: "#/components/schemas/ModelField" }
+
+    ModelField:
+      description: |
+        FalFieldSchema (packages/api-contracts) EXTENDED by ADR-0006. `modality` + `exclusiveGroup`
+        are the NEW optional fields this feature adds — see api-sync-report.md (origin: ADR, not DB).
+      type: object
+      required: [name, type, label, required]
+      additionalProperties: true
+      properties:
+        name: { type: string }
+        type:
+          type: string
+          description: existing FalFieldType (string, text, number, boolean, enum, image_url, image_url_list, audio_url, …)
+        label: { type: string }
+        required: { type: boolean }
+        default: { description: "existing — string | number | boolean | string[]" }
+        enum: { type: array, items: { type: string } }
+        min: { type: number }
+        max: { type: number }
+        modality:
+          type: [string, "null"]
+          enum: [text, image, audio, video, null]
+          description: NEW (ADR-0006) — drives connect-time handle typing (AC-02) + Generate validation
+        exclusiveGroup:
+          type: [string, "null"]
+          description: NEW (ADR-0006) — fields sharing a value form an "exactly one of" set (AC-06)

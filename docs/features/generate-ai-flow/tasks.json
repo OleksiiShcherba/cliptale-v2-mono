@@ -1,0 +1,203 @@
+{
+  "slug": "generate-ai-flow",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Stage migration 046 — create generation_flows (owner-scoped, JSON canvas, version, soft-delete)",
+      "layer": "migration",
+      "deps": [],
+      "acs": ["AC-04", "AC-10"],
+      "dod": "Staged 01_create_generation_flows.up/down promote to live 046 and apply + revert cleanly against MySQL 8; idx_generation_flows_user_active_updated present.",
+      "files_hint": ["docs/features/generate-ai-flow/migrations/01_create_generation_flows.up.sql", "docs/features/generate-ai-flow/migrations/01_create_generation_flows.down.sql"]
+    },
+    {
+      "id": "T2",
+      "title": "Stage migration 047 — create flow_files pivot (CASCADE on flow, RESTRICT on file)",
+      "layer": "migration",
+      "deps": ["T1"],
+      "acs": ["AC-19"],
+      "dod": "Staged 02_create_flow_files.up/down promote to live 047 and apply + revert cleanly; FK to generation_flows CASCADE and to files RESTRICT verified; idx_flow_files_file present.",
+      "files_hint": ["docs/features/generate-ai-flow/migrations/02_create_flow_files.up.sql", "docs/features/generate-ai-flow/migrations/02_create_flow_files.down.sql"]
+    },
+    {
+      "id": "T3",
+      "title": "Stage migration 048 — add nullable flow_id/block_id + index to ai_generation_jobs",
+      "layer": "migration",
+      "deps": [],
+      "acs": ["AC-08b"],
+      "dod": "Staged 03_add_flow_columns_to_ai_generation_jobs.up/down promote to live 048 and apply + revert cleanly; both columns nullable, no FK, idx_ai_generation_jobs_flow_id present; ALTER is INFORMATION_SCHEMA-guarded (idempotent).",
+      "files_hint": ["docs/features/generate-ai-flow/migrations/03_add_flow_columns_to_ai_generation_jobs.up.sql", "docs/features/generate-ai-flow/migrations/03_add_flow_columns_to_ai_generation_jobs.down.sql"]
+    },
+    {
+      "id": "T4",
+      "title": "Add flow-canvas Zod schema + extend the ai-generate job payload with flow linkage",
+      "layer": "domain",
+      "deps": [],
+      "acs": ["AC-10"],
+      "dod": "packages/project-schema exports a FlowCanvas Zod schema (blocks/edges/positions/per-block params) and the ai-generate job payload type carries optional flowId/blockId; unit tests for parse/round-trip pass.",
+      "files_hint": ["packages/project-schema/src"]
+    },
+    {
+      "id": "T5",
+      "title": "Extend model catalog with modality + exclusiveGroup and backfill every model",
+      "layer": "domain",
+      "deps": [],
+      "acs": ["AC-02", "AC-06", "AC-07"],
+      "dod": "FalFieldSchema in packages/api-contracts gains optional modality + exclusiveGroup; every catalog field is backfilled (image_url→image, audio_url→audio, text→text); the kling/o3 prompt⊕multi_prompt XOR is expressed as exclusiveGroup; unit tests assert modality/group per representative model.",
+      "files_hint": ["packages/api-contracts/src"]
+    },
+    {
+      "id": "T6",
+      "title": "Implement generation-flow.repository (CRUD + optimistic-version save)",
+      "layer": "infra",
+      "deps": ["T1", "T4"],
+      "acs": ["AC-04", "AC-10", "AC-10b"],
+      "dod": "Repository creates/reads/lists/renames/soft-deletes generation_flows owner-scoped (WHERE user_id AND deleted_at IS NULL); canvas save accepts a parent version and rejects a mismatch (returns conflict) while incrementing on match; integration tests against real MySQL pass.",
+      "files_hint": ["apps/api/src/repositories/generation-flow.repository.ts"]
+    },
+    {
+      "id": "T7",
+      "title": "Implement flow-file pivot repo + ai_generation_jobs flow back-link methods",
+      "layer": "infra",
+      "deps": ["T2", "T3"],
+      "acs": ["AC-08b", "AC-19"],
+      "dod": "flow-file.repository links/soft-unlinks (flow_id,file_id); aiGenerationJob.repository gains write of flow_id/block_id and a read of all result-block job states for one flow_id (reattach query); integration tests cover link survival on flow delete and the per-flow job read.",
+      "files_hint": ["apps/api/src/repositories/flow-file.repository.ts", "apps/api/src/repositories/aiGenerationJob.repository.ts"]
+    },
+    {
+      "id": "T8",
+      "title": "Implement generation-flow.service (CRUD, autosave, optimistic-lock conflict)",
+      "layer": "app",
+      "deps": ["T6"],
+      "acs": ["AC-04", "AC-10", "AC-10b"],
+      "dod": "Service exposes list/create/open(canvas+job-states)/rename/delete and a version-aware canvas save; non-owner and absent are indistinguishable (NotFoundError); a stale-version save raises OptimisticLockError; unit + integration tests cover owner-scoping and the 409 path.",
+      "files_hint": ["apps/api/src/services/generation-flow.service.ts"]
+    },
+    {
+      "id": "T9",
+      "title": "Implement static flow-pricing table + cost-estimate service",
+      "layer": "app",
+      "deps": ["T5"],
+      "acs": ["AC-11"],
+      "dod": "lib/flow-pricing.ts holds a per-model static price; an estimate service resolves a block's model from the saved canvas and returns a best-effort Money estimate (bestEffort:true), non-mutating, no provider call; unit tests cover known + unknown model handling.",
+      "files_hint": ["apps/api/src/lib/flow-pricing.ts", "apps/api/src/services/flow-generate.service.ts"]
+    },
+    {
+      "id": "T10",
+      "title": "Implement per-Creator Redis sliding-window generation rate limit",
+      "layer": "app",
+      "deps": [],
+      "acs": [],
+      "dod": "A rate-limit helper enforces ≤30 Generate runs/min/Creator via a Redis sliding window, returns allow/deny + retry-after seconds, and is independent of IP middleware; unit/integration tests drive the window past the cap and assert rejection (NFR §6 abuse guard, ADR-0004).",
+      "files_hint": ["apps/api/src/lib/flow-rate-limit.ts"]
+    },
+    {
+      "id": "T11",
+      "title": "Implement the server-authoritative Generate validation gate",
+      "layer": "app",
+      "deps": ["T6", "T5"],
+      "acs": ["AC-03", "AC-04", "AC-05", "AC-06", "AC-17"],
+      "dod": "flow-generate.service re-validates owner, required-input resolution, exactly-one-of exclusivity, content non-empty/valid, and referenced-asset presence BEFORE any enqueue — each failure raises the typed error mapping to its 422/404 code (asset-missing only for a previously-owned asset, never-owned → 404); unit tests cover every branch.",
+      "files_hint": ["apps/api/src/services/flow-generate.service.ts"]
+    },
+    {
+      "id": "T12",
+      "title": "Implement Generate enqueue — job + flow_files link + idempotency",
+      "layer": "app",
+      "deps": ["T7", "T9", "T10", "T11"],
+      "acs": ["AC-01", "AC-12", "AC-13"],
+      "dod": "On a passed gate + rate-limit check, the service creates the ai_generation_job (flow_id, block_id), enqueues the ai-generate BullMQ job, and is idempotent on a repeated Idempotency-Key (returns the first job); image/video/audio capabilities all route through the one path; integration tests cover accept + idempotent replay.",
+      "files_hint": ["apps/api/src/services/flow-generate.service.ts"]
+    },
+    {
+      "id": "T13",
+      "title": "Extend media-worker to honor jobs.flow_id (link on success, single result, integrity)",
+      "layer": "app",
+      "deps": ["T7"],
+      "acs": ["AC-08", "AC-09", "AC-12", "AC-13", "AC-14"],
+      "dod": "The ai-generate handler, when a job carries flow_id, writes the file row + flow_files link ONLY on success, keeps the first output and discards extras (single result), and writes no asset on failure/empty (publishes a failed state); worker integration test asserts asset-iff-success reconciliation and single-link.",
+      "files_hint": ["apps/media-worker/src"]
+    },
+    {
+      "id": "T14",
+      "title": "Add flow CRUD controller + routes (list/create/get/rename/delete/canvas-save) + OpenAPI",
+      "layer": "ports",
+      "deps": ["T8"],
+      "acs": ["AC-04", "AC-08b", "AC-10", "AC-19"],
+      "dod": "generation-flow.controller + generation-flows.routes (registered in index.ts after middleware) expose the six endpoints with Zod validation and owner check; non-owner → 404, stale canvas save → 409; the hand-maintained OpenAPI in packages/api-contracts is updated in the same commit; controller tests cover each outcome.",
+      "files_hint": ["apps/api/src/controllers/generation-flow.controller.ts", "apps/api/src/routes/generation-flows.routes.ts", "apps/api/src/index.ts", "packages/api-contracts/src"]
+    },
+    {
+      "id": "T15",
+      "title": "Add estimate + generate controllers + routes (422/429 mapping, Idempotency-Key) + OpenAPI",
+      "layer": "ports",
+      "deps": ["T9", "T11", "T12"],
+      "acs": ["AC-01", "AC-03", "AC-05", "AC-06", "AC-17"],
+      "dod": "Estimate (POST .../estimate) and Generate (POST .../generate, requires Idempotency-Key) endpoints map gate failures to the spec'd codes (flow.required_input_missing/exclusivity_violation/asset_missing/content_invalid → 422; rate-limited → 429 with Retry-After; stale version → 409); a 429 error sentinel is added to errors.ts; OpenAPI updated same commit; controller tests cover the branch matrix.",
+      "files_hint": ["apps/api/src/controllers/generation-flow.controller.ts", "apps/api/src/routes/generation-flows.routes.ts", "apps/api/src/lib/errors.ts", "packages/api-contracts/src"]
+    },
+    {
+      "id": "T16",
+      "title": "Build FlowListPage + flow api.ts + /generate-ai route (create/rename/delete/open)",
+      "layer": "ui",
+      "deps": ["T14"],
+      "acs": ["AC-04"],
+      "dod": "A new features/generate-ai-flow module renders the Creator's flows (most-recent first), supports create/rename/delete/open, and is reachable at /generate-ai (added in main.tsx); reuses existing list/button primitives + design tokens; component tests cover the list + CRUD actions against the flow api.",
+      "files_hint": ["apps/web-editor/src/features/generate-ai-flow/components/FlowListPage.tsx", "apps/web-editor/src/features/generate-ai-flow/api.ts", "apps/web-editor/src/features/generate-ai-flow/types.ts", "apps/web-editor/src/main.tsx"]
+    },
+    {
+      "id": "T17",
+      "title": "Build FlowCanvas + Content/Generation/Result nodes + typed-connection block + model-change reconciliation",
+      "layer": "ui",
+      "deps": ["T5", "T16"],
+      "acs": ["AC-02", "AC-07", "AC-15", "AC-18"],
+      "dod": "An @xyflow/react canvas renders content/generation/result nodes; a generation node shows the selected model's required input handles (typed by catalog modality); an incompatible drop is refused at connect-time with the expected-modality hint; a result-block output connects into a compatible input; changing the model rebuilds handles, prunes incompatible edges (telling which were removed) and preserves existing result blocks; component tests cover accept/reject + reconciliation.",
+      "files_hint": ["apps/web-editor/src/features/generate-ai-flow/components/FlowCanvas.tsx", "apps/web-editor/src/features/generate-ai-flow/components", "apps/web-editor/src/features/generate-ai-flow/hooks/useFlowCanvas.ts"]
+    },
+    {
+      "id": "T18",
+      "title": "Build Inspector + content input (text/upload/library pick) + optional-parameter editing",
+      "layer": "ui",
+      "deps": ["T17"],
+      "acs": ["AC-16"],
+      "dod": "Content blocks accept typed text, file upload, or a pick from the existing library asset picker; the side Inspector edits a generation block's optional model parameters; supplied content + params persist on the blocks and feed the next Generate; component tests cover each content source + param edit retention.",
+      "files_hint": ["apps/web-editor/src/features/generate-ai-flow/components/Inspector.tsx", "apps/web-editor/src/features/generate-ai-flow/components"]
+    },
+    {
+      "id": "T19",
+      "title": "Build useFlowAutosave (version-aware, 409 conflict warning)",
+      "layer": "ui",
+      "deps": ["T16", "T14"],
+      "acs": ["AC-10b"],
+      "dod": "Canvas edits debounce-autosave carrying the parent version; a 409 surfaces a conflict warning that asks the Creator to reload (first save stays authoritative, no silent overwrite); autosave ack target ≤800 ms is met; hook tests cover the success-version-bump and the conflict path.",
+      "files_hint": ["apps/web-editor/src/features/generate-ai-flow/hooks/useFlowAutosave.ts"]
+    },
+    {
+      "id": "T20",
+      "title": "Build CostConfirmModal + useFlowGeneration (estimate→confirm→generate, progress, reattach, retry, dominant preview)",
+      "layer": "ui",
+      "deps": ["T17", "T15"],
+      "acs": ["AC-01", "AC-08", "AC-08b", "AC-09", "AC-11", "AC-12", "AC-13"],
+      "dod": "Pressing Generate fetches the estimate, shows the confirm modal (cancel → no call/charge), runs Generate with an Idempotency-Key, then a result block shows live progress via the shared useJobPolling and the dominant media preview on completion; on reopen it reattaches to a running job or shows the last-known done/failed state; a failed run shows the reason + a retry (a fresh, charged Generate); image/video/audio all render; hook + component tests cover confirm/cancel, progress, reattach, and failed/retry.",
+      "files_hint": ["apps/web-editor/src/features/generate-ai-flow/components/CostConfirmModal.tsx", "apps/web-editor/src/features/generate-ai-flow/hooks/useFlowGeneration.ts", "apps/web-editor/src/features/generate-ai-flow/components/ResultNode.tsx"]
+    },
+    {
+      "id": "T21",
+      "title": "Backend integration suite — authz, optimistic-lock, rate-limit, validation gate, result integrity",
+      "layer": "tests",
+      "deps": ["T14", "T15", "T13"],
+      "acs": ["AC-03", "AC-04", "AC-05", "AC-06", "AC-10b", "AC-17"],
+      "dod": "Integration tests (Vitest against real MySQL/Redis) cover: every flow operation by a non-owner → 404; concurrent-save → 409; scripted Generate past 30/min → 429; each gate-failure → its 422 code; never-owned asset → 404; forced-failure job → library-write reconciliation shows zero assets; suite is green.",
+      "files_hint": ["apps/api/src/services/flow-generate.service.integration.test.ts", "apps/api/src/controllers/generation-flow.controller.test.ts"]
+    },
+    {
+      "id": "T22",
+      "title": "E2E — assemble→connect→generate→library, reload restore, reattach, two-tab conflict",
+      "layer": "tests",
+      "deps": ["T18", "T19", "T20"],
+      "acs": ["AC-01", "AC-08b", "AC-10", "AC-10b"],
+      "dod": "An E2E run drives a full flow (add blocks, draw a typed connection, Generate with cost confirm, see the result in the block and the library), reloads to confirm canvas + results restore, exercises reattach to an in-flight generation, and saves the same flow from two tabs to confirm the second is rejected; the run is green in CI.",
+      "files_hint": ["apps/web-editor/e2e/generate-ai-flow.spec.ts"]
+    }
+  ]
+}
