@@ -285,11 +285,41 @@ No new deployment unit. The feature extends the already-deployed `api`, `web-edi
 
 ## 9. Architecture decisions
 
-<!-- pending Socratic walk -->
+| # | Title | Status | Section |
+|---|---|---|---|
+| 0001 | Reuse the ai-generate job pipeline for flow generation | Accepted | §4 |
+| 0002 | Persist the flow canvas as a single JSON document column | Accepted | §4 |
+| 0003 | Detect concurrent flow saves with an optimistic version column | Accepted | §4 |
+| 0004 | Rate-limit Generate with a per-Creator Redis sliding-window counter | Accepted | §4 |
+| 0005 | Surface cost via a pre-flight estimate endpoint and a static pricing table | Accepted | §4 |
+| 0006 | Declare input modality and alternative-exclusivity groups in the model-catalog schema | Accepted | §4 |
+| 0007 | Link flow results to the library via a flow_files pivot and jobs.flow_id | Accepted | §4 |
+
+ADR files live under `docs/features/generate-ai-flow/adr/NNNN-<title>.md`.
+
+*(Count sits at the lower end of the L band by design: the feature heavily reuses existing rails — the generation pipeline, the library, the realtime channel, the canvas library — so the irreversible net-new decisions are concentrated in persistence, cost-safety, and the catalog schema rather than spread across a greenfield build.)*
 
 ## 10. Quality requirements
 
-<!-- pending Socratic walk -->
+**QG-1. Cost-safety / financial integrity**
+- **When:** a Creator — or a script bypassing the UI — presses Generate, cancels a cost confirmation, exceeds the cap, or a generation fails.
+- **Then:** no paid provider call without a satisfied-inputs check + confirmed cost; the rate limit holds at **≤ 30 Generate runs / minute / Creator** server-side regardless of UI (spec §6); a cancelled confirmation produces no charge/result/asset (AC-11); a library asset is added **only on a successful generation, failed runs add none** (spec §6 result integrity).
+- **How verify:** integration test scripting the API past 30/min → rejected; cancel-confirmation test → no charge; forced-failure job → library-write reconciliation shows zero assets.
+
+**QG-2. Owner-scoped confidentiality**
+- **When:** a signed-in non-owner tries to open/list/save/delete/Generate on another Creator's flow, or references a never-owned asset.
+- **Then:** access is denied with **`NotFoundError` (404)**, no flow contents and no existence disclosure (spec §6.1, AC-04); the AC-05 missing-asset message appears only for a previously-owned asset.
+- **How verify:** authz integration tests across all flow operations (non-owner → 404); never-owned-asset reference → 404.
+
+**QG-3. Durability across sessions and async**
+- **When:** a Creator reopens a flow, closes the tab mid-generation, or saves the same flow from two tabs.
+- **Then:** the canvas restores with the same blocks/connections/parameters/results (AC-10); an in-flight job **reattaches or shows its last-known outcome** with no lost result (AC-08b); a conflicting concurrent save is **rejected with 409**, first save authoritative (AC-10b). Open-flow p95 **≤ 1500 ms** (typical flow), autosave ack p95 **≤ 800 ms** (spec §6).
+- **How verify:** E2E reload test; tab-close-during-generation test; two-tab conflict test → 409; navigation-timing load test for the latency targets.
+
+**QG-4 (secondary). Canvas responsiveness**
+- **When:** a Creator drags a connection toward an input handle.
+- **Then:** accept/reject visual feedback within **p95 ≤ 100 ms** from drop (spec §6), driven by client-side catalog modality data (no server round-trip).
+- **How verify:** client interaction metric on the connect gesture.
 
 ## 11. Risks and technical debt
 
