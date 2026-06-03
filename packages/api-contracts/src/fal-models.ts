@@ -14,8 +14,8 @@
  *    `AI_MODELS` catalog is re-exported from `index.ts`.
  *  - The `fal-ai/kling-video/o3/standard/image-to-video` entry exposes both
  *    `prompt` and `multi_prompt`; exactly one of those must be supplied. The XOR
- *    is enforced at runtime by the API service (Epic 9 / Ticket 5), NOT by this
- *    schema.
+ *    is now declared in the catalog schema via `exclusiveGroup: 'prompt_mode'` on
+ *    both fields (ADR-0006 / AC-06); the API service re-validates this at Generate time.
  *  - Runtime validation (Zod) lives at the API boundary. This module does not
  *    import Zod; Ticket 5 translates `FalInputSchema` into a Zod validator on
  *    the fly.
@@ -65,6 +65,9 @@ export type FalFieldType =
   | 'voice_picker'
   | 'composition_plan';
 
+/** Media-kind a field carries — drives typed connection handles on the canvas (AC-02/AC-07). */
+export type FieldModality = 'text' | 'image' | 'audio' | 'video';
+
 export type FalFieldSchema = {
   name: string;
   type: FalFieldType;
@@ -75,6 +78,21 @@ export type FalFieldSchema = {
   enum?: readonly string[];
   min?: number;
   max?: number;
+  /**
+   * The media kind this field carries.  Present on every field whose `type` implies a concrete
+   * media kind (`text`→text; `image_url`/`image_url_list`→image; `audio_url`/`audio_upload`→audio).
+   * Absent on non-media fields (number, boolean, enum, string, etc.).
+   * Used by the canvas for connect-time handle typing (AC-02) and by the API validate gate (AC-06).
+   * Declared per ADR-0006.
+   */
+  modality?: FieldModality;
+  /**
+   * Optional tag for mutually-exclusive (exactly-one-of) fields within the same model.
+   * Fields sharing the same `exclusiveGroup` value form an XOR set — exactly one must be
+   * supplied at Generate time.  Example: kling/o3 `prompt` ⊕ `multi_prompt` → `'prompt_mode'`.
+   * Declared per ADR-0006 / AC-06.
+   */
+  exclusiveGroup?: string;
 };
 
 export type FalInputSchema = {
@@ -109,6 +127,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Prompt',
           required: true,
           description: 'The prompt used for the generation.',
+          modality: 'text',
         },
         {
           name: 'image_url',
@@ -116,6 +135,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Image URL',
           required: true,
           description: 'URL of the image to generate the video from.',
+          modality: 'image',
         },
         {
           name: 'end_image_url',
@@ -123,6 +143,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'End Image URL',
           required: false,
           description: 'URL of the image to use as the end of the video.',
+          modality: 'image',
         },
         {
           name: 'generate_audio',
@@ -237,6 +258,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           required: false,
           description:
             'Negative prompt. Model ships with a long verbose default; omit to use the fal.ai-provided default.',
+          modality: 'text',
         },
         {
           name: 'enable_safety_checker',
@@ -324,6 +346,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Image URL',
           required: true,
           description: 'URL of the start frame image.',
+          modality: 'image',
         },
         {
           name: 'prompt',
@@ -332,6 +355,8 @@ export const FAL_MODELS: readonly FalModel[] = [
           required: false,
           description:
             'Text prompt. Mutually exclusive with multi_prompt — provide exactly one (enforced at submit time).',
+          modality: 'text',
+          exclusiveGroup: 'prompt_mode',
         },
         {
           name: 'end_image_url',
@@ -339,6 +364,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'End Image URL',
           required: false,
           description: 'URL of end frame image.',
+          modality: 'image',
         },
         {
           name: 'generate_audio',
@@ -363,6 +389,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           required: false,
           description:
             'List of prompts for multi-shot video generation. Mutually exclusive with prompt — provide exactly one (enforced at submit time).',
+          exclusiveGroup: 'prompt_mode',
         },
         {
           name: 'duration',
@@ -408,6 +435,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Image URL',
           required: true,
           description: 'URL of the first frame.',
+          modality: 'image',
         },
         {
           name: 'prompt',
@@ -415,6 +443,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Prompt',
           required: true,
           description: 'Prompt.',
+          modality: 'text',
         },
         {
           name: 'negative_prompt',
@@ -423,6 +452,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           required: false,
           default: '',
           description: 'Negative prompt.',
+          modality: 'text',
         },
         {
           name: 'generate_multi_clip_switch',
@@ -502,6 +532,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Image URL',
           required: true,
           description: 'Input image URL (center-cropped to aspect ratio).',
+          modality: 'image',
         },
         {
           name: 'prompt',
@@ -509,6 +540,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Prompt',
           required: true,
           description: 'Text prompt.',
+          modality: 'text',
         },
         {
           name: 'end_image_url',
@@ -516,6 +548,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'End Image URL',
           required: false,
           description: 'URL of end image.',
+          modality: 'image',
         },
         {
           name: 'negative_prompt',
@@ -524,6 +557,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           required: false,
           default: '',
           description: 'Negative prompt.',
+          modality: 'text',
         },
         {
           name: 'guidance_scale',
@@ -703,6 +737,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Prompt',
           required: true,
           description: 'Text prompt.',
+          modality: 'text',
         },
         {
           name: 'negative_prompt',
@@ -711,6 +746,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           required: false,
           default: 'blur, distort, and low quality',
           description: 'Negative prompt.',
+          modality: 'text',
         },
         {
           name: 'cfg_scale',
@@ -759,6 +795,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Prompt',
           required: true,
           description: 'Prompt for image editing.',
+          modality: 'text',
         },
         {
           name: 'image_urls',
@@ -766,6 +803,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Image URLs',
           required: true,
           description: 'URLs of input images.',
+          modality: 'image',
         },
         {
           name: 'num_images',
@@ -871,6 +909,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Prompt',
           required: true,
           description: 'Prompt for image generation.',
+          modality: 'text',
         },
         {
           name: 'image_urls',
@@ -878,6 +917,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Image URLs',
           required: true,
           description: 'Reference image URLs.',
+          modality: 'image',
         },
         {
           name: 'mask_image_url',
@@ -885,6 +925,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Mask Image URL',
           required: false,
           description: 'Mask image indicating region to edit.',
+          modality: 'image',
         },
         {
           name: 'input_fidelity',
@@ -968,6 +1009,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Prompt',
           required: true,
           description: 'Text prompt.',
+          modality: 'text',
         },
         {
           name: 'num_images',
@@ -1073,6 +1115,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Prompt',
           required: true,
           description: 'Text prompt.',
+          modality: 'text',
         },
         {
           name: 'image_size',
@@ -1148,6 +1191,7 @@ export const FAL_MODELS: readonly FalModel[] = [
           label: 'Prompt',
           required: true,
           description: 'Text prompt.',
+          modality: 'text',
         },
         {
           name: 'num_images',

@@ -54,6 +54,7 @@ const textField = (name: string, label: string, description: string): FalFieldSc
   label,
   required: true,
   description,
+  modality: 'text',
 });
 
 const stringField = (
@@ -199,6 +200,7 @@ export const ELEVENLABS_MODELS: readonly ElevenLabsModel[] = [
           required: true,
           description:
             'Upload a clear audio clip of the voice you want to clone (MP3 or WAV, ≥ 30 s).',
+          modality: 'audio',
         },
         stringField(
           'description',
@@ -227,6 +229,7 @@ export const ELEVENLABS_MODELS: readonly ElevenLabsModel[] = [
           label: 'Source Audio',
           required: true,
           description: 'Upload the audio clip whose voice you want to change (MP3 or WAV).',
+          modality: 'audio',
         },
         voicePickerField(
           'voice_id',
