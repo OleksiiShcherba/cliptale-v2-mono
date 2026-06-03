@@ -46,11 +46,14 @@ export const filesRepo: FilesRepo = {
 
 export const aiGenerationJobRepo: AiGenerationJobRepo = {
   async setOutputFile(jobId: string, fileId: string): Promise<void> {
-    const [rows] = await pool.execute<Array<{ draft_id: string | null } & RowDataPacket>>(
-      'SELECT draft_id FROM ai_generation_jobs WHERE job_id = ?',
+    const [rows] = await pool.execute<
+      Array<{ draft_id: string | null; flow_id: string | null } & RowDataPacket>
+    >(
+      'SELECT draft_id, flow_id FROM ai_generation_jobs WHERE job_id = ?',
       [jobId],
     );
     const draftId = rows.length ? rows[0]!.draft_id : null;
+    const flowId = rows.length ? rows[0]!.flow_id : null;
 
     await pool.execute(
       `UPDATE ai_generation_jobs
@@ -82,6 +85,21 @@ export const aiGenerationJobRepo: AiGenerationJobRepo = {
       await pool.execute(
         'INSERT IGNORE INTO draft_files (draft_id, file_id) VALUES (?, ?)',
         [draftId, fileId],
+      );
+    }
+
+    // Flow result integrity (T13, ADR-0007): when the job was triggered by a
+    // canvas Generate (flow_id set), link the produced asset into flow_files.
+    // This is the ONLY place a flow_files link is written for a generation, and
+    // it runs ONLY on success (setOutputFile is called only on a completed run),
+    // so "an asset is linked to a flow iff its generation succeeded" holds. The
+    // handler creates exactly one `files` row per job (the first provider output,
+    // extras discarded by parseFalOutput), so exactly one link is written.
+    // INSERT IGNORE keeps the (flow_id, file_id) link idempotent on replay.
+    if (flowId) {
+      await pool.execute(
+        'INSERT IGNORE INTO flow_files (flow_id, file_id) VALUES (?, ?)',
+        [flowId, fileId],
       );
     }
   },
