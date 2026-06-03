@@ -23,6 +23,15 @@ vi.mock('@/features/home/api', () => ({
   listStoryboardCards: vi.fn(),
 }));
 
+// The Generate AI panel reuses FlowListPage, which fetches via the flow api — mock
+// it so the shell-level test renders the panel without a real server.
+vi.mock('@/features/generate-ai-flow/api', () => ({
+  listFlows: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+  createFlow: vi.fn(),
+  renameFlow: vi.fn(),
+  deleteFlow: vi.fn(),
+}));
+
 // formatRelativeDate is not exercised by these shell-level tests
 vi.mock('@/shared/utils/formatRelativeDate', () => ({
   formatRelativeDate: () => 'just now',
@@ -139,6 +148,27 @@ describe('HomePage', () => {
 
     const projectsTab = screen.getByRole('tab', { name: /projects/i });
     expect(projectsTab.getAttribute('aria-selected')).toBe('true');
+  });
+
+  // ── Generate AI tab (flow list as an in-page panel, like Projects/Storyboard) ──
+
+  it('should render the Generate AI tab', () => {
+    renderHomePage();
+    expect(screen.getByRole('tab', { name: /generate ai/i })).toBeDefined();
+  });
+
+  it('should show the Generate AI Flows panel when the Generate AI tab is clicked', () => {
+    renderHomePage();
+    fireEvent.click(screen.getByRole('tab', { name: /generate ai/i }));
+    expect(screen.getByRole('heading', { name: /generate ai flows/i })).toBeDefined();
+  });
+
+  it('should open the Generate AI tab when ?tab=generate-ai is in the URL', () => {
+    renderHomePage('/?tab=generate-ai');
+
+    const tab = screen.getByRole('tab', { name: /generate ai/i });
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('heading', { name: /generate ai flows/i })).toBeDefined();
   });
 
   // ── Subtask: HomePage scroll fix ────────────────────────────────────────

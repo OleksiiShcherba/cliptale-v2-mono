@@ -133,6 +133,13 @@ describe('FlowEditorPage', () => {
     expect(screen.getByRole('button', { name: /add result/i })).toBeDefined();
   });
 
+  it('has a Home link back to the Generate AI tab', async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByTestId('flow-canvas')).toBeDefined());
+    const home = screen.getByRole('link', { name: /home/i });
+    expect(home.getAttribute('href')).toBe('/?tab=generate-ai');
+  });
+
   it('renders the loaded blocks on the canvas', async () => {
     renderPage();
     await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).not.toBeNull());

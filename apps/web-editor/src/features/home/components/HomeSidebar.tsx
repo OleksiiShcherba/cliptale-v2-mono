@@ -1,5 +1,4 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
 
 import type { HomeTab } from '../types';
 
@@ -18,6 +17,7 @@ interface HomeSidebarProps {
 const NAV_ITEMS: Array<{ id: HomeTab; label: string }> = [
   { id: 'projects', label: 'Projects' },
   { id: 'storyboard', label: 'Storyboard' },
+  { id: 'generate-ai', label: 'Generate AI' },
 ];
 
 /**
@@ -101,33 +101,6 @@ export function HomeSidebar({ activeTab, onTabChange }: HomeSidebarProps): React
           );
         })}
       </ul>
-
-      {/* Route link to the standalone Generate AI page. It is a separate route (not an
-          in-page tab panel), so it lives outside the tablist as a real navigation link
-          — without it the page is reachable only by typing the URL (US-01). */}
-      <div style={{ padding: '8px 8px' }}>
-        <Link
-          to="/generate-ai"
-          style={{
-            display: 'block',
-            width: '100%',
-            boxSizing: 'border-box',
-            textAlign: 'left',
-            padding: '8px 12px',
-            fontSize: 14,
-            fontWeight: 400,
-            fontFamily: 'Inter, sans-serif',
-            color: TEXT_SECONDARY,
-            background: 'transparent',
-            borderRadius: 8,
-            lineHeight: '20px',
-            textDecoration: 'none',
-            transition: 'background 0.15s, color 0.15s',
-          }}
-        >
-          Generate AI
-        </Link>
-      </div>
     </nav>
   );
 }

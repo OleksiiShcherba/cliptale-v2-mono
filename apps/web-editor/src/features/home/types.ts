@@ -3,7 +3,7 @@
  */
 
 /** Which tab is active in the home sidebar. */
-export type HomeTab = 'projects' | 'storyboard';
+export type HomeTab = 'projects' | 'storyboard' | 'generate-ai';
 
 /** Metadata for a single sidebar tab entry. */
 export type HomeTabMeta = {

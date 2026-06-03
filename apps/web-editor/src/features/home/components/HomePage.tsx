@@ -6,6 +6,14 @@ import type { HomeTab } from '../types';
 import { HomeSidebar } from './HomeSidebar';
 import { ProjectsPanel } from './ProjectsPanel';
 import { StoryboardPanel } from './StoryboardPanel';
+import { FlowListPage } from '@/features/generate-ai-flow/components/FlowListPage';
+
+/** Resolve the active tab from a `?tab=` hint; unknown values fall back to Projects. */
+function tabFromParam(value: string | null): HomeTab {
+  if (value === 'storyboard') return 'storyboard';
+  if (value === 'generate-ai') return 'generate-ai';
+  return 'projects';
+}
 
 // ── Design-guide tokens (§3 Dark Theme) ────────────────────────────────────
 const SURFACE = '#0D0D14';
@@ -24,9 +32,9 @@ export function HomePage(): React.ReactElement {
 
   // Read the tab hint from the URL on mount.
   // `?tab=storyboard` is set by GenerateWizardPage when the user clicks
-  // "Back to Storyboard". Absence of the param keeps the default (Projects).
-  const initialTab: HomeTab =
-    searchParams.get('tab') === 'storyboard' ? 'storyboard' : 'projects';
+  // "Back to Storyboard"; `?tab=generate-ai` is set by the flow editor's Home link.
+  // Absence / an unrecognised value keeps the default (Projects).
+  const initialTab: HomeTab = tabFromParam(searchParams.get('tab'));
 
   const [activeTab, setActiveTab] = React.useState<HomeTab>(initialTab);
 
@@ -60,7 +68,13 @@ export function HomePage(): React.ReactElement {
           overflow: 'auto',
         }}
       >
-        {activeTab === 'projects' ? <ProjectsPanel /> : <StoryboardPanel />}
+        {activeTab === 'projects' ? (
+          <ProjectsPanel />
+        ) : activeTab === 'storyboard' ? (
+          <StoryboardPanel />
+        ) : (
+          <FlowListPage />
+        )}
       </main>
     </div>
   );

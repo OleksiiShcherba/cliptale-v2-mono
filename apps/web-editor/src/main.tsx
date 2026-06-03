@@ -15,7 +15,6 @@ import { GenerateProjectFromStoryboardPage } from '@/features/generate-wizard/co
 import { HomePage } from '@/features/home/components/HomePage';
 import { TrashPanel } from '@/features/trash/TrashPanel';
 import { StoryboardPage } from '@/features/storyboard/components/StoryboardPage';
-import { FlowListPage } from '@/features/generate-ai-flow/components/FlowListPage';
 import { FlowEditorPage } from '@/features/generate-ai-flow/components/FlowEditorPage';
 
 // ---------------------------------------------------------------------------
@@ -94,12 +93,10 @@ const router = createBrowserRouter([
     ),
   },
   {
+    // The flow list now lives as a tab on the Home page (alongside Projects /
+    // Storyboard); the old standalone route redirects there so existing links work.
     path: '/generate-ai',
-    element: (
-      <ProtectedRoute>
-        <FlowListPage />
-      </ProtectedRoute>
-    ),
+    element: <Navigate to="/?tab=generate-ai" replace />,
   },
   {
     path: '/generate-ai/:flowId',

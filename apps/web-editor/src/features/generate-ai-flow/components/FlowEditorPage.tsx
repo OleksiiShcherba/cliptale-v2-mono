@@ -26,7 +26,7 @@
 
 import React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 
 import { getFlow, getFileUrl } from '../api';
 import type { Flow, JobState } from '../types';
@@ -320,7 +320,12 @@ function FlowEditor({
     <div style={pageStyle}>
       {/* Top chrome + toolbar (FlowListPage idiom). */}
       <div style={headerStyle}>
-        <h1 style={titleStyle}>{flow.title}</h1>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', minWidth: 0 }}>
+          <Link to="/?tab=generate-ai" aria-label="Home" style={homeLinkStyle}>
+            ← Home
+          </Link>
+          <h1 style={titleStyle}>{flow.title}</h1>
+        </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <span data-testid="autosave-status" style={{ fontSize: 11, color: TEXT_SECONDARY }}>
             {autosaveStatus} v{localVersion}
@@ -525,6 +530,23 @@ const titleStyle: React.CSSProperties = {
   fontWeight: 700,
   color: TEXT_PRIMARY,
   margin: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const homeLinkStyle: React.CSSProperties = {
+  flexShrink: 0,
+  padding: '6px 12px',
+  background: 'transparent',
+  color: TEXT_PRIMARY,
+  border: `1px solid ${BORDER}`,
+  borderRadius: 6,
+  fontSize: 12,
+  fontWeight: 500,
+  fontFamily: 'Inter, sans-serif',
+  textDecoration: 'none',
+  cursor: 'pointer',
 };
 
 const bodyStyle: React.CSSProperties = {
