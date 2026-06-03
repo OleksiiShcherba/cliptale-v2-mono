@@ -18,7 +18,9 @@ import type { FlowRecord } from '@/repositories/generation-flow.repository.js';
 import * as flowRepo from '@/repositories/generation-flow.repository.js';
 import type { AiGenerationJob } from '@/repositories/aiGenerationJob.repository.js';
 import * as jobRepo from '@/repositories/aiGenerationJob.repository.js';
-import { NotFoundError, OptimisticLockError } from '@/lib/errors.js';
+import * as flowFileRepo from '@/repositories/flow-file.repository.js';
+import { NotFoundError, OptimisticLockError, ValidationError } from '@/lib/errors.js';
+import { flowCanvasSchema } from '@ai-video-editor/project-schema';
 import type { FlowCanvas } from '@ai-video-editor/project-schema';
 
 // ── Return types ──────────────────────────────────────────────────────────────
@@ -121,16 +123,19 @@ export async function renameFlow(
  * AC-19: only the flow row and its flow_files pivot links are soft-deleted.
  * The library asset rows in `files` are NOT touched — assets outlive flows.
  *
- * Note: flow_files soft-unlink is handled at the repository layer via the
- * CASCADE on DELETE; for soft-delete (deleted_at) the controller or a dedicated
- * worker is responsible for cascading the pivot links (T13/T7). This service
- * calls only the flow-level soft-delete as the sole responsibility of this layer.
+ * Ordering: the owner-scoped flow soft-delete runs first (a zero-row result means
+ * a non-owner/absent flow → 404, and we never touch the pivot in that case). Only
+ * after the delete is confirmed do we drop the flow→asset linkage, so deleting a
+ * flow leaves its result assets in the library but unlinked (AC-19).
  */
 export async function deleteFlow(flowId: string, userId: string): Promise<void> {
   const deleted = await flowRepo.softDeleteFlow(flowId, userId);
   if (!deleted) {
     throw new NotFoundError(`Flow "${flowId}" not found`);
   }
+
+  // AC-19: drop the flow→asset linkage. The `files` rows are untouched (RESTRICT FK).
+  await flowFileRepo.softUnlinkAllFilesFromFlow(flowId);
 }
 
 // ── saveCanvas ────────────────────────────────────────────────────────────────
@@ -157,7 +162,17 @@ export async function saveCanvas(
   canvas: FlowCanvas,
   parentVersion: number,
 ): Promise<FlowRecord> {
-  const result = await flowRepo.saveFlowCanvas({ flowId, userId, canvas, parentVersion });
+  // F6 / §6.1 server-authoritative validation: the canvas is NOT an opaque blob —
+  // reject a structurally-invalid document at the write boundary so a malformed
+  // graph can never reach the generation gate or be persisted (ADR-0002).
+  const parsed = flowCanvasSchema.safeParse(canvas);
+  if (!parsed.success) {
+    throw new ValidationError(
+      `Invalid canvas document: ${parsed.error.issues.map((i) => i.message).join(', ')}`,
+    );
+  }
+
+  const result = await flowRepo.saveFlowCanvas({ flowId, userId, canvas: parsed.data, parentVersion });
 
   if (!result.saved) {
     throw new OptimisticLockError(

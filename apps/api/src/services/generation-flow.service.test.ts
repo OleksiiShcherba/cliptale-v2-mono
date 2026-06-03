@@ -16,7 +16,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import * as flowRepo from '@/repositories/generation-flow.repository.js';
 import * as jobRepo from '@/repositories/aiGenerationJob.repository.js';
-import { NotFoundError, OptimisticLockError } from '@/lib/errors.js';
+import * as flowFileRepo from '@/repositories/flow-file.repository.js';
+import { NotFoundError, OptimisticLockError, ValidationError } from '@/lib/errors.js';
 
 // Hoisted mock — must appear before the first import of the service module.
 vi.mock('@/repositories/generation-flow.repository.js', () => ({
@@ -30,6 +31,10 @@ vi.mock('@/repositories/generation-flow.repository.js', () => ({
 
 vi.mock('@/repositories/aiGenerationJob.repository.js', () => ({
   getJobsByFlowId: vi.fn(),
+}));
+
+vi.mock('@/repositories/flow-file.repository.js', () => ({
+  softUnlinkAllFilesFromFlow: vi.fn(),
 }));
 
 // Import after mocks are registered.
@@ -192,6 +197,22 @@ describe('generation-flow.service', () => {
       expect(flowRepo.softDeleteFlow).toHaveBeenCalledWith(FLOW_ID, OWNER_ID);
     });
 
+    // AC-19 (F5): deleting a flow drops the flow→asset linkage but never the assets.
+    it('soft-unlinks the flow_files pivot links after a successful soft-delete (AC-19)', async () => {
+      vi.mocked(flowRepo.softDeleteFlow).mockResolvedValue(true);
+
+      await deleteFlow(FLOW_ID, OWNER_ID);
+
+      expect(flowFileRepo.softUnlinkAllFilesFromFlow).toHaveBeenCalledWith(FLOW_ID);
+    });
+
+    it('does NOT touch the pivot when the flow is absent / not owned', async () => {
+      vi.mocked(flowRepo.softDeleteFlow).mockResolvedValue(false);
+
+      await expect(deleteFlow(FLOW_ID, OTHER_ID)).rejects.toThrow(NotFoundError);
+      expect(flowFileRepo.softUnlinkAllFilesFromFlow).not.toHaveBeenCalled();
+    });
+
     it('raises NotFoundError when the flow is absent or belongs to another user', async () => {
       vi.mocked(flowRepo.softDeleteFlow).mockResolvedValue(false);
 
@@ -224,6 +245,15 @@ describe('generation-flow.service', () => {
       await expect(saveCanvas(FLOW_ID, OWNER_ID, MINIMAL_CANVAS, 0)).rejects.toThrow(
         OptimisticLockError,
       );
+    });
+
+    // F6 (§6.1 server-authoritative): a structurally-invalid canvas is rejected at the
+    // write boundary, before any repo write — not stored as opaque JSON.
+    it('rejects a structurally-invalid canvas with ValidationError before any repo write', async () => {
+      const badCanvas = { blocks: [{ nope: true }], edges: [] } as unknown as typeof MINIMAL_CANVAS;
+
+      await expect(saveCanvas(FLOW_ID, OWNER_ID, badCanvas, 1)).rejects.toThrow(ValidationError);
+      expect(flowRepo.saveFlowCanvas).not.toHaveBeenCalled();
     });
 
     it('stale version and non-owner are both OptimisticLockError (repo returns saved:false for both)', async () => {

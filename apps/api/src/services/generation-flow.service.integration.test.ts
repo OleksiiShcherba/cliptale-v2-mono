@@ -59,6 +59,8 @@ const OTHER_ID = `flow-svc-integ-other-${randomUUID().slice(0, 8)}`;
 
 // Flows created during tests — cleaned up in afterAll.
 const cleanupFlows: string[] = [];
+// Files created during AC-19 tests — cleaned up in afterAll (after flow_files cascade).
+const cleanupFiles: string[] = [];
 
 beforeAll(async () => {
   conn = await mysql.createConnection({
@@ -80,9 +82,17 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (cleanupFlows.length) {
+    // generation_flows DELETE cascades flow_files (CASCADE FK), freeing the RESTRICT
+    // FK from flow_files → files so the files rows below can be removed.
     await conn.query(
       `DELETE FROM generation_flows WHERE flow_id IN (${cleanupFlows.map(() => '?').join(',')})`,
       cleanupFlows,
+    );
+  }
+  if (cleanupFiles.length) {
+    await conn.query(
+      `DELETE FROM files WHERE file_id IN (${cleanupFiles.map(() => '?').join(',')})`,
+      cleanupFiles,
     );
   }
   for (const userId of [OWNER_ID, OTHER_ID]) {
@@ -195,6 +205,44 @@ describe('generation-flow.service / integration (real MySQL)', () => {
 
     // Soft-deleted flow is now invisible (NotFoundError on open).
     await expect(openFlow(flow.flowId, OWNER_ID)).rejects.toThrow(NotFoundError);
+  });
+
+  it('deleteFlow: drops the flow_files linkage but PRESERVES the library asset (AC-19)', async () => {
+    const { createFlow, deleteFlow } = await svc();
+
+    const flow = await createFlow(OWNER_ID, 'AC-19 flow with a produced asset');
+    cleanupFlows.push(flow.flowId);
+
+    // A library asset produced by this flow, linked via the flow_files pivot.
+    const fileId = `flow-svc-integ-file-${randomUUID().slice(0, 8)}`;
+    cleanupFiles.push(fileId);
+    await conn.execute(
+      `INSERT INTO files (file_id, user_id, kind, storage_uri, mime_type, bytes, display_name, status)
+       VALUES (?, ?, 'image', ?, 'image/png', 100, 'result.png', 'ready')`,
+      [fileId, OWNER_ID, `s3://test/${fileId}.png`],
+    );
+    await conn.execute(
+      `INSERT INTO flow_files (flow_id, file_id) VALUES (?, ?)`,
+      [flow.flowId, fileId],
+    );
+
+    await deleteFlow(flow.flowId, OWNER_ID);
+
+    // The flow→asset link is soft-unlinked (deleted_at set) — linkage dropped.
+    const [linkRows] = await conn.query<import('mysql2/promise').RowDataPacket[]>(
+      `SELECT deleted_at FROM flow_files WHERE flow_id = ? AND file_id = ?`,
+      [flow.flowId, fileId],
+    );
+    expect(linkRows).toHaveLength(1);
+    expect(linkRows[0]!['deleted_at']).not.toBeNull();
+
+    // The asset itself still lives in the library, active (never deleted).
+    const [fileRows] = await conn.query<import('mysql2/promise').RowDataPacket[]>(
+      `SELECT deleted_at FROM files WHERE file_id = ?`,
+      [fileId],
+    );
+    expect(fileRows).toHaveLength(1);
+    expect(fileRows[0]!['deleted_at']).toBeNull();
   });
 
   it('saveCanvas: matching version → saved (version increments); stale → OptimisticLockError (AC-10b / 409 path)', async () => {

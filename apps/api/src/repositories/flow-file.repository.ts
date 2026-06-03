@@ -39,6 +39,22 @@ export async function softUnlinkFileFromFlow(flowId: string, fileId: string): Pr
 }
 
 /**
+ * Soft-unlinks ALL active links for a flow in a single statement (AC-19).
+ *
+ * Called when a flow is soft-deleted: the flow→asset linkage is dropped, but the
+ * file rows in `files` are NOT touched — assets outlive flows. Idempotent: a flow
+ * with no active links is a silent no-op.
+ */
+export async function softUnlinkAllFilesFromFlow(flowId: string): Promise<void> {
+  await pool.execute(
+    `UPDATE flow_files
+        SET deleted_at = CURRENT_TIMESTAMP(3)
+      WHERE flow_id = ? AND deleted_at IS NULL`,
+    [flowId],
+  );
+}
+
+/**
  * Returns the file IDs of all active (non-soft-deleted) links for a given flow.
  *
  * Used internally (e.g., worker completion, T13) to check which assets are
