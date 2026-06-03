@@ -219,6 +219,7 @@ function AssetInput({
         onChange={handleLibraryPick}
         label={`Pick ${mediaLabel} from library`}
         mediaType={mediaType}
+        defaultOpen
       />
     </div>
   );

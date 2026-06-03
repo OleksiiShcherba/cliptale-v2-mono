@@ -76,19 +76,19 @@ describe('ContentInput — library pick (real AssetPickerField)', () => {
   it('opens the picker against /files and does not crash on assets.filter', async () => {
     renderContentInput(vi.fn());
 
-    // Open the single-select image picker.
-    fireEvent.click(screen.getByRole('button', { name: /pick an image asset/i }));
-
-    // The library list loads via GET /files (no /projects/__flow__/... call, no throw).
+    // The list is shown by default (no need to click a "Pick…" button first) and loads
+    // via GET /files (no /projects/__flow__/... call, no throw).
     await waitFor(() => expect(screen.getByRole('button', { name: /hero\.png/i })).toBeDefined());
     expect(mockApiClient.get).toHaveBeenCalledWith('/files');
+    // The "Pick…" prompt button is gone — the options are already listed.
+    expect(screen.queryByRole('button', { name: /pick an image asset/i })).toBeNull();
   });
 
   it('writes contentType:asset + the picked fileId onto the block', async () => {
     const onChange = vi.fn();
     renderContentInput(onChange);
 
-    fireEvent.click(screen.getByRole('button', { name: /pick an image asset/i }));
+    // List is open by default — pick directly.
     const pick = await screen.findByRole('button', { name: /hero\.png/i });
     fireEvent.click(pick);
 
@@ -125,10 +125,30 @@ describe('ContentInput — library pick (real AssetPickerField)', () => {
   it('shows a small thumbnail preview for an image asset in the picker', async () => {
     renderContentInput(vi.fn());
 
-    fireEvent.click(screen.getByRole('button', { name: /pick an image asset/i }));
-
+    // List is open by default — the thumbnail appears without opening anything.
     const thumb = (await screen.findByTestId('asset-thumb-lib-img-1')) as HTMLImageElement;
     expect(thumb.src).toContain('lib-img-1');
     expect(mockApiClient.post).toHaveBeenCalledWith('/files/stream-urls', { fileIds: ['lib-img-1'] });
+  });
+
+  it('shows a small preview of the already-selected image in the inspector chip', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ContentInput
+          block={{
+            blockId: 'c1',
+            type: 'content',
+            position: { x: 0, y: 0 },
+            params: { contentType: 'asset', modality: 'image', fileId: 'lib-img-1' },
+          }}
+          onBlockParamsChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    // The selected-value chip carries a thumbnail even before the list is browsed.
+    const thumb = (await screen.findByTestId('asset-selected-thumb')) as HTMLImageElement;
+    expect(thumb.src).toContain('lib-img-1');
   });
 });

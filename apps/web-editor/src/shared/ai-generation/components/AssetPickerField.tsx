@@ -25,6 +25,8 @@ export interface AssetPickerFieldProps {
   description?: string;
   /** Filter assets to this media type. Defaults to 'image'. */
   mediaType?: AssetPickerMediaType;
+  /** Show the asset options list immediately, without the "Pick…" button click first. */
+  defaultOpen?: boolean;
 }
 
 /**
@@ -47,8 +49,9 @@ export function AssetPickerField({
   required,
   description,
   mediaType = 'image',
+  defaultOpen = false,
 }: AssetPickerFieldProps) {
-  const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [isPickerOpen, setIsPickerOpen] = useState(defaultOpen);
 
   // Noun used in the picker's prompts/labels (image / audio / video).
   const mediaNoun = mediaType;
@@ -63,10 +66,6 @@ export function AssetPickerField({
     (asset) => asset.contentType.startsWith(`${mediaType}/`) && asset.status === 'ready',
   );
 
-  // Resolve small preview thumbnails for the listed assets in one bulk call (cached).
-  // Empty until the picker is open and the list has loaded, so it is a no-op otherwise.
-  const { urls: thumbUrls } = useBulkFileStreamUrls(filteredAssets.map((a) => a.id));
-
   const selectedIds: string[] =
     mode === 'multi'
       ? Array.isArray(value)
@@ -75,6 +74,15 @@ export function AssetPickerField({
       : typeof value === 'string' && value.length > 0
         ? [value]
         : [];
+
+  // Resolve small preview thumbnails for the listed assets AND the current selection in
+  // one bulk call (cached, deduped) — so a selected asset has a preview even before the
+  // list is browsed. No-op when there are no ids.
+  const { urls: thumbUrls } = useBulkFileStreamUrls([
+    ...filteredAssets.map((a) => a.id),
+    ...selectedIds,
+  ]);
+  const isImage = mediaType === 'image';
 
   const handlePick = (fileId: string) => {
     if (mode === 'single') {
@@ -107,8 +115,18 @@ export function AssetPickerField({
 
       {mode === 'single' &&
         (typeof value === 'string' && value.length > 0 ? (
-          <div style={s.assetPickerValue}>
-            <span>{describeAsset(assets, value)}</span>
+          <div style={{ ...s.assetPickerValue, display: 'flex', alignItems: 'center', gap: 8 }}>
+            {isImage && thumbUrls[value] && (
+              <img
+                data-testid="asset-selected-thumb"
+                src={thumbUrls[value]}
+                alt=""
+                style={{ width: 32, height: 32, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }}
+              />
+            )}
+            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {describeAsset(assets, value)}
+            </span>
             <button
               type="button"
               style={s.assetPickerChipRemove}
@@ -119,13 +137,17 @@ export function AssetPickerField({
             </button>
           </div>
         ) : (
-          <button
-            type="button"
-            style={s.assetPickerEmpty}
-            onClick={() => setIsPickerOpen(true)}
-          >
-            {`Pick ${mediaNoun === 'video' ? 'a' : 'an'} ${mediaNoun} asset…`}
-          </button>
+          // Only show the "Pick…" prompt when the list is closed; with defaultOpen the
+          // options are listed directly below (no extra click needed).
+          !isPickerOpen && (
+            <button
+              type="button"
+              style={s.assetPickerEmpty}
+              onClick={() => setIsPickerOpen(true)}
+            >
+              {`Pick ${mediaNoun === 'video' ? 'a' : 'an'} ${mediaNoun} asset…`}
+            </button>
+          )
         ))}
 
       {mode === 'multi' && (
