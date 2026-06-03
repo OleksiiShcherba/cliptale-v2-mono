@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { getContextAssets } from '@/shared/ai-generation/api';
+import { useBulkFileStreamUrls } from '@/shared/hooks/useBulkFileStreamUrls';
 import type { AiGenerationContext } from '@/shared/ai-generation/types';
 import type { AssetSummary } from '@/shared/ai-generation/api';
 
@@ -61,6 +62,10 @@ export function AssetPickerField({
   const filteredAssets = assets.filter(
     (asset) => asset.contentType.startsWith(`${mediaType}/`) && asset.status === 'ready',
   );
+
+  // Resolve small preview thumbnails for the listed assets in one bulk call (cached).
+  // Empty until the picker is open and the list has loaded, so it is a no-op otherwise.
+  const { urls: thumbUrls } = useBulkFileStreamUrls(filteredAssets.map((a) => a.id));
 
   const selectedIds: string[] =
     mode === 'multi'
@@ -164,15 +169,35 @@ export function AssetPickerField({
             )}
             {filteredAssets.map((asset) => {
               const isSelected = selectedIds.includes(asset.id);
+              const thumb = asset.contentType.startsWith('image/') ? thumbUrls[asset.id] : undefined;
               return (
                 <button
                   key={asset.id}
                   type="button"
                   aria-pressed={isSelected}
-                  style={isSelected ? s.assetPickerValue : s.assetPickerEmpty}
+                  style={{
+                    ...(isSelected ? s.assetPickerValue : s.assetPickerEmpty),
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
                   onClick={() => handlePick(asset.id)}
                 >
-                  {asset.filename}
+                  {thumb && (
+                    <img
+                      data-testid={`asset-thumb-${asset.id}`}
+                      src={thumb}
+                      alt=""
+                      style={{
+                        width: 32,
+                        height: 32,
+                        objectFit: 'cover',
+                        borderRadius: 4,
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+                  <span>{asset.filename}</span>
                 </button>
               );
             })}

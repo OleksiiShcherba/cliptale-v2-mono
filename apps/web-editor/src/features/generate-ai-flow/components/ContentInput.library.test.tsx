@@ -24,6 +24,7 @@ vi.mock('@/lib/api-client', () => ({ apiClient: mockApiClient }));
 vi.mock('@/shared/file-upload/api');
 
 import { ContentInput } from './ContentInput';
+import { clearBulkFileStreamUrlCacheForTests } from '@/shared/hooks/useBulkFileStreamUrls';
 
 function okResponse(data: unknown): Response {
   return {
@@ -54,6 +55,7 @@ function renderContentInput(onChange: (p: Record<string, unknown>) => void) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  clearBulkFileStreamUrlCacheForTests();
   // GET /files → the Creator's general library (the shape the real endpoint returns).
   mockApiClient.get.mockResolvedValue(
     okResponse({
@@ -63,6 +65,10 @@ beforeEach(() => {
       ],
       nextCursor: null,
     }),
+  );
+  // POST /files/stream-urls → presigned preview URLs for the picker thumbnails.
+  mockApiClient.post.mockResolvedValue(
+    okResponse({ urls: { 'lib-img-1': 'https://cdn.test/lib-img-1.png' }, missingFileIds: [] }),
   );
 });
 
@@ -89,5 +95,15 @@ describe('ContentInput — library pick (real AssetPickerField)', () => {
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ contentType: 'asset', fileId: 'lib-img-1' }),
     );
+  });
+
+  it('shows a small thumbnail preview for an image asset in the picker', async () => {
+    renderContentInput(vi.fn());
+
+    fireEvent.click(screen.getByRole('button', { name: /pick an image asset/i }));
+
+    const thumb = (await screen.findByTestId('asset-thumb-lib-img-1')) as HTMLImageElement;
+    expect(thumb.src).toContain('lib-img-1');
+    expect(mockApiClient.post).toHaveBeenCalledWith('/files/stream-urls', { fileIds: ['lib-img-1'] });
   });
 });
