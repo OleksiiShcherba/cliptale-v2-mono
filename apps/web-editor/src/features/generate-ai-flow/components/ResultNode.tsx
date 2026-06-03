@@ -26,6 +26,7 @@ import type { AiGenerationJob } from '@/shared/ai-generation/types';
 import { ERROR, MODALITY_COLOR, PRIMARY, handleBase, nodeHeader, nodeRoot, nodeSubtle } from './flowNodeStyles';
 import type { Modality } from '../hooks/useFlowCanvas';
 import { useResultExtras } from './flowExtrasContext';
+import { NodeDeleteButton } from './NodeDeleteButton';
 
 export type ResultNodeData = {
   block: FlowBlock;
@@ -98,6 +99,7 @@ export function ResultNode({ id, data }: NodeProps): React.ReactElement {
 
       <div style={{ ...nodeHeader, color }}>
         <span>Result{modality ? ` · ${modality}` : ''}</span>
+        <NodeDeleteButton blockId={id} />
       </div>
 
       {/* DOMINANT result area (AC-08) — secondary labels/controls below. */}

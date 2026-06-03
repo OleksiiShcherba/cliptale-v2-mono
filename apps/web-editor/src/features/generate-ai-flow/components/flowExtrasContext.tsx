@@ -25,14 +25,22 @@ export type ResultExtras = {
   onRetry?: () => void;
 };
 
+/** Actions available on every node regardless of kind (e.g. delete). */
+export type NodeActions = {
+  /** Remove this block (and its connections) from the canvas. */
+  onDelete?: () => void;
+};
+
 export type FlowExtras = {
   generation: (blockId: string) => GenerationExtras;
   result: (blockId: string) => ResultExtras;
+  nodeActions: (blockId: string) => NodeActions;
 };
 
 const EMPTY: FlowExtras = {
   generation: () => ({}),
   result: () => ({}),
+  nodeActions: () => ({}),
 };
 
 const FlowExtrasContext = React.createContext<FlowExtras>(EMPTY);
@@ -53,4 +61,8 @@ export function useGenerationExtras(blockId: string): GenerationExtras {
 
 export function useResultExtras(blockId: string): ResultExtras {
   return React.useContext(FlowExtrasContext).result(blockId);
+}
+
+export function useNodeActions(blockId: string): NodeActions {
+  return React.useContext(FlowExtrasContext).nodeActions(blockId);
 }

@@ -229,6 +229,26 @@ export function reconcileModelChange(
   return { canvas: { blocks: nextBlocks, edges: keptEdges }, removedEdges };
 }
 
+// ── Block / edge removal ──────────────────────────────────────────────────────
+
+/**
+ * Removes a block and every edge incident to it (as source OR target), so deleting a
+ * block never leaves a dangling connection. Pure — returns a new canvas document.
+ */
+export function removeBlockFromCanvas(canvas: FlowCanvas, blockId: string): FlowCanvas {
+  return {
+    blocks: canvas.blocks.filter((b) => b.blockId !== blockId),
+    edges: canvas.edges.filter(
+      (e) => e.sourceBlockId !== blockId && e.targetBlockId !== blockId,
+    ),
+  };
+}
+
+/** Removes a single edge (connection) by id. Pure — returns a new canvas document. */
+export function removeEdgeFromCanvas(canvas: FlowCanvas, edgeId: string): FlowCanvas {
+  return { ...canvas, edges: canvas.edges.filter((e) => e.edgeId !== edgeId) };
+}
+
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 let idCounter = 0;
@@ -334,6 +354,16 @@ export function useFlowCanvas(options: UseFlowCanvasOptions = {}) {
     [onEdgesPruned],
   );
 
+  /** Remove a block and all of its incident edges (× button / Delete key). */
+  const removeBlock = useCallback((blockId: string) => {
+    setCanvas((c) => removeBlockFromCanvas(c, blockId));
+  }, []);
+
+  /** Remove a single connection (Delete key on a selected edge). */
+  const removeEdge = useCallback((edgeId: string) => {
+    setCanvas((c) => removeEdgeFromCanvas(c, edgeId));
+  }, []);
+
   /** The current canvas document, already in the server-authoritative FlowCanvas shape. */
   const serialize = useCallback((): FlowCanvas => canvasRef.current, []);
 
@@ -356,6 +386,8 @@ export function useFlowCanvas(options: UseFlowCanvasOptions = {}) {
     connect,
     isValidConnection,
     changeModel,
+    removeBlock,
+    removeEdge,
     serialize,
   };
 }

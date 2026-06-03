@@ -28,7 +28,7 @@ import {
   Background,
   BackgroundVariant,
 } from '@xyflow/react';
-import type { Node, Edge, Connection, NodeChange, NodeMouseHandler } from '@xyflow/react';
+import type { Node, Edge, Connection, NodeChange, EdgeChange, NodeMouseHandler } from '@xyflow/react';
 import type { FlowCanvas as FlowCanvasDoc } from '@ai-video-editor/project-schema';
 
 import { FLOW_NODE_TYPES } from './flowNodeTypes';
@@ -48,6 +48,8 @@ export type FlowCanvasProps = {
   onCanvasReady?: (controller: ReturnType<typeof useFlowCanvas>) => void;
   /** Fired when a node is clicked (drives the Inspector selection). */
   onSelectBlock?: (blockId: string) => void;
+  /** Fired when the empty canvas (pane) is clicked — clears the Inspector selection. */
+  onPaneClick?: () => void;
   /** Fired whenever the live canvas document changes (drives autosave + inspector). */
   onCanvasChange?: (canvas: FlowCanvasDoc) => void;
 } & Pick<UseFlowCanvasOptions, 'onEdgesPruned' | 'onConnectionRejected'>;
@@ -59,9 +61,10 @@ function InnerFlowCanvas({
   onCanvasReady,
   onCanvasChange,
   onSelectBlock,
+  onPaneClick,
 }: FlowCanvasProps): React.ReactElement {
   const controller = useFlowCanvas({ initialCanvas, onEdgesPruned, onConnectionRejected });
-  const { canvas, setCanvas, connect, isValidConnection } = controller;
+  const { canvas, setCanvas, connect, isValidConnection, removeBlock, removeEdge } = controller;
 
   // Expose the controller ONCE (its methods are stable); the live canvas is streamed
   // separately via onCanvasChange so consumers don't re-store a fresh controller object
@@ -140,6 +143,12 @@ function InnerFlowCanvas({
   // which re-arms the debounced autosave forever (it would never settle and save).
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
+      // Node removals (Delete/Backspace on a selected node) are real edits — apply them
+      // (removeBlock also drops the block's incident edges so nothing dangles).
+      for (const ch of changes) {
+        if (ch.type === 'remove') removeBlock(ch.id);
+      }
+
       const positionChanges = changes.filter(
         (ch): ch is Extract<NodeChange, { type: 'position' }> =>
           ch.type === 'position' && ch.position != null,
@@ -160,7 +169,18 @@ function InnerFlowCanvas({
         return mutated ? { ...c, blocks } : c;
       });
     },
-    [setCanvas],
+    [setCanvas, removeBlock],
+  );
+
+  // Edge removals (Delete/Backspace on a selected connection). We ignore xyflow's
+  // select/other edge-change events — only removals mutate the canvas document.
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      for (const ch of changes) {
+        if (ch.type === 'remove') removeEdge(ch.id);
+      }
+    },
+    [removeEdge],
   );
 
   const onConnect = useCallback(
@@ -177,6 +197,11 @@ function InnerFlowCanvas({
     [onSelectBlock],
   );
 
+  // Clicking the empty canvas (pane) clears the selection → closes the Inspector.
+  const handlePaneClick = useCallback(() => {
+    onPaneClick?.();
+  }, [onPaneClick]);
+
   return (
     <div style={FLOW_CONTAINER_STYLE} data-testid="flow-canvas">
       <ReactFlow
@@ -184,8 +209,10 @@ function InnerFlowCanvas({
         edges={edges}
         nodeTypes={FLOW_NODE_TYPES}
         onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
+        onPaneClick={handlePaneClick}
         isValidConnection={isValidConnection}
         style={REACT_FLOW_STYLE}
         proOptions={{ hideAttribution: true }}

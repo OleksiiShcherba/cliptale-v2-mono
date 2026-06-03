@@ -17,6 +17,7 @@ import type { FlowBlock } from '@ai-video-editor/project-schema';
 import { getModelById, requiredHandlesForModel } from '../hooks/useFlowCanvas';
 import type { TypedHandle } from '../hooks/useFlowCanvas';
 import { useGenerationExtras } from './flowExtrasContext';
+import { NodeDeleteButton } from './NodeDeleteButton';
 import {
   MODALITY_COLOR,
   PRIMARY,
@@ -79,6 +80,7 @@ export function GenerationNode({ id, data }: NodeProps): React.ReactElement {
     <div style={nodeRoot} data-testid="generation-node" data-block-id={id}>
       <div style={nodeHeader}>
         <span>Generation</span>
+        <NodeDeleteButton blockId={id} />
       </div>
 
       <button

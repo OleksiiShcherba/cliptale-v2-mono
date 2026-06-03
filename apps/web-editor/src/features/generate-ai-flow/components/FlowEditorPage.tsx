@@ -310,6 +310,13 @@ function FlowEditor({
           },
         };
       },
+      nodeActions: (blockId) => ({
+        // Delete the block (+ its connections) and close the Inspector if it was showing it.
+        onDelete: () => {
+          controllerRef.current?.removeBlock(blockId);
+          setSelectedBlockId((cur) => (cur === blockId ? null : cur));
+        },
+      }),
     }),
     // Re-create the value object on data changes so context consumers re-render with
     // fresh job/preview state (cheap — does NOT touch the xyflow nodes array).
@@ -391,6 +398,7 @@ function FlowEditor({
                 setNotice(`${removed.length} connection${removed.length === 1 ? '' : 's'} removed — no longer valid for the chosen model.`)
               }
               onSelectBlock={setSelectedBlockId}
+              onPaneClick={() => setSelectedBlockId(null)}
             />
           </FlowExtrasProvider>
         </div>

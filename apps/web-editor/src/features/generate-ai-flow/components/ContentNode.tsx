@@ -18,6 +18,7 @@ import type { NodeProps } from '@xyflow/react';
 import type { FlowBlock } from '@ai-video-editor/project-schema';
 
 import { useFileStreamUrl } from '@/shared/hooks/useFileStreamUrl';
+import { NodeDeleteButton } from './NodeDeleteButton';
 import type { Modality } from '../hooks/useFlowCanvas';
 import {
   MODALITY_COLOR,
@@ -89,6 +90,7 @@ export function ContentNode({ id, data }: NodeProps): React.ReactElement {
     <div style={nodeRoot} data-testid="content-node" data-block-id={id} data-modality={modality}>
       <div style={{ ...nodeHeader, color }}>
         <span>{MODALITY_LABEL[modality]} content</span>
+        <NodeDeleteButton blockId={id} />
       </div>
 
       {modality === 'text' ? (

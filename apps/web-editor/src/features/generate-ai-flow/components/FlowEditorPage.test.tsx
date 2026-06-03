@@ -246,6 +246,37 @@ describe('FlowEditorPage', () => {
     );
   });
 
+  it('deletes a block via its × delete button (removes it from the canvas)', async () => {
+    renderPage();
+    await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).not.toBeNull());
+
+    const genNode = document.querySelector('[data-block-id="g1"]') as HTMLElement;
+    const del = genNode.querySelector('button[aria-label="Delete block"]') as HTMLElement;
+    expect(del).not.toBeNull();
+    fireEvent.click(del);
+
+    await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).toBeNull());
+    // The content block is untouched.
+    expect(document.querySelector('[data-block-id="c1"]')).not.toBeNull();
+  });
+
+  it('closes the Inspector when the empty canvas pane is clicked', async () => {
+    renderPage();
+    await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).not.toBeNull());
+
+    // Open the Inspector by selecting the generation block (its in-node "Select model").
+    const genNode = document.querySelector('[data-block-id="g1"]') as HTMLElement;
+    const selectModelBtn = Array.from(genNode.querySelectorAll('button')).find(
+      (b) => b.getAttribute('aria-label') === 'Select model',
+    );
+    fireEvent.click(selectModelBtn as HTMLElement);
+    await waitFor(() => expect(screen.getByTestId('inspector-panel')).toBeDefined());
+
+    // Click the empty pane → selection cleared → Inspector gone.
+    fireEvent.click(document.querySelector('.react-flow__pane') as HTMLElement);
+    await waitFor(() => expect(screen.queryByTestId('inspector-panel')).toBeNull());
+  });
+
   it('opens the cost confirm modal when Generate is pressed on a generation block', async () => {
     renderPage();
     await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).not.toBeNull());

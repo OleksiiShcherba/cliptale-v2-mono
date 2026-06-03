@@ -22,6 +22,8 @@ import {
   blockOutputModality,
   validateConnection,
   reconcileModelChange,
+  removeBlockFromCanvas,
+  removeEdgeFromCanvas,
 } from './useFlowCanvas';
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -204,5 +206,62 @@ describe('reconcileModelChange', () => {
     expect(next.blocks.find((b) => b.blockId === 'r1')).toBeDefined();
     expect(next.edges.find((e) => e.edgeId === 'e-res')).toBeDefined();
     expect(removedEdges.map((e) => e.edgeId)).not.toContain('e-res');
+  });
+});
+
+// ── removeBlockFromCanvas / removeEdgeFromCanvas (delete) ──────────────────────
+
+describe('removeBlockFromCanvas', () => {
+  it('removes the block and every edge incident to it, keeping unrelated blocks/edges', () => {
+    const canvas = canvasWith(
+      [
+        { blockId: 'img', type: 'content', position: { x: 0, y: 0 }, params: { contentType: 'asset', fileId: 'f1', modality: 'image' } },
+        { blockId: 'txt', type: 'content', position: { x: 0, y: 0 }, params: { contentType: 'text', text: 'p', modality: 'text' } },
+        { blockId: 'g1', type: 'generation', position: { x: 0, y: 0 }, params: { modelId: LTX } },
+        { blockId: 'r1', type: 'result', position: { x: 0, y: 0 }, params: { sourceBlockId: 'g1' } },
+      ],
+      [
+        { edgeId: 'e-img', sourceBlockId: 'img', sourceHandle: 'out', targetBlockId: 'g1', targetHandle: 'image_url' },
+        { edgeId: 'e-txt', sourceBlockId: 'txt', sourceHandle: 'out', targetBlockId: 'g1', targetHandle: 'prompt' },
+        { edgeId: 'e-res', sourceBlockId: 'g1', sourceHandle: 'out', targetBlockId: 'r1', targetHandle: 'in' },
+      ],
+    );
+
+    const next = removeBlockFromCanvas(canvas, 'g1');
+
+    // g1 gone; all three edges (two into g1, one out of g1) gone — no dangling connection.
+    expect(next.blocks.find((b) => b.blockId === 'g1')).toBeUndefined();
+    expect(next.edges).toHaveLength(0);
+
+    // unrelated blocks survive.
+    expect(next.blocks.map((b) => b.blockId).sort()).toEqual(['img', 'r1', 'txt']);
+  });
+
+  it('leaves the canvas effectively unchanged when the block id is unknown', () => {
+    const canvas = canvasWith(
+      [{ blockId: 'a', type: 'content', position: { x: 0, y: 0 }, params: { contentType: 'text', text: '', modality: 'text' } }],
+      [],
+    );
+    expect(removeBlockFromCanvas(canvas, 'nope').blocks).toHaveLength(1);
+  });
+});
+
+describe('removeEdgeFromCanvas', () => {
+  it('removes only the named edge, leaving blocks and other edges intact', () => {
+    const canvas = canvasWith(
+      [
+        { blockId: 'txt', type: 'content', position: { x: 0, y: 0 }, params: { contentType: 'text', text: 'p', modality: 'text' } },
+        { blockId: 'g1', type: 'generation', position: { x: 0, y: 0 }, params: { modelId: NANO } },
+      ],
+      [
+        { edgeId: 'e-txt', sourceBlockId: 'txt', sourceHandle: 'out', targetBlockId: 'g1', targetHandle: 'prompt' },
+        { edgeId: 'e-other', sourceBlockId: 'txt', sourceHandle: 'out', targetBlockId: 'g1', targetHandle: 'prompt2' },
+      ],
+    );
+
+    const next = removeEdgeFromCanvas(canvas, 'e-txt');
+
+    expect(next.edges.map((e) => e.edgeId)).toEqual(['e-other']);
+    expect(next.blocks).toHaveLength(2);
   });
 });
