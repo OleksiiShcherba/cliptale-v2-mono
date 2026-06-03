@@ -71,6 +71,11 @@ export function useFlowAutosave({
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSavingRef = useRef<boolean>(false);
   const conflictRef = useRef<boolean>(false);
+  // The first canvas the hook ever sees is the loaded document, not an edit — never
+  // autosave it (that would spuriously bump the optimistic-lock version on load).
+  // Track it by REFERENCE (not a boolean flag) so React StrictMode's double-invoked
+  // mount effect can't slip a save through after a one-shot flag was already cleared.
+  const initialCanvasRef = useRef<FlowCanvas>(canvas);
 
   // Keep conflictRef in sync.
   useEffect(() => {
@@ -135,6 +140,9 @@ export function useFlowAutosave({
   // ── Debounce on canvas changes ────────────────────────────────────────────────
 
   useEffect(() => {
+    // Skip the initial canvas (the loaded document) — only edits autosave. Compared by
+    // reference so a StrictMode re-run of the mount effect still skips it.
+    if (canvas === initialCanvasRef.current) return;
     // Never save if a conflict has been detected.
     if (conflictRef.current) return;
 

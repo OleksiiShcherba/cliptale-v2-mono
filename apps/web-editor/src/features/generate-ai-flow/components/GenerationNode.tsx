@@ -16,8 +16,10 @@ import type { FlowBlock } from '@ai-video-editor/project-schema';
 
 import { getModelById, requiredHandlesForModel } from '../hooks/useFlowCanvas';
 import type { TypedHandle } from '../hooks/useFlowCanvas';
+import { useGenerationExtras } from './flowExtrasContext';
 import {
   MODALITY_COLOR,
+  PRIMARY,
   TEXT_SECONDARY,
   handleBase,
   handleRow,
@@ -30,6 +32,8 @@ export type GenerationNodeData = {
   block: FlowBlock;
   /** Optional: open the model picker / inspector (wired in T18). */
   onSelectModel?: (blockId: string) => void;
+  /** Optional: start the spend-gated Generate for this block (T22). */
+  onGenerate?: (blockId: string) => void;
 };
 
 /** A single typed input handle row. image_url_list renders as a three-dots multi input. */
@@ -60,7 +64,13 @@ function HandleRow({ handle, blockId }: { handle: TypedHandle; blockId: string }
 }
 
 export function GenerationNode({ id, data }: NodeProps): React.ReactElement {
-  const { block, onSelectModel } = data as GenerationNodeData;
+  const nodeData = data as GenerationNodeData;
+  const { block } = nodeData;
+  // Dynamic handlers come from the FlowExtras context (so the xyflow node array stays
+  // stable); the isolated render path may still pass them via `data`.
+  const extras = useGenerationExtras(id);
+  const onSelectModel = nodeData.onSelectModel ?? extras.onSelectModel;
+  const onGenerate = nodeData.onGenerate ?? extras.onGenerate;
   const modelId = block.params.modelId as string | undefined;
   const model = getModelById(modelId);
   const handles = requiredHandlesForModel(modelId);
@@ -95,6 +105,29 @@ export function GenerationNode({ id, data }: NodeProps): React.ReactElement {
       ) : (
         handles.map((h) => <HandleRow key={h.fieldName} handle={h} blockId={id} />)
       )}
+
+      {onGenerate ? (
+        <button
+          type="button"
+          onClick={() => onGenerate(id)}
+          aria-label="Generate"
+          style={{
+            marginTop: 8,
+            width: '100%',
+            background: PRIMARY,
+            border: 'none',
+            color: '#fff',
+            borderRadius: 6,
+            padding: '6px 12px',
+            fontSize: 12,
+            fontWeight: 500,
+            cursor: 'pointer',
+            fontFamily: 'Inter, sans-serif',
+          }}
+        >
+          Generate
+        </button>
+      ) : null}
 
       {/* Output port — the produced result flows into a result block. */}
       <Handle

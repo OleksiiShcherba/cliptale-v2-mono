@@ -132,6 +132,9 @@ function TextInput({
         placeholder="Type your text here…"
         aria-label="Text content"
         rows={3}
+        // Selecting a content block focuses its editor so keyboard input lands here
+        // immediately (drives the edit→autosave path).
+        autoFocus
       />
     </div>
   );

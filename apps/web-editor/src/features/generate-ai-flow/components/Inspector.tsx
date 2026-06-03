@@ -104,7 +104,7 @@ export function Inspector({ selectedBlockId, canvas, onBlockParamsChange }: Insp
     return (
       <div style={panelStyle} data-testid="inspector-panel">
         <div style={sectionHeaderStyle}>Content</div>
-        <ContentInput block={block} onBlockParamsChange={handleContentChange} />
+        <ContentInput key={selectedBlockId} block={block} onBlockParamsChange={handleContentChange} />
       </div>
     );
   }

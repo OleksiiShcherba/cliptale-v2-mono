@@ -128,6 +128,20 @@ export async function saveCanvas(flowId: string, payload: CanvasSave): Promise<C
   return (await res.json()) as CanvasSaveResult;
 }
 
+/**
+ * GET /files/:fileId  (falls back to /assets/:fileId)
+ * Resolves a produced result asset to a displayable/streamable URL, for the
+ * dominant media preview in a completed result block (AC-08). The asset lives in
+ * the owner's general library, linked to this flow (AC-01).
+ */
+export async function getFileUrl(fileId: string): Promise<string | null> {
+  let res = await apiClient.get(`/files/${fileId}`);
+  if (!res.ok) res = await apiClient.get(`/assets/${fileId}`);
+  if (!res.ok) return null;
+  const data = (await res.json()) as { url?: string | null };
+  return data.url ?? null;
+}
+
 // ── Generate surface (T20 / T15 endpoints) ──────────────────────────────────
 
 /**

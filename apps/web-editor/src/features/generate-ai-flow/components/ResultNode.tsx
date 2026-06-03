@@ -25,6 +25,7 @@ import type { AiGenerationJob } from '@/shared/ai-generation/types';
 
 import { ERROR, MODALITY_COLOR, PRIMARY, handleBase, nodeHeader, nodeRoot, nodeSubtle } from './flowNodeStyles';
 import type { Modality } from '../hooks/useFlowCanvas';
+import { useResultExtras } from './flowExtrasContext';
 
 export type ResultNodeData = {
   block: FlowBlock;
@@ -69,7 +70,14 @@ function DominantMedia({
 }
 
 export function ResultNode({ id, data }: NodeProps): React.ReactElement {
-  const { block, modality, job, previewUrl, onRetry } = data as ResultNodeData;
+  const nodeData = data as ResultNodeData;
+  const { block, modality } = nodeData;
+  // Dynamic result state comes from the FlowExtras context (keeping the xyflow node
+  // array stable); the isolated render path may still pass it via `data`.
+  const extras = useResultExtras(id);
+  const job = nodeData.job ?? extras.job;
+  const previewUrl = nodeData.previewUrl ?? extras.previewUrl;
+  const onRetry = nodeData.onRetry ?? extras.onRetry;
   const color = modality ? MODALITY_COLOR[modality] ?? '#888' : '#888';
   const status = job?.status;
 
