@@ -22,7 +22,7 @@ import { trashRouter } from '@/routes/trash.routes.js';
 import { storyboardRouter } from '@/routes/storyboard.routes.js';
 import { sceneTemplateRouter } from '@/routes/sceneTemplate.routes.js';
 import { generationFlowsRouter } from '@/routes/generation-flows.routes.js';
-import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, ConflictError, UnprocessableEntityError, GoneError } from '@/lib/errors.js';
+import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, ConflictError, UnprocessableEntityError, GoneError, GateError, RateLimitedError } from '@/lib/errors.js';
 import { attachRealtimeWebSocketServer } from '@/lib/realtime.js';
 
 const app = express();
@@ -60,9 +60,44 @@ app.use(storyboardRouter);
 app.use(sceneTemplateRouter);
 app.use(generationFlowsRouter);
 
-// Centralized error handler — maps typed errors to HTTP status codes.
-// Must be the last middleware registered.
-app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+/**
+ * Centralized error handler — maps typed errors to HTTP status codes.
+ *
+ * Body contract (api-sync-report.md, team decision 2026-06-03): the existing
+ * free-text `{ error }` key is ALWAYS present; `code` + `details` are ADDITIVE and
+ * only attached for errors that carry them, so legacy clients reading only `error`
+ * are unaffected.
+ *   - RateLimitedError (429) → sets a `Retry-After` header (seconds) + { error, code, details }.
+ *   - GateError (422, generate-ai-flow T11) → { error, code, details }.
+ *   - other typed errors → bare { error } at their statusCode.
+ *
+ * Exported so it can be unit-tested without booting the server.
+ */
+export function errorHandler(
+  err: unknown,
+  _req: Request,
+  res: Response,
+  _next: NextFunction,
+): void {
+  // Rate limit — additive 429 sentinel (F-1/F-2). Retry-After is seconds.
+  if (err instanceof RateLimitedError) {
+    res.setHeader('Retry-After', String(err.retryAfterSeconds));
+    res.status(err.statusCode).json({
+      error: err.message,
+      code: err.code,
+      details: err.details,
+    });
+    return;
+  }
+  // Generate-gate failures — 422 with the machine-readable code + structured details.
+  if (err instanceof GateError) {
+    res.status(err.statusCode).json({
+      error: err.message,
+      code: err.code,
+      details: err.details,
+    });
+    return;
+  }
   if (
     err instanceof ValidationError ||
     err instanceof NotFoundError ||
@@ -78,7 +113,10 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   // Unknown error — log internally, never expose details to the client.
   console.error('[api] Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error' });
-});
+}
+
+// Must be the last middleware registered.
+app.use(errorHandler);
 
 // Only bind the port when running as the entry point, not when imported by tests.
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'))) {

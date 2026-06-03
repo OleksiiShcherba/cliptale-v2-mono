@@ -14,7 +14,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Request, Response, NextFunction } from 'express';
 
-import { NotFoundError, OptimisticLockError, ValidationError } from '@/lib/errors.js';
+import {
+  NotFoundError,
+  OptimisticLockError,
+  ValidationError,
+  RequiredInputMissingError,
+  ExclusivityViolationError,
+  AssetMissingError,
+  ContentInvalidError,
+  RateLimitedError,
+} from '@/lib/errors.js';
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
 
@@ -27,7 +36,13 @@ const mockService = vi.hoisted(() => ({
   saveCanvas: vi.fn(),
 }));
 
+const mockGenerateService = vi.hoisted(() => ({
+  estimateBlockCost: vi.fn(),
+  generate: vi.fn(),
+}));
+
 vi.mock('@/services/generation-flow.service.js', () => mockService);
+vi.mock('@/services/flow-generate.service.js', () => mockGenerateService);
 
 // Import handlers AFTER mocking
 import {
@@ -37,6 +52,8 @@ import {
   renameFlow,
   deleteFlow,
   saveCanvas,
+  estimateCost,
+  generateBlock,
 } from './generation-flow.controller.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -44,15 +61,29 @@ import {
 const USER = { userId: 'user-001', email: 'a@b.com', displayName: 'Alice' };
 
 function makeReq(
-  opts: { params?: Record<string, string>; body?: unknown; query?: Record<string, string> } = {},
+  opts: {
+    params?: Record<string, string>;
+    body?: unknown;
+    query?: Record<string, string>;
+    headers?: Record<string, string>;
+  } = {},
 ): Request {
+  const headers = opts.headers ?? {};
+  // Case-insensitive header lookup mirroring Express's req.get / req.header.
+  const lookup = (name: string): string | undefined => {
+    const lower = name.toLowerCase();
+    const found = Object.keys(headers).find((k) => k.toLowerCase() === lower);
+    return found ? headers[found] : undefined;
+  };
   return {
     params: opts.params ?? {},
     body: opts.body ?? {},
     query: opts.query ?? {},
+    headers,
     user: USER,
     protocol: 'http',
-    get: vi.fn().mockReturnValue('localhost:3001'),
+    get: vi.fn((name: string) => (name.toLowerCase() === 'host' ? 'localhost:3001' : lookup(name))),
+    header: vi.fn((name: string) => lookup(name)),
   } as unknown as Request;
 }
 
@@ -369,6 +400,192 @@ describe('saveCanvas handler', () => {
     const next = makeNext();
 
     await saveCanvas(req, res, next);
+
+    expect(next).toHaveBeenCalledWith(err);
+  });
+});
+
+// ── estimateCost ──────────────────────────────────────────────────────────────
+
+describe('estimateCost handler (POST .../estimate)', () => {
+  const ESTIMATE = {
+    flowId: 'flow-aaa',
+    blockId: 'block-bbb',
+    modelId: 'fal-ai/ltx-2-19b/image-to-video',
+    estimate: { currency: 'USD', amount: 0.42 },
+    bestEffort: true as const,
+  };
+
+  it('returns 200 with the estimate on success', async () => {
+    mockGenerateService.estimateBlockCost.mockResolvedValueOnce(ESTIMATE);
+    const req = makeReq({ params: { flowId: 'flow-aaa', blockId: 'block-bbb' } });
+    const { res, json } = makeRes();
+    const next = makeNext();
+
+    await estimateCost(req, res, next);
+
+    expect(mockGenerateService.estimateBlockCost).toHaveBeenCalledWith({
+      flowId: 'flow-aaa',
+      blockId: 'block-bbb',
+      userId: USER.userId,
+    });
+    expect(json).toHaveBeenCalledWith(ESTIMATE);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('forwards NotFoundError to next() for non-owner/absent flow', async () => {
+    const err = new NotFoundError('Flow not found.');
+    mockGenerateService.estimateBlockCost.mockRejectedValueOnce(err);
+    const req = makeReq({ params: { flowId: 'flow-xxx', blockId: 'block-bbb' } });
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await estimateCost(req, res, next);
+
+    expect(next).toHaveBeenCalledWith(err);
+  });
+});
+
+// ── generateBlock ─────────────────────────────────────────────────────────────
+
+describe('generateBlock handler (POST .../generate)', () => {
+  const IDEM = '99999999-9999-4999-8999-999999999999';
+  const ACCEPTED = { jobId: 'job-123', blockId: 'block-bbb', status: 'queued' as const };
+  const validBody = { version: 8, acknowledgedCost: { currency: 'USD', amount: 0.42 } };
+
+  function genReq(over: Partial<Parameters<typeof makeReq>[0]> = {}) {
+    return makeReq({
+      params: { flowId: 'flow-aaa', blockId: 'block-bbb' },
+      body: validBody,
+      headers: { 'Idempotency-Key': IDEM },
+      ...over,
+    });
+  }
+
+  it('returns 202 with the accepted job when Idempotency-Key is present', async () => {
+    mockGenerateService.generate.mockResolvedValueOnce(ACCEPTED);
+    const req = genReq();
+    const { res, status, json } = makeRes();
+    const next = makeNext();
+
+    await generateBlock(req, res, next);
+
+    expect(mockGenerateService.generate).toHaveBeenCalledWith({
+      flowId: 'flow-aaa',
+      blockId: 'block-bbb',
+      userId: USER.userId,
+      version: 8,
+      idempotencyKey: IDEM,
+    });
+    expect(status).toHaveBeenCalledWith(202);
+    expect(json).toHaveBeenCalledWith(ACCEPTED);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('calls next(ValidationError) → 400 when the Idempotency-Key header is missing', async () => {
+    const req = genReq({ headers: {} });
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await generateBlock(req, res, next);
+
+    expect(mockGenerateService.generate).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
+    expect(next.mock.calls[0]![0]).toBeInstanceOf(ValidationError);
+  });
+
+  it('calls next(ValidationError) → 400 when version is missing from the body', async () => {
+    const req = genReq({ body: { acknowledgedCost: { currency: 'USD', amount: 0.42 } } });
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await generateBlock(req, res, next);
+
+    expect(mockGenerateService.generate).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
+    expect(next.mock.calls[0]![0]).toBeInstanceOf(ValidationError);
+  });
+
+  it('forwards RequiredInputMissingError (→ 422 flow.required_input_missing)', async () => {
+    const err = new RequiredInputMissingError('Connect a text input before generating.', {
+      blockId: 'block-bbb',
+      input: 'prompt',
+    });
+    mockGenerateService.generate.mockRejectedValueOnce(err);
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await generateBlock(genReq(), res, next);
+
+    expect(next).toHaveBeenCalledWith(err);
+    expect((next.mock.calls[0]![0] as RequiredInputMissingError).code).toBe('flow.required_input_missing');
+  });
+
+  it('forwards ExclusivityViolationError (→ 422 flow.exclusivity_violation)', async () => {
+    const err = new ExclusivityViolationError('Provide exactly one of: prompt, multiPrompt.', {
+      exclusiveGroup: 'prompt_mode',
+      provided: ['prompt', 'multiPrompt'],
+    });
+    mockGenerateService.generate.mockRejectedValueOnce(err);
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await generateBlock(genReq(), res, next);
+
+    expect(next).toHaveBeenCalledWith(err);
+    expect((next.mock.calls[0]![0] as ExclusivityViolationError).code).toBe('flow.exclusivity_violation');
+  });
+
+  it('forwards AssetMissingError (→ 422 flow.asset_missing)', async () => {
+    const err = new AssetMissingError('A library asset this block uses is missing.', {
+      blockId: 'block-ccc',
+    });
+    mockGenerateService.generate.mockRejectedValueOnce(err);
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await generateBlock(genReq(), res, next);
+
+    expect(next).toHaveBeenCalledWith(err);
+    expect((next.mock.calls[0]![0] as AssetMissingError).code).toBe('flow.asset_missing');
+  });
+
+  it('forwards ContentInvalidError (→ 422 flow.content_invalid)', async () => {
+    const err = new ContentInvalidError('The text content block is empty.', {
+      blockId: 'block-ccc',
+      reason: 'empty',
+    });
+    mockGenerateService.generate.mockRejectedValueOnce(err);
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await generateBlock(genReq(), res, next);
+
+    expect(next).toHaveBeenCalledWith(err);
+    expect((next.mock.calls[0]![0] as ContentInvalidError).code).toBe('flow.content_invalid');
+  });
+
+  it('forwards RateLimitedError (→ 429 + Retry-After) to next()', async () => {
+    const err = new RateLimitedError('Too many generations. Try again in a moment.', 42, {
+      limitPerMinute: 30,
+    });
+    mockGenerateService.generate.mockRejectedValueOnce(err);
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await generateBlock(genReq(), res, next);
+
+    expect(next).toHaveBeenCalledWith(err);
+    expect((next.mock.calls[0]![0] as RateLimitedError).retryAfterSeconds).toBe(42);
+  });
+
+  it('forwards OptimisticLockError (→ 409) on a stale flow version', async () => {
+    const err = new OptimisticLockError('This flow changed since you opened it.');
+    mockGenerateService.generate.mockRejectedValueOnce(err);
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await generateBlock(genReq(), res, next);
 
     expect(next).toHaveBeenCalledWith(err);
   });

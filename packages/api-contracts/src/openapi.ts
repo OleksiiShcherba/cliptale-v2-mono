@@ -1885,6 +1885,162 @@ export const openApiSpec = {
         security: [{ bearerAuth: [] }],
       },
     },
+    '/generation-flows/{flowId}/blocks/{blockId}/estimate': {
+      post: {
+        summary: 'Pre-flight cost estimate for a generation block',
+        description:
+          'Flow 1 / ADR-0005. Reads the saved canvas, resolves the block model + inputs, and returns ' +
+          'a BEST-EFFORT cost from the static per-model pricing table. Advisory only; non-mutating; no provider call.',
+        operationId: 'estimateGenerationCost',
+        tags: ['generate'],
+        parameters: [
+          { in: 'path', name: 'flowId', required: true, schema: { type: 'string', format: 'uuid' } },
+          { in: 'path', name: 'blockId', required: true, schema: { type: 'string', format: 'uuid' } },
+        ],
+        responses: {
+          200: {
+            description: 'OK',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/CostEstimate' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid bearer token.' },
+          404: { description: 'Flow not found or not owned by caller (existence hiding).' },
+          422: {
+            description: 'The block is not a generation block in this canvas, or its model is unknown.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ApiError' },
+              },
+            },
+          },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
+    '/generation-flows/{flowId}/blocks/{blockId}/generate': {
+      post: {
+        summary: 'Server-authoritative Generate for one block (spend-bearing)',
+        description:
+          'Flow 1/7/8. The single spend path. The server re-validates ALL preconditions before any ' +
+          'provider call (required inputs, exclusivity, referenced-asset presence, content validity, owner), ' +
+          'then checks the per-Creator rate limit (≤ 30/min). On pass it creates the ai_generation_job ' +
+          '(flow_id, block_id) and enqueues the ai-generate job, returning 202. ' +
+          'Idempotency-Key is REQUIRED so a double-submit never double-charges; the server returns the first job on retry.',
+        operationId: 'generateBlock',
+        tags: ['generate'],
+        parameters: [
+          { in: 'path', name: 'flowId', required: true, schema: { type: 'string', format: 'uuid' } },
+          { in: 'path', name: 'blockId', required: true, schema: { type: 'string', format: 'uuid' } },
+          {
+            in: 'header',
+            name: 'Idempotency-Key',
+            required: true,
+            description: 'client-generated UUID; the server returns the first run result on retry (TTL 24h).',
+            schema: { type: 'string', format: 'uuid' },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/GenerateRequest' },
+            },
+          },
+        },
+        responses: {
+          202: {
+            description: 'Accepted — job enqueued (proceeds asynchronously).',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/GenerateAccepted' },
+              },
+            },
+          },
+          400: { description: 'Malformed body, or the required Idempotency-Key header is missing.' },
+          401: { description: 'Missing or invalid bearer token.' },
+          404: {
+            description:
+              'Flow not found or not owned by caller, OR a reference to a never-owned asset (existence hiding, AC-04).',
+          },
+          409: {
+            description: 'Stale flow version — reload before generating (AC-10b).',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ApiError' },
+                example: {
+                  error: 'This flow changed since you opened it. Reload before generating.',
+                  code: 'flow.version_conflict',
+                },
+              },
+            },
+          },
+          422: {
+            description:
+              'The gate blocked the run before any provider call. The code distinguishes the failure modes: ' +
+              'flow.required_input_missing (AC-03), flow.exclusivity_violation (AC-06), ' +
+              'flow.asset_missing (AC-05, previously-owned asset only), flow.content_invalid (AC-17).',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ApiError' },
+                examples: {
+                  requiredInputMissing: {
+                    value: {
+                      error: 'Connect a text input before generating.',
+                      code: 'flow.required_input_missing',
+                      details: { blockId: '22222222-2222-4222-8222-222222222222', input: 'prompt' },
+                    },
+                  },
+                  exclusivityViolation: {
+                    value: {
+                      error: 'Provide exactly one of: prompt, multiPrompt.',
+                      code: 'flow.exclusivity_violation',
+                      details: { exclusiveGroup: 'prompt_mode', provided: ['prompt', 'multiPrompt'] },
+                    },
+                  },
+                  assetMissing: {
+                    value: {
+                      error: 'A library asset this block uses is missing. Replace it and try again.',
+                      code: 'flow.asset_missing',
+                      details: { blockId: '44444444-4444-4444-8444-444444444444' },
+                    },
+                  },
+                  contentInvalid: {
+                    value: {
+                      error: 'The text content block is empty.',
+                      code: 'flow.content_invalid',
+                      details: { blockId: '44444444-4444-4444-8444-444444444444', reason: 'empty' },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          429: {
+            description: 'Per-Creator generation rate limit exceeded (ADR-0004, ≤ 30/min). Try again shortly.',
+            headers: {
+              'Retry-After': {
+                description: 'seconds until the window frees a slot',
+                schema: { type: 'integer' },
+              },
+            },
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ApiError' },
+                example: {
+                  error: 'Too many generations. Try again in a moment.',
+                  code: 'flow.rate_limited',
+                  details: { limitPerMinute: 30 },
+                },
+              },
+            },
+          },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
     '/scene-templates/{id}/add-to-storyboard': {
       post: {
         summary: 'Add a scene template to a storyboard draft',
@@ -3278,6 +3434,55 @@ export const openApiSpec = {
           flowId: { type: 'string', format: 'uuid' },
           version: { type: 'integer', minimum: 1, description: 'The NEW, incremented version.' },
           updatedAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      Money: {
+        type: 'object',
+        required: ['currency', 'amount'],
+        additionalProperties: false,
+        properties: {
+          currency: { type: 'string', description: 'ISO 4217 code, e.g. USD.' },
+          amount: { type: 'number', minimum: 0, description: "Cost in the currency's major unit." },
+        },
+      },
+      CostEstimate: {
+        type: 'object',
+        required: ['flowId', 'blockId', 'modelId', 'estimate', 'bestEffort'],
+        additionalProperties: false,
+        properties: {
+          flowId: { type: 'string', format: 'uuid' },
+          blockId: { type: 'string', format: 'uuid', description: 'canvas generation-block id' },
+          modelId: { type: 'string', maxLength: 128, description: 'catalog model id' },
+          estimate: { $ref: '#/components/schemas/Money' },
+          bestEffort: {
+            type: 'boolean',
+            description: 'always true — static-table estimate (ADR-0005), reconciled against actuals out of band.',
+          },
+        },
+      },
+      GenerateRequest: {
+        type: 'object',
+        required: ['version'],
+        additionalProperties: false,
+        properties: {
+          version: {
+            type: 'integer',
+            minimum: 1,
+            description: 'The flow version the Creator generated against; stale → 409 (AC-10b).',
+          },
+          acknowledgedCost: {
+            $ref: '#/components/schemas/Money',
+          },
+        },
+      },
+      GenerateAccepted: {
+        type: 'object',
+        required: ['jobId', 'blockId', 'status'],
+        additionalProperties: false,
+        properties: {
+          jobId: { type: 'string', description: 'ai_generation_jobs.job_id' },
+          blockId: { type: 'string', format: 'uuid', description: "ai_generation_jobs.block_id (result block source)" },
+          status: { type: 'string', enum: ['queued'] },
         },
       },
     },

@@ -15,6 +15,7 @@ import type { Request, Response, NextFunction } from 'express';
 
 import { ValidationError } from '@/lib/errors.js';
 import * as flowService from '@/services/generation-flow.service.js';
+import * as flowGenerateService from '@/services/flow-generate.service.js';
 import type { FlowRecord } from '@/repositories/generation-flow.repository.js';
 import type { AiGenerationJob } from '@/repositories/aiGenerationJob.repository.js';
 
@@ -37,6 +38,22 @@ export const renameFlowSchema = z.object({
 export const saveCanvasSchema = z.object({
   version: z.number().int().min(1),
   canvas: z.record(z.unknown()),
+});
+
+/**
+ * Generate body: `{ version, acknowledgedCost? }`.
+ * `version` is the flow version the Creator generated against — a stale value is
+ * rejected with 409 by the service (OptimisticLockError). `acknowledgedCost` is
+ * advisory only (the server is authoritative on price) and is not forwarded.
+ */
+export const generateSchema = z.object({
+  version: z.number().int().min(1),
+  acknowledgedCost: z
+    .object({
+      currency: z.string(),
+      amount: z.number().min(0),
+    })
+    .optional(),
 });
 
 // ── Response helpers ──────────────────────────────────────────────────────────
@@ -210,6 +227,76 @@ export async function saveCanvas(
       version: saved.version,
       updatedAt: saved.updatedAt.toISOString(),
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /generation-flows/:flowId/blocks/:blockId/estimate
+ * Best-effort, non-mutating pre-flight cost estimate (AC-11 / ADR-0005).
+ * Returns 200 with the CostEstimate shape. Non-owner/absent flow → service
+ * throws NotFoundError → next(err) → 404. Bad block/model → 422 (service).
+ */
+export async function estimateCost(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const flowId = req.params['flowId']!;
+    const blockId = req.params['blockId']!;
+    const estimate = await flowGenerateService.estimateBlockCost({
+      flowId,
+      blockId,
+      userId: req.user!.userId,
+    });
+    res.json(estimate);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /generation-flows/:flowId/blocks/:blockId/generate
+ * The single spend path (AC-01). REQUIRES an `Idempotency-Key` header (missing →
+ * 400 ValidationError) so a double-submit / network retry never double-charges.
+ *
+ * Maps to the central error handler:
+ *   - gate failures (T11)  → 422 with { error, code, details }
+ *   - rate-limited (T10)   → 429 with a Retry-After header
+ *   - stale flow version   → 409 (OptimisticLockError)
+ *   - non-owner/absent flow / never-owned asset → 404 (existence hiding)
+ * On success returns 202 with { jobId, blockId, status }.
+ */
+export async function generateBlock(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const idempotencyKey = req.header('Idempotency-Key');
+    if (!idempotencyKey || idempotencyKey.trim().length === 0) {
+      throw new ValidationError('Missing required header: Idempotency-Key.');
+    }
+
+    const parsed = generateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError(
+        `Invalid request body: ${parsed.error.issues.map((i) => i.message).join(', ')}`,
+      );
+    }
+
+    const flowId = req.params['flowId']!;
+    const blockId = req.params['blockId']!;
+    const accepted = await flowGenerateService.generate({
+      flowId,
+      blockId,
+      userId: req.user!.userId,
+      version: parsed.data.version,
+      idempotencyKey,
+    });
+    res.status(202).json(accepted);
   } catch (err) {
     next(err);
   }

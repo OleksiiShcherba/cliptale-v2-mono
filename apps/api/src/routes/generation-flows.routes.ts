@@ -11,6 +11,10 @@
  *   PATCH  /generation-flows/:flowId              → renameFlow
  *   DELETE /generation-flows/:flowId              → deleteFlow
  *   PUT    /generation-flows/:flowId/canvas       → saveCanvas
+ *
+ * T15 generate surface:
+ *   POST   /generation-flows/:flowId/blocks/:blockId/estimate  → estimateCost
+ *   POST   /generation-flows/:flowId/blocks/:blockId/generate  → generateBlock
  */
 import { Router } from 'express';
 
@@ -37,5 +41,19 @@ router.delete('/generation-flows/:flowId', authMiddleware, flowController.delete
 // PUT /generation-flows/:flowId/canvas — autosave canvas (optimistic-lock)
 // Registered BEFORE /:flowId to avoid Express path shadowing for sub-paths.
 router.put('/generation-flows/:flowId/canvas', authMiddleware, flowController.saveCanvas);
+
+// POST /generation-flows/:flowId/blocks/:blockId/estimate — pre-flight cost estimate
+router.post(
+  '/generation-flows/:flowId/blocks/:blockId/estimate',
+  authMiddleware,
+  flowController.estimateCost,
+);
+
+// POST /generation-flows/:flowId/blocks/:blockId/generate — the spend path (requires Idempotency-Key)
+router.post(
+  '/generation-flows/:flowId/blocks/:blockId/generate',
+  authMiddleware,
+  flowController.generateBlock,
+);
 
 export { router as generationFlowsRouter };
