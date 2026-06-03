@@ -6,7 +6,7 @@
 | # | Task | Layer | Owner | Estimate | Blocked by | Status |
 |---|---|---|---|---|---|---|
 | T1 | Stage migration 046 — generation_flows | migration | Backend Lead | S | — | done |
-| T2 | Stage migration 047 — flow_files pivot | migration | Backend Lead | S | T1 | todo |
+| T2 | Stage migration 047 — flow_files pivot | migration | Backend Lead | S | T1 | done |
 | T3 | Stage migration 048 — ai_generation_jobs flow cols | migration | Backend Lead | S | — | todo |
 | T4 | Flow-canvas Zod schema + job-payload extension | domain | Backend Lead | M | — | todo |
 | T5 | Catalog modality + exclusiveGroup + backfill | domain | Backend Lead | M | — | todo |
