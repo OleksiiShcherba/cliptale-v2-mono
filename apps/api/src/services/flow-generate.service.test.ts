@@ -460,6 +460,30 @@ describe('validateGenerateGate — content non-empty / valid (AC-17)', () => {
     expect(err).toBeInstanceOf(ContentInvalidError);
     expect(err.details.blockId).toBe(IMAGE_BLOCK_ID);
   });
+
+  // F7: an owned asset that is not `ready` (still processing / ingest failed) has no
+  // usable bytes — it must NOT be sent to the paid provider as an empty input.
+  it('throws ContentInvalidError when a referenced asset is owned but not ready (processing/failed)', async () => {
+    const canvas: FlowCanvas = {
+      blocks: [
+        genBlock(LTX_MODEL_ID, { prompt: 'inline' }),
+        assetContentBlock(IMAGE_BLOCK_ID, FILE_ID),
+      ],
+      edges: [edge(IMAGE_BLOCK_ID, 'image_url')],
+    };
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas));
+    // Owned + correct kind, but ingest hasn't finished → no usable bytes yet.
+    vi.mocked(findByIdForUser).mockResolvedValue({ ...ownedReadyFile('image'), status: 'processing' });
+
+    const err = await validateGenerateGate({
+      flowId: FLOW_ID,
+      blockId: BLOCK_ID,
+      userId: USER_ID,
+    }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(ContentInvalidError);
+    expect(err.details).toMatchObject({ blockId: IMAGE_BLOCK_ID });
+  });
 });
 
 describe('validateGenerateGate — referenced-asset presence (AC-05 vs AC-04)', () => {

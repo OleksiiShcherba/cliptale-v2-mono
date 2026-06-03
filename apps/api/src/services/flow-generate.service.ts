@@ -233,7 +233,19 @@ async function assertAssetUsable(
   contentBlockId: string,
 ): Promise<void> {
   const active = await findByIdForUser(fileId, userId);
-  if (active) return; // exists, owned, not deleted — fine
+  if (active) {
+    // F7 / AC-17: an owned asset that is not `ready` (ingest still processing, or
+    // failed) carries no usable bytes — block the run before any provider call
+    // rather than send an empty input to the paid model.
+    if (active.status !== 'ready') {
+      throw new ContentInvalidError(
+        'A library asset this block uses is not ready yet (it is still processing or its upload failed). ' +
+          'Replace it or wait for it to finish, then try again.',
+        { blockId: contentBlockId, fileId, reason: 'asset_not_ready' },
+      );
+    }
+    return; // exists, owned, ready — fine
+  }
 
   // Not active for this user. Distinguish previously-owned-missing from never-owned.
   const anyRow = await findByIdIncludingDeleted(fileId);
