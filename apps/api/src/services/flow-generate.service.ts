@@ -11,15 +11,24 @@
  * without touching earlier ones.
  */
 
+import { randomUUID } from 'node:crypto';
+
 import {
   AssetMissingError,
   ContentInvalidError,
   ExclusivityViolationError,
   NotFoundError,
+  OptimisticLockError,
+  RateLimitedError,
   RequiredInputMissingError,
   UnprocessableEntityError,
 } from '@/lib/errors.js';
 import { getPriceForModel } from '@/lib/flow-pricing.js';
+import { checkFlowRateLimit } from '@/lib/flow-rate-limit.js';
+import { redis } from '@/lib/redis.js';
+import { publishAiJobUpdatedById } from '@/lib/realtimePublisher.js';
+import { enqueueAiGenerateJob } from '@/queues/jobs/enqueue-ai-generate.js';
+import * as aiGenerationJobRepository from '@/repositories/aiGenerationJob.repository.js';
 import { findFlowById } from '@/repositories/generation-flow.repository.js';
 import {
   findByIdForUser,
@@ -159,6 +168,8 @@ export type ValidatedGate = {
   block: FlowBlock;
   model: AiModel;
   modelId: string;
+  /** The resolved canvas — reused by the enqueue step so it need not re-read (T12). */
+  canvas: FlowCanvas;
 };
 
 /** Maps a catalog field's modality to the `files.kind` it must be fed by. */
@@ -378,5 +389,214 @@ export async function validateGenerateGate(
     block,
     model,
     modelId,
+    canvas: flow.canvas,
   };
+}
+
+// ── generate (enqueue) ──────────────────────────────────────────────────────────
+//
+// T12 — the spend-path accept half (AC-01/12/13). Order, fail-fast, spend-last:
+//   0. idempotency claim — a repeated Idempotency-Key returns the FIRST job and
+//      NEVER creates a second job or enqueues twice (F-3 submit-side dedupe, 24h).
+//   1. validateGenerateGate (T11) — owner + all input checks, BEFORE any spend.
+//   2. optimistic version check — a stale flow version → OptimisticLockError (409).
+//   3. rate limit (T10) — over the per-Creator cap → RateLimitedError (429), no spend.
+//   4. create the ai_generation_job (flow_id, block_id) and enqueue the ONE
+//      `ai-generate` BullMQ job — the same queue/path the existing generate uses
+//      (aiGeneration.service.submitGeneration). image / video / audio all route here.
+
+export type GenerateParams = {
+  flowId: string;
+  blockId: string;
+  userId: string;
+  /** The flow version the Creator generated against; a mismatch → 409 (AC-10b). */
+  version?: number;
+  /** Client-generated key; a repeat returns the first run's job (24h TTL). */
+  idempotencyKey: string;
+};
+
+/** Accepted shape — mirrors POST .../generate 202 GenerateAccepted in openapi.yaml. */
+export type GenerateAccepted = {
+  jobId: string;
+  blockId: string;
+  status: 'queued';
+};
+
+/** Submit-side idempotency: TTL for the Idempotency-Key dedupe record (24h, per openapi). */
+const IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60;
+/** Marker stored under the key while the first run is still being created. */
+const IDEMPOTENCY_PENDING = '__pending__';
+
+function idempotencyRedisKey(userId: string, idempotencyKey: string): string {
+  return `flow:generate:idem:${userId}:${idempotencyKey}`;
+}
+
+/**
+ * Builds the worker-consumable `options` map for a generation block by merging
+ * the block's own supplied params (minus the routing-only `modelId`) with the
+ * value carried by each connected content/result block, keyed by the catalog
+ * field name (the target handle). Text sources contribute their text; asset and
+ * result sources contribute their fileId. This keeps the canvas → job mapping in
+ * one place so every modality (image/video/audio) flows through this single path.
+ */
+function buildJobOptions(validated: ValidatedGate, canvas: FlowCanvas): Record<string, unknown> {
+  const { block, model } = validated;
+
+  const options: Record<string, unknown> = {};
+  // 1. Directly-supplied params from the generation block (excluding modelId).
+  for (const [key, value] of Object.entries(block.params)) {
+    if (key === 'modelId') continue;
+    options[key] = value;
+  }
+
+  // 2. Values fed in by connected content/result blocks, keyed by target handle.
+  for (const field of model.inputSchema.fields) {
+    const edge = canvas.edges.find(
+      (e) => e.targetBlockId === block.blockId && e.targetHandle === field.name,
+    );
+    if (!edge) continue;
+    const source = canvas.blocks.find((b) => b.blockId === edge.sourceBlockId);
+    if (!source) continue;
+
+    const contentType =
+      typeof source.params['contentType'] === 'string' ? source.params['contentType'] : undefined;
+
+    if (contentType === 'text' || field.modality === 'text') {
+      if (typeof source.params['text'] === 'string') options[field.name] = source.params['text'];
+    } else if (typeof source.params['fileId'] === 'string') {
+      // Asset or result source → its library file id (worker resolves to a URL, T13).
+      options[field.name] = source.params['fileId'];
+    }
+  }
+
+  return options;
+}
+
+/** Derives the non-null `prompt` column value from the assembled options. */
+function derivePrompt(options: Record<string, unknown>): string {
+  const prompt = options['prompt'];
+  if (typeof prompt === 'string' && prompt.length > 0) return prompt;
+  const text = options['text'];
+  if (typeof text === 'string' && text.length > 0) return text;
+  const mp = options['multi_prompt'];
+  if (Array.isArray(mp) && typeof mp[0] === 'string' && mp[0].length > 0) return mp[0];
+  return '';
+}
+
+/**
+ * The single, server-authoritative spend path for a flow generation.
+ *
+ * On a passed gate + version + rate-limit check, creates exactly one
+ * ai_generation_job (carrying flow_id + block_id) and enqueues exactly one
+ * `ai-generate` BullMQ job. Idempotent on a repeated Idempotency-Key.
+ *
+ * Throws:
+ *  - NotFoundError (404)        — flow/asset absent or not owned (existence hiding).
+ *  - GateError (422)            — required-input / exclusivity / asset-missing / content (T11).
+ *  - OptimisticLockError (409)  — the flow changed since the Creator opened it (AC-10b).
+ *  - RateLimitedError (429)     — over the per-Creator cap (ADR-0004), before any spend.
+ */
+export async function generate(params: GenerateParams): Promise<GenerateAccepted> {
+  const { flowId, blockId, userId, version, idempotencyKey } = params;
+
+  const idemKey = idempotencyRedisKey(userId, idempotencyKey);
+
+  // 0. Idempotency claim. SET NX wins the race for the FIRST run; a loser reads
+  //    the stored result and returns it — no second gate, job, charge, or enqueue.
+  const claimed = await redis.set(idemKey, IDEMPOTENCY_PENDING, 'EX', IDEMPOTENCY_TTL_SECONDS, 'NX');
+  if (claimed !== 'OK') {
+    const stored = await redis.get(idemKey);
+    if (stored && stored !== IDEMPOTENCY_PENDING) {
+      return JSON.parse(stored) as GenerateAccepted;
+    }
+    // The first run is still in flight (or its claim record vanished). Surface a
+    // conflict rather than risk a duplicate charge — the client retries shortly.
+    throw new RateLimitedError(
+      'A generation for this request is already being processed. Try again in a moment.',
+      1,
+      { idempotent: true },
+    );
+  }
+
+  try {
+    // 1. Gate FIRST — owner + every input check, before any spend (T11).
+    const validated = await validateGenerateGate({ flowId, blockId, userId });
+
+    // 2. Optimistic version check — a stale version → 409 (AC-10b), before spend.
+    if (version !== undefined && validated.flow.version !== version) {
+      throw new OptimisticLockError(
+        'This flow changed since you opened it. Reload before generating.',
+      );
+    }
+
+    // 3. Rate limit — over the per-Creator cap → 429 (ADR-0004), before spend.
+    const rate = await checkFlowRateLimit(userId);
+    if (!rate.allowed) {
+      throw new RateLimitedError(
+        'Too many generations. Try again in a moment.',
+        rate.retryAfterSeconds,
+        { limitPerMinute: 30 },
+      );
+    }
+
+    // 4. Create the job + enqueue — the ONE ai-generate path. All modalities here.
+    const options = buildJobOptions(validated, validated.canvas);
+    const prompt = derivePrompt(options);
+    const jobId = randomUUID();
+
+    await aiGenerationJobRepository.createJob({
+      jobId,
+      userId,
+      modelId: validated.modelId,
+      capability: validated.model.capability,
+      prompt,
+      options,
+    });
+    // Write the flow back-links (T7) so the worker can link the result (T13) and
+    // the reattach query (AC-08b) can find this run.
+    await aiGenerationJobRepository.setFlowLink(jobId, flowId, blockId);
+
+    try {
+      await enqueueAiGenerateJob({
+        jobId,
+        userId,
+        modelId: validated.modelId,
+        capability: validated.model.capability,
+        provider: validated.model.provider,
+        prompt,
+        options,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to enqueue generation job';
+      await aiGenerationJobRepository.updateJobStatus(jobId, 'failed', message);
+      await publishAiJobUpdatedById(jobId, {
+        resource: 'aiGenerationJob',
+        jobId,
+        status: 'failed',
+        errorMessage: message,
+      });
+      throw error;
+    }
+
+    await publishAiJobUpdatedById(jobId, {
+      resource: 'aiGenerationJob',
+      jobId,
+      status: 'queued',
+      progress: 0,
+      outputFileId: null,
+      errorMessage: null,
+    });
+
+    const result: GenerateAccepted = { jobId, blockId, status: 'queued' };
+
+    // Persist the result under the idempotency key so a retry returns this job.
+    await redis.set(idemKey, JSON.stringify(result), 'EX', IDEMPOTENCY_TTL_SECONDS);
+
+    return result;
+  } catch (error) {
+    // A failed attempt must not "burn" the key — release it so the Creator can
+    // legitimately retry (a fresh, charged Generate, AC-09) with the same key.
+    await redis.del(idemKey).catch(() => undefined);
+    throw error;
+  }
 }

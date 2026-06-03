@@ -120,6 +120,26 @@ export class ContentInvalidError extends GateError {
 }
 
 /**
+ * Per-Creator generation rate limit exceeded (generate-ai-flow ADR-0004, ≤ 30/min).
+ *
+ * Maps to HTTP 429. Carries the seconds the caller should wait (for the
+ * `Retry-After` header, set by the controller T15) plus the OpenAPI machine
+ * `code`/`details` so the unified `{error, code, details}` body can be returned.
+ */
+export class RateLimitedError extends Error {
+  readonly statusCode = 429;
+  readonly code = 'flow.rate_limited';
+  readonly retryAfterSeconds: number;
+  readonly details: Record<string, unknown>;
+  constructor(message: string, retryAfterSeconds: number, details: Record<string, unknown> = {}) {
+    super(message);
+    this.name = 'RateLimitedError';
+    this.retryAfterSeconds = retryAfterSeconds;
+    this.details = details;
+  }
+}
+
+/**
  * Thrown when the requested resource has been permanently removed and will not
  * come back. Maps to HTTP 410 Gone.
  *

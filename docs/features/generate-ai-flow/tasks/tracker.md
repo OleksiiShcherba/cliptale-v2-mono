@@ -16,7 +16,7 @@
 | T9 | flow-pricing + cost-estimate service | app | Backend Lead | S | T5 | done |
 | T10 | per-Creator Redis rate limit | app | Backend Lead | S | — | done |
 | T11 | Generate validation gate | app | Backend Lead | L | T6, T5 | done |
-| T12 | Generate enqueue — job + link + idempotency | app | Backend Lead | M | T7, T9, T10, T11 | todo |
+| T12 | Generate enqueue — job + link + idempotency | app | Backend Lead | M | T7, T9, T10, T11 | done |
 | T13 | media-worker honors flow_id | app | Backend Lead | M | T7 | done |
 | T14 | flow CRUD controller + routes + OpenAPI | ports | Backend Lead | M | T8 | todo |
 | T15 | estimate + generate controllers + routes + OpenAPI | ports | Backend Lead | M | T9, T11, T12 | todo |

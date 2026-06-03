@@ -24,15 +24,41 @@ vi.mock('@/repositories/file.repository.js', () => ({
   findByIdIncludingDeleted: vi.fn(),
 }));
 
+// T12 — enqueue collaborators. Mocked so unit tests exercise the orchestration
+// (gate → rate-limit → job create → enqueue → idempotency) without DB/Redis/BullMQ.
+vi.mock('@/repositories/aiGenerationJob.repository.js', () => ({
+  createJob: vi.fn(),
+  setFlowLink: vi.fn(),
+  updateJobStatus: vi.fn(),
+}));
+vi.mock('@/queues/jobs/enqueue-ai-generate.js', () => ({
+  enqueueAiGenerateJob: vi.fn(),
+}));
+vi.mock('@/lib/flow-rate-limit.js', () => ({
+  checkFlowRateLimit: vi.fn(),
+}));
+vi.mock('@/lib/realtimePublisher.js', () => ({
+  publishAiJobUpdatedById: vi.fn(),
+}));
+// T12 idempotency store — a small submit-side Redis dedupe (F-3 hardening).
+vi.mock('@/lib/redis.js', () => ({
+  redis: { set: vi.fn(), get: vi.fn(), del: vi.fn().mockResolvedValue(1) },
+}));
+
 // We also want to assert no external HTTP calls ever happen.
 // Mock fetch globally — if estimateBlockCost calls fetch it will fail the spy.
 const fetchSpy = vi.spyOn(globalThis, 'fetch');
 
 import { findFlowById } from '@/repositories/generation-flow.repository.js';
 import { findByIdForUser, findByIdIncludingDeleted } from '@/repositories/file.repository.js';
+import * as aiGenerationJobRepository from '@/repositories/aiGenerationJob.repository.js';
+import { enqueueAiGenerateJob } from '@/queues/jobs/enqueue-ai-generate.js';
+import { checkFlowRateLimit } from '@/lib/flow-rate-limit.js';
+import { redis } from '@/lib/redis.js';
 import {
   estimateBlockCost,
   validateGenerateGate,
+  generate,
 } from './flow-generate.service.js';
 import {
   NotFoundError,
@@ -40,6 +66,8 @@ import {
   ExclusivityViolationError,
   AssetMissingError,
   ContentInvalidError,
+  RateLimitedError,
+  OptimisticLockError,
 } from '@/lib/errors.js';
 
 const FLOW_ID = '11111111-1111-4111-8111-111111111111';
@@ -499,5 +527,206 @@ describe('validateGenerateGate — referenced-asset presence (AC-05 vs AC-04)', 
     await expect(
       validateGenerateGate({ flowId: FLOW_ID, blockId: BLOCK_ID, userId: USER_ID }),
     ).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// T12 — Generate enqueue: job create + enqueue + idempotency (AC-01/12/13)
+// ──────────────────────────────────────────────────────────────────────────────
+
+const IDEM_KEY = 'idem-11111111-1111-4111-8111-111111111111';
+
+// Audio model — ElevenLabs TTS: required field `text` (modality text). (AC-12)
+const TTS_MODEL_ID = 'elevenlabs/text-to-speech';
+// Video model — image-to-video (LTX, reused above): prompt + image_url. (AC-13)
+const VIDEO_MODEL_ID = LTX_MODEL_ID;
+// Image model — text-to-image: required field `prompt`. (AC-01)
+const IMAGE_MODEL_ID = 'fal-ai/nano-banana-2';
+
+/**
+ * A fully gate-passing canvas: the generation block inline-supplies every
+ * required text field (`prompt` and `text` cover both fal + elevenlabs models)
+ * and, when the model needs it, an image asset is connected to image_url.
+ */
+function passingCanvas(modelId: string, opts: { image?: boolean } = {}): FlowCanvas {
+  const blocks = [
+    genBlock(modelId, { prompt: 'a valid inline prompt', text: 'a valid inline prompt' }),
+  ];
+  const edges = [] as ReturnType<typeof edge>[];
+  if (opts.image) {
+    blocks.push(assetContentBlock(IMAGE_BLOCK_ID, FILE_ID));
+    edges.push(edge(IMAGE_BLOCK_ID, 'image_url'));
+  }
+  return { blocks, edges };
+}
+
+function allowRateLimit() {
+  vi.mocked(checkFlowRateLimit).mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
+}
+
+describe('generate — happy path (AC-01)', () => {
+  it('creates one job (flow_id, block_id) and enqueues the ai-generate job exactly once', async () => {
+    const canvas = passingCanvas(IMAGE_MODEL_ID);
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas));
+    vi.mocked(findByIdForUser).mockResolvedValue(ownedReadyFile('image'));
+    allowRateLimit();
+    // NX claim succeeds (first time): redis.set returns 'OK'.
+    vi.mocked(redis.set).mockResolvedValue('OK');
+    vi.mocked(redis.get).mockResolvedValue(null);
+
+    const result = await generate({
+      flowId: FLOW_ID,
+      blockId: BLOCK_ID,
+      userId: USER_ID,
+      version: 1,
+      idempotencyKey: IDEM_KEY,
+    });
+
+    expect(result.blockId).toBe(BLOCK_ID);
+    expect(result.status).toBe('queued');
+    expect(typeof result.jobId).toBe('string');
+
+    expect(aiGenerationJobRepository.createJob).toHaveBeenCalledTimes(1);
+    const createArg = vi.mocked(aiGenerationJobRepository.createJob).mock.calls[0]![0];
+    expect(createArg.jobId).toBe(result.jobId);
+    expect(createArg.userId).toBe(USER_ID);
+    expect(createArg.modelId).toBe(IMAGE_MODEL_ID);
+
+    // flow_id + block_id are written back on the job row.
+    expect(aiGenerationJobRepository.setFlowLink).toHaveBeenCalledWith(
+      result.jobId,
+      FLOW_ID,
+      BLOCK_ID,
+    );
+
+    // Enqueued exactly once with the same jobId.
+    expect(enqueueAiGenerateJob).toHaveBeenCalledTimes(1);
+    const enqArg = vi.mocked(enqueueAiGenerateJob).mock.calls[0]![0];
+    expect(enqArg.jobId).toBe(result.jobId);
+  });
+});
+
+describe('generate — gate failure short-circuits before any spend (AC-01)', () => {
+  it('does not create a job, enqueue, or consume the rate limit when the gate fails', async () => {
+    // LTX requires prompt + image_url; supply neither → RequiredInputMissingError.
+    const canvas: FlowCanvas = { blocks: [genBlock(LTX_MODEL_ID)], edges: [] };
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas));
+    allowRateLimit();
+    vi.mocked(redis.set).mockResolvedValue('OK');
+
+    await expect(
+      generate({ flowId: FLOW_ID, blockId: BLOCK_ID, userId: USER_ID, version: 1, idempotencyKey: IDEM_KEY }),
+    ).rejects.toBeInstanceOf(RequiredInputMissingError);
+
+    expect(aiGenerationJobRepository.createJob).not.toHaveBeenCalled();
+    expect(enqueueAiGenerateJob).not.toHaveBeenCalled();
+    expect(checkFlowRateLimit).not.toHaveBeenCalled();
+  });
+});
+
+describe('generate — rate-limit denial (no spend)', () => {
+  it('throws RateLimitedError and creates no job / no enqueue when over the cap', async () => {
+    const canvas = passingCanvas(IMAGE_MODEL_ID);
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas));
+    vi.mocked(findByIdForUser).mockResolvedValue(ownedReadyFile('image'));
+    vi.mocked(redis.set).mockResolvedValue('OK');
+    vi.mocked(checkFlowRateLimit).mockResolvedValue({ allowed: false, retryAfterSeconds: 42 });
+
+    const err = await generate({
+      flowId: FLOW_ID,
+      blockId: BLOCK_ID,
+      userId: USER_ID,
+      version: 1,
+      idempotencyKey: IDEM_KEY,
+    }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(RateLimitedError);
+    expect(err.retryAfterSeconds).toBe(42);
+    expect(aiGenerationJobRepository.createJob).not.toHaveBeenCalled();
+    expect(enqueueAiGenerateJob).not.toHaveBeenCalled();
+  });
+});
+
+describe('generate — stale version (AC-10b semantics, 409)', () => {
+  it('throws OptimisticLockError and does not spend when the version is stale', async () => {
+    const canvas = passingCanvas(IMAGE_MODEL_ID);
+    // Stored flow is at version 5; the client generated against version 4.
+    vi.mocked(findFlowById).mockResolvedValue({ ...makeFlowRecord(canvas), version: 5 });
+    allowRateLimit();
+    vi.mocked(redis.set).mockResolvedValue('OK');
+
+    await expect(
+      generate({ flowId: FLOW_ID, blockId: BLOCK_ID, userId: USER_ID, version: 4, idempotencyKey: IDEM_KEY }),
+    ).rejects.toBeInstanceOf(OptimisticLockError);
+
+    expect(aiGenerationJobRepository.createJob).not.toHaveBeenCalled();
+    expect(enqueueAiGenerateJob).not.toHaveBeenCalled();
+  });
+});
+
+describe('generate — idempotency on a repeated Idempotency-Key (AC-01)', () => {
+  it('returns the FIRST job and does NOT create a second job or enqueue twice', async () => {
+    const canvas = passingCanvas(IMAGE_MODEL_ID);
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas));
+    vi.mocked(findByIdForUser).mockResolvedValue(ownedReadyFile('image'));
+    allowRateLimit();
+
+    // First call claims the NX key.
+    vi.mocked(redis.set).mockResolvedValueOnce('OK');
+    vi.mocked(redis.get).mockResolvedValue(null);
+    const first = await generate({
+      flowId: FLOW_ID,
+      blockId: BLOCK_ID,
+      userId: USER_ID,
+      version: 1,
+      idempotencyKey: IDEM_KEY,
+    });
+
+    // Second call with the SAME key: NX claim fails, stored result is returned.
+    vi.mocked(redis.set).mockResolvedValueOnce(null);
+    vi.mocked(redis.get).mockResolvedValue(
+      JSON.stringify({ jobId: first.jobId, blockId: first.blockId, status: 'queued' }),
+    );
+    const second = await generate({
+      flowId: FLOW_ID,
+      blockId: BLOCK_ID,
+      userId: USER_ID,
+      version: 1,
+      idempotencyKey: IDEM_KEY,
+    });
+
+    expect(second.jobId).toBe(first.jobId);
+    // Still only ONE create + ONE enqueue across both calls.
+    expect(aiGenerationJobRepository.createJob).toHaveBeenCalledTimes(1);
+    expect(enqueueAiGenerateJob).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('generate — all three modalities route through the ONE path', () => {
+  it.each([
+    ['image', IMAGE_MODEL_ID, false],
+    ['audio', TTS_MODEL_ID, false],
+    ['video', VIDEO_MODEL_ID, true],
+  ] as const)('%s generation creates a job + enqueues once via the same path', async (_label, modelId, needsImage) => {
+    const canvas = passingCanvas(modelId, { image: needsImage });
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas));
+    vi.mocked(findByIdForUser).mockResolvedValue(ownedReadyFile('image'));
+    allowRateLimit();
+    vi.mocked(redis.set).mockResolvedValue('OK');
+    vi.mocked(redis.get).mockResolvedValue(null);
+
+    const result = await generate({
+      flowId: FLOW_ID,
+      blockId: BLOCK_ID,
+      userId: USER_ID,
+      version: 1,
+      idempotencyKey: `${IDEM_KEY}-${modelId}`,
+    });
+
+    expect(result.status).toBe('queued');
+    expect(aiGenerationJobRepository.createJob).toHaveBeenCalledTimes(1);
+    expect(enqueueAiGenerateJob).toHaveBeenCalledTimes(1);
+    const enqArg = vi.mocked(enqueueAiGenerateJob).mock.calls[0]![0];
+    expect(enqArg.modelId).toBe(modelId);
   });
 });
