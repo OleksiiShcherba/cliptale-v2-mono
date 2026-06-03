@@ -267,7 +267,21 @@ No new deployment unit. The feature extends the already-deployed `api`, `web-edi
 
 ## 8. Crosscutting concepts
 
-<!-- pending Socratic walk -->
+| Concept | Convention | Where defined |
+|---|---|---|
+| Authentication | JWT via the existing auth middleware; realtime via `?token=` query param (media tags can't send headers) | `apps/api` middleware (existing) |
+| Authorization | **Owner-scoped** — every flow list/read/write/delete + every Generate is filtered by the calling Creator's `userId`; result assets write into the acting Creator's library only | `generation-flow.controller` + `flow-generate.service` |
+| Existence hiding (AC-04/AC-05) | A flow not owned by the caller returns **`NotFoundError` (404)** — never 403 — so existence is not revealed; a reference to a never-owned asset is denied the same way. The AC-05 "missing asset, replace it" message is shown **only** for an asset the Creator previously owned | here (§8) + controller |
+| Error handling | Typed sentinels → controller mapping → JSON: `NotFoundError` 404 (non-owner/absent), `UnprocessableEntityError` 422 (missing/invalid input, AC-03/05/06/17), `OptimisticLockError` 409 (concurrent save, AC-10b), `ValidationError` 400 (bad request shape) | `apps/api/src/lib/errors.ts` (existing) |
+| Cost-safety gate | Server-authoritative: before any provider call, re-validate inputs/exclusivity/owner → check the per-Creator rate limit → require a confirmed cost. The UI confirmation is advisory only | `flow-generate.service` (ADR-0004/0005) |
+| Result integrity | A library asset is written **iff** the generation succeeds; a failed/empty run writes none and surfaces a retry (AC-09) | `media-worker` (existing `setOutputFile` on success) |
+| Retry semantics | Retry is a **fresh Generate** — re-shows cost, may incur a new charge, counts against the rate limit (AC-09); not a free re-run | `flow-generate.service` |
+| ID strategy | UUID v4 via `randomUUID()`, `CHAR(36)`, `z.string().uuid()` | repo convention |
+| Events / realtime | Redis pub/sub → ws; reuse `ai.job.updated` (scoped by `jobId`) for result-block progress + reattach (AC-08b); no new channel | `lib/realtime.ts` (existing) |
+| Canonical schema | Flow-canvas shape + ai-generate job payload as Zod in `packages/project-schema`; catalog modality/exclusivity in `packages/api-contracts` (ADR-0006) | schema-first convention |
+| Soft delete | `deleted_at IS NULL` scoping; deleting a flow cascades `flow_files` links but RESTRICTs the asset (AC-19, ADR-0007) | repo convention |
+| Input sanitization | Creator text is passed to providers as **content only**, never interpreted as ClipTale instructions (prompt-injection abuse case, spec §6.1) | `flow-generate.service` |
+| Logging | Structured, `module=generate-ai-flow`; spend actions log Creator + model + outcome for abuse audit | repo convention |
 
 ## 9. Architecture decisions
 
