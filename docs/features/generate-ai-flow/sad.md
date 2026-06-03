@@ -247,7 +247,23 @@ sequenceDiagram
 
 ## 7. Deployment view
 
-<!-- pending Socratic walk -->
+No new deployment unit. The feature extends the already-deployed `api`, `web-editor`, and `media-worker` containers and the shared MySQL 8 / Redis 7 / S3 stores. Generation load rides the existing BullMQ `ai-generate` queue and its worker concurrency; the per-Creator rate limit (≤ 30/min, ADR-0004) bounds the enqueue rate so flows add no new burst class to the worker.
+
+**Monitoring:**
+- **Spend / abuse:** per-Creator rate-limit rejection counter; Generate attempts vs accepted (a rejection spike signals scripted abuse — spec §6.1).
+- **Result integrity (spec §6):** generation success/failure rate + a library-write-vs-job-outcome reconciliation (a library asset must exist iff the job succeeded; a failed run writes none).
+- **Latency SLIs:** open-flow p95 (target ≤ 1500 ms), autosave ack p95 (≤ 800 ms), connection-feedback (client metric, ≤ 100 ms).
+- **Tracing:** spans on the Generate request boundary (validate → enqueue) and on the worker job.
+
+**Alerts:**
+- Generation failure-rate spike → page on-call (provider outage).
+- ai-generate worker lag > 10 min → on-call (existing queue alert applies).
+- Rate-limit rejection spike for a single Creator → security review trigger.
+
+**Scaling thresholds:**
+- **Flow size:** the open-latency target holds for flows up to ~50 blocks (spec §8 default); no hard cap enforced in v1. The heaviest case is a large graph with many image-preview result blocks — flagged in §11.
+- **`generation_flows`:** one user-scoped, soft-deleted table, one row per flow; comfortable far beyond expected volume. Revisit partitioning only above multi-million rows (not anticipated).
+- **Availability:** Generate AI page + flow APIs target 99.5% monthly SLO (spec §6).
 
 ## 8. Crosscutting concepts
 
