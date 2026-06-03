@@ -1,11 +1,18 @@
 /**
- * ResultNode — the output of a generation block on the flow canvas (T17).
+ * ResultNode — the output of a generation block on the flow canvas (T17 + T20).
  *
- * Has a single INPUT port (left, wired from its source generation block's output) and a
- * single OUTPUT port (right) carrying the result's modality, so a completed result can be
- * reused directly as an input to another generation block (AC-18) without re-importing it
- * through the library. Live progress + dominant media preview rendering is wired in T20;
- * here it shows the result modality + a placeholder.
+ * Single INPUT port (left, from its source generation block's output) and a single
+ * OUTPUT port (right) carrying the result's modality, so a completed result is reusable
+ * directly as an input to another generation block (AC-18) without re-importing it
+ * through the library.
+ *
+ * T20 wiring — driven by the resolved job in node data (from useFlowGeneration):
+ *   - running   → live progress bar (AC-08)
+ *   - completed → the DOMINANT media preview occupying the majority of the block:
+ *                 image = <img>, video = <video controls>, audio = <audio controls>
+ *                 (AC-08 image/video/audio all render; AC-12 audio, AC-13 video)
+ *   - failed    → the failure reason in plain language + a Retry button (a fresh,
+ *                 charged Generate via onRetry) (AC-09)
  */
 
 import React from 'react';
@@ -14,21 +21,65 @@ import { Handle, Position } from '@xyflow/react';
 import type { NodeProps } from '@xyflow/react';
 import type { FlowBlock } from '@ai-video-editor/project-schema';
 
-import { MODALITY_COLOR, handleBase, nodeHeader, nodeRoot, nodeSubtle } from './flowNodeStyles';
+import type { AiGenerationJob } from '@/shared/ai-generation/types';
+
+import { ERROR, MODALITY_COLOR, PRIMARY, handleBase, nodeHeader, nodeRoot, nodeSubtle } from './flowNodeStyles';
 import type { Modality } from '../hooks/useFlowCanvas';
 
 export type ResultNodeData = {
   block: FlowBlock;
   /** Output modality, resolved by the canvas from the source generation model. */
   modality?: Modality;
+  /** Resolved job state (live from useJobPolling or the reattach seed). */
+  job?: AiGenerationJob | null;
+  /** Streamable/displayable URL for the produced media, on completion. */
+  previewUrl?: string | null;
+  /** Fresh, charged Generate of this block (AC-09 retry). */
+  onRetry?: () => void;
 };
 
+const mediaBox: React.CSSProperties = {
+  width: '100%',
+  minHeight: 140,
+  maxHeight: 220,
+  borderRadius: 8,
+  background: '#000',
+  display: 'block',
+  objectFit: 'contain',
+};
+
+function DominantMedia({
+  modality,
+  previewUrl,
+}: {
+  modality?: Modality;
+  previewUrl?: string | null;
+}): React.ReactElement {
+  const src = previewUrl ?? '';
+  if (modality === 'video') {
+    return <video data-testid="result-media-video" src={src} controls style={mediaBox} />;
+  }
+  if (modality === 'audio') {
+    return (
+      <audio data-testid="result-media-audio" src={src} controls style={{ width: '100%', display: 'block' }} />
+    );
+  }
+  // image (and any default) → large preview
+  return <img data-testid="result-media-image" src={src} alt="Generated result" style={mediaBox} />;
+}
+
 export function ResultNode({ id, data }: NodeProps): React.ReactElement {
-  const { block, modality } = data as ResultNodeData;
+  const { block, modality, job, previewUrl, onRetry } = data as ResultNodeData;
   const color = modality ? MODALITY_COLOR[modality] ?? '#888' : '#888';
+  const status = job?.status;
 
   return (
-    <div style={nodeRoot} data-testid="result-node" data-block-id={id} data-source-block-id={block.params.sourceBlockId as string | undefined}>
+    <div
+      style={nodeRoot}
+      data-testid="result-node"
+      data-block-id={id}
+      data-source-block-id={block.params.sourceBlockId as string | undefined}
+    >
       <Handle
         type="target"
         position={Position.Left}
@@ -40,7 +91,49 @@ export function ResultNode({ id, data }: NodeProps): React.ReactElement {
       <div style={{ ...nodeHeader, color }}>
         <span>Result{modality ? ` · ${modality}` : ''}</span>
       </div>
-      <div style={nodeSubtle}>No result yet</div>
+
+      {/* DOMINANT result area (AC-08) — secondary labels/controls below. */}
+      {status === 'completed' ? (
+        <DominantMedia modality={modality} previewUrl={previewUrl} />
+      ) : status === 'failed' ? (
+        <div role="alert" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ color: ERROR, fontSize: 12 }}>
+            Generation failed: {job?.errorMessage ?? 'Unknown error.'}
+          </div>
+          <button
+            type="button"
+            onClick={() => onRetry?.()}
+            aria-label="Retry generation"
+            style={{
+              alignSelf: 'flex-start',
+              background: PRIMARY,
+              border: 'none',
+              color: '#fff',
+              borderRadius: 6,
+              padding: '4px 12px',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      ) : status === 'queued' || status === 'processing' ? (
+        <div data-testid="result-progress" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div
+            style={{ height: 6, borderRadius: 3, background: '#252535', overflow: 'hidden' }}
+            role="progressbar"
+            aria-valuenow={job?.progress ?? 0}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div style={{ height: '100%', width: `${job?.progress ?? 0}%`, background: PRIMARY }} />
+          </div>
+          <div style={nodeSubtle}>Generating… {job?.progress ?? 0}%</div>
+        </div>
+      ) : (
+        <div style={nodeSubtle}>No result yet</div>
+      )}
 
       <Handle
         type="source"

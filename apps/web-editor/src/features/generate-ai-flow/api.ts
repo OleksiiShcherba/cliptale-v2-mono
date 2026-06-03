@@ -14,7 +14,8 @@
  *   PUT    /generation-flows/:flowId/canvas              → saveCanvas
  */
 
-import { apiClient } from '@/lib/api-client';
+import { apiClient, getAuthToken } from '@/lib/api-client';
+import { config } from '@/lib/config';
 
 import type {
   Flow,
@@ -22,6 +23,9 @@ import type {
   FlowSummaryPage,
   CanvasSave,
   CanvasSaveResult,
+  CostEstimate,
+  GenerateInput,
+  GenerateAccepted,
   ApiError,
 } from './types';
 
@@ -122,4 +126,56 @@ export async function saveCanvas(flowId: string, payload: CanvasSave): Promise<C
     await apiClient.put(`/generation-flows/${flowId}/canvas`, payload),
   );
   return (await res.json()) as CanvasSaveResult;
+}
+
+// ── Generate surface (T20 / T15 endpoints) ──────────────────────────────────
+
+/**
+ * POST /generation-flows/:flowId/blocks/:blockId/estimate
+ * Best-effort pre-flight cost (static table, ADR-0005). Non-mutating, no
+ * provider call. Shown in the cost confirmation BEFORE the paid Generate.
+ */
+export async function estimateGeneration(flowId: string, blockId: string): Promise<CostEstimate> {
+  const res = await requireOk(
+    await apiClient.post(`/generation-flows/${flowId}/blocks/${blockId}/estimate`, {}),
+  );
+  return (await res.json()) as CostEstimate;
+}
+
+/**
+ * POST /generation-flows/:flowId/blocks/:blockId/generate
+ *
+ * The single spend path. REQUIRES an `Idempotency-Key` header (generated fresh per
+ * Generate press, stable across the confirm step) so a double-submit / network retry
+ * never double-charges — the server returns the first run's job on replay (TTL 24h).
+ * Returns 202 GenerateAccepted; progress arrives async (polled via useJobPolling).
+ *
+ * apiClient.post cannot attach a custom header, so this uses a raw fetch with the
+ * same auth + base-url idiom as api-client (token from getAuthToken, config base url).
+ */
+export async function generateBlock(
+  flowId: string,
+  blockId: string,
+  input: GenerateInput,
+): Promise<GenerateAccepted> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Idempotency-Key': input.idempotencyKey,
+  };
+  const token = getAuthToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(
+    `${config.apiBaseUrl}/generation-flows/${flowId}/blocks/${blockId}/generate`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        version: input.version,
+        ...(input.acknowledgedCost ? { acknowledgedCost: input.acknowledgedCost } : {}),
+      }),
+    },
+  );
+  await requireOk(res);
+  return (await res.json()) as GenerateAccepted;
 }

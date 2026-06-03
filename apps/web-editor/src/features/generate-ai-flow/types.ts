@@ -78,6 +78,40 @@ export type JobState = {
   errorMessage: string | null;
 };
 
+// ── Generate surface (← contracts/openapi.yaml estimate + generate) ──────────
+
+/** ISO-4217 money, mirrors the Money schema. */
+export type Money = {
+  currency: string;
+  amount: number;
+};
+
+/** Best-effort cost estimate (POST .../estimate, ADR-0005). */
+export type CostEstimate = {
+  flowId: string;
+  blockId: string;
+  modelId: string;
+  estimate: Money;
+  bestEffort: boolean;
+};
+
+/** Generate request inputs (POST .../generate). The Idempotency-Key is a header. */
+export type GenerateInput = {
+  /** client-generated UUID — stable across one Generate press, fresh per retry. */
+  idempotencyKey: string;
+  /** the flow version the Creator generated against (stale → 409, AC-10b). */
+  version: number;
+  /** the estimate the Creator confirmed (advisory; server is authoritative). */
+  acknowledgedCost?: Money;
+};
+
+/** 202 response from POST .../generate. */
+export type GenerateAccepted = {
+  jobId: string;
+  blockId: string;
+  status: 'queued';
+};
+
 // ── Error envelope (repo pattern: { error } + additive { code, details }) ────
 
 export type ApiError = {
