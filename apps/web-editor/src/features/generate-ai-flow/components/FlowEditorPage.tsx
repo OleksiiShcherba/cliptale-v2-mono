@@ -145,9 +145,9 @@ function FlowEditor({
   // ── Generate spend gate, scoped to the generation block being generated ─────
   const [generatingBlockId, setGeneratingBlockId] = React.useState<string | null>(null);
   const resultBlockForGen = findResultBlock(canvas, generatingBlockId);
-  const reattachState = generatingBlockId
-    ? jobsByBlock[resultBlockForGen?.blockId ?? ''] ?? null
-    : null;
+  // Jobs are keyed by the GENERATION block id (job.blockId from setFlowLink), so the
+  // reattach seed is looked up by the generation block, not the result block.
+  const reattachState = generatingBlockId ? jobsByBlock[generatingBlockId] ?? null : null;
 
   const generation = useFlowGeneration({
     flowId: flow.flowId,
@@ -286,15 +286,21 @@ function FlowEditor({
       }),
       result: (blockId) => {
         const s = lookupRef.current;
-        const jobState = s.jobsByBlock[blockId] ?? null;
+        // A result block's job + preview are keyed by its GENERATION block id (its
+        // sourceBlockId), because the ai_generation_job's block_id is the generation
+        // block (setFlowLink). On reload there is no live overlay, so the result block
+        // MUST resolve through sourceBlockId — else the produced image is lost (AC-10).
+        const blk = canvas.blocks.find((b) => b.blockId === blockId);
+        const sourceGen = blk?.params.sourceBlockId as string | undefined;
+        const jobState =
+          s.jobsByBlock[blockId] ?? (sourceGen ? s.jobsByBlock[sourceGen] : undefined) ?? null;
         const isLive = s.liveResultBlockId === blockId;
         const job = isLive && s.liveJob ? s.liveJob : jobStateToJob(jobState);
         return {
           job,
-          previewUrl: s.previewUrls[blockId] ?? null,
+          previewUrl:
+            s.previewUrls[blockId] ?? (sourceGen ? s.previewUrls[sourceGen] : undefined) ?? null,
           onRetry: () => {
-            const blk = canvas.blocks.find((b) => b.blockId === blockId);
-            const sourceGen = blk?.params.sourceBlockId as string | undefined;
             if (sourceGen) handleGenerateRef.current(sourceGen);
           },
         };

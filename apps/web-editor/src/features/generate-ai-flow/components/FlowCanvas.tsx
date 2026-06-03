@@ -27,6 +27,7 @@ import {
   ReactFlowProvider,
   Background,
   BackgroundVariant,
+  applyNodeChanges,
 } from '@xyflow/react';
 import type {
   Node,
@@ -120,26 +121,52 @@ function InnerFlowCanvas({
   }, [contentSignature, onCanvasChange]);
 
   // ── Map the canvas document → xyflow nodes/edges ────────────────────────────
-  const nodes = useMemo<Node[]>(
-    () =>
-      canvas.blocks.map((block) => ({
-        id: block.blockId,
-        type: block.type,
-        position: block.position,
-        // Seed dimensions so xyflow renders the node immediately (visible) instead of
-        // keeping it visibility:hidden until a ResizeObserver measurement lands — which
-        // races with fitView and otherwise leaves nodes hidden in fast/headless runs.
-        initialWidth: 220,
-        initialHeight: 120,
-        // Drive the node's selected outline from the Inspector selection (above).
-        selected: block.blockId === selectedBlockId,
-        data:
-          block.type === 'result'
-            ? { block, modality: blockOutputModality(block, canvas) }
-            : { block },
-      })),
-    [canvas, selectedBlockId],
+  //
+  // xyflow OWNS the rendered nodes (rfNodes): it keeps each node's live drag position
+  // and measured size, so dragging is smooth and does not re-measure every node. The
+  // canvas document remains the source of truth for STRUCTURE (which blocks/edges exist,
+  // their type/params/selection) and is reconciled into rfNodes below WITHOUT clobbering
+  // xyflow's positions/measurements. Final drag positions are written back to the doc on
+  // drag stop. (Previously nodes were re-derived from the doc on every drag tick, which
+  // reset initialWidth/Height on all nodes → handle anchors jumped → all edges jittered.)
+  const buildNode = useCallback(
+    (block: FlowCanvasDoc['blocks'][number], full: FlowCanvasDoc): Node => ({
+      id: block.blockId,
+      type: block.type,
+      position: block.position,
+      initialWidth: 220,
+      initialHeight: 120,
+      selected: block.blockId === selectedBlockId,
+      data:
+        block.type === 'result'
+          ? { block, modality: blockOutputModality(block, full) }
+          : { block },
+    }),
+    [selectedBlockId],
   );
+
+  const [rfNodes, setRfNodes] = React.useState<Node[]>(() =>
+    canvas.blocks.map((b) => buildNode(b, canvas)),
+  );
+
+  // Reconcile structure/selection/data into rfNodes when they change — but NOT on a bare
+  // position move (contentSignature excludes positions), so a drag never re-runs this and
+  // never overrides xyflow's live node positions/sizes. Existing nodes keep their
+  // xyflow-owned position + measured fields; new nodes take the doc position; removed
+  // nodes drop out.
+  React.useEffect(() => {
+    setRfNodes((prev) => {
+      const prevById = new Map(prev.map((n) => [n.id, n]));
+      return canvas.blocks.map((block) => {
+        const base = buildNode(block, canvas);
+        const existing = prevById.get(block.blockId);
+        return existing
+          ? { ...existing, type: base.type, data: base.data, selected: base.selected }
+          : base;
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentSignature, selectedBlockId, buildNode]);
 
   const edges = useMemo<Edge[]>(
     () =>
@@ -156,39 +183,40 @@ function InnerFlowCanvas({
     [canvas.edges, selectedEdgeId],
   );
 
-  // Persist node POSITION changes back into the canvas document. We deliberately
-  // ignore xyflow's dimension/select/measurement change events: applying them would
-  // mint a new canvas object on every measurement tick and churn the canvas reference,
-  // which re-arms the debounced autosave forever (it would never settle and save).
+  // Apply xyflow's node changes to the xyflow-owned rfNodes (smooth drag + stable
+  // measurement). `select` is driven by selectedBlockId (above) so it is dropped here to
+  // keep a single source of truth; `remove` (Delete key) is also applied to the canvas
+  // doc so the block + its incident edges are dropped.
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      // Node removals (Delete/Backspace on a selected node) are real edits — apply them
-      // (removeBlock also drops the block's incident edges so nothing dangles).
       for (const ch of changes) {
         if (ch.type === 'remove') removeBlock(ch.id);
       }
+      const applied = changes.filter((ch) => ch.type !== 'select');
+      if (applied.length === 0) return;
+      setRfNodes((nds) => applyNodeChanges(applied, nds));
+    },
+    [removeBlock],
+  );
 
-      const positionChanges = changes.filter(
-        (ch): ch is Extract<NodeChange, { type: 'position' }> =>
-          ch.type === 'position' && ch.position != null,
-      );
-      if (positionChanges.length === 0) return;
-
+  // Commit the final drag position to the canvas document so the doc stays consistent
+  // (and a later content-change autosave persists the new layout). Position-only changes
+  // do not themselves trigger autosave (contentSignature excludes positions), matching
+  // the optimistic-lock churn guard.
+  const onNodeDragStop = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
       setCanvas((c) => {
-        const posById = new Map(positionChanges.map((ch) => [ch.id, ch.position!]));
         let mutated = false;
         const blocks = c.blocks.map((b) => {
-          const pos = posById.get(b.blockId);
-          if (!pos || (pos.x === b.position.x && pos.y === b.position.y)) return b;
+          if (b.blockId !== node.id) return b;
+          if (b.position.x === node.position.x && b.position.y === node.position.y) return b;
           mutated = true;
-          return { ...b, position: { x: pos.x, y: pos.y } };
+          return { ...b, position: { x: node.position.x, y: node.position.y } };
         });
-        // Return the SAME canvas reference when nothing actually moved so consumers
-        // (autosave debounce, node memo) don't see a spurious change.
         return mutated ? { ...c, blocks } : c;
       });
     },
-    [setCanvas, removeBlock],
+    [setCanvas],
   );
 
   // Edge removals (Delete/Backspace on a selected connection). We ignore xyflow's
@@ -245,10 +273,11 @@ function InnerFlowCanvas({
   return (
     <div style={FLOW_CONTAINER_STYLE} data-testid="flow-canvas">
       <ReactFlow
-        nodes={nodes}
+        nodes={rfNodes}
         edges={edges}
         nodeTypes={FLOW_NODE_TYPES}
         onNodesChange={onNodesChange}
+        onNodeDragStop={onNodeDragStop}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeClick={onNodeClick}

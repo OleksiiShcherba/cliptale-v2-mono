@@ -140,6 +140,39 @@ describe('FlowEditorPage', () => {
     expect(home.getAttribute('href')).toBe('/?tab=generate-ai');
   });
 
+  it('restores a produced result image on reload (job is keyed by the generation block)', async () => {
+    // On reload there is no live overlay: the result block must resolve its job + preview
+    // through its sourceBlockId (the generation block the job is keyed by), or the image is lost.
+    mockGetFlow.mockResolvedValue({
+      flowId: 'flow-1',
+      title: 'My flow',
+      version: 3,
+      canvas: {
+        schemaVersion: 1 as const,
+        blocks: [
+          { blockId: 'g1', type: 'generation' as const, position: { x: 0, y: 0 }, params: { modelId: GEN_MODEL } },
+          { blockId: 'r1', type: 'result' as const, position: { x: 320, y: 0 }, params: { sourceBlockId: 'g1' } },
+        ],
+        edges: [
+          { edgeId: 'e1', sourceBlockId: 'g1', sourceHandle: 'out', targetBlockId: 'r1', targetHandle: 'in' },
+        ],
+      },
+      jobs: [
+        { jobId: 'job-1', blockId: 'g1', status: 'done', progress: 100, outputFileId: 'file-1', resultUrl: null, errorMessage: null },
+      ],
+      createdAt: '2026-06-03T00:00:00.000Z',
+      updatedAt: '2026-06-03T00:00:00.000Z',
+    });
+    mockGetFileUrl.mockResolvedValue('https://cdn.test/result.png');
+
+    renderPage();
+
+    await waitFor(() => expect(document.querySelector('[data-block-id="r1"]')).not.toBeNull());
+    const img = (await screen.findByTestId('result-media-image')) as HTMLImageElement;
+    expect(img.src).toContain('result.png');
+    expect(mockGetFileUrl).toHaveBeenCalledWith('file-1');
+  });
+
   it('renders the loaded blocks on the canvas', async () => {
     renderPage();
     await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).not.toBeNull());
