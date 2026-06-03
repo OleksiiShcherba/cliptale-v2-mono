@@ -60,6 +60,66 @@ export class UnprocessableEntityError extends Error {
 }
 
 /**
+ * Generate-gate failures (generate-ai-flow T11, AC-03/05/06/17).
+ *
+ * All are 422 (a subclass of UnprocessableEntityError, so the existing centralized
+ * error handler maps the status for free) but each carries a stable machine `code`
+ * (mirroring contracts/openapi.yaml POST .../generate) plus structured `details`,
+ * so the controller (T15) can surface `{error, code, details}` to the client.
+ *
+ * NOTE: a reference to a *never-owned* asset is NOT one of these — it is a 404
+ * (NotFoundError, existence hiding, AC-04). `flow.asset_missing` is reserved for an
+ * asset the Creator *previously owned* and is now gone.
+ */
+export class GateError extends UnprocessableEntityError {
+  /** Machine-readable error code from the OpenAPI contract (e.g. "flow.required_input_missing"). */
+  readonly code: string;
+  /** Structured, client-safe context (e.g. { blockId, input }). */
+  readonly details: Record<string, unknown>;
+  constructor(message: string, code: string, details: Record<string, unknown>) {
+    super(message);
+    this.name = 'GateError';
+    this.code = code;
+    this.details = details;
+  }
+}
+
+/** A required model input has no compatible connection and no supplied value (AC-03). */
+export class RequiredInputMissingError extends GateError {
+  constructor(message: string, details: Record<string, unknown>) {
+    super(message, 'flow.required_input_missing', details);
+    this.name = 'RequiredInputMissingError';
+  }
+}
+
+/** An exactly-one-of (exclusiveGroup) rule was violated — zero or 2+ provided (AC-06). */
+export class ExclusivityViolationError extends GateError {
+  constructor(message: string, details: Record<string, unknown>) {
+    super(message, 'flow.exclusivity_violation', details);
+    this.name = 'ExclusivityViolationError';
+  }
+}
+
+/**
+ * A referenced library asset the Creator PREVIOUSLY OWNED is now missing (AC-05).
+ * Never raised for a never-owned asset — that path is a 404 (NotFoundError).
+ */
+export class AssetMissingError extends GateError {
+  constructor(message: string, details: Record<string, unknown>) {
+    super(message, 'flow.asset_missing', details);
+    this.name = 'AssetMissingError';
+  }
+}
+
+/** A content block is empty or holds invalid/incompatible media (AC-17). */
+export class ContentInvalidError extends GateError {
+  constructor(message: string, details: Record<string, unknown>) {
+    super(message, 'flow.content_invalid', details);
+    this.name = 'ContentInvalidError';
+  }
+}
+
+/**
  * Thrown when the requested resource has been permanently removed and will not
  * come back. Maps to HTTP 410 Gone.
  *
