@@ -323,7 +323,39 @@ ADR files live under `docs/features/generate-ai-flow/adr/NNNN-<title>.md`.
 
 ## 11. Risks and technical debt
 
-<!-- pending Socratic walk -->
+| Risk / debt | Severity | Mitigation | Owner |
+|---|---|---|---|
+| Large-flow performance — a graph with many image-preview result blocks is the heaviest case; the ≤ 1500 ms open target may not hold past ~50 blocks | Medium | Target scoped to ~50 blocks (spec §8 default), no hard cap v1; lazy-render off-screen previews; revisit a cap if telemetry shows breach | Tech Lead |
+| Static pricing table drifts from real provider pricing (ADR-0005) | Medium | Label estimates best-effort; periodic manual update; reconcile actual charges out of band | Tech Lead + Business owner |
+| Provider failure / charged-but-empty generation | Medium | AC-09 failed state + retry (a fresh, charged Generate); never link a failed/empty asset; alert on failure-rate spike | Tech Lead |
+| Generation rate-limit threshold / per-plan quota not finalized (spec §8 OQ) | Open question | Resolve before `sdd:tasks`; default ≤ 30/min/Creator, no credit quota, implemented now | Product / Business owner |
+| Refund/credit policy for a charged-but-failed generation undecided (spec §8 OQ) | Open question | Resolve before launch; default: no automatic refund, retry offered | Product / Business owner |
+| Catalog may not yet encode alternative-exclusivity groups AC-06 relies on (spec §8 OQ) | Open question | Validate + model in `sdd:data-model`; ADR-0006 commits to declaring it in the catalog schema | Tech Lead |
+| Per-model cost-estimate source — catalog carries no pricing; providers bill on actuals (spec §8 OQ) | Open question | Resolve before `sdd:api`; default: best-effort static per-model estimate (ADR-0005), reconcile out of band | Tech Lead + Business owner |
+
+**Accepted debt (acceptable in v1, plan to fix later):**
+- **No undo/redo or version snapshots** for flows in v1 (spec §8 OQ resolved): autosave + the AC-10b 409 conflict warning only — no canvas history store. Revisit if Creators ask for time-travel; the `project-store` Immer-patches pattern is the upgrade path.
+- **Static pricing table** requires manual upkeep (see risk above).
+- **Single result per Generate** (AC-14) — multi-output models run for one output; multi-variant generation is a deferred non-goal (spec §3).
+- **No auto-DAG chain execution** — Generate runs one block; multi-step results need sequential presses (deliberate non-goal, spec §3).
+
+## 12. Glossary
+
+| Term | Meaning |
+|---|---|
+| Creator | The signed-in owner of a generation flow; the only acting role. A non-owner has no access (returns 404) |
+| Generation flow (flow) | A saved, reloadable owner-scoped node graph (blocks + connections + positions + params + result links) persisted as a JSON canvas document + a version column |
+| Flow canvas | The `@xyflow/react` node-graph editing surface of one flow |
+| Content block | A block supplying input: text / image / audio / video (uploaded or picked from the library) |
+| Generation block | A block running a chosen model to produce media (image / video / audio generation) |
+| Result block | The auto-created block showing a generation's progress then produced media; mapped to one job and one library asset |
+| Input handle | A typed connection point on a generation block, one per required input field, typed by modality |
+| Model-input compatibility | The invariant: a connection joins matching modalities only, and a block runs only when every required input (incl. exactly-one-of exclusivity groups) is satisfied |
+| Cost confirmation | The pre-Generate gate surfacing a best-effort estimate; required before any paid provider call |
+| Generate | The per-block spend-bearing action: server re-validates → rate-limit check → confirmed cost → enqueue → result into block + library |
+| Optimistic version | The `generation_flows` version column; a save carrying a stale parent version is rejected with 409 (AC-10b) |
+| flow_files | The pivot linking a flow to its result assets; CASCADE on flow delete, RESTRICT on the asset (AC-19) |
+| General library | The Creator's user-scoped `files`-backed asset store where all results + uploads live, independent of any flow |
 
 ## 12. Glossary
 
