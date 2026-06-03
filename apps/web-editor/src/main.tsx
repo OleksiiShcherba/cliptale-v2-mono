@@ -15,6 +15,7 @@ import { GenerateProjectFromStoryboardPage } from '@/features/generate-wizard/co
 import { HomePage } from '@/features/home/components/HomePage';
 import { TrashPanel } from '@/features/trash/TrashPanel';
 import { StoryboardPage } from '@/features/storyboard/components/StoryboardPage';
+import { FlowListPage } from '@/features/generate-ai-flow/components/FlowListPage';
 
 // ---------------------------------------------------------------------------
 // Global CSS reset — applied programmatically so no separate CSS file is needed.
@@ -88,6 +89,14 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <StoryboardPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/generate-ai',
+    element: (
+      <ProtectedRoute>
+        <FlowListPage />
       </ProtectedRoute>
     ),
   },
