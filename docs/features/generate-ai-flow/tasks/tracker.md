@@ -13,7 +13,7 @@
 | T6 | generation-flow.repository | infra | Backend Lead | M | T1, T4 | done |
 | T7 | flow-file pivot repo + ai-job back-links | infra | Backend Lead | M | T2, T3 | done |
 | T8 | generation-flow.service | app | Backend Lead | M | T6 | todo |
-| T9 | flow-pricing + cost-estimate service | app | Backend Lead | S | T5 | todo |
+| T9 | flow-pricing + cost-estimate service | app | Backend Lead | S | T5 | done |
 | T10 | per-Creator Redis rate limit | app | Backend Lead | S | — | done |
 | T11 | Generate validation gate | app | Backend Lead | L | T6, T5 | todo |
 | T12 | Generate enqueue — job + link + idempotency | app | Backend Lead | M | T7, T9, T10, T11 | todo |
