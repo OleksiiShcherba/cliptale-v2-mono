@@ -23,7 +23,7 @@
 | T16 | FlowListPage + api.ts + /generate-ai route | ui | Frontend Lead | M | T14 | done |
 | T17 | FlowCanvas + nodes + typed-connect + reconciliation | ui | Frontend Lead | L | T5, T16 | done |
 | T18 | Inspector + content input + params | ui | Frontend Lead | M | T17 | done |
-| T19 | useFlowAutosave (version-aware, 409) | ui | Frontend Lead | M | T16, T14 | todo |
+| T19 | useFlowAutosave (version-aware, 409) | ui | Frontend Lead | M | T16, T14 | done |
 | T20 | CostConfirmModal + useFlowGeneration | ui | Frontend Lead | L | T17, T15 | todo |
 | T21 | Backend integration suite | tests | Backend Lead / QA | M | T14, T15, T13 | todo |
 | T22 | E2E — full flow + restore + reattach + conflict | tests | QA | M | T18, T19, T20 | todo |
