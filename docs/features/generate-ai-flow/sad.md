@@ -183,7 +183,67 @@ C4Container
 
 ## 6. Runtime view
 
-<!-- pending Socratic walk -->
+*(Seed flows; `sdd:sequences` covers every §5 AC with no cap. Participants are §5 names; messages are semantic — endpoint-level detail arrives at the `api` stage.)*
+
+**Critical flow 1: Press Generate (happy path + cost gate — AC-01 / AC-11)**
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web
+    participant API as API (flow-generate)
+    participant Redis
+    participant Worker as media-worker
+    participant Store as MySQL
+    participant Provider as AI provider
+    participant S3
+    Creator->>Web: presses Generate on a block
+    Web->>API: asks for the block's cost estimate
+    API->>Store: reads canvas, resolves the block's inputs
+    API-->>Web: best-effort estimate
+    Web-->>Creator: shows cost confirmation
+    Creator->>Web: confirms
+    Web->>API: runs Generate (flow version + block id)
+    API->>API: re-validates inputs / exclusivity / owner; checks per-Creator rate limit
+    API->>Store: creates the job and the result-block link
+    API->>Redis: enqueues the ai-generate job
+    API-->>Web: job accepted
+    Web->>API: subscribes to job progress
+    Worker->>Redis: consumes the job
+    Worker->>Provider: submits the generation
+    Worker->>Redis: publishes progress
+    Redis-->>Web: progress updates
+    Provider-->>Worker: produced media
+    Worker->>S3: uploads the result asset
+    Worker->>Store: writes the file row + flow link, marks the job complete
+    Worker->>Redis: publishes completion
+    Redis-->>Web: completion event
+    Web-->>Creator: shows the result in the block and in the library
+```
+
+**Critical flow 2: Reattach on reopen (async durability — AC-08b)**
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web
+    participant API
+    participant Store as MySQL
+    participant Redis
+    Creator->>Web: reopens the flow
+    Web->>API: loads the flow canvas
+    API->>Store: reads the canvas + each result block's job state
+    API-->>Web: canvas + last-known job states
+    alt completed while away
+        Web-->>Creator: shows the produced result (already in the library)
+    else failed while away
+        Web-->>Creator: shows the failed state with a retry option
+    else still running
+        Web->>API: subscribes to the running job
+        Redis-->>Web: live progress, then completion
+        Web-->>Creator: updates the result block
+    end
+```
 
 ## 7. Deployment view
 
