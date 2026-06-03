@@ -278,6 +278,8 @@ No new deployment unit. The feature extends the already-deployed `api`, `web-edi
 | Retry semantics | Retry is a **fresh Generate** — re-shows cost, may incur a new charge, counts against the rate limit (AC-09); not a free re-run | `flow-generate.service` |
 | ID strategy | UUID v4 via `randomUUID()`, `CHAR(36)`, `z.string().uuid()` | repo convention |
 | Events / realtime | Redis pub/sub → ws; reuse `ai.job.updated` (scoped by `jobId`) for result-block progress + reattach (AC-08b); no new channel | `lib/realtime.ts` (existing) |
+| Model-change reconciliation (AC-07) | Changing a generation block's model rebuilds its input handles for the new model, prunes now-incompatible connections (telling the Creator which were removed), and **preserves** any existing result block + its library linkage — only input edges change | `useFlowCanvas` + catalog (ADR-0006) |
+| Result reuse (AC-18) | A result block's output connects directly into a compatible input handle of another generation block (matched by modality); the result is reused as that input on the next Generate **without** re-importing through the library | `useFlowCanvas` + §6 flow |
 | Canonical schema | Flow-canvas shape + ai-generate job payload as Zod in `packages/project-schema`; catalog modality/exclusivity in `packages/api-contracts` (ADR-0006) | schema-first convention |
 | Soft delete | `deleted_at IS NULL` scoping; deleting a flow cascades `flow_files` links but RESTRICTs the asset (AC-19, ADR-0007) | repo convention |
 | Input sanitization | Creator text is passed to providers as **content only**, never interpreted as ClipTale instructions (prompt-injection abuse case, spec §6.1) | `flow-generate.service` |
@@ -323,15 +325,18 @@ ADR files live under `docs/features/generate-ai-flow/adr/NNNN-<title>.md`.
 
 ## 11. Risks and technical debt
 
-| Risk / debt | Severity | Mitigation | Owner |
-|---|---|---|---|
-| Large-flow performance — a graph with many image-preview result blocks is the heaviest case; the ≤ 1500 ms open target may not hold past ~50 blocks | Medium | Target scoped to ~50 blocks (spec §8 default), no hard cap v1; lazy-render off-screen previews; revisit a cap if telemetry shows breach | Tech Lead |
-| Static pricing table drifts from real provider pricing (ADR-0005) | Medium | Label estimates best-effort; periodic manual update; reconcile actual charges out of band | Tech Lead + Business owner |
-| Provider failure / charged-but-empty generation | Medium | AC-09 failed state + retry (a fresh, charged Generate); never link a failed/empty asset; alert on failure-rate spike | Tech Lead |
-| Generation rate-limit threshold / per-plan quota not finalized (spec §8 OQ) | Open question | Resolve before `sdd:tasks`; default ≤ 30/min/Creator, no credit quota, implemented now | Product / Business owner |
-| Refund/credit policy for a charged-but-failed generation undecided (spec §8 OQ) | Open question | Resolve before launch; default: no automatic refund, retry offered | Product / Business owner |
-| Catalog may not yet encode alternative-exclusivity groups AC-06 relies on (spec §8 OQ) | Open question | Validate + model in `sdd:data-model`; ADR-0006 commits to declaring it in the catalog schema | Tech Lead |
-| Per-model cost-estimate source — catalog carries no pricing; providers bill on actuals (spec §8 OQ) | Open question | Resolve before `sdd:api`; default: best-effort static per-model estimate (ADR-0005), reconcile out of band | Tech Lead + Business owner |
+*(Every spec §8 open question carries a row with both owner AND due, verbatim from spec §8. The two OQs due "before `sdd:design`" were resolved during this walk — marked resolved but kept here so the §8↔§11 mapping stays auditable.)*
+
+| Risk / debt | Severity | Mitigation | Owner | Due |
+|---|---|---|---|---|
+| Generation rate-limit threshold / per-plan quota not finalized (spec §8 OQ) | Open question | Default ≤ 30/min/Creator, no credit quota, implemented now (ADR-0004) | Product / Business owner | before `sdd:tasks` |
+| Per-model cost-estimate source — catalog carries no pricing; providers bill on actuals (spec §8 OQ) | Open question | Default: best-effort static per-model estimate (ADR-0005), reconcile out of band | Tech Lead + Business owner | before `sdd:api` |
+| Refund/credit policy for a charged-but-failed generation undecided (spec §8 OQ) | Open question | Default: no automatic refund, retry offered | Product / Business owner | before launch |
+| Catalog may not yet encode alternative-exclusivity groups AC-06 relies on (spec §8 OQ) | Open question | Validate + model in `sdd:data-model`; ADR-0006 commits to declaring it in the catalog schema | Tech Lead | before `sdd:data-model` |
+| Undo/redo + version-snapshot depth (spec §8 OQ) — **resolved 2026-06-03**: none in v1, autosave + AC-10b conflict only (see Accepted debt) | Open question | Default accepted; `project-store` Immer-patches is the upgrade path if Creators ask for time-travel | Tech Lead | before `sdd:design` (met) |
+| "Typical" flow size + per-flow block cap for the open-latency target (spec §8 OQ) — **resolved 2026-06-03**: target holds ≤ ~50 blocks, no hard cap v1 | Open question | Lazy-render off-screen previews; revisit a cap if telemetry shows breach (heaviest case: many image previews) | Tech Lead | before `sdd:design` (met) |
+| Static pricing table drifts from real provider pricing (ADR-0005) | Medium | Label estimates best-effort; periodic manual update; reconcile actual charges out of band | Tech Lead + Business owner | ongoing |
+| Provider failure / charged-but-empty generation | Medium | AC-09 failed state + retry (a fresh, charged Generate); never link a failed/empty asset; alert on failure-rate spike | Tech Lead | — |
 
 **Accepted debt (acceptable in v1, plan to fix later):**
 - **No undo/redo or version snapshots** for flows in v1 (spec §8 OQ resolved): autosave + the AC-10b 409 conflict warning only — no canvas history store. Revisit if Creators ask for time-travel; the `project-store` Immer-patches pattern is the upgrade path.
@@ -356,7 +361,3 @@ ADR files live under `docs/features/generate-ai-flow/adr/NNNN-<title>.md`.
 | Optimistic version | The `generation_flows` version column; a save carrying a stale parent version is rejected with 409 (AC-10b) |
 | flow_files | The pivot linking a flow to its result assets; CASCADE on flow delete, RESTRICT on the asset (AC-19) |
 | General library | The Creator's user-scoped `files`-backed asset store where all results + uploads live, independent of any flow |
-
-## 12. Glossary
-
-<!-- pending Socratic walk -->
