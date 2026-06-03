@@ -26,6 +26,6 @@
 | T19 | useFlowAutosave (version-aware, 409) | ui | Frontend Lead | M | T16, T14 | done |
 | T20 | CostConfirmModal + useFlowGeneration | ui | Frontend Lead | L | T17, T15 | done |
 | T21 | Backend integration suite | tests | Backend Lead / QA | M | T14, T15, T13 | done |
-| T22 | E2E — full flow + restore + reattach + conflict | tests | QA | M | T18, T19, T20 | todo |
+| T22 | E2E — full flow + restore + reattach + conflict | tests | QA | M | T18, T19, T20 | done (NON-red: spec complete + parses; skips at runtime because the canvas editor screen /generate-ai/:flowId is not wired — no T17–T20 page-assembly task mounts FlowCanvas+Inspector+autosave+generation; FlowListPage navigates there but the SPA catch-all redirects to '/'. Empirically confirmed editor route → '/'. Goes green once that editor page is added.) |
 
 **Total:** 22 tasks, ~22 person-days.
