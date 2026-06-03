@@ -97,6 +97,31 @@ describe('ContentInput — library pick (real AssetPickerField)', () => {
     );
   });
 
+  it('clearing the picked asset removes the image (writes an empty fileId)', () => {
+    const onChange = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ContentInput
+          block={{
+            blockId: 'c1',
+            type: 'content',
+            position: { x: 0, y: 0 },
+            params: { contentType: 'asset', modality: 'image', fileId: 'lib-img-1' },
+          }}
+          onBlockParamsChange={onChange}
+        />
+      </QueryClientProvider>,
+    );
+
+    // With an asset set, the single-mode picker shows a value chip + a Clear (×) button.
+    fireEvent.click(screen.getByRole('button', { name: /clear/i }));
+
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ contentType: 'asset', fileId: '' }),
+    );
+  });
+
   it('shows a small thumbnail preview for an image asset in the picker', async () => {
     renderContentInput(vi.fn());
 

@@ -178,9 +178,11 @@ function AssetInput({
   };
 
   const handleLibraryPick = (fileId: string | string[] | undefined) => {
-    if (typeof fileId === 'string' && fileId.length > 0) {
-      onBlockParamsChange({ contentType: 'asset', fileId });
-    }
+    // A string selects/replaces the asset; the picker's Clear (×) sends `undefined`
+    // (or an empty string) — propagate that as an empty fileId so the image is removed
+    // (ContentNode then shows "No asset selected" and the gate treats it as empty).
+    const next = typeof fileId === 'string' ? fileId : '';
+    onBlockParamsChange({ contentType: 'asset', fileId: next });
   };
 
   const mediaLabel =
