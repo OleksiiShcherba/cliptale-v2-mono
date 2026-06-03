@@ -24,12 +24,12 @@ vi.mock('@/shared/hooks/useFileStreamUrl', () => ({
 
 import { ContentNode } from './ContentNode';
 
-function renderNode(params: Record<string, unknown>) {
+function renderNode(params: Record<string, unknown>, selected = false) {
   const props = {
     id: 'c1',
     data: { block: { blockId: 'c1', type: 'content', position: { x: 0, y: 0 }, params } },
     type: 'content',
-    selected: false,
+    selected,
     dragging: false,
     zIndex: 0,
     isConnectable: true,
@@ -68,5 +68,17 @@ describe('ContentNode — media preview', () => {
     renderNode({ contentType: 'text', modality: 'text', text: 'hello there' });
     expect(screen.getByText(/hello there/)).toBeDefined();
     expect(screen.queryByTestId('content-media-image')).toBeNull();
+  });
+
+  it('renders a selected outline when the node is selected', () => {
+    renderNode({ contentType: 'text', modality: 'text', text: 'x' }, true);
+    const root = screen.getByTestId('content-node') as HTMLElement;
+    expect(root.style.boxShadow).not.toBe('');
+  });
+
+  it('has no selected outline when not selected', () => {
+    renderNode({ contentType: 'text', modality: 'text', text: 'x' }, false);
+    const root = screen.getByTestId('content-node') as HTMLElement;
+    expect(root.style.boxShadow).toBe('');
   });
 });

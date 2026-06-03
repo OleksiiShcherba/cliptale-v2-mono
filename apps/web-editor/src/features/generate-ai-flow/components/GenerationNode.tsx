@@ -26,6 +26,7 @@ import {
   handleRow,
   nodeHeader,
   nodeRoot,
+  nodeSelectedOutline,
   nodeSubtle,
 } from './flowNodeStyles';
 
@@ -64,7 +65,7 @@ function HandleRow({ handle, blockId }: { handle: TypedHandle; blockId: string }
   );
 }
 
-export function GenerationNode({ id, data }: NodeProps): React.ReactElement {
+export function GenerationNode({ id, data, selected }: NodeProps): React.ReactElement {
   const nodeData = data as GenerationNodeData;
   const { block } = nodeData;
   // Dynamic handlers come from the FlowExtras context (so the xyflow node array stays
@@ -77,7 +78,11 @@ export function GenerationNode({ id, data }: NodeProps): React.ReactElement {
   const handles = requiredHandlesForModel(modelId);
 
   return (
-    <div style={nodeRoot} data-testid="generation-node" data-block-id={id}>
+    <div
+      style={selected ? { ...nodeRoot, ...nodeSelectedOutline } : nodeRoot}
+      data-testid="generation-node"
+      data-block-id={id}
+    >
       <div style={nodeHeader}>
         <span>Generation</span>
         <NodeDeleteButton blockId={id} />

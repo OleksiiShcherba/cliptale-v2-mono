@@ -23,7 +23,7 @@ import type { FlowBlock } from '@ai-video-editor/project-schema';
 
 import type { AiGenerationJob } from '@/shared/ai-generation/types';
 
-import { ERROR, MODALITY_COLOR, PRIMARY, handleBase, nodeHeader, nodeRoot, nodeSubtle } from './flowNodeStyles';
+import { ERROR, MODALITY_COLOR, PRIMARY, handleBase, nodeHeader, nodeRoot, nodeSelectedOutline, nodeSubtle } from './flowNodeStyles';
 import type { Modality } from '../hooks/useFlowCanvas';
 import { useResultExtras } from './flowExtrasContext';
 import { NodeDeleteButton } from './NodeDeleteButton';
@@ -70,7 +70,7 @@ function DominantMedia({
   return <img data-testid="result-media-image" src={src} alt="Generated result" style={mediaBox} />;
 }
 
-export function ResultNode({ id, data }: NodeProps): React.ReactElement {
+export function ResultNode({ id, data, selected }: NodeProps): React.ReactElement {
   const nodeData = data as ResultNodeData;
   const { block, modality } = nodeData;
   // Dynamic result state comes from the FlowExtras context (keeping the xyflow node
@@ -84,7 +84,7 @@ export function ResultNode({ id, data }: NodeProps): React.ReactElement {
 
   return (
     <div
-      style={nodeRoot}
+      style={selected ? { ...nodeRoot, ...nodeSelectedOutline } : nodeRoot}
       data-testid="result-node"
       data-block-id={id}
       data-source-block-id={block.params.sourceBlockId as string | undefined}

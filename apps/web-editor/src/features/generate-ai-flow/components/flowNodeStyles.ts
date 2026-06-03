@@ -34,6 +34,12 @@ export const nodeRoot: React.CSSProperties = {
   color: TEXT_PRIMARY,
 };
 
+/** Outline merged onto nodeRoot when a node is selected (xyflow `selected` prop). */
+export const nodeSelectedOutline: React.CSSProperties = {
+  borderColor: PRIMARY,
+  boxShadow: `0 0 0 2px ${PRIMARY}`,
+};
+
 export const nodeHeader: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 600,

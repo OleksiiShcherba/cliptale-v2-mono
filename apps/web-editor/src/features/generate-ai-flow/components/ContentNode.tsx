@@ -25,6 +25,7 @@ import {
   handleBase,
   nodeHeader,
   nodeRoot,
+  nodeSelectedOutline,
   nodeSubtle,
 } from './flowNodeStyles';
 
@@ -75,7 +76,7 @@ function ContentMedia({
   );
 }
 
-export function ContentNode({ id, data }: NodeProps): React.ReactElement {
+export function ContentNode({ id, data, selected }: NodeProps): React.ReactElement {
   const { block } = data as ContentNodeData;
   const modality = (block.params.modality as Modality | undefined) ?? 'text';
   const color = MODALITY_COLOR[modality] ?? '#888';
@@ -87,7 +88,12 @@ export function ContentNode({ id, data }: NodeProps): React.ReactElement {
   const { url: previewUrl } = useFileStreamUrl(isMedia && fileId ? fileId : null);
 
   return (
-    <div style={nodeRoot} data-testid="content-node" data-block-id={id} data-modality={modality}>
+    <div
+      style={selected ? { ...nodeRoot, ...nodeSelectedOutline } : nodeRoot}
+      data-testid="content-node"
+      data-block-id={id}
+      data-modality={modality}
+    >
       <div style={{ ...nodeHeader, color }}>
         <span>{MODALITY_LABEL[modality]} content</span>
         <NodeDeleteButton blockId={id} />

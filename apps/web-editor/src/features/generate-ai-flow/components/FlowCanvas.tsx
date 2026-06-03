@@ -28,11 +28,19 @@ import {
   Background,
   BackgroundVariant,
 } from '@xyflow/react';
-import type { Node, Edge, Connection, NodeChange, EdgeChange, NodeMouseHandler } from '@xyflow/react';
+import type {
+  Node,
+  Edge,
+  Connection,
+  NodeChange,
+  EdgeChange,
+  NodeMouseHandler,
+  EdgeMouseHandler,
+} from '@xyflow/react';
 import type { FlowCanvas as FlowCanvasDoc } from '@ai-video-editor/project-schema';
 
 import { FLOW_NODE_TYPES } from './flowNodeTypes';
-import { BORDER, SURFACE } from './flowNodeStyles';
+import { BORDER, PRIMARY, SURFACE } from './flowNodeStyles';
 import {
   blockOutputModality,
   useFlowCanvas,
@@ -48,6 +56,8 @@ export type FlowCanvasProps = {
   onCanvasReady?: (controller: ReturnType<typeof useFlowCanvas>) => void;
   /** Fired when a node is clicked (drives the Inspector selection). */
   onSelectBlock?: (blockId: string) => void;
+  /** The currently-selected block id — the matching node renders a selected outline. */
+  selectedBlockId?: string | null;
   /** Fired when the empty canvas (pane) is clicked — clears the Inspector selection. */
   onPaneClick?: () => void;
   /** Fired whenever the live canvas document changes (drives autosave + inspector). */
@@ -61,10 +71,14 @@ function InnerFlowCanvas({
   onCanvasReady,
   onCanvasChange,
   onSelectBlock,
+  selectedBlockId,
   onPaneClick,
 }: FlowCanvasProps): React.ReactElement {
   const controller = useFlowCanvas({ initialCanvas, onEdgesPruned, onConnectionRejected });
   const { canvas, setCanvas, connect, isValidConnection, removeBlock, removeEdge } = controller;
+
+  // Ephemeral edge selection (node selection is driven by selectedBlockId from above).
+  const [selectedEdgeId, setSelectedEdgeId] = React.useState<string | null>(null);
 
   // Expose the controller ONCE (its methods are stable); the live canvas is streamed
   // separately via onCanvasChange so consumers don't re-store a fresh controller object
@@ -117,12 +131,14 @@ function InnerFlowCanvas({
         // races with fitView and otherwise leaves nodes hidden in fast/headless runs.
         initialWidth: 220,
         initialHeight: 120,
+        // Drive the node's selected outline from the Inspector selection (above).
+        selected: block.blockId === selectedBlockId,
         data:
           block.type === 'result'
             ? { block, modality: blockOutputModality(block, canvas) }
             : { block },
       })),
-    [canvas],
+    [canvas, selectedBlockId],
   );
 
   const edges = useMemo<Edge[]>(
@@ -133,8 +149,11 @@ function InnerFlowCanvas({
         sourceHandle: e.sourceHandle,
         target: e.targetBlockId,
         targetHandle: e.targetHandle,
+        selected: e.edgeId === selectedEdgeId,
+        // A selected connection is highlighted; double-click it to delete (handlers below).
+        style: e.edgeId === selectedEdgeId ? { stroke: PRIMARY, strokeWidth: 2 } : undefined,
       })),
-    [canvas.edges],
+    [canvas.edges, selectedEdgeId],
   );
 
   // Persist node POSITION changes back into the canvas document. We deliberately
@@ -193,13 +212,34 @@ function InnerFlowCanvas({
   const onNodeClick = useCallback<NodeMouseHandler>(
     (_event, node) => {
       onSelectBlock?.(node.id);
+      setSelectedEdgeId(null); // selecting a block clears any edge selection
     },
     [onSelectBlock],
+  );
+
+  // Clicking an edge highlights it (and clears the block/Inspector selection).
+  const onEdgeClick = useCallback<EdgeMouseHandler>(
+    (_event, edge) => {
+      setSelectedEdgeId(edge.id);
+      onPaneClick?.(); // deselect any block so only the edge is selected
+    },
+    [onPaneClick],
+  );
+
+  // Double-click an edge to delete the connection (AC: canvas editing UX).
+  const onEdgeDoubleClick = useCallback<EdgeMouseHandler>(
+    (event, edge) => {
+      event.stopPropagation();
+      removeEdge(edge.id);
+      setSelectedEdgeId(null);
+    },
+    [removeEdge],
   );
 
   // Clicking the empty canvas (pane) clears the selection → closes the Inspector.
   const handlePaneClick = useCallback(() => {
     onPaneClick?.();
+    setSelectedEdgeId(null);
   }, [onPaneClick]);
 
   return (
@@ -212,6 +252,8 @@ function InnerFlowCanvas({
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
+        onEdgeClick={onEdgeClick}
+        onEdgeDoubleClick={onEdgeDoubleClick}
         onPaneClick={handlePaneClick}
         isValidConnection={isValidConnection}
         style={REACT_FLOW_STYLE}

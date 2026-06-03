@@ -10,7 +10,7 @@
 
 import React from 'react';
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 
 import { FlowCanvas } from './FlowCanvas';
 import type { FlowCanvas as FlowCanvasDoc } from '@ai-video-editor/project-schema';
@@ -63,5 +63,34 @@ describe('FlowCanvas', () => {
     // params contract preserved through serialize
     const gen = serialized.blocks.find((b: { blockId: string }) => b.blockId === 'g1');
     expect(gen.params.modelId).toBe(LTX);
+  });
+
+  // The double-click GESTURE that triggers this is verified in the E2E (xyflow does not
+  // render edge geometry in jsdom). Here we prove the wired delete logic: removeEdge —
+  // the method onEdgeDoubleClick calls — drops the connection and streams the change.
+  it('removeEdge drops the connection and streams the updated canvas', async () => {
+    const onReady = vi.fn();
+    const onCanvasChange = vi.fn();
+    const docWithEdge: FlowCanvasDoc = {
+      blocks: [
+        { blockId: 'c1', type: 'content', position: { x: 0, y: 0 }, params: { contentType: 'text', text: 'hi', modality: 'text' } },
+        { blockId: 'g1', type: 'generation', position: { x: 300, y: 0 }, params: { modelId: LTX } },
+      ],
+      edges: [
+        { edgeId: 'e1', sourceBlockId: 'c1', sourceHandle: 'out', targetBlockId: 'g1', targetHandle: 'prompt' },
+      ],
+    };
+    render(<FlowCanvas initialCanvas={docWithEdge} onCanvasReady={onReady} onCanvasChange={onCanvasChange} />);
+    await waitFor(() => expect(onReady).toHaveBeenCalled());
+
+    const controller = onReady.mock.calls.at(-1)![0];
+    expect(controller.serialize().edges).toHaveLength(1);
+
+    act(() => controller.removeEdge('e1'));
+
+    await waitFor(() => {
+      const last = onCanvasChange.mock.calls.at(-1)?.[0] as FlowCanvasDoc | undefined;
+      expect(last?.edges ?? [{}]).toHaveLength(0);
+    });
   });
 });

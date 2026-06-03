@@ -387,6 +387,7 @@ function FlowEditor({
                 setNotice(`${removed.length} connection${removed.length === 1 ? '' : 's'} removed — no longer valid for the chosen model.`)
               }
               onSelectBlock={setSelectedBlockId}
+              selectedBlockId={selectedBlockId}
               onPaneClick={() => setSelectedBlockId(null)}
             />
           </FlowExtrasProvider>
