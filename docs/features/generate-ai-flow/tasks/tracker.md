@@ -8,7 +8,7 @@
 | T1 | Stage migration 046 — generation_flows | migration | Backend Lead | S | — | done |
 | T2 | Stage migration 047 — flow_files pivot | migration | Backend Lead | S | T1 | done |
 | T3 | Stage migration 048 — ai_generation_jobs flow cols | migration | Backend Lead | S | — | done |
-| T4 | Flow-canvas Zod schema + job-payload extension | domain | Backend Lead | M | — | todo |
+| T4 | Flow-canvas Zod schema + job-payload extension | domain | Backend Lead | M | — | done |
 | T5 | Catalog modality + exclusiveGroup + backfill | domain | Backend Lead | M | — | todo |
 | T6 | generation-flow.repository | infra | Backend Lead | M | T1, T4 | todo |
 | T7 | flow-file pivot repo + ai-job back-links | infra | Backend Lead | M | T2, T3 | todo |

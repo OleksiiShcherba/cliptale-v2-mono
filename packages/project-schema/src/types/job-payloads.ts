@@ -117,6 +117,46 @@ export type StoryboardOpenAIImageSize =
   | 'auto';
 
 /**
+ * Payload for an `ai-generate` BullMQ job — unified provider dispatcher.
+ *
+ * Defined here (packages/project-schema) so it is shared between the API
+ * (enqueue side) and the media-worker (consume side) without cross-app imports.
+ *
+ * `flowId` and `blockId` are optional back-links added by the generate-ai-flow
+ * feature (T4 / AC-10 / ADR-0001) so the worker can write the `flow_files` link
+ * on success and so the UI can reattach by block on reopen (AC-08b).
+ * Both fields mirror the nullable `flow_id`/`block_id` columns on
+ * `ai_generation_jobs` (migration 048).
+ */
+export type AiGenerateJobPayload = {
+  /** Unique job identifier, matching ai_generation_jobs.job_id. */
+  jobId: string;
+  /** The user who initiated the generation. */
+  userId: string;
+  /** Catalog model id, matching ai_generation_jobs.model_id. */
+  modelId: string;
+  /** Provider capability discriminant (image / video / audio / …). */
+  capability: string;
+  /** Provider router key so the worker branches without re-deriving from capability. */
+  provider: string;
+  /** Primary text prompt forwarded to the provider. */
+  prompt: string;
+  /** Model-specific options forwarded as the provider payload options object. */
+  options: Record<string, unknown>;
+  /**
+   * Optional: the generation_flows.flow_id that triggered this run.
+   * Present only when the job was enqueued from the Generate AI canvas (AC-10).
+   * No FK — the job lifecycle is independent of the flow (ADR-0001).
+   */
+  flowId?: string;
+  /**
+   * Optional: the canvas generation-block id (lives inside generation_flows.canvas JSON).
+   * Lets the UI reattach a job to its result block on reopen (AC-08b).
+   */
+  blockId?: string;
+};
+
+/**
  * Payload for direct OpenAI Images storyboard illustration jobs.
  *
  * The worker owns the OpenAI API key and resolves file IDs into durable object

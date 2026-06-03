@@ -105,4 +105,19 @@ export type {
   StoryboardOpenAIImageJobKind,
   StoryboardOpenAIImageSize,
   StoryboardOpenAIImageJobPayload,
+  AiGenerateJobPayload,
 } from './types/job-payloads.js';
+export {
+  flowBlockTypeSchema,
+  flowPositionSchema,
+  flowBlockSchema,
+  flowEdgeSchema,
+  flowCanvasSchema,
+} from './schemas/flowCanvas.schema.js';
+export type {
+  FlowBlockType,
+  FlowPosition,
+  FlowBlock,
+  FlowEdge,
+  FlowCanvas,
+} from './schemas/flowCanvas.schema.js';
