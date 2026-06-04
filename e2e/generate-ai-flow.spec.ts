@@ -129,8 +129,13 @@ type FlowMockState = {
   version: number;
   /** whether the flow has produced a result block yet. */
   hasResult: boolean;
-  /** scripted job outcome the polling endpoint reports. */
-  jobStatus: 'queued' | 'running' | 'done' | 'failed';
+  /**
+   * Scripted job outcome — VERBATIM the DB enum (migration 014). The real
+   * controller passes ai_generation_jobs.status through unmapped, so the mock
+   * must NOT invent values ('running'/'done') or the suite goes green against
+   * a contract the backend never speaks (the pass-11 bug).
+   */
+  jobStatus: 'queued' | 'processing' | 'completed' | 'failed';
 };
 
 /**
@@ -167,12 +172,16 @@ async function installFlowApi(
             ? [
                 {
                   jobId: JOB_ID,
-                  blockId: RESULT_BLOCK_ID,
+                  // Jobs are keyed by the GENERATION block (setFlowLink →
+                  // job.block_id), NOT the result block — the result block
+                  // resolves them through its sourceBlockId (pass-9 N1).
+                  blockId: GEN_BLOCK_ID,
                   status: state.jobStatus,
-                  progress: state.jobStatus === 'done' ? 100 : 40,
-                  outputFileId: state.jobStatus === 'done' ? OUTPUT_FILE_ID : null,
-                  resultUrl: state.jobStatus === 'done' ? RESULT_URL : null,
+                  progress: state.jobStatus === 'completed' ? 100 : 40,
+                  outputFileId: state.jobStatus === 'completed' ? OUTPUT_FILE_ID : null,
+                  resultUrl: state.jobStatus === 'completed' ? RESULT_URL : null,
                   errorMessage: null,
+                  createdAt: '2026-06-03T00:00:00.000Z',
                 },
               ]
             : [],
@@ -246,22 +255,15 @@ async function installFlowApi(
     }
 
     // Job polling — deterministic scripted outcome (the provider stub).
+    // Same DB-verbatim enum as the flow read; no remapping anywhere.
     if (method === 'GET' && pathname === `/ai/jobs/${JOB_ID}`) {
-      const aiStatus =
-        state.jobStatus === 'done'
-          ? 'completed'
-          : state.jobStatus === 'failed'
-            ? 'failed'
-            : state.jobStatus === 'running'
-              ? 'processing'
-              : 'queued';
       await route.fulfill(
         jsonResponse({
           jobId: JOB_ID,
-          status: aiStatus,
-          progress: state.jobStatus === 'done' ? 100 : 40,
-          resultAssetId: state.jobStatus === 'done' ? OUTPUT_FILE_ID : null,
-          resultUrl: state.jobStatus === 'done' ? RESULT_URL : null,
+          status: state.jobStatus,
+          progress: state.jobStatus === 'completed' ? 100 : 40,
+          resultAssetId: state.jobStatus === 'completed' ? OUTPUT_FILE_ID : null,
+          resultUrl: state.jobStatus === 'completed' ? RESULT_URL : null,
           errorMessage: state.jobStatus === 'failed' ? 'Provider rejected the request.' : null,
         }),
       );
@@ -380,7 +382,7 @@ test.describe('generate-ai-flow — full journey (AC-01, AC-08b, AC-10, AC-10b)'
     expect(api.generateCount()).toBe(0); // no charge until confirm (AC-11 precondition)
 
     // Confirm → exactly one charged Generate fires; the job is created.
-    api.setJobStatus('done');
+    api.setJobStatus('completed');
     await costModal.getByRole('button', { name: /^generate$/i }).click();
     await expect.poll(() => api.generateCount()).toBe(1);
 
@@ -409,7 +411,7 @@ test.describe('generate-ai-flow — full journey (AC-01, AC-08b, AC-10, AC-10b)'
   });
 
   test('reload restores canvas + connections + prior result (AC-10)', async ({ page }) => {
-    await installFlowApi(page, { version: 2, hasResult: true, jobStatus: 'done' });
+    await installFlowApi(page, { version: 2, hasResult: true, jobStatus: 'completed' });
     await openFlowEditor(page);
 
     // Blocks restore.
@@ -425,15 +427,69 @@ test.describe('generate-ai-flow — full journey (AC-01, AC-08b, AC-10, AC-10b)'
     await expect(page.getByTestId('result-media-image')).toHaveAttribute('src', RESULT_URL);
   });
 
+  test('reload with a failed-then-succeeded run history shows the success, not the stale failure (AC-09/AC-10, O1)', async ({ page }) => {
+    // Two runs for the SAME generation block: an older FAILED attempt and a
+    // newer completed one — the real shape after a retry. On reload the result
+    // block must show the image of the newest run, never the stale failure or
+    // a stuck progress bar (pass-10 O1 + pass-11 P1 regressions).
+    const state: FlowMockState = { version: 2, hasResult: true, jobStatus: 'completed' };
+    await page.route('**/*', async (route: Route) => {
+      const { pathname } = new URL(route.request().url());
+      if (route.request().method() === 'GET' && pathname === `/generation-flows/${FLOW_ID}`) {
+        await route.fulfill(
+          jsonResponse({
+            flowId: FLOW_ID,
+            title: 'E2E flow',
+            version: state.version,
+            canvas: canvasDoc(true),
+            jobs: [
+              {
+                jobId: 'e2e-flow-job-failed',
+                blockId: GEN_BLOCK_ID,
+                status: 'failed',
+                progress: 0,
+                outputFileId: null,
+                resultUrl: null,
+                errorMessage: 'fal.ai error (status 422): image_urls must be a list',
+                createdAt: '2026-06-03T10:00:00.000Z',
+              },
+              {
+                jobId: JOB_ID,
+                blockId: GEN_BLOCK_ID,
+                status: 'completed',
+                progress: 100,
+                outputFileId: OUTPUT_FILE_ID,
+                resultUrl: RESULT_URL,
+                errorMessage: null,
+                createdAt: '2026-06-03T11:00:00.000Z',
+              },
+            ],
+            createdAt: '2026-06-03T00:00:00.000Z',
+            updatedAt: '2026-06-03T00:00:00.000Z',
+          }),
+        );
+        return;
+      }
+      await route.fallback();
+    });
+
+    await openFlowEditor(page);
+
+    // The newest run's image renders; neither the stale failure nor a progress bar.
+    await expect(page.getByTestId('result-media-image')).toHaveAttribute('src', RESULT_URL);
+    await expect(page.getByText(/generation failed/i)).toBeHidden();
+    await expect(page.getByTestId('result-progress')).toBeHidden();
+  });
+
   test('reopen reattaches to an in-flight generation and shows the eventual result (AC-08b)', async ({ page }) => {
-    const api = await installFlowApi(page, { version: 2, hasResult: true, jobStatus: 'running' });
+    const api = await installFlowApi(page, { version: 2, hasResult: true, jobStatus: 'processing' });
     await openFlowEditor(page);
 
     // On reopen with a running job, the result block reattaches to live progress.
     await expect(page.getByTestId('result-progress')).toBeVisible({ timeout: 15_000 });
 
     // The generation finishes while attached → the result appears, no re-press.
-    api.setJobStatus('done');
+    api.setJobStatus('completed');
     await expect(page.getByTestId('result-media-image')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('result-media-image')).toHaveAttribute('src', RESULT_URL);
     expect(api.generateCount()).toBe(0); // reattach never re-charges
