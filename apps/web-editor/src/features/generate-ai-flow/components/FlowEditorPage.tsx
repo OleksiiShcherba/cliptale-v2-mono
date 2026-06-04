@@ -134,7 +134,7 @@ function FlowEditor({
   }, [flow.jobs]);
 
   const anyPending = React.useMemo(
-    () => flow.jobs.some((j) => j.status === 'queued' || j.status === 'running'),
+    () => flow.jobs.some((j) => j.status === 'queued' || j.status === 'processing'),
     [flow.jobs],
   );
   React.useEffect(() => {
@@ -252,7 +252,7 @@ function FlowEditor({
   const [previewUrls, setPreviewUrls] = React.useState<Record<string, string>>({});
   React.useEffect(() => {
     for (const job of Object.values(jobsByBlock)) {
-      if (job.status !== 'done') continue;
+      if (job.status !== 'completed') continue;
       if (previewUrls[job.blockId]) continue;
       if (job.resultUrl) {
         setPreviewUrls((p) => ({ ...p, [job.blockId]: job.resultUrl as string }));
@@ -437,17 +437,11 @@ function FlowEditor({
 
 function jobStateToJob(state: JobState | null) {
   if (!state) return null;
-  const status =
-    state.status === 'running'
-      ? 'processing'
-      : state.status === 'done'
-        ? 'completed'
-        : state.status === 'failed'
-          ? 'failed'
-          : 'queued';
+  // JobStatusEnum IS the DB/shared AiJobStatus (queued|processing|completed|failed) —
+  // pass it through; remapping here is what once turned 'completed' into 'queued'.
   return {
     jobId: state.jobId,
-    status: status as 'queued' | 'processing' | 'completed' | 'failed',
+    status: state.status,
     progress: state.progress,
     resultAssetId: state.outputFileId,
     errorMessage: state.errorMessage,

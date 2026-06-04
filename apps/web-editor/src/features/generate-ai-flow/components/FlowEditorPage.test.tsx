@@ -158,7 +158,7 @@ describe('FlowEditorPage', () => {
         ],
       },
       jobs: [
-        { jobId: 'job-1', blockId: 'g1', status: 'done', progress: 100, outputFileId: 'file-1', resultUrl: null, errorMessage: null },
+        { jobId: 'job-1', blockId: 'g1', status: 'completed', progress: 100, outputFileId: 'file-1', resultUrl: null, errorMessage: null },
       ],
       createdAt: '2026-06-03T00:00:00.000Z',
       updatedAt: '2026-06-03T00:00:00.000Z',
@@ -171,6 +171,42 @@ describe('FlowEditorPage', () => {
     const img = (await screen.findByTestId('result-media-image')) as HTMLImageElement;
     expect(img.src).toContain('result.png');
     expect(mockGetFileUrl).toHaveBeenCalledWith('file-1');
+  });
+
+  it("renders the image (not a 100% progress bar) for the REAL DB status 'completed'", async () => {
+    // The DB enum is queued|processing|completed|failed (aiGenerationJob.repository.ts,
+    // migration 014) and the controller passes it verbatim. A job that finished before
+    // the reload therefore arrives as 'completed' — it must show the image, NOT fall
+    // through a status mapping into 'queued' and render a stuck 100% progress bar.
+    mockGetFlow.mockResolvedValue({
+      flowId: 'flow-1',
+      title: 'My flow',
+      version: 3,
+      canvas: {
+        schemaVersion: 1 as const,
+        blocks: [
+          { blockId: 'g1', type: 'generation' as const, position: { x: 0, y: 0 }, params: { modelId: GEN_MODEL } },
+          { blockId: 'r1', type: 'result' as const, position: { x: 320, y: 0 }, params: { sourceBlockId: 'g1' } },
+        ],
+        edges: [
+          { edgeId: 'e1', sourceBlockId: 'g1', sourceHandle: 'out', targetBlockId: 'r1', targetHandle: 'in' },
+        ],
+      },
+      jobs: [
+        { jobId: 'job-1', blockId: 'g1', status: 'completed', progress: 100, outputFileId: 'file-1', resultUrl: null, errorMessage: null, createdAt: '2026-06-02T11:00:00.000Z' },
+      ],
+      createdAt: '2026-06-03T00:00:00.000Z',
+      updatedAt: '2026-06-03T00:00:00.000Z',
+    });
+    mockGetFileUrl.mockResolvedValue('https://cdn.test/result.png');
+
+    renderPage();
+
+    await waitFor(() => expect(document.querySelector('[data-block-id="r1"]')).not.toBeNull());
+    const img = (await screen.findByTestId('result-media-image')) as HTMLImageElement;
+    expect(img.src).toContain('result.png');
+    // The bug: 'completed' fell into the default 'queued' branch → a stuck progress bar.
+    expect(screen.queryByTestId('result-progress')).toBeNull();
   });
 
   it('shows the LATEST run on reload — a newer successful job overrides an older failed one', async () => {
@@ -190,7 +226,7 @@ describe('FlowEditorPage', () => {
       },
       jobs: [
         { jobId: 'job-old', blockId: 'g1', status: 'failed', progress: 0, outputFileId: null, resultUrl: null, errorMessage: 'fal 422 image_urls', createdAt: '2026-06-02T10:00:00.000Z' },
-        { jobId: 'job-new', blockId: 'g1', status: 'done', progress: 100, outputFileId: 'file-1', resultUrl: null, errorMessage: null, createdAt: '2026-06-02T11:00:00.000Z' },
+        { jobId: 'job-new', blockId: 'g1', status: 'completed', progress: 100, outputFileId: 'file-1', resultUrl: null, errorMessage: null, createdAt: '2026-06-02T11:00:00.000Z' },
       ],
       createdAt: '2026-06-03T00:00:00.000Z',
       updatedAt: '2026-06-03T00:00:00.000Z',

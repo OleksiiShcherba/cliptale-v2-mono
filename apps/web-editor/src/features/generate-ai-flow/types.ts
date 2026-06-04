@@ -66,7 +66,12 @@ export type CanvasSaveResult = {
 
 // ── Job state (← ai_generation_jobs, embedded in Flow for reattach) ──────────
 
-export type JobStatusEnum = 'queued' | 'running' | 'done' | 'failed';
+/**
+ * Job status — VERBATIM the DB enum from migration 014 (AiJobStatus in
+ * aiGenerationJob.repository.ts). The controller passes job.status through
+ * unmapped, so inventing values here ('running'/'done') breaks reattach.
+ */
+export type JobStatusEnum = 'queued' | 'processing' | 'completed' | 'failed';
 
 export type JobState = {
   jobId: string;

@@ -126,7 +126,8 @@ describe('useFlowGeneration — reattach (AC-08b)', () => {
     const running: JobState = {
       jobId: 'job-running',
       blockId: 'b1',
-      status: 'running',
+      // verbatim the DB enum (migration 014) — the controller does not remap it
+      status: 'processing',
       progress: 40,
       outputFileId: null,
       resultUrl: null,
@@ -134,7 +135,7 @@ describe('useFlowGeneration — reattach (AC-08b)', () => {
     };
     setup(running);
 
-    // polling was started with the running job's id, mapped to processing
+    // polling was started with the running job's id, status passed through verbatim
     const call = pollingState.calls.find((c) => c.jobId === 'job-running');
     expect(call).toBeTruthy();
     expect(call?.initial?.status).toBe('processing');
@@ -146,7 +147,8 @@ describe('useFlowGeneration — reattach (AC-08b)', () => {
     const done: JobState = {
       jobId: 'job-done',
       blockId: 'b1',
-      status: 'done',
+      // verbatim the DB enum (migration 014) — the controller does not remap it
+      status: 'completed',
       progress: 100,
       outputFileId: 'file-9',
       resultUrl: 'https://cdn/x.png',

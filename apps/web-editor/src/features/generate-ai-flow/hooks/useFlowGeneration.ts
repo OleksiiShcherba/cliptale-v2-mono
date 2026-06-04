@@ -21,7 +21,7 @@ import { useJobPolling } from '@/shared/ai-generation/hooks/useJobPolling';
 import type { AiGenerationJob, AiJobStatus } from '@/shared/ai-generation/types';
 
 import { estimateGeneration, generateBlock } from '../api';
-import type { CostEstimate, JobState, JobStatusEnum } from '../types';
+import type { CostEstimate, JobState } from '../types';
 
 export type GenerationPhase = 'idle' | 'estimating' | 'confirming' | 'submitting' | 'tracking';
 
@@ -52,28 +52,14 @@ export type UseFlowGenerationResult = {
   retry: () => Promise<void>;
 };
 
-/** Map the flow's JobStatusEnum (queued|running|done|failed) → shared AiJobStatus. */
-function toAiJobStatus(status: JobStatusEnum): AiJobStatus {
-  switch (status) {
-    case 'running':
-      return 'processing';
-    case 'done':
-      return 'completed';
-    case 'queued':
-      return 'queued';
-    case 'failed':
-      return 'failed';
-    default:
-      return 'queued';
-  }
-}
-
 /** Adapt a flow JobState (the reattach snapshot) to the shared polling job shape. */
 function jobStateToAiJob(state: JobState | null | undefined): AiGenerationJob | null {
   if (!state) return null;
   return {
     jobId: state.jobId,
-    status: toAiJobStatus(state.status),
+    // JobStatusEnum IS the DB/shared AiJobStatus (queued|processing|completed|failed) —
+    // verbatim, no remapping (a remap once turned 'completed' into 'queued' on reload).
+    status: state.status satisfies AiJobStatus,
     progress: state.progress,
     resultAssetId: state.outputFileId,
     errorMessage: state.errorMessage,

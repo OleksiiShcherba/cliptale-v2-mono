@@ -626,7 +626,7 @@ components:
 
     JobStatusEnum:
       type: string
-      enum: [queued, running, done, failed]
+      enum: [queued, processing, completed, failed]
       description: repo's AiJobStatus (aiGenerationJob.repository.ts) — verbatim, not invented
 
     # ── Model catalog (← ADR-0006 catalog schema extension; code, not DB) ─────────────────────────
