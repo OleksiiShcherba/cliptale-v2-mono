@@ -33,6 +33,6 @@
 | U3a | migration 049 — flow_model_pricing + seed (pass-15, AC-20) | migration | Backend Lead | S | — | done |
 | U3b | param-reactive DB-backed estimate (pass-15, AC-20) | app | Backend Lead | M | U3a | done |
 | U4 | flow card click-to-open + hover, Open button removed (pass-16) | ui | Frontend Lead | S | — | done |
-| U5 | multi-result run history per gen block (pass-16, AC-01) | ui | Frontend Lead | M | — | todo |
+| U5 | multi-result run history per gen block (pass-16, AC-01) | ui | Frontend Lead | M | — | done |
 
 **Total:** 28 tasks (22 original + 4 review-pass-15 + 2 review-pass-16 follow-ups).

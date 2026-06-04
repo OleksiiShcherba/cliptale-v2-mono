@@ -39,6 +39,12 @@ export type UseFlowGenerationResult = {
   estimate: CostEstimate | null;
   /** the resolved job (live from polling, or the seeded last-known state). */
   job: AiGenerationJob | null;
+  /**
+   * The job id ACCEPTED for the current run (set on confirm, before the first poll).
+   * Unlike `job.jobId` it can never be the stale reattach seed — use it to bind the
+   * run's result block (U5/AC-01 history).
+   */
+  liveJobId: string | null;
   /** the Idempotency-Key for the current/next Generate (fresh per press). */
   idempotencyKey: string;
   error: string | null;
@@ -141,5 +147,5 @@ export function useFlowGeneration({
     await start();
   }, [start]);
 
-  return { phase, estimate, job, idempotencyKey, error, start, confirm, cancel, retry };
+  return { phase, estimate, job, liveJobId, idempotencyKey, error, start, confirm, cancel, retry };
 }

@@ -65,6 +65,12 @@ const DEFAULT_MODEL_ID = 'fal-ai/nano-banana-2/edit';
  */
 const RESULT_OFFSET_X = 320;
 
+/**
+ * Vertical gap between stacked result blocks of one generation block — each new run's
+ * block lands this far ABOVE the previous one (newest on top, U5/AC-01 history).
+ */
+const RESULT_STACK_DY = 280;
+
 type ControllerType = ReturnType<typeof useFlowCanvas>;
 
 // ── Page ───────────────────────────────────────────────────────────────────
@@ -127,10 +133,18 @@ function FlowEditor({
   const onCanvasChange = React.useCallback((c: FlowCanvasDoc) => setCanvas(c), []);
 
   // ── Job states from the (polled) flow read — the reattach/preview source ─────
-  // A generation block can have several runs (e.g. a failed attempt then a successful
-  // retry). Keep the LATEST run per block so a stale failed job never overrides a newer
-  // successful one on reload (createdAt; falls back to backend oldest-first ordering).
-  const jobsByBlock = React.useMemo(() => {
+  // A generation block keeps a HISTORY of runs (U5/AC-01): every job row is kept,
+  // indexed by jobId, and each result block resolves the run it is bound to via
+  // params.jobId. The latest run per generation block is still derived for the
+  // reattach seed and as the fallback for LEGACY result blocks saved before the
+  // per-run binding existed (no params.jobId).
+  const jobsById = React.useMemo(() => {
+    const map: Record<string, JobState> = {};
+    for (const j of flow.jobs) map[j.jobId] = j;
+    return map;
+  }, [flow.jobs]);
+
+  const latestJobByBlock = React.useMemo(() => {
     const map: Record<string, JobState> = {};
     for (const j of flow.jobs) {
       const cur = map[j.blockId];
@@ -156,10 +170,9 @@ function FlowEditor({
 
   // ── Generate spend gate, scoped to the generation block being generated ─────
   const [generatingBlockId, setGeneratingBlockId] = React.useState<string | null>(null);
-  const resultBlockForGen = findResultBlock(canvas, generatingBlockId);
   // Jobs are keyed by the GENERATION block id (job.blockId from setFlowLink), so the
   // reattach seed is looked up by the generation block, not the result block.
-  const reattachState = generatingBlockId ? jobsByBlock[generatingBlockId] ?? null : null;
+  const reattachState = generatingBlockId ? latestJobByBlock[generatingBlockId] ?? null : null;
 
   const generation = useFlowGeneration({
     flowId: flow.flowId,
@@ -186,29 +199,63 @@ function FlowEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingStart, generatingBlockId, generation.start]);
 
-  // When a Generate is accepted (phase → tracking), ensure a result block exists for the
-  // generating block so its live progress + produced media render, and kick a flow
-  // refetch so the server-side canvas + job state (incl. the linked library asset) sync.
+  // The result block bound to the run in flight (params.jobId === liveJobId) — the
+  // target of the live job overlay. Legacy unbound blocks are never overlaid by a
+  // NEW run, so a regeneration cannot visually overwrite prior output (U5/AC-01).
+  const resultBlockForGen = findResultBlock(canvas, generatingBlockId, generation.liveJobId);
+
+  // When a Generate is accepted (phase → tracking), APPEND a fresh result block for
+  // this run — prior result blocks are retained as the history of runs (U5/AC-01) —
+  // and kick a flow refetch so the server-side job state (incl. the linked library
+  // asset) syncs. The new block lands right of its gen block, stacked ABOVE the
+  // previous result (newest on top).
   const queryClient = useQueryClient();
   React.useEffect(() => {
     if (generation.phase !== 'tracking' || !generatingBlockId) return;
     const c = controllerRef.current;
+    const runJobId = generation.liveJobId ?? undefined;
     if (c) {
-      const exists = c.canvas.blocks.some(
-        (b) => b.type === 'result' && (b.params.sourceBlockId as string | undefined) === generatingBlockId,
-      );
-      if (!exists) {
+      const alreadyBound =
+        runJobId != null &&
+        c.canvas.blocks.some((b) => b.type === 'result' && b.params.jobId === runJobId);
+      if (!alreadyBound) {
+        // Back-compat: a LEGACY result block (saved before the per-run binding) has no
+        // params.jobId and would otherwise mirror the newest run. Freeze it to the
+        // PREVIOUS run now, so its output survives the regeneration.
+        const prevJob = latestJobByBlock[generatingBlockId];
+        if (prevJob) {
+          c.setCanvas((cur) => ({
+            ...cur,
+            blocks: cur.blocks.map((b) =>
+              b.type === 'result' &&
+              (b.params.sourceBlockId as string | undefined) === generatingBlockId &&
+              b.params.jobId == null
+                ? { ...b, params: { ...b.params, jobId: prevJob.jobId } }
+                : b,
+            ),
+          }));
+        }
+
         const genBlk = c.canvas.blocks.find((b) => b.blockId === generatingBlockId);
+        const priorResults = c.canvas.blocks.filter(
+          (b) =>
+            b.type === 'result' &&
+            (b.params.sourceBlockId as string | undefined) === generatingBlockId,
+        );
+        const baseY = genBlk?.position.y ?? 0;
+        const y = priorResults.length
+          ? Math.min(...priorResults.map((b) => b.position.y)) - RESULT_STACK_DY
+          : baseY;
         const pos = genBlk
-          ? { x: genBlk.position.x + RESULT_OFFSET_X, y: genBlk.position.y }
-          : { x: RESULT_OFFSET_X, y: 0 };
-        // Auto-create the result block AND the visible gen→result connection.
-        c.addResultBlock(generatingBlockId, pos);
+          ? { x: genBlk.position.x + RESULT_OFFSET_X, y }
+          : { x: RESULT_OFFSET_X, y };
+        // Auto-create the run's result block AND the visible gen→result connection.
+        c.addResultBlock(generatingBlockId, pos, runJobId);
       }
     }
     void queryClient.invalidateQueries({ queryKey: QUERY_KEY(flow.flowId) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [generation.phase, generatingBlockId]);
+  }, [generation.phase, generation.liveJobId, generatingBlockId]);
 
   // ── Add-block toolbar ───────────────────────────────────────────────────────
   const addCounter = React.useRef(0);
@@ -259,42 +306,57 @@ function FlowEditor({
   );
 
   // ── Resolve the preview URL for completed result blocks ─────────────────────
-  // Keyed by the generation block id (jobsByBlock keys), resolving only the LATEST run
-  // per block so the preview matches the job the result block shows.
+  // Keyed by JOB id (the per-run binding) so every result block in a generation
+  // block's history resolves its own run's media (U5/AC-01). Only jobs some result
+  // block actually shows are resolved: bound ones, plus the latest per generation
+  // block (the legacy-fallback target).
   const [previewUrls, setPreviewUrls] = React.useState<Record<string, string>>({});
   React.useEffect(() => {
-    for (const job of Object.values(jobsByBlock)) {
-      if (job.status !== 'completed') continue;
-      if (previewUrls[job.blockId]) continue;
+    const needed = new Set<string>();
+    for (const b of canvas.blocks) {
+      if (b.type !== 'result') continue;
+      const bound = b.params.jobId as string | undefined;
+      if (bound) {
+        needed.add(bound);
+      } else {
+        const sourceGen = b.params.sourceBlockId as string | undefined;
+        const latest = sourceGen ? latestJobByBlock[sourceGen] : undefined;
+        if (latest) needed.add(latest.jobId);
+      }
+    }
+    for (const jobId of needed) {
+      const job = jobsById[jobId];
+      if (!job || job.status !== 'completed') continue;
+      if (previewUrls[jobId]) continue;
       if (job.resultUrl) {
-        setPreviewUrls((p) => ({ ...p, [job.blockId]: job.resultUrl as string }));
+        setPreviewUrls((p) => ({ ...p, [jobId]: job.resultUrl as string }));
       } else if (job.outputFileId) {
         void getFileUrl(job.outputFileId).then((url) => {
-          if (url) setPreviewUrls((p) => ({ ...p, [job.blockId]: url }));
+          if (url) setPreviewUrls((p) => ({ ...p, [jobId]: url }));
         });
       }
     }
-  }, [jobsByBlock, previewUrls]);
+  }, [canvas.blocks, jobsById, latestJobByBlock, previewUrls]);
 
   // The live generation job (from useFlowGeneration) overlays the polled state for the
   // block currently being generated, so progress/preview update without a full refetch.
   const liveResultBlockId = resultBlockForGen?.blockId ?? null;
   React.useEffect(() => {
     const j = generation.job;
-    if (!liveResultBlockId || !j) return;
-    if (j.status === 'completed' && j.resultAssetId && !previewUrls[liveResultBlockId]) {
+    if (!j) return;
+    if (j.status === 'completed' && j.resultAssetId && !previewUrls[j.jobId]) {
       void getFileUrl(j.resultAssetId).then((url) => {
-        if (url) setPreviewUrls((p) => ({ ...p, [liveResultBlockId]: url }));
+        if (url) setPreviewUrls((p) => ({ ...p, [j.jobId]: url }));
       });
     }
-  }, [generation.job, liveResultBlockId, previewUrls]);
+  }, [generation.job, previewUrls]);
 
   // ── Dynamic per-block node data, delivered via context (NOT the nodes array) ──
   // The xyflow nodes are derived from the canvas document only, so each node is
   // measured once and stays visible; the volatile job/preview/handlers reach the node
   // components through FlowExtrasContext, which re-renders them in place.
-  const lookupRef = React.useRef({ jobsByBlock, liveResultBlockId, liveJob: generation.job, previewUrls });
-  lookupRef.current = { jobsByBlock, liveResultBlockId, liveJob: generation.job, previewUrls };
+  const lookupRef = React.useRef({ jobsById, latestJobByBlock, liveResultBlockId, liveJob: generation.job, previewUrls });
+  lookupRef.current = { jobsById, latestJobByBlock, liveResultBlockId, liveJob: generation.job, previewUrls };
   const handleGenerateRef = React.useRef(handleGenerate);
   handleGenerateRef.current = handleGenerate;
 
@@ -306,20 +368,27 @@ function FlowEditor({
       }),
       result: (blockId) => {
         const s = lookupRef.current;
-        // A result block's job + preview are keyed by its GENERATION block id (its
-        // sourceBlockId), because the ai_generation_job's block_id is the generation
-        // block (setFlowLink). On reload there is no live overlay, so the result block
-        // MUST resolve through sourceBlockId — else the produced image is lost (AC-10).
+        // A result block resolves the RUN it is bound to (params.jobId → jobsById),
+        // so a generation block's history of result blocks each keep their own
+        // output (U5/AC-01). LEGACY blocks saved before the binding existed have no
+        // params.jobId — they fall back to the latest run of their sourceBlockId
+        // (the pre-U5 behavior), so old flows still restore on reload (AC-10).
         const blk = canvas.blocks.find((b) => b.blockId === blockId);
         const sourceGen = blk?.params.sourceBlockId as string | undefined;
-        const jobState =
-          s.jobsByBlock[blockId] ?? (sourceGen ? s.jobsByBlock[sourceGen] : undefined) ?? null;
+        const boundJobId = blk?.params.jobId as string | undefined;
+        const jobState = boundJobId
+          ? s.jobsById[boundJobId] ?? null
+          : (sourceGen ? s.latestJobByBlock[sourceGen] : undefined) ?? null;
+        // The live overlay only applies to the block bound to the run in flight —
+        // and never with a stale job of a DIFFERENT run (the reattach seed).
         const isLive = s.liveResultBlockId === blockId;
-        const job = isLive && s.liveJob ? s.liveJob : jobStateToJob(jobState);
+        const liveMatches =
+          s.liveJob != null && (boundJobId == null || s.liveJob.jobId === boundJobId);
+        const job = isLive && liveMatches ? s.liveJob : jobStateToJob(jobState);
+        const previewJobId = boundJobId ?? jobState?.jobId;
         return {
           job,
-          previewUrl:
-            s.previewUrls[blockId] ?? (sourceGen ? s.previewUrls[sourceGen] : undefined) ?? null,
+          previewUrl: previewJobId ? s.previewUrls[previewJobId] ?? null : null,
           onRetry: () => {
             if (sourceGen) handleGenerateRef.current(sourceGen);
           },
@@ -335,7 +404,7 @@ function FlowEditor({
     }),
     // Re-create the value object on data changes so context consumers re-render with
     // fresh job/preview state (cheap — does NOT touch the xyflow nodes array).
-    [jobsByBlock, liveResultBlockId, generation.job, previewUrls, canvas.blocks],
+    [jobsById, latestJobByBlock, liveResultBlockId, generation.job, previewUrls, canvas.blocks],
   );
 
   return (
@@ -460,14 +529,26 @@ function jobStateToJob(state: JobState | null) {
   };
 }
 
-/** The result block downstream of a generation block (its sourceBlockId). */
-function findResultBlock(canvas: FlowCanvasDoc, genBlockId: string | null): FlowBlock | null {
+/**
+ * The result block bound to a generation block's run in flight: prefer the block
+ * carrying params.jobId === runJobId; fall back to a LEGACY unbound block (saved
+ * before the per-run binding). A block bound to a DIFFERENT run is never returned —
+ * the live overlay must not overwrite a prior run's output (U5/AC-01).
+ */
+function findResultBlock(
+  canvas: FlowCanvasDoc,
+  genBlockId: string | null,
+  runJobId: string | null,
+): FlowBlock | null {
   if (!genBlockId) return null;
-  return (
-    canvas.blocks.find(
-      (b) => b.type === 'result' && (b.params.sourceBlockId as string | undefined) === genBlockId,
-    ) ?? null
+  const sameSource = canvas.blocks.filter(
+    (b) => b.type === 'result' && (b.params.sourceBlockId as string | undefined) === genBlockId,
   );
+  if (runJobId) {
+    const bound = sameSource.find((b) => b.params.jobId === runJobId);
+    if (bound) return bound;
+  }
+  return sameSource.find((b) => b.params.jobId == null) ?? null;
 }
 
 // ── Presentational chrome ─────────────────────────────────────────────────────

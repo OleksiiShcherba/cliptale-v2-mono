@@ -233,8 +233,9 @@ export async function setFlowLink(
  * owns the flow before calling this function.
  */
 export async function getJobsByFlowId(flowId: string): Promise<AiGenerationJob[]> {
-  // Oldest-first so the client's last-wins map keeps the most recent run per block
-  // (a later successful generation overrides an earlier failed one on reload).
+  // The FULL ordered run history, oldest-first. Each result block resolves its own
+  // run via params.jobId (U5/AC-01 history); a legacy unbound block keeps the
+  // latest run per generation block as its fallback.
   const [rows] = await pool.execute<JobRow[]>(
     'SELECT * FROM ai_generation_jobs WHERE flow_id = ? ORDER BY created_at ASC',
     [flowId],

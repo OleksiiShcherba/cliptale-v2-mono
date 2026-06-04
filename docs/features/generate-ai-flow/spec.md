@@ -85,7 +85,7 @@ feature_size: "L"
 
 **Given** a Creator owns an open flow with a text content block connected to the text input of an image-generation block whose required inputs are all satisfied
 **When** the Creator presses Generate on the image-generation block and confirms the estimated cost
-**Then** the system creates a new connected result block (prior result blocks on this generation block are retained as a history of runs), shows it producing the image, and on completion displays the image in the result block and adds it to the Creator's general library linked to this flow
+**Then** the system creates a new connected result block placed above the most recent prior result block for this generation block (prior result blocks — including failed runs — are retained as an ordered history of runs, newest on top), shows it producing the image, and on completion displays the image in that new result block and adds it to the Creator's general library linked to this flow. Each run's result block is bound to its own generation job, so on reload each result block shows the output of the run that produced it — history is never collapsed to the latest run
 
 ### AC-15 (US-02) — happy path (assemble blocks)
 
@@ -151,7 +151,7 @@ feature_size: "L"
 
 **Given** a Creator has started a generation that the provider fails or returns no usable output for
 **When** the generation finishes unsuccessfully
-**Then** the result block shows a clear failed state with the reason in plain language and an option to retry, and no broken or empty asset is added to the general library; retry is a fresh Generate — it re-shows the cost confirmation, may incur a new charge, and counts against the generation rate limit (it is not a free re-run of the failed attempt)
+**Then** the result block shows a clear failed state with the reason in plain language and an option to retry, and no broken or empty asset is added to the general library; retry is a fresh Generate — it re-shows the cost confirmation, may incur a new charge, and counts against the generation rate limit (it is not a free re-run of the failed attempt). The retry's output lands in a NEW result block; the failed run's block is retained in the run history (AC-01) and can be deleted manually
 
 ### AC-10 (US-01) — happy path (flow lifecycle persists)
 

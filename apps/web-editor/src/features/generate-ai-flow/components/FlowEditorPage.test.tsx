@@ -214,9 +214,11 @@ describe('FlowEditorPage', () => {
     expect(screen.queryByTestId('result-progress')).toBeNull();
   });
 
-  it('shows the LATEST run on reload — a newer successful job overrides an older failed one', async () => {
-    // A generation block with two runs: an older FAILED attempt (the pre-fix fal 422) and
-    // a newer successful one. On reload the result must show the success, not the stale fail.
+  it('a LEGACY unbound result block shows the LATEST run on reload (pre-U5 fallback)', async () => {
+    // A flow saved BEFORE the per-run binding (U5): one unbound result block (no
+    // params.jobId) and two runs — an older FAILED attempt and a newer success. The
+    // legacy block falls back to the latest run, so it shows the success, not the
+    // stale failure. (Post-U5 canvases bind each result block to its own run instead.)
     mockGetFlow.mockResolvedValue({
       flowId: 'flow-1',
       title: 'My flow',
@@ -424,6 +426,162 @@ describe('FlowEditorPage', () => {
         expect(
           edges.some((e) => e.sourceBlockId === 'g1' && e.targetBlockId.startsWith('result-')),
         ).toBe(true);
+      },
+      { timeout: 2500 },
+    );
+  });
+
+  // ── U5 (pass-16, AC-01): one generation block accumulates a HISTORY of result
+  // blocks — a regeneration appends a new block, it never overwrites the prior one. ──
+
+  it('a second Generate APPENDS a new result block above the prior one — history retained (AC-01)', async () => {
+    mockGetFlow.mockResolvedValue({
+      flowId: 'flow-1',
+      title: 'My flow',
+      version: 3,
+      canvas: {
+        schemaVersion: 1 as const,
+        blocks: [
+          { blockId: 'g1', type: 'generation' as const, position: { x: 320, y: 0 }, params: { modelId: GEN_MODEL } },
+          { blockId: 'r1', type: 'result' as const, position: { x: 640, y: 0 }, params: { sourceBlockId: 'g1', jobId: 'job-old' } },
+        ],
+        edges: [
+          { edgeId: 'e1', sourceBlockId: 'g1', sourceHandle: 'out', targetBlockId: 'r1', targetHandle: 'in' },
+        ],
+      },
+      jobs: [
+        { jobId: 'job-old', blockId: 'g1', status: 'completed', progress: 100, outputFileId: 'file-old', resultUrl: null, errorMessage: null, createdAt: '2026-06-02T10:00:00.000Z' },
+      ],
+      createdAt: '2026-06-03T00:00:00.000Z',
+      updatedAt: '2026-06-03T00:00:00.000Z',
+    });
+    mockGetFileUrl.mockResolvedValue('https://cdn.test/old.png');
+
+    renderPage();
+    await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).not.toBeNull());
+
+    const genNode = document.querySelector('[data-block-id="g1"]') as HTMLElement;
+    const generateBtn = Array.from(genNode.querySelectorAll('button')).find(
+      (b) => b.getAttribute('aria-label') === 'Generate',
+    );
+    fireEvent.click(generateBtn as HTMLElement);
+    const dialog = await screen.findByRole('dialog', { name: /confirm generation/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Generate' }));
+
+    // A NEW result block appears; the prior one is RETAINED (not reused/overwritten).
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-testid="result-node"]').length).toBe(2),
+    );
+    expect(document.querySelector('[data-block-id="r1"]')).not.toBeNull();
+
+    // The new block lands right of its gen block (g1.x + 320 = 640) and ABOVE the
+    // prior result (r1.y 0 − stack offset 280 = −280) — newest on top.
+    const newNode = Array.from(document.querySelectorAll('[data-testid="result-node"]')).find(
+      (n) => n.getAttribute('data-block-id') !== 'r1',
+    ) as HTMLElement;
+    const wrapper = newNode.closest('.react-flow__node') as HTMLElement;
+    expect(wrapper.style.transform).toMatch(/translate\(640px,\s*-280px\)/);
+  });
+
+  it('on reload each result block shows the output of the run that produced it — history is not collapsed (AC-01)', async () => {
+    mockGetFlow.mockResolvedValue({
+      flowId: 'flow-1',
+      title: 'My flow',
+      version: 3,
+      canvas: {
+        schemaVersion: 1 as const,
+        blocks: [
+          { blockId: 'g1', type: 'generation' as const, position: { x: 0, y: 0 }, params: { modelId: GEN_MODEL } },
+          { blockId: 'r1', type: 'result' as const, position: { x: 320, y: 0 }, params: { sourceBlockId: 'g1', jobId: 'job-1' } },
+          { blockId: 'r2', type: 'result' as const, position: { x: 320, y: -280 }, params: { sourceBlockId: 'g1', jobId: 'job-2' } },
+        ],
+        edges: [
+          { edgeId: 'e1', sourceBlockId: 'g1', sourceHandle: 'out', targetBlockId: 'r1', targetHandle: 'in' },
+          { edgeId: 'e2', sourceBlockId: 'g1', sourceHandle: 'out', targetBlockId: 'r2', targetHandle: 'in' },
+        ],
+      },
+      jobs: [
+        { jobId: 'job-1', blockId: 'g1', status: 'completed', progress: 100, outputFileId: 'file-1', resultUrl: null, errorMessage: null, createdAt: '2026-06-02T10:00:00.000Z' },
+        { jobId: 'job-2', blockId: 'g1', status: 'completed', progress: 100, outputFileId: 'file-2', resultUrl: null, errorMessage: null, createdAt: '2026-06-02T11:00:00.000Z' },
+      ],
+      createdAt: '2026-06-03T00:00:00.000Z',
+      updatedAt: '2026-06-03T00:00:00.000Z',
+    });
+    mockGetFileUrl.mockImplementation((id: string) => Promise.resolve(`https://cdn.test/${id}.png`));
+
+    renderPage();
+
+    await waitFor(() => expect(document.querySelector('[data-block-id="r2"]')).not.toBeNull());
+
+    // r1 shows ITS run's output (job-1 → file-1), r2 shows job-2 → file-2 —
+    // NOT both collapsed to the latest run.
+    await waitFor(() => {
+      const img1 = within(
+        document.querySelector('[data-block-id="r1"]') as HTMLElement,
+      ).getByTestId('result-media-image') as HTMLImageElement;
+      const img2 = within(
+        document.querySelector('[data-block-id="r2"]') as HTMLElement,
+      ).getByTestId('result-media-image') as HTMLImageElement;
+      expect(img1.src).toContain('file-1.png');
+      expect(img2.src).toContain('file-2.png');
+    });
+  });
+
+  it('regenerating with a LEGACY unbound result block freezes it to its previous run (back-compat)', async () => {
+    // Flows saved before the per-run binding have result blocks WITHOUT params.jobId.
+    // On regenerate, the legacy block must be bound to the PREVIOUS run so it keeps
+    // showing its old output, while the new run gets its own fresh block.
+    mockGetFlow.mockResolvedValue({
+      flowId: 'flow-1',
+      title: 'My flow',
+      version: 3,
+      canvas: {
+        schemaVersion: 1 as const,
+        blocks: [
+          { blockId: 'g1', type: 'generation' as const, position: { x: 0, y: 0 }, params: { modelId: GEN_MODEL } },
+          { blockId: 'r1', type: 'result' as const, position: { x: 320, y: 0 }, params: { sourceBlockId: 'g1' } },
+        ],
+        edges: [
+          { edgeId: 'e1', sourceBlockId: 'g1', sourceHandle: 'out', targetBlockId: 'r1', targetHandle: 'in' },
+        ],
+      },
+      jobs: [
+        { jobId: 'job-old', blockId: 'g1', status: 'completed', progress: 100, outputFileId: 'file-old', resultUrl: null, errorMessage: null, createdAt: '2026-06-02T10:00:00.000Z' },
+      ],
+      createdAt: '2026-06-03T00:00:00.000Z',
+      updatedAt: '2026-06-03T00:00:00.000Z',
+    });
+    mockGetFileUrl.mockResolvedValue('https://cdn.test/old.png');
+
+    renderPage();
+    await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).not.toBeNull());
+
+    const genNode = document.querySelector('[data-block-id="g1"]') as HTMLElement;
+    const generateBtn = Array.from(genNode.querySelectorAll('button')).find(
+      (b) => b.getAttribute('aria-label') === 'Generate',
+    );
+    fireEvent.click(generateBtn as HTMLElement);
+    const dialog = await screen.findByRole('dialog', { name: /confirm generation/i });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Generate' }));
+
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-testid="result-node"]').length).toBe(2),
+    );
+
+    // Autosave persists the bindings: the legacy block froze to job-old, the new
+    // block carries the fresh run's job id (job-1 from mockGenerateBlock).
+    await waitFor(
+      () => {
+        const lastSave = mockSaveCanvas.mock.calls.at(-1);
+        const blocks = (lastSave?.[1]?.canvas?.blocks ?? []) as Array<{
+          blockId: string;
+          type: string;
+          params: Record<string, unknown>;
+        }>;
+        const legacy = blocks.find((b) => b.blockId === 'r1');
+        const fresh = blocks.find((b) => b.type === 'result' && b.blockId !== 'r1');
+        expect(legacy?.params.jobId).toBe('job-old');
+        expect(fresh?.params.jobId).toBe('job-1');
       },
       { timeout: 2500 },
     );

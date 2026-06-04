@@ -126,6 +126,13 @@ exact reasoning as the existing `draft_id`, migration 026).
 | `flow_id` | `CHAR(36)` | YES | `NULL` | NEW. The flow that triggered the run. No FK (orphan-safe; worker `INSERT IGNORE`s into `flow_files` on success). Added `AFTER draft_id`. |
 | `block_id` | `CHAR(36)` | YES | `NULL` | NEW. The canvas generation-block id (lives inside `generation_flows.canvas` JSON, so no table to reference). Lets reattach-on-reopen (AC-08b) map a job → its result block. Added `AFTER flow_id`. |
 
+> **Run-history binding (U5/AC-01).** Inside the canvas JSON, each result block carries
+> `params.jobId` — the `ai_generation_jobs.job_id` of the run that produced it. This is the
+> per-run discriminator that lets ONE generation block keep MANY result blocks (one per run,
+> incl. failed); `getJobsByFlowId` returns the full ordered history and each block resolves its
+> own row. Legacy result blocks saved before the binding (no `params.jobId`) fall back to the
+> latest run of their `params.sourceBlockId`.
+
 *(Existing columns — `job_id` PK, `user_id`, `model_id`, `capability`, `prompt`, `options`,
 `status`, `progress`, `result_asset_id`, `result_url`, `output_file_id`, `draft_id`,
 `created_at`, `updated_at` — are unchanged.)*

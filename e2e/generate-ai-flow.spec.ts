@@ -427,24 +427,53 @@ test.describe('generate-ai-flow — full journey (AC-01, AC-08b, AC-10, AC-10b)'
     await expect(page.getByTestId('result-media-image')).toHaveAttribute('src', RESULT_URL);
   });
 
-  test('reload with a failed-then-succeeded run history shows the success, not the stale failure (AC-09/AC-10, O1)', async ({ page }) => {
-    // Two runs for the SAME generation block: an older FAILED attempt and a
-    // newer completed one — the real shape after a retry. On reload the result
-    // block must show the image of the newest run, never the stale failure or
-    // a stuck progress bar (pass-10 O1 + pass-11 P1 regressions).
+  test('reload restores the FULL run history — failed run retained alongside the success (AC-01, U5)', async ({ page }) => {
+    // Two runs for the SAME generation block, EACH bound to its own result block via
+    // params.jobId (the post-U5 canvas shape): an older FAILED attempt and a newer
+    // completed one. On reload BOTH blocks restore — the failed block keeps showing
+    // its failure, the success block its image. History is never collapsed to the
+    // latest run (U5 replaces the pass-10 latest-wins collapse).
+    const FAILED_JOB_ID = 'e2e-flow-job-failed';
+    const FAILED_RESULT_BLOCK_ID = 'result-block-failed';
     const state: FlowMockState = { version: 2, hasResult: true, jobStatus: 'completed' };
     await page.route('**/*', async (route: Route) => {
       const { pathname } = new URL(route.request().url());
       if (route.request().method() === 'GET' && pathname === `/generation-flows/${FLOW_ID}`) {
+        const doc = canvasDoc(true);
         await route.fulfill(
           jsonResponse({
             flowId: FLOW_ID,
             title: 'E2E flow',
             version: state.version,
-            canvas: canvasDoc(true),
+            canvas: {
+              ...doc,
+              blocks: [
+                ...doc.blocks.map((b) =>
+                  b.blockId === RESULT_BLOCK_ID
+                    ? { ...b, position: { x: 640, y: -280 }, params: { ...b.params, jobId: JOB_ID } }
+                    : b,
+                ),
+                {
+                  blockId: FAILED_RESULT_BLOCK_ID,
+                  type: 'result' as const,
+                  position: { x: 640, y: 0 },
+                  params: { sourceBlockId: GEN_BLOCK_ID, jobId: FAILED_JOB_ID },
+                },
+              ],
+              edges: [
+                ...doc.edges,
+                {
+                  edgeId: 'edge-3',
+                  sourceBlockId: GEN_BLOCK_ID,
+                  sourceHandle: 'out',
+                  targetBlockId: FAILED_RESULT_BLOCK_ID,
+                  targetHandle: 'in',
+                },
+              ],
+            },
             jobs: [
               {
-                jobId: 'e2e-flow-job-failed',
+                jobId: FAILED_JOB_ID,
                 blockId: GEN_BLOCK_ID,
                 status: 'failed',
                 progress: 0,
@@ -475,10 +504,38 @@ test.describe('generate-ai-flow — full journey (AC-01, AC-08b, AC-10, AC-10b)'
 
     await openFlowEditor(page);
 
-    // The newest run's image renders; neither the stale failure nor a progress bar.
+    // The success block shows ITS run's image; no stuck progress bar.
     await expect(page.getByTestId('result-media-image')).toHaveAttribute('src', RESULT_URL);
-    await expect(page.getByText(/generation failed/i)).toBeHidden();
     await expect(page.getByTestId('result-progress')).toBeHidden();
+    // The failed run's block is RETAINED alongside, still telling its failure.
+    await expect(page.locator(`[data-block-id="${FAILED_RESULT_BLOCK_ID}"]`)).toBeVisible();
+    await expect(
+      page.locator(`[data-block-id="${FAILED_RESULT_BLOCK_ID}"]`).getByText(/generation failed/i),
+    ).toBeVisible();
+  });
+
+  test('Generate twice → the second run APPENDS a result block, the first is retained (AC-01, U5)', async ({ page }) => {
+    // A flow with one completed run + its result block. Regenerating through the real
+    // UI must ADD a second result block (stacked above) — never reuse/overwrite the
+    // existing one. The legacy unbound block freezes to its previous run.
+    const api = await installFlowApi(page, { version: 2, hasResult: true, jobStatus: 'completed' });
+    await openFlowEditor(page);
+
+    await expect(page.locator(`[data-block-id="${RESULT_BLOCK_ID}"]`)).toBeVisible();
+    await expect(page.getByTestId('result-node')).toHaveCount(1);
+
+    // Regenerate: Generate on the gen block → confirm the cost gate.
+    await page
+      .locator(`[data-block-id="${GEN_BLOCK_ID}"]`)
+      .getByRole('button', { name: /^generate$/i })
+      .click();
+    const costModal = page.getByRole('dialog', { name: /confirm generation/i });
+    await costModal.getByRole('button', { name: /^generate$/i }).click();
+    await expect.poll(() => api.generateCount()).toBe(1);
+
+    // A SECOND result block appears; the prior block is retained on the canvas.
+    await expect(page.getByTestId('result-node')).toHaveCount(2);
+    await expect(page.locator(`[data-block-id="${RESULT_BLOCK_ID}"]`)).toBeVisible();
   });
 
   test('reopen reattaches to an in-flight generation and shows the eventual result (AC-08b)', async ({ page }) => {

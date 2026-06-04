@@ -302,16 +302,18 @@ export function useFlowCanvas(options: UseFlowCanvasOptions = {}) {
   /**
    * Add a result block for a generation block, wiring the visible gen→result edge
    * (generation `out` → result `in`) so the produced result is connected on the canvas,
-   * not just linked by `params.sourceBlockId`. Returns the new result blockId.
+   * not just linked by `params.sourceBlockId`. When `jobId` is given the block is bound
+   * to that run — the per-run discriminator that lets one generation block keep a
+   * HISTORY of result blocks (U5/AC-01). Returns the new result blockId.
    */
   const addResultBlock = useCallback(
-    (genBlockId: string | undefined, position: { x: number; y: number }) => {
+    (genBlockId: string | undefined, position: { x: number; y: number }, jobId?: string) => {
       const blockId = genId('result');
       const block: FlowBlock = {
         blockId,
         type: 'result',
         position,
-        params: { sourceBlockId: genBlockId },
+        params: { sourceBlockId: genBlockId, ...(jobId ? { jobId } : {}) },
       };
       setCanvas((c) => {
         const edges: FlowEdge[] = genBlockId
