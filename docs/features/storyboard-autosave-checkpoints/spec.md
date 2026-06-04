@@ -85,7 +85,13 @@ Interview decisions recorded for traceability: the full-screen loader applies to
 
 **Given** a Creator is editing their storyboard draft on the board page
 **When** they make any change (add, move, edit, or remove a block or connection)
-**Then** the system automatically saves the current board state shortly afterwards and the save indicator reflects it, with no screenshot taken
+**Then** the system automatically saves the current board state within a few seconds (today's autosave timing, unchanged) and the save indicator — the existing "Saving…/Saved" status label in the board's top bar — reflects it, with no screenshot taken
+
+### AC-01b (US-01) — error path: autosave failure
+
+**Given** a lightweight autosave attempt fails (for example a connectivity problem)
+**When** the Creator keeps editing
+**Then** the save indicator shows that the latest changes are not saved yet, the system keeps retrying automatically, and editing is never blocked; once a retry succeeds the indicator returns to its saved state
 
 ### AC-02 (US-01) — domain invariant
 
@@ -103,13 +109,13 @@ Interview decisions recorded for traceability: the full-screen loader applies to
 
 **Given** the autosave interval elapses while the Creator is dragging a block or typing in a text field on the canvas
 **When** the automatic checkpoint would fire
-**Then** the system defers the checkpoint until the interaction ends and runs it immediately afterwards (deferred at most one extra interval, after which it runs anyway) — a screenshot never captures a half-finished interaction
+**Then** the system defers the automatic checkpoint until the interaction ends and runs it immediately afterwards, deferring at most one extra interval — at that cap the checkpoint runs even if the interaction is still in progress, capturing the board as it is at that moment. Short of the cap, a screenshot never captures a half-finished interaction. The deferral applies to automatic checkpoints only — a manual Save is never deferred
 
-### AC-03c (US-02) — edge: backgrounded tab
+### AC-03c (US-02) — edge: overdue changes on tab return or page open
 
-**Given** the board page tab has been in the background for longer than the autosave interval and changes are pending
-**When** the Creator returns to the tab
-**Then** one overdue checkpoint save runs shortly after the return, and the regular countdown resumes
+**Given** changes newer than the last checkpoint save have been pending for longer than the autosave interval — because the board tab was in the background, or because the Creator closed the page and reopens the draft later
+**When** the board page becomes visible again (tab return or fresh open)
+**Then** one overdue checkpoint save runs within 10 seconds, and the regular countdown resumes
 
 ### AC-04 (US-02) — error path: screenshot capture failure
 
@@ -121,19 +127,19 @@ Interview decisions recorded for traceability: the full-screen loader applies to
 
 **Given** no changes have been made since the last checkpoint save
 **When** the autosave interval elapses
-**Then** no new History entry is created, and the checkpoint countdown bar shows an "all saved" idle state instead of counting down
+**Then** no new History entry is created, the checkpoint countdown bar shows an "all saved" idle state instead of counting down, and the Save button next to it is inactive — neither an automatic nor a manual checkpoint can duplicate an unchanged state
 
 ### AC-06 (US-03) — happy path
 
 **Given** a Creator makes a change after the last checkpoint save
 **When** they look at the top-right of the board page
-**Then** the checkpoint countdown bar is visible and counting toward the next automatic checkpoint, and it resets after every checkpoint save (automatic or manual)
+**Then** the checkpoint countdown bar is visible and counting toward the next automatic checkpoint, and it resets after every checkpoint save (automatic or manual); the first change after an "all saved" idle state starts a fresh full-interval countdown
 
 ### AC-07 (US-04) — happy path
 
 **Given** a Creator wants an immediate restore point
 **When** they press the Save button next to the countdown bar
-**Then** a checkpoint save runs at once — full-screen loader during capture, a new History entry with the screenshot on top — and the interval countdown restarts
+**Then** a checkpoint save runs at once — even if a canvas interaction (drag or typing) is in progress, the AC-03b deferral does not apply to a manual Save — with the full-screen loader during capture, a new History entry with the screenshot on top, and the interval countdown restarts
 
 ### AC-07b (US-04) — concurrent edge: double-save protection
 
@@ -151,7 +157,7 @@ Interview decisions recorded for traceability: the full-screen loader applies to
 
 **Given** a signed-in Creator opens the Settings page from the Home left menu
 **When** they pick a different autosave-interval preset (30 seconds, 1, 2, 5, or 10 minutes) and the change is stored
-**Then** the system confirms the change and the new interval governs the next checkpoint scheduling on any of their storyboard drafts
+**Then** the system confirms the change and the new interval governs the next checkpoint scheduling on any of their storyboard drafts; a countdown already running on an open board finishes at its old cadence — the new interval applies from the next countdown start
 
 ### AC-10 (US-06) — cross-context
 
@@ -171,11 +177,17 @@ Interview decisions recorded for traceability: the full-screen loader applies to
 **When** the Creator keeps editing
 **Then** checkpoints run at the default interval of 1 minute for that session and editing is never blocked
 
+### AC-11c (US-06) — authorization
+
+**Given** a signed-in user
+**When** they attempt to read or change the autosave-interval setting of another account
+**Then** the system denies it — the setting is readable and writable only by its account owner
+
 ### AC-12 (US-07) — happy path
 
 **Given** a Creator has changes newer than the latest History entry
 **When** they confirm a Restore of an older History entry
-**Then** the system first creates a checkpoint of the current state (it becomes the newest History entry), then applies the restore — the pre-restore work stays restorable
+**Then** the system first creates a checkpoint of the current state (it becomes the newest History entry), then applies the restore — the pre-restore work stays restorable; the pre-restore checkpoint follows the same capture-failure fallback as AC-04 (minimap preview) and never blocks the restore
 
 ### AC-13 (US-05) — authorization
 
@@ -192,6 +204,7 @@ Interview decisions recorded for traceability: the full-screen loader applies to
 | Lightweight autosave server confirmation p95 | ≤ 500 ms | API request logs |
 | History panel load p95 | ≤ 500 ms | API request logs |
 | Screenshot-capture failure share | < 2% of checkpoint entries | share of entries showing the minimap fallback (countable server-side) |
+| Screenshot-capture timeout before fallback | a capture not finished within 5 s counts as failed → minimap fallback (AC-04), the loader is dismissed, the checkpoint completes | e2e test forcing a slow capture; fallback share counted server-side |
 | Settings read on board open p95 | ≤ 300 ms | API request logs |
 
 ## 6.1 Security / privacy
@@ -208,7 +221,7 @@ Interview decisions recorded for traceability: the full-screen loader applies to
 
 ## 7. Metrics / KPIs
 
-- **History snapshot writes per active editing hour per draft** — baseline: TBD, measured by counting history-table row creation over one week before release; target: ≥ 90% reduction within 14 days after release.
+- **History snapshot writes per active editing hour per draft** — an "active editing hour" = a clock hour in which the draft received at least one board change; baseline: TBD, measured by counting history-table row creation over one week before release; target: ≥ 90% reduction within 14 days after release.
 - **Share of checkpoint entries with a real layout screenshot** — baseline: n/a (new mechanism); target: ≥ 98% within 30 days (the remainder show the minimap fallback).
 - **"Restore destroyed my newer work" complaints** — baseline: n/a; target: 0 support tickets within 60 days after release.
 
