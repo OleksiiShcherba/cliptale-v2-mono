@@ -93,6 +93,13 @@ export type FalFieldSchema = {
    * Declared per ADR-0006 / AC-06.
    */
   exclusiveGroup?: string;
+  /**
+   * Hidden fields stay in the schema (validation + legacy programmatic callers keep
+   * working) but never render in Creator-facing UIs like the flow-canvas Inspector.
+   * Example: music `music_length_ms` — superseded by the seconds-based `duration`
+   * control, kept for storyboard-music callers that set it directly.
+   */
+  hidden?: boolean;
 };
 
 export type FalInputSchema = {

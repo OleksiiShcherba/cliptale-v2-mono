@@ -246,6 +246,23 @@ describe('Inspector — generation block optional params', () => {
     expect(screen.getByLabelText(/video quality/i)).toBeDefined();
   });
 
+  // Review pass 14 (2): the music model exposes ONE length control — 'Length (seconds)'.
+  // The legacy 'Music Length (ms)' is catalog-hidden (silent ms-wins precedence confused
+  // the Creator); hidden fields never render in the Inspector.
+  it('music model shows a single Length (seconds) field and hides catalog-hidden fields', () => {
+    const block: FlowBlock = {
+      blockId: 'g1',
+      type: 'generation',
+      position: { x: 0, y: 0 },
+      params: { modelId: 'elevenlabs/music-generation' },
+    };
+    render(
+      <Inspector selectedBlockId="g1" canvas={makeCanvas(block)} onBlockParamsChange={vi.fn()} />,
+    );
+    expect(screen.getByLabelText(/length \(seconds\)/i)).toBeDefined();
+    expect(screen.queryByLabelText(/music length \(ms\)/i)).toBeNull();
+  });
+
   it('editing an optional param calls onBlockParamsChange with the field-name key', async () => {
     const user = userEvent.setup();
     const onParamsChange = vi.fn();

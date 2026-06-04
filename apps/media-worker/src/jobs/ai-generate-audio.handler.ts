@@ -181,7 +181,10 @@ async function handleMusicGeneration(
   const shouldRegeneratePlan = options['regenerate_composition_plan'] === true;
   const musicLengthMs = getMusicLengthMs(options);
   const modelId = getOptionalString(options['model_id']);
-  const respectSectionsDurations = getOptionalBoolean(options['respect_sections_durations']);
+  // Catalog default is TRUE and the Inspector never prefills defaults — without this
+  // fallback the field was omitted and ElevenLabs drifted from the plan's section
+  // durations, so the configured length was not respected.
+  const respectSectionsDurations = getOptionalBoolean(options['respect_sections_durations']) ?? true;
   const forceInstrumental = getOptionalBoolean(options['force_instrumental']) ?? true;
 
   if (compositionPlan && prompt && !shouldRegeneratePlan) {

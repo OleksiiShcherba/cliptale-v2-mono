@@ -138,6 +138,22 @@ describe('elevenlabs-models catalog', () => {
     expect(fields.some((f) => f.name === 'force_instrumental' && f.type === 'boolean')).toBe(true);
     expect(fields.some((f) => f.name === 'model_id' && f.type === 'enum')).toBe(true);
   });
+
+  it('music_generation exposes ONE visible length control — seconds; music_length_ms is hidden', () => {
+    // Review pass 14: the canvas Inspector showed BOTH 'Music Length (ms)' and the
+    // legacy 'Duration (seconds)' with a silent precedence (ms wins) — confusing and
+    // a silently-ignored setting. The Creator-facing control is the seconds field;
+    // music_length_ms stays in the catalog (hidden) for legacy programmatic callers.
+    const model = ELEVENLABS_MODELS.find((m) => m.capability === 'music_generation');
+    expect(model).toBeDefined();
+    const lengthMs = model!.inputSchema.fields.find((f) => f.name === 'music_length_ms');
+    const duration = model!.inputSchema.fields.find((f) => f.name === 'duration');
+    expect(lengthMs?.hidden).toBe(true);
+    expect(duration?.hidden).toBeUndefined();
+    expect(duration?.label).toBe('Length (seconds)');
+    expect(duration?.min).toBe(3);
+    expect(duration?.max).toBe(600);
+  });
 });
 
 describe('AUDIO_CAPABILITY_TO_GROUP', () => {

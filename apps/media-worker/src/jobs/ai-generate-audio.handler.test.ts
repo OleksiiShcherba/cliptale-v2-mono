@@ -158,6 +158,29 @@ describe('processElevenLabsCapability / music_generation', () => {
     expect(params.apiKey).toBe('el-test-key');
   });
 
+  // Review pass 14 (2): the canvas writes the seconds field ('duration'); the plan must
+  // be created at duration*1000 ms AND the compose must respect the plan's section
+  // durations BY DEFAULT (catalog default true) — without the fallback the field was
+  // omitted (Inspector never prefills defaults) and ElevenLabs drifted from the
+  // configured length.
+  it('seconds field drives the plan length and respect_sections_durations defaults to true', async () => {
+    const m = makeMocks();
+
+    await processElevenLabsCapability(
+      makeData({
+        capability: 'music_generation',
+        options: { prompt: 'epic drums', duration: 60 },
+      }),
+      makeDeps(m),
+    );
+
+    expect(m.createMusicCompositionPlan).toHaveBeenCalledWith(
+      expect.objectContaining({ musicLengthMs: 60_000 }),
+    );
+    const [params] = m.musicGeneration.mock.calls[0]!;
+    expect(params.respectSectionsDurations).toBe(true);
+  });
+
   it('creates, stores, and composes from an instrumental plan for prompt-only fallback', async () => {
     const m = makeMocks();
 

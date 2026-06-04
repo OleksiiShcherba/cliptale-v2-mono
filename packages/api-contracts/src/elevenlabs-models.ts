@@ -273,19 +273,26 @@ export const ELEVENLABS_MODELS: readonly ElevenLabsModel[] = [
           ),
           exclusiveGroup: 'prompt_mode',
         },
-        numberField(
-          'music_length_ms',
-          'Music Length (ms)',
-          'Length for prompt-based plan creation, from 3,000 to 600,000 ms.',
-          30_000,
-          3_000,
-          600_000,
-        ),
-        // Legacy prompt-based duration field retained so existing callers keep validating.
+        // Hidden from Creator-facing UIs: superseded by the seconds-based 'duration'
+        // control below (the worker prefers music_length_ms when both are set, which
+        // silently ignored the visible field). Kept for storyboard-music callers.
+        {
+          ...numberField(
+            'music_length_ms',
+            'Music Length (ms)',
+            'Length for prompt-based plan creation, from 3,000 to 600,000 ms.',
+            30_000,
+            3_000,
+            600_000,
+          ),
+          hidden: true,
+        },
+        // The ONE visible length control — human units; the worker converts to
+        // music_length_ms (×1000) for plan creation.
         numberField(
           'duration',
-          'Duration (seconds)',
-          'Legacy length field; converted to music_length_ms for plan creation.',
+          'Length (seconds)',
+          'Target music length in seconds, from 3 to 600.',
           30,
           3,
           600,

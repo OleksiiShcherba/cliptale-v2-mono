@@ -221,9 +221,10 @@ function GenerationParamFields({
   }
 
   // Only show optional fields that are NOT wired by canvas connections
-  // (i.e., no modality, not required, not exclusiveGroup)
+  // (i.e., no modality, not required, not exclusiveGroup) and not catalog-hidden
+  // (legacy fields like music_length_ms kept for programmatic callers only).
   const optionalFields = model.inputSchema.fields.filter(
-    (f) => !f.required && !f.modality && !f.exclusiveGroup,
+    (f) => !f.required && !f.modality && !f.exclusiveGroup && !f.hidden,
   );
 
   if (optionalFields.length === 0) {
