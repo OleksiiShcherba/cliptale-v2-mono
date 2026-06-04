@@ -69,6 +69,16 @@ describe('requiredHandlesForModel', () => {
     expect(list!.modality).toBe('image');
   });
 
+  it('gives the music-generation block a text prompt handle (prompt XOR composition_plan)', () => {
+    // Neither music field is individually required (prompt OR composition_plan satisfies
+    // ElevenLabs), so the handle must come from their shared exclusiveGroup — otherwise
+    // the block renders "No required inputs" and accepts no edge at all.
+    const handles = requiredHandlesForModel('elevenlabs/music-generation');
+    expect(handles.some((h) => h.fieldName === 'prompt' && h.modality === 'text')).toBe(true);
+    // composition_plan is in the XOR but carries no media modality → inspector-only.
+    expect(handles.some((h) => h.fieldName === 'composition_plan')).toBe(false);
+  });
+
   it('returns no image handle for a pure text-to-image model', () => {
     const handles = requiredHandlesForModel(NANO);
     expect(handles.some((h) => h.modality === 'image')).toBe(false);

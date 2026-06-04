@@ -114,6 +114,19 @@ describe('elevenlabs-models catalog', () => {
     expect(voicePickerFields).toHaveLength(0);
   });
 
+  it('music_generation: prompt and composition_plan form an exactly-one-of pair (exclusiveGroup)', () => {
+    // Neither field is individually required (either one satisfies ElevenLabs Music),
+    // so WITHOUT a shared exclusiveGroup the flow canvas renders no input handle at all
+    // AND the generate gate lets a music block through with zero inputs — a charged
+    // call guaranteed to fail at the provider. Mirrors fal's 'prompt_mode' annotation.
+    const model = ELEVENLABS_MODELS.find((m) => m.capability === 'music_generation');
+    expect(model).toBeDefined();
+    const prompt = model!.inputSchema.fields.find((f) => f.name === 'prompt');
+    const plan = model!.inputSchema.fields.find((f) => f.name === 'composition_plan');
+    expect(prompt?.exclusiveGroup).toBe('prompt_mode');
+    expect(plan?.exclusiveGroup).toBe('prompt_mode');
+  });
+
   it('music_generation supports prompt fallback and composition_plan execution fields', () => {
     const model = ELEVENLABS_MODELS.find((m) => m.capability === 'music_generation');
     expect(model).toBeDefined();

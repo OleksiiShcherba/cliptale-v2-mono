@@ -253,6 +253,9 @@ export const ELEVENLABS_MODELS: readonly ElevenLabsModel[] = [
       'Generate background music from an ElevenLabs Music composition plan.',
     inputSchema: {
       fields: [
+        // prompt XOR composition_plan: exactly one must be provided (mirrors fal's
+        // 'prompt_mode'). The shared exclusiveGroup is what makes prompt wireable on
+        // the flow canvas AND lets the generate gate reject a zero-input music block.
         {
           ...textField(
             'prompt',
@@ -260,12 +263,16 @@ export const ELEVENLABS_MODELS: readonly ElevenLabsModel[] = [
             'Describe the music to plan when no composition plan is supplied.',
           ),
           required: false,
+          exclusiveGroup: 'prompt_mode',
         },
-        compositionPlanField(
-          'composition_plan',
-          'Composition Plan',
-          'Structured ElevenLabs Music composition plan for planned storyboard music.',
-        ),
+        {
+          ...compositionPlanField(
+            'composition_plan',
+            'Composition Plan',
+            'Structured ElevenLabs Music composition plan for planned storyboard music.',
+          ),
+          exclusiveGroup: 'prompt_mode',
+        },
         numberField(
           'music_length_ms',
           'Music Length (ms)',
