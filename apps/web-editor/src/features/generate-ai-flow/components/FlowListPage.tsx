@@ -116,6 +116,22 @@ function FlowCard({ flow, onOpen, onDelete, onRename }: FlowCardProps): React.Re
   const [isRenaming, setIsRenaming] = React.useState(false);
   const [renameValue, setRenameValue] = React.useState(flow.title);
   const [isDeleting, setIsDeleting] = React.useState(false);
+  const [isHovered, setIsHovered] = React.useState(false);
+
+  // U4 — the whole card opens the flow (like ProjectCard / AssetCard);
+  // inner controls stopPropagation, and renaming suspends navigation.
+  function handleCardOpen(): void {
+    if (isRenaming) return;
+    onOpen(flow.flowId);
+  }
+
+  function handleCardKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
+    if (e.target !== e.currentTarget) return; // keys inside inner controls (rename input, buttons)
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleCardOpen();
+    }
+  }
 
   async function handleRenameSubmit(): Promise<void> {
     const trimmed = renameValue.trim();
@@ -148,15 +164,24 @@ function FlowCard({ flow, onOpen, onDelete, onRename }: FlowCardProps): React.Re
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-label={`Open flow ${flow.title}`}
+      onClick={handleCardOpen}
+      onKeyDown={handleCardKeyDown}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       style={{
         background: SURFACE_ELEVATED,
-        border: `1px solid ${BORDER}`,
+        border: `1px solid ${isHovered ? PRIMARY : BORDER}`,
         borderRadius: 8,
         padding: '16px',
         display: 'flex',
         flexDirection: 'column',
         gap: 12,
         fontFamily: 'Inter, sans-serif',
+        cursor: 'pointer',
+        transition: 'border-color 0.15s',
       }}
     >
       {/* Title row */}
@@ -166,6 +191,7 @@ function FlowCard({ flow, onOpen, onDelete, onRename }: FlowCardProps): React.Re
             aria-label="Flow title"
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
             onKeyDown={handleRenameKeyDown}
             onBlur={() => { void handleRenameSubmit(); }}
             autoFocus
@@ -217,28 +243,9 @@ function FlowCard({ flow, onOpen, onDelete, onRename }: FlowCardProps): React.Re
       <div style={{ display: 'flex', gap: 8 }}>
         <button
           type="button"
-          aria-label={`Open ${flow.title}`}
-          onClick={() => onOpen(flow.flowId)}
-          style={{
-            flex: 1,
-            padding: '6px 12px',
-            background: PRIMARY,
-            color: TEXT_PRIMARY,
-            border: 'none',
-            borderRadius: 6,
-            fontSize: 12,
-            fontWeight: 500,
-            fontFamily: 'Inter, sans-serif',
-            cursor: 'pointer',
-          }}
-        >
-          Open
-        </button>
-
-        <button
-          type="button"
           aria-label={`Rename ${flow.title}`}
-          onClick={() => {
+          onClick={(e) => {
+            e.stopPropagation();
             setRenameValue(flow.title);
             setIsRenaming(true);
           }}
@@ -260,7 +267,10 @@ function FlowCard({ flow, onOpen, onDelete, onRename }: FlowCardProps): React.Re
         <button
           type="button"
           aria-label={`Delete ${flow.title}`}
-          onClick={() => { void handleDeleteClick(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            void handleDeleteClick();
+          }}
           disabled={isDeleting}
           style={{
             padding: '6px 12px',

@@ -185,17 +185,82 @@ describe('FlowListPage', () => {
     });
   });
 
-  // ── Open action ────────────────────────────────────────────────────────────
+  // ── Open action (U4 — whole card is clickable; no separate Open button) ──
 
-  it('navigates to /generate-ai/<flowId> when Open is clicked', async () => {
+  it('navigates to /generate-ai/<flowId> when the card itself is clicked', async () => {
     mockListFlows.mockResolvedValue({ items: FLOWS, nextCursor: null });
     renderPage();
 
     await waitFor(() => screen.getByText('Newest Flow'));
 
-    fireEvent.click(screen.getByRole('button', { name: /open.*newest flow/i }));
+    fireEvent.click(screen.getByRole('button', { name: /open flow newest flow/i }));
 
     expect(mockNavigate).toHaveBeenCalledWith('/generate-ai/flow-1');
+  });
+
+  it('renders no separate Open button', async () => {
+    mockListFlows.mockResolvedValue({ items: FLOWS, nextCursor: null });
+    renderPage();
+
+    await waitFor(() => screen.getByText('Newest Flow'));
+
+    expect(screen.queryByText('Open')).toBeNull();
+  });
+
+  it('navigates when Enter is pressed on the focused card', async () => {
+    mockListFlows.mockResolvedValue({ items: FLOWS, nextCursor: null });
+    renderPage();
+
+    await waitFor(() => screen.getByText('Newest Flow'));
+
+    const card = screen.getByRole('button', { name: /open flow newest flow/i });
+    fireEvent.keyDown(card, { key: 'Enter' });
+
+    expect(mockNavigate).toHaveBeenCalledWith('/generate-ai/flow-1');
+  });
+
+  it('highlights the card border on hover', async () => {
+    mockListFlows.mockResolvedValue({ items: FLOWS, nextCursor: null });
+    renderPage();
+
+    await waitFor(() => screen.getByText('Newest Flow'));
+
+    const card = screen.getByRole('button', { name: /open flow newest flow/i });
+    expect(card.style.borderColor).toBe('rgb(37, 37, 53)'); // BORDER #252535
+
+    fireEvent.mouseEnter(card);
+    expect(card.style.borderColor).toBe('rgb(124, 58, 237)'); // PRIMARY #7C3AED
+
+    fireEvent.mouseLeave(card);
+    expect(card.style.borderColor).toBe('rgb(37, 37, 53)');
+  });
+
+  it('does not navigate when Rename or Delete inside the card is clicked', async () => {
+    mockListFlows.mockResolvedValue({ items: FLOWS, nextCursor: null });
+    mockDeleteFlow.mockResolvedValue(undefined);
+    renderPage();
+
+    await waitFor(() => screen.getByText('Newest Flow'));
+
+    fireEvent.click(screen.getByRole('button', { name: /rename.*newest flow/i }));
+    fireEvent.click(screen.getByRole('button', { name: /delete.*older flow/i }));
+
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('does not navigate on card click while renaming is in progress', async () => {
+    mockListFlows.mockResolvedValue({ items: FLOWS, nextCursor: null });
+    renderPage();
+
+    await waitFor(() => screen.getByText('Newest Flow'));
+
+    fireEvent.click(screen.getByRole('button', { name: /rename.*newest flow/i }));
+    const input = screen.getByRole('textbox', { name: /flow title/i });
+    fireEvent.click(input); // a click inside the rename input must not navigate
+
+    fireEvent.click(screen.getByRole('button', { name: /open flow newest flow/i }));
+
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   // ── Rename action ──────────────────────────────────────────────────────────
