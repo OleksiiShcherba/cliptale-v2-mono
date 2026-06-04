@@ -207,6 +207,12 @@ feature_size: "L"
 **When** the deletion completes
 **Then** the flow with its blocks and connections is removed but the generated assets remain in the Creator's general library (only the flow linkage is dropped) — deleting a flow never deletes the Creator's library assets
 
+### AC-20 (US-05) — happy path (param-reactive, DB-adjustable cost estimate)
+
+**Given** a Creator owns a generation block whose selected model has price-driving parameters — output duration in seconds (incl. music length), resolution, number of images — set on the block or defaulted by the model catalog
+**When** the system produces the cost estimate for that block
+**Then** the estimated amount is computed from per-model pricing stored in the database (adjustable without a code deploy) as a base amount plus per-second and per-image components scaled by the block's effective parameter values and multiplied by the resolution factor — so two runs of the same model with different durations, resolutions, or image counts produce different estimates; a model without a DB pricing row falls back to the static seed price and the estimate remains labelled best-effort
+
 ## 6. Non-functional requirements
 
 | Aspect | Target | Measurement |
@@ -240,7 +246,7 @@ feature_size: "L"
 ## 8. Open questions
 
 - [ ] What are the exact generation rate-limit thresholds and any credit/quota policy per Creator (and per plan tier)? Default now: ≤ 30 Generate runs/min/Creator as an abuse guard, no credit quota. — owner: Product/Business owner, due: before `sdd:tasks`
-- [ ] Where does the per-model cost estimate come from — the model catalog does not currently carry pricing metadata, and providers bill on actual output (duration/resolution/retries) which isn't known until completion? Default now: show a best-effort estimate from static per-model pricing; reconcile against actuals out of band. — owner: Tech Lead + Business owner, due: before `sdd:api`
+- [x] ~~Where does the per-model cost estimate come from — the model catalog does not currently carry pricing metadata, and providers bill on actual output (duration/resolution/retries) which isn't known until completion? Default now: show a best-effort estimate from static per-model pricing; reconcile against actuals out of band.~~ **RESOLVED 2026-06-04 (review pass 15, client escalation → AC-20):** pricing moves to a DB table `flow_model_pricing` (per-model `base_amount` + `per_second` + `per_image` + `resolution_mult`, adjustable in the database without a deploy), seeded from the static table; the estimate formula reacts to the block's effective duration/resolution/image-count (catalog defaults when unset). The static table remains the seed + fallback for models without a row. Estimates stay best-effort; reconciliation against actuals remains out of band. See ADR-0008 (amends ADR-0005).
 - [ ] What is the refund/credit policy when a Creator is charged for a generation that fails or returns unusable output? Default now: no automatic refund; retry offered. — owner: Product/Business owner, due: before launch
 - [ ] How much flow history is needed — does the flow need undo/redo and version snapshots like projects, or is autosave plus conflict-detection enough for v1? (Conflict-detection on concurrent saves is committed by AC-10b and is **not** part of this question — this question is only about undo/redo depth and version snapshots.) Default now: autosave + AC-10b conflict warning, no undo/redo history. — owner: Tech Lead, due: before `sdd:design`
 - [ ] What is a "typical" flow size for the §6 open-latency target, and is there a per-flow block cap beyond which performance is not guaranteed (large graphs with many image previews are the heaviest case)? Default now: target holds for flows up to ~50 blocks; no hard cap enforced. — owner: Tech Lead, due: before `sdd:design`

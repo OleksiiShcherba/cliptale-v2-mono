@@ -144,6 +144,30 @@ Each index serves a concrete query from the spec/§6 sequences; no "just in case
 `ai_generation_jobs(job_id)`. The `fk_generation_flows_user` FK is covered by the leading `user_id`
 of the composite index above — no extra index needed.)*
 
+### `flow_model_pricing` — NEW (lookup; ADR-0008, amends ADR-0005; AC-20)
+
+Per-model pricing the estimate formula reads — adjustable in the DB without a deploy (review
+pass-15 escalation of the §8 pricing OQ). Standalone lookup table: `model_id` references the
+**code catalog** (`packages/api-contracts` AI_MODELS), not another table, so it carries **no FK**
+(same reasoning as `ai_generation_jobs.model_id`). Seeded from the static `FLOW_PRICE_TABLE`
+(flat price → `base_amount`, factors NULL) so day-one estimates are unchanged.
+
+| Column | Type | Null | Default | Notes |
+|---|---|---|---|---|
+| `model_id` | `VARCHAR(191)` | NO | — | PK. Catalog model id (e.g. `fal-ai/nano-banana-2`). 191 keeps the PK within the utf8mb4 index limit. |
+| `currency` | `CHAR(3)` | NO | `'USD'` | ISO 4217; matches the openapi `Money.currency`. |
+| `base_amount` | `DECIMAL(10,4)` | NO | — | Per-run floor — the seeded flat price. |
+| `per_second` | `DECIMAL(10,6)` | YES | `NULL` | × effective output duration in seconds (video `duration`, music `duration` / `music_length_ms`÷1000). NULL = no duration component. |
+| `per_image` | `DECIMAL(10,6)` | YES | `NULL` | × effective `num_images` (default 1). NULL = no per-image component. |
+| `resolution_mult` | `JSON` | YES | `NULL` | Object map `{"480p": 1, "720p": 1.5, "1080p": 2.5}`; the block's effective `resolution` picks the multiplier, missing key / NULL → ×1. |
+| `updated_at` | `DATETIME(3)` | NO | `CURRENT_TIMESTAMP(3)` ON UPDATE | audit of price edits. |
+
+**Formula (estimate service, AC-20):**
+`amount = round((base_amount + per_second × duration_s + per_image × num_images) × resolution_mult[resolution] ?? 1, 2)`
+— effective param values come from the block's saved params, falling back to the catalog field
+defaults (what the provider would actually run). No DB pricing row → static-table fallback,
+`bestEffort: true` always.
+
 ## Catalog schema extension (ADR-0006) — NOT a DB migration
 
 Spec §8 open question (*"Does the model catalog already declare alternative-input exclusivity
@@ -170,8 +194,10 @@ groups… or must that schema be added?"*, due **before `sdd:data-model`**) is *
 ## Seeds
 
 - **Bootstrap:** none — `generation_flows` rows are created by Creators at runtime; no system row.
-- **Lookup data:** none — no enum/reference table is introduced (capability/modality live in the
-  code catalog, not the DB).
+- **Lookup data:** `flow_model_pricing` is seeded **inside migration 04** from the static
+  `FLOW_PRICE_TABLE` values (one row per model id, flat price → `base_amount`, factor columns NULL)
+  so the estimate behaviour is unchanged until an operator edits the rows. Capability/modality
+  still live in the code catalog, not the DB.
 - **Test fixtures (NOT in migrations):** integration tests (Vitest against real MySQL, `singleFork`)
   build a flow with a factory that inserts a `generation_flows` row (hardcoded UUID v7 ids, a minimal
   valid `canvas` JSON, `version = 1`, `user_id` = the seeded test user) and, for AC-19/AC-01 paths,
