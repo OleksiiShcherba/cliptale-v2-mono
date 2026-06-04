@@ -128,9 +128,14 @@ function FlowEditor({
     controllerRef.current = c;
   }, []);
 
-  // The live canvas document, streamed from FlowCanvas as it changes.
+  // The live canvas document, streamed from FlowCanvas as it changes. The ref mirrors
+  // it for effects that must read the CURRENT blocks without re-running on every edit —
+  // the controller object captured by onCanvasReady is frozen at mount, so its `.canvas`
+  // snapshot never sees blocks appended later in the session (V1, pass-17).
   const [canvas, setCanvas] = React.useState<FlowCanvasDoc>(initialCanvas);
   const onCanvasChange = React.useCallback((c: FlowCanvasDoc) => setCanvas(c), []);
+  const canvasLiveRef = React.useRef(canvas);
+  canvasLiveRef.current = canvas;
 
   // ── Job states from the (polled) flow read — the reattach/preview source ─────
   // A generation block keeps a HISTORY of runs (U5/AC-01): every job row is kept,
@@ -215,9 +220,13 @@ function FlowEditor({
     const c = controllerRef.current;
     const runJobId = generation.liveJobId ?? undefined;
     if (c) {
+      // Read the LIVE canvas (not the mount-frozen c.canvas snapshot), so blocks
+      // appended earlier in this session are seen — else a 2nd in-session run
+      // would compute the same stack Y and overlap the previous block (V1).
+      const liveBlocks = canvasLiveRef.current.blocks;
       const alreadyBound =
         runJobId != null &&
-        c.canvas.blocks.some((b) => b.type === 'result' && b.params.jobId === runJobId);
+        liveBlocks.some((b) => b.type === 'result' && b.params.jobId === runJobId);
       if (!alreadyBound) {
         // Back-compat: a LEGACY result block (saved before the per-run binding) has no
         // params.jobId and would otherwise mirror the newest run. Freeze it to the
@@ -236,8 +245,8 @@ function FlowEditor({
           }));
         }
 
-        const genBlk = c.canvas.blocks.find((b) => b.blockId === generatingBlockId);
-        const priorResults = c.canvas.blocks.filter(
+        const genBlk = liveBlocks.find((b) => b.blockId === generatingBlockId);
+        const priorResults = liveBlocks.filter(
           (b) =>
             b.type === 'result' &&
             (b.params.sourceBlockId as string | undefined) === generatingBlockId,

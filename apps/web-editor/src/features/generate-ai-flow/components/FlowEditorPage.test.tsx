@@ -483,6 +483,69 @@ describe('FlowEditorPage', () => {
     expect(wrapper.style.transform).toMatch(/translate\(640px,\s*-280px\)/);
   });
 
+  it('two same-session regenerations stack at DISTINCT Y positions (−280, −560) — no overlap (AC-01)', async () => {
+    // V1 (pass-17): the tracking effect must read the LIVE canvas, not the controller
+    // snapshot frozen at mount — else the 2nd in-session append computes the same Y
+    // as the 1st and the new block lands on top of it.
+    mockGetFlow.mockResolvedValue({
+      flowId: 'flow-1',
+      title: 'My flow',
+      version: 3,
+      canvas: {
+        schemaVersion: 1 as const,
+        blocks: [
+          { blockId: 'g1', type: 'generation' as const, position: { x: 320, y: 0 }, params: { modelId: GEN_MODEL } },
+          { blockId: 'r1', type: 'result' as const, position: { x: 640, y: 0 }, params: { sourceBlockId: 'g1', jobId: 'job-old' } },
+        ],
+        edges: [
+          { edgeId: 'e1', sourceBlockId: 'g1', sourceHandle: 'out', targetBlockId: 'r1', targetHandle: 'in' },
+        ],
+      },
+      jobs: [
+        { jobId: 'job-old', blockId: 'g1', status: 'completed', progress: 100, outputFileId: 'file-old', resultUrl: null, errorMessage: null, createdAt: '2026-06-02T10:00:00.000Z' },
+      ],
+      createdAt: '2026-06-03T00:00:00.000Z',
+      updatedAt: '2026-06-03T00:00:00.000Z',
+    });
+    mockGetFileUrl.mockResolvedValue('https://cdn.test/old.png');
+    // Two runs in one session → two distinct job ids.
+    mockGenerateBlock
+      .mockResolvedValueOnce({ jobId: 'job-1', blockId: 'r-new-1', status: 'queued' })
+      .mockResolvedValueOnce({ jobId: 'job-2', blockId: 'r-new-2', status: 'queued' });
+
+    renderPage();
+    await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).not.toBeNull());
+
+    const regenerate = async () => {
+      const genNode = document.querySelector('[data-block-id="g1"]') as HTMLElement;
+      const generateBtn = Array.from(genNode.querySelectorAll('button')).find(
+        (b) => b.getAttribute('aria-label') === 'Generate',
+      );
+      fireEvent.click(generateBtn as HTMLElement);
+      const dialog = await screen.findByRole('dialog', { name: /confirm generation/i });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Generate' }));
+    };
+
+    await regenerate();
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-testid="result-node"]').length).toBe(2),
+    );
+
+    await regenerate();
+    await waitFor(() =>
+      expect(document.querySelectorAll('[data-testid="result-node"]').length).toBe(3),
+    );
+
+    // r1 keeps (640, 0); the two new blocks stack ABOVE at distinct Y: −280, then −560.
+    const transforms = Array.from(document.querySelectorAll('[data-testid="result-node"]')).map(
+      (n) =>
+        (n.closest('.react-flow__node') as HTMLElement).style.transform.replace(/\s+/g, ''),
+    );
+    expect(transforms).toContain('translate(640px,0px)');
+    expect(transforms).toContain('translate(640px,-280px)');
+    expect(transforms).toContain('translate(640px,-560px)');
+  });
+
   it('on reload each result block shows the output of the run that produced it — history is not collapsed (AC-01)', async () => {
     mockGetFlow.mockResolvedValue({
       flowId: 'flow-1',
