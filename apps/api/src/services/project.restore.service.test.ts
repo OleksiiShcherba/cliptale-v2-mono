@@ -1,7 +1,7 @@
 /**
  * Unit tests for project.restore.service.ts
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { GoneError, NotFoundError } from '@/lib/errors.js';
 import * as projectRepository from '@/repositories/project.repository.js';
@@ -21,13 +21,17 @@ vi.mock('@/repositories/project.repository.js', () => ({
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
+// Time is ANCHORED with fake timers (file.softdelete.service.test.ts idiom) so the
+// fixture's deletedAt stays "10 days ago — within TTL" forever, not a calendar mine.
+const RESTORE_TEST_NOW = new Date('2026-04-20T00:00:00.000Z');
+
 const baseProject = {
   projectId: 'proj-restore-001',
   ownerUserId: 'user-222',
   title: 'My Project',
   createdAt: new Date('2026-01-01T00:00:00.000Z'),
   updatedAt: new Date('2026-01-15T00:00:00.000Z'),
-  deletedAt: new Date('2026-04-10T00:00:00.000Z'), // recent — within TTL
+  deletedAt: new Date('2026-04-10T00:00:00.000Z'), // 10 days before RESTORE_TEST_NOW — within TTL
 };
 
 // ── restoreProject ────────────────────────────────────────────────────────────
@@ -35,9 +39,15 @@ const baseProject = {
 describe('project.restore.service', () => {
   describe('restoreProject', () => {
     beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(RESTORE_TEST_NOW);
       vi.clearAllMocks();
       vi.mocked(projectRepository.findProjectByIdIncludingDeleted).mockResolvedValue(baseProject);
       vi.mocked(projectRepository.restoreProject).mockResolvedValue(true);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
     });
 
     it('calls restoreProject and returns the project with deletedAt null on happy path', async () => {

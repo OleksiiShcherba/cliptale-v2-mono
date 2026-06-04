@@ -1,7 +1,7 @@
 /**
  * Unit tests for generationDraft.restore.service.ts
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { GoneError, NotFoundError } from '@/lib/errors.js';
 import * as generationDraftRepository from '@/repositories/generationDraft.repository.js';
@@ -25,6 +25,10 @@ vi.mock('@/repositories/generationDraft.repository.js', () => ({
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
+// Time is ANCHORED with fake timers (file.softdelete.service.test.ts idiom) so the
+// fixture's deletedAt stays "10 days ago — within TTL" forever, not a calendar mine.
+const RESTORE_TEST_NOW = new Date('2026-04-20T00:00:00.000Z');
+
 const baseDraft = {
   id: 'draft-restore-001',
   userId: 'user-111',
@@ -32,7 +36,7 @@ const baseDraft = {
   status: 'draft' as const,
   createdAt: new Date('2026-01-01T00:00:00.000Z'),
   updatedAt: new Date('2026-01-15T00:00:00.000Z'),
-  deletedAt: new Date('2026-04-10T00:00:00.000Z'), // recent — within TTL
+  deletedAt: new Date('2026-04-10T00:00:00.000Z'), // 10 days before RESTORE_TEST_NOW — within TTL
 };
 
 // ── restoreDraft ─────────────────────────────────────────────────────────────
@@ -40,9 +44,15 @@ const baseDraft = {
 describe('generationDraft.restore.service', () => {
   describe('restoreDraft', () => {
     beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(RESTORE_TEST_NOW);
       vi.clearAllMocks();
       vi.mocked(generationDraftRepository.findDraftByIdIncludingDeleted).mockResolvedValue(baseDraft);
       vi.mocked(generationDraftRepository.restoreDraft).mockResolvedValue(true);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
     });
 
     it('calls restoreDraft and returns the draft with deletedAt null on happy path', async () => {
