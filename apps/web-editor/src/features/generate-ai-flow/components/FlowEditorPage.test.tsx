@@ -65,6 +65,11 @@ vi.mock('@/shared/ai-generation/api', () => ({
     resultAssetId: null,
     errorMessage: null,
   }),
+  // Inspector now renders VoicePickerField for voice_picker fields; the hooks
+  // that back it call these two API functions — mock them to avoid network.
+  listUserVoices: vi.fn().mockResolvedValue([]),
+  listAvailableVoices: vi.fn().mockResolvedValue([]),
+  getVoiceSampleUrl: vi.fn().mockResolvedValue('https://example.com/sample.mp3'),
 }));
 
 // Realtime subscription is a no-op in the component test.

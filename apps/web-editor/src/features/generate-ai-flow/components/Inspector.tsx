@@ -20,6 +20,7 @@ import { getModelById } from '../hooks/useFlowCanvas';
 import { AI_MODELS } from '@ai-video-editor/api-contracts';
 import type { FalFieldSchema } from '@ai-video-editor/api-contracts';
 import { ContentInput } from './ContentInput';
+import { VoicePickerField } from '@/shared/ai-generation/components/VoicePickerField';
 import {
   TEXT_PRIMARY,
   TEXT_SECONDARY,
@@ -220,11 +221,17 @@ function GenerationParamFields({
     return <div style={{ fontSize: 12, color: TEXT_SECONDARY }}>Select a model to see parameters.</div>;
   }
 
-  // Only show optional fields that are NOT wired by canvas connections
-  // (i.e., no modality, not required, not exclusiveGroup) and not catalog-hidden
-  // (legacy fields like music_length_ms kept for programmatic callers only).
+  // Show fields that are inspector-editable:
+  //   - Not wired by canvas connections (no modality, no exclusiveGroup)
+  //   - Not catalog-hidden (legacy fields like music_length_ms)
+  //   - Either optional, OR required but of type 'voice_picker' (no connection
+  //     modality exists for voices — the Inspector is the only way to set them).
   const optionalFields = model.inputSchema.fields.filter(
-    (f) => !f.required && !f.modality && !f.exclusiveGroup && !f.hidden,
+    (f) =>
+      !f.modality &&
+      !f.exclusiveGroup &&
+      !f.hidden &&
+      (!f.required || f.type === 'voice_picker'),
   );
 
   if (optionalFields.length === 0) {
@@ -319,6 +326,18 @@ function ParamField({
           aria-label={field.label}
         />
       </div>
+    );
+  }
+
+  if (field.type === 'voice_picker') {
+    return (
+      <VoicePickerField
+        value={value as string | undefined}
+        onChange={(v) => onParamChange(field.name, v)}
+        label={field.label}
+        required={field.required}
+        description={field.description}
+      />
     );
   }
 

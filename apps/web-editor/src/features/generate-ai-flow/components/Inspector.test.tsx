@@ -8,14 +8,30 @@
  *     (AssetPickerField is mocked; the real component is tested in AssetPickerField.test.tsx)
  *   - Inspector: editing an optional generation param persists keyed by field name
  *   - Inspector: param value retained in the canvas doc after edit
+ *   - Inspector: voice_picker fields (U2 / AC-16)
  */
 
 import React from 'react';
+import type { ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ReactFlowProvider } from '@xyflow/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { FlowBlock, FlowCanvas } from '@ai-video-editor/project-schema';
+
+// ── Mock @/shared/ai-generation/api (VoicePickerField uses it via hooks) ─────
+const { mockListUserVoices, mockListAvailableVoices, mockGetVoiceSampleUrl } = vi.hoisted(() => ({
+  mockListUserVoices: vi.fn(),
+  mockListAvailableVoices: vi.fn(),
+  mockGetVoiceSampleUrl: vi.fn(),
+}));
+
+vi.mock('@/shared/ai-generation/api', () => ({
+  listUserVoices: mockListUserVoices,
+  listAvailableVoices: mockListAvailableVoices,
+  getVoiceSampleUrl: mockGetVoiceSampleUrl,
+}));
 
 // ── Mock AssetPickerField (the real one needs react-query + API) ──────────────
 const { mockAssetPickerField } = vi.hoisted(() => ({
@@ -67,6 +83,10 @@ beforeEach(() => {
       </button>
     ),
   );
+  // Voice API defaults (no voices loaded by default; tests that need voices override)
+  mockListUserVoices.mockResolvedValue([]);
+  mockListAvailableVoices.mockResolvedValue([]);
+  mockGetVoiceSampleUrl.mockResolvedValue('https://example.com/sample.mp3');
 });
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -326,5 +346,147 @@ describe('Inspector — generation block optional params', () => {
 
     // The seed field should now display the persisted value
     expect((screen.getByLabelText(/^seed$/i) as HTMLInputElement).value).toContain('7');
+  });
+});
+
+// ── voice_picker (U2 / AC-16) ─────────────────────────────────────────────────
+//
+// These tests encode the acceptance criteria that the Inspector must render a
+// VoicePickerField (not a plain text input) for voice_picker catalog fields, and
+// must include required voice_picker fields (previously filtered as required).
+//
+// Mocking pattern: mock `@/shared/ai-generation/api` (same as VoicePickerField.test.tsx
+// and SchemaFieldInput.complex.test.tsx), wrap in QueryClientProvider so React Query
+// hooks inside VoicePickerField resolve without network calls.
+
+function makeQueryClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
+}
+
+function withQuery(ui: ReactNode) {
+  return <QueryClientProvider client={makeQueryClient()}>{ui}</QueryClientProvider>;
+}
+
+function makeCanvas(block: FlowBlock): FlowCanvas {
+  return { blocks: [block], edges: [] };
+}
+
+describe('Inspector — voice_picker (U2)', () => {
+  // AC-1: TTS voice_id (optional voice_picker) must render VoicePickerField trigger,
+  //       NOT a plain text input.
+  it('renders a VoicePickerField trigger (not a text input) for elevenlabs/text-to-speech voice_id', () => {
+    const block: FlowBlock = {
+      blockId: 'tts1',
+      type: 'generation',
+      position: { x: 0, y: 0 },
+      params: { modelId: 'elevenlabs/text-to-speech' },
+    };
+    render(
+      withQuery(
+        <Inspector
+          selectedBlockId="tts1"
+          canvas={makeCanvas(block)}
+          onBlockParamsChange={vi.fn()}
+        />,
+      ),
+    );
+    // VoicePickerField renders a button "Select a voice…"; a plain text input must NOT appear
+    expect(screen.getByRole('button', { name: /select a voice/i })).toBeTruthy();
+    // The raw text input that the current code falls back to must be absent
+    expect(screen.queryByRole('textbox', { name: /voice/i })).toBeNull();
+  });
+
+  // AC-2: STS voice_id is required=true — currently filtered out entirely.
+  //       After the fix it must appear as a VoicePickerField.
+  it('renders the voice_id VoicePickerField for elevenlabs/speech-to-speech (required field)', () => {
+    const block: FlowBlock = {
+      blockId: 'sts1',
+      type: 'generation',
+      position: { x: 0, y: 0 },
+      params: { modelId: 'elevenlabs/speech-to-speech' },
+    };
+    render(
+      withQuery(
+        <Inspector
+          selectedBlockId="sts1"
+          canvas={makeCanvas(block)}
+          onBlockParamsChange={vi.fn()}
+        />,
+      ),
+    );
+    // The voice picker trigger must be present (today it is completely absent)
+    expect(screen.getByRole('button', { name: /select a voice/i })).toBeTruthy();
+  });
+
+  // AC-3: Choosing a voice via the VoicePickerField onChange path writes
+  //       voice_id into the block params via onBlockParamsChange('sts1', { voice_id: '<id>' }).
+  it('calls onBlockParamsChange with voice_id when a voice is selected (STS)', async () => {
+    const user = userEvent.setup();
+    const onParamsChange = vi.fn();
+
+    const VOICE_ID = 'pNInz6obpgDQGcFmaJgB';
+    mockListAvailableVoices.mockResolvedValue([
+      {
+        voiceId: VOICE_ID,
+        name: 'Adam',
+        category: 'premade',
+        description: null,
+        previewUrl: 'https://cdn.elevenlabs.io/adam-preview.mp3',
+        labels: { gender: 'male', accent: 'american' },
+      },
+    ]);
+
+    const block: FlowBlock = {
+      blockId: 'sts1',
+      type: 'generation',
+      position: { x: 0, y: 0 },
+      params: { modelId: 'elevenlabs/speech-to-speech' },
+    };
+    render(
+      withQuery(
+        <Inspector
+          selectedBlockId="sts1"
+          canvas={makeCanvas(block)}
+          onBlockParamsChange={onParamsChange}
+        />,
+      ),
+    );
+
+    // Open the picker
+    await user.click(screen.getByRole('button', { name: /select a voice/i }));
+    // Wait for library voice to load in the modal
+    await screen.findByRole('button', { name: /^Adam$/i });
+    await user.click(screen.getByRole('button', { name: /^Adam$/i }));
+    await user.click(screen.getByRole('button', { name: /use this voice/i }));
+
+    // The callback must have been called with the voice_id key
+    expect(onParamsChange).toHaveBeenCalledWith(
+      'sts1',
+      expect.objectContaining({ voice_id: VOICE_ID }),
+    );
+  });
+
+  // AC-4: Other required fields that are wired by canvas connections (those with
+  //       modality) must still be excluded from the params panel.
+  //       source_audio on STS has modality:'audio' — must NOT appear.
+  it('keeps modality-required fields (source_audio) excluded from the params panel', () => {
+    const block: FlowBlock = {
+      blockId: 'sts1',
+      type: 'generation',
+      position: { x: 0, y: 0 },
+      params: { modelId: 'elevenlabs/speech-to-speech' },
+    };
+    render(
+      withQuery(
+        <Inspector
+          selectedBlockId="sts1"
+          canvas={makeCanvas(block)}
+          onBlockParamsChange={vi.fn()}
+        />,
+      ),
+    );
+    // source_audio is required+modality — must be absent (wired by canvas edge, not inspector)
+    expect(screen.queryByLabelText(/source audio/i)).toBeNull();
+    expect(screen.queryByText(/source audio/i)).toBeNull();
   });
 });
