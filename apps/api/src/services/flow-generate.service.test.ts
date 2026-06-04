@@ -8,6 +8,8 @@
  *  - unknown model still returns a best-effort estimate (AC-11 / openapi)
  *  - no provider (external) call is made (spy asserts no HTTP)
  *  - block not found in canvas throws / propagates an error
+ *  - U3b / AC-20: param-reactive DB-backed pricing (per-second, per-image, resolution_mult,
+ *    catalog defaults, music_length_ms, DB-row-absent fallback)
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { FlowCanvas } from '@ai-video-editor/project-schema';
@@ -15,6 +17,12 @@ import type { FlowCanvas } from '@ai-video-editor/project-schema';
 // We mock the repository so no DB calls are made.
 vi.mock('@/repositories/generation-flow.repository.js', () => ({
   findFlowById: vi.fn(),
+}));
+
+// U3b — mock the new pricing repository. Default: returns null (no DB row) so all
+// existing estimateBlockCost tests hit the static-fallback path unchanged.
+vi.mock('@/repositories/flow-model-pricing.repository.js', () => ({
+  getPricingForModel: vi.fn().mockResolvedValue(null),
 }));
 
 // The validation gate (T11) checks referenced-asset presence/ownership against
@@ -62,6 +70,7 @@ vi.mock('@/services/aiGeneration.assetResolver.js', () => ({
 const fetchSpy = vi.spyOn(globalThis, 'fetch');
 
 import { findFlowById } from '@/repositories/generation-flow.repository.js';
+import { getPricingForModel } from '@/repositories/flow-model-pricing.repository.js';
 import { findByIdForUser, findByIdIncludingDeleted } from '@/repositories/file.repository.js';
 import * as aiGenerationJobRepository from '@/repositories/aiGenerationJob.repository.js';
 import { enqueueAiGenerateJob } from '@/queues/jobs/enqueue-ai-generate.js';
@@ -851,5 +860,238 @@ describe('generate — all three modalities route through the ONE path', () => {
     expect(enqueueAiGenerateJob).toHaveBeenCalledTimes(1);
     const enqArg = vi.mocked(enqueueAiGenerateJob).mock.calls[0]![0];
     expect(enqArg.modelId).toBe(modelId);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// U3b / AC-20 — estimateBlockCost: param-reactive DB pricing
+//
+// Catalog facts used here (verified in packages/api-contracts/src/fal-models.ts
+// and elevenlabs-models.ts):
+//
+//  fal-ai/kling-video/v2.5-turbo/pro/text-to-video
+//    duration: enum, default '5' (string)
+//
+//  elevenlabs/music-generation
+//    duration: number, default 30 (seconds)
+//    music_length_ms: number, default 30_000 (hidden; fallback for old callers)
+//
+//  fal-ai/nano-banana-2
+//    num_images: number, default 1
+//    resolution: enum, default '1K'
+//    static price: 0.03 USD (used for DB-row-absent fallback test)
+//
+//  fal-ai/nano-banana-2/edit
+//    num_images: number, default 1
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Convenience — a pricing row shape that the mocked repo returns.
+type MockPricingRow = {
+  modelId: string;
+  currency: string;
+  baseAmount: number;
+  perSecond: number | null;
+  perImage: number | null;
+  resolutionMult: Record<string, number> | null;
+};
+
+function makePricingRow(overrides: Partial<MockPricingRow> = {}): MockPricingRow {
+  return {
+    modelId: 'fal-ai/test-model',
+    currency: 'USD',
+    baseAmount: 0,
+    perSecond: null,
+    perImage: null,
+    resolutionMult: null,
+    ...overrides,
+  };
+}
+
+// Canvas builders for the new tests.
+function makeCanvasWithParams(modelId: string, params: Record<string, unknown>): FlowCanvas {
+  return {
+    blocks: [
+      {
+        blockId: BLOCK_ID,
+        type: 'generation',
+        position: { x: 0, y: 0 },
+        params: { modelId, ...params },
+      },
+    ],
+    edges: [],
+  };
+}
+
+describe('estimateBlockCost — param-reactive DB pricing (U3b / AC-20)', () => {
+  // Reset ALL mocks before each test. Individual tests override getPricingForModel
+  // to return a row; tests that want the fallback leave it as null (default).
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchSpy.mockReset();
+    vi.mocked(getPricingForModel).mockResolvedValue(null);
+  });
+
+  // ── 1. per_second scaling ───────────────────────────────────────────────────
+  // Same model, row { base 0.10, per_second 0.02 }.
+  // duration 5  → 0.10 + 0.02 × 5 = 0.20
+  // duration 10 → 0.10 + 0.02 × 10 = 0.30
+  // The two amounts MUST differ — this is the core AC-20 assertion.
+  it('scales per_second: duration 5 → 0.20, duration 10 → 0.30 (amounts differ)', async () => {
+    const MODEL = 'fal-ai/kling-video/v2.5-turbo/pro/text-to-video';
+    const row = makePricingRow({ modelId: MODEL, baseAmount: 0.10, perSecond: 0.02 });
+    vi.mocked(getPricingForModel).mockResolvedValue(row);
+
+    const canvas5 = makeCanvasWithParams(MODEL, { duration: '5' });
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas5));
+    const result5 = await estimateBlockCost({ flowId: FLOW_ID, blockId: BLOCK_ID, userId: USER_ID });
+
+    const canvas10 = makeCanvasWithParams(MODEL, { duration: '10' });
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas10));
+    const result10 = await estimateBlockCost({ flowId: FLOW_ID, blockId: BLOCK_ID, userId: USER_ID });
+
+    expect(result5.estimate.amount).toBeCloseTo(0.20, 2);
+    expect(result10.estimate.amount).toBeCloseTo(0.30, 2);
+    // Core AC-20 assertion: different durations → different amounts.
+    expect(result5.estimate.amount).not.toBe(result10.estimate.amount);
+  });
+
+  // ── 2. per_image scaling ────────────────────────────────────────────────────
+  // Row { base 0.03, per_image 0.01 }.
+  // num_images 4 → 0.03 + 0.01 × 4 = 0.07
+  // no num_images param + fal-ai/nano-banana-2 catalog default = 1 → 0.03 + 0.01 × 1 = 0.04
+  it('scales per_image: num_images 4 → 0.07; no param (catalog default 1) → 0.04', async () => {
+    const MODEL = 'fal-ai/nano-banana-2';
+    const row = makePricingRow({ modelId: MODEL, baseAmount: 0.03, perImage: 0.01 });
+    vi.mocked(getPricingForModel).mockResolvedValue(row);
+
+    // With explicit num_images 4.
+    const canvas4 = makeCanvasWithParams(MODEL, { num_images: 4 });
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas4));
+    const result4 = await estimateBlockCost({ flowId: FLOW_ID, blockId: BLOCK_ID, userId: USER_ID });
+
+    // Without num_images — falls back to catalog default (1 for fal-ai/nano-banana-2).
+    const canvasDefault = makeCanvasWithParams(MODEL, {});
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvasDefault));
+    const resultDefault = await estimateBlockCost({
+      flowId: FLOW_ID,
+      blockId: BLOCK_ID,
+      userId: USER_ID,
+    });
+
+    expect(result4.estimate.amount).toBeCloseTo(0.07, 2);
+    expect(resultDefault.estimate.amount).toBeCloseTo(0.04, 2);
+  });
+
+  // ── 3. resolution_mult ──────────────────────────────────────────────────────
+  // Row { base 0.10, per_second 0.02, resolution_mult { '720p': 1, '1080p': 2 } },
+  // duration 5.
+  // '1080p' → (0.10 + 0.02×5) × 2 = 0.20 × 2 = 0.40
+  // '480p'  → key not in map → ×1 → 0.20
+  it('applies resolution_mult: 1080p → 0.40; missing key (480p) → ×1 → 0.20', async () => {
+    const MODEL = 'fal-ai/kling-video/v2.5-turbo/pro/text-to-video';
+    const row = makePricingRow({
+      modelId: MODEL,
+      baseAmount: 0.10,
+      perSecond: 0.02,
+      resolutionMult: { '720p': 1, '1080p': 2 },
+    });
+    vi.mocked(getPricingForModel).mockResolvedValue(row);
+
+    const canvas1080 = makeCanvasWithParams(MODEL, { duration: '5', resolution: '1080p' });
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas1080));
+    const result1080 = await estimateBlockCost({
+      flowId: FLOW_ID,
+      blockId: BLOCK_ID,
+      userId: USER_ID,
+    });
+
+    const canvas480 = makeCanvasWithParams(MODEL, { duration: '5', resolution: '480p' });
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas480));
+    const result480 = await estimateBlockCost({
+      flowId: FLOW_ID,
+      blockId: BLOCK_ID,
+      userId: USER_ID,
+    });
+
+    expect(result1080.estimate.amount).toBeCloseTo(0.40, 2);
+    expect(result480.estimate.amount).toBeCloseTo(0.20, 2);
+  });
+
+  // ── 4. catalog-default duration fallback ────────────────────────────────────
+  // Block has NO duration param. Model fal-ai/kling-video/v2.5-turbo/pro/text-to-video
+  // has catalog default '5' (enum string). Row { base 0.10, per_second 0.02 }.
+  // Expected: 0.10 + 0.02 × 5 = 0.20.
+  it('falls back to catalog duration default when block has no duration param', async () => {
+    const MODEL = 'fal-ai/kling-video/v2.5-turbo/pro/text-to-video';
+    const row = makePricingRow({ modelId: MODEL, baseAmount: 0.10, perSecond: 0.02 });
+    vi.mocked(getPricingForModel).mockResolvedValue(row);
+
+    // No duration in params.
+    const canvas = makeCanvasWithParams(MODEL, {});
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas));
+    const result = await estimateBlockCost({ flowId: FLOW_ID, blockId: BLOCK_ID, userId: USER_ID });
+
+    // catalog default '5' → 5 seconds → 0.10 + 0.02×5 = 0.20.
+    expect(result.estimate.amount).toBeCloseTo(0.20, 2);
+  });
+
+  // ── 5. music_length_ms fallback ─────────────────────────────────────────────
+  // elevenlabs/music-generation: duration default is 30s (catalog).
+  // (a) params { music_length_ms: 60000 } (no 'duration') → 60s used.
+  // (b) params { duration: 30 } → 30s used.
+  it('uses music_length_ms/1000 when duration is absent and music_length_ms is set', async () => {
+    const MODEL = 'elevenlabs/music-generation';
+    const row = makePricingRow({ modelId: MODEL, baseAmount: 0.00, perSecond: 0.01 });
+    vi.mocked(getPricingForModel).mockResolvedValue(row);
+
+    const canvas = makeCanvasWithParams(MODEL, { music_length_ms: 60000 });
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas));
+    const result = await estimateBlockCost({ flowId: FLOW_ID, blockId: BLOCK_ID, userId: USER_ID });
+
+    // 0.00 + 0.01 × 60 = 0.60.
+    expect(result.estimate.amount).toBeCloseTo(0.60, 2);
+  });
+
+  it('uses duration param directly when explicitly set (ignoring music_length_ms)', async () => {
+    const MODEL = 'elevenlabs/music-generation';
+    const row = makePricingRow({ modelId: MODEL, baseAmount: 0.00, perSecond: 0.01 });
+    vi.mocked(getPricingForModel).mockResolvedValue(row);
+
+    const canvas = makeCanvasWithParams(MODEL, { duration: 30 });
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas));
+    const result = await estimateBlockCost({ flowId: FLOW_ID, blockId: BLOCK_ID, userId: USER_ID });
+
+    // 0.00 + 0.01 × 30 = 0.30.
+    expect(result.estimate.amount).toBeCloseTo(0.30, 2);
+  });
+
+  // ── 6. DB-row-absent fallback to static FLOW_PRICE_TABLE ───────────────────
+  // getPricingForModel returns null → service falls back to static getPriceForModel.
+  // fal-ai/nano-banana-2 has static price 0.03.
+  it('falls back to static price when no DB pricing row exists for the model', async () => {
+    const MODEL = 'fal-ai/nano-banana-2';
+    // Default mock already returns null — no override needed.
+
+    const canvas = makeCanvasWithParams(MODEL, {});
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas));
+    const result = await estimateBlockCost({ flowId: FLOW_ID, blockId: BLOCK_ID, userId: USER_ID });
+
+    // Static fallback price from FLOW_PRICE_TABLE: 0.03.
+    expect(result.estimate.amount).toBeCloseTo(0.03, 2);
+    expect(result.bestEffort).toBe(true);
+  });
+
+  // ── 7. bestEffort and currency from DB row ──────────────────────────────────
+  it('always returns bestEffort: true and uses the currency from the DB row', async () => {
+    const MODEL = 'fal-ai/nano-banana-2';
+    const row = makePricingRow({ modelId: MODEL, currency: 'USD', baseAmount: 0.05 });
+    vi.mocked(getPricingForModel).mockResolvedValue(row);
+
+    const canvas = makeCanvasWithParams(MODEL, {});
+    vi.mocked(findFlowById).mockResolvedValue(makeFlowRecord(canvas));
+    const result = await estimateBlockCost({ flowId: FLOW_ID, blockId: BLOCK_ID, userId: USER_ID });
+
+    expect(result.bestEffort).toBe(true);
+    expect(result.estimate.currency).toBe('USD');
   });
 });

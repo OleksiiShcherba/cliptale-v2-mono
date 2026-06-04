@@ -24,6 +24,7 @@ import {
   UnprocessableEntityError,
 } from '@/lib/errors.js';
 import { getPriceForModel } from '@/lib/flow-pricing.js';
+import { getPricingForModel } from '@/repositories/flow-model-pricing.repository.js';
 import { checkFlowRateLimit } from '@/lib/flow-rate-limit.js';
 import { redis } from '@/lib/redis.js';
 import { publishAiJobUpdatedById } from '@/lib/realtimePublisher.js';
@@ -123,16 +124,88 @@ export async function estimateBlockCost(params: EstimateBlockCostParams): Promis
     );
   }
 
-  // 5. Look up the static price — unknown model falls back to 0 (bestEffort: true, AC-11).
-  const knownPrice = getPriceForModel(modelId);
-  const amount = knownPrice ?? 0;
+  // 5. DB-backed pricing (ADR-0008 / AC-20) with static-table fallback (AC-11).
+  //    Attempt to fetch a row from flow_model_pricing. If found, compute the
+  //    param-reactive amount; otherwise fall back to the static FLOW_PRICE_TABLE.
+  const pricingRow = await getPricingForModel(modelId);
+
+  let amount: number;
+  let currency: string;
+
+  if (pricingRow) {
+    // Resolve catalog model for default param values.
+    const catalogModel = AI_MODELS.find((m) => m.id === modelId);
+    // block is guaranteed non-undefined here (we threw above if absent), but
+    // TypeScript's control-flow analysis doesn't propagate into nested functions,
+    // so we capture it in a const to make the narrowing explicit.
+    const resolvedBlock = block;
+
+    // Resolve duration_s:
+    //   1. params['duration'] finite > 0
+    //   2. params['music_length_ms'] / 1000 finite > 0
+    //   3. catalog default for 'duration' field finite > 0
+    //   4. catalog default for 'music_length_ms' field / 1000 finite > 0
+    //   5. 0
+    function resolveDurationSeconds(): number {
+      const p = resolvedBlock.params;
+      const d = Number(p['duration']);
+      if (isFinite(d) && d > 0) return d;
+      const ms = Number(p['music_length_ms']);
+      if (isFinite(ms) && ms > 0) return ms / 1000;
+      if (catalogModel) {
+        const dField = catalogModel.inputSchema.fields.find((f) => f.name === 'duration');
+        const dDefault = Number(dField?.default);
+        if (isFinite(dDefault) && dDefault > 0) return dDefault;
+        const msField = catalogModel.inputSchema.fields.find((f) => f.name === 'music_length_ms');
+        const msDefault = Number(msField?.default);
+        if (isFinite(msDefault) && msDefault > 0) return msDefault / 1000;
+      }
+      return 0;
+    }
+
+    // Resolve num_images:
+    //   1. params['num_images'] finite > 0
+    //   2. catalog default for 'num_images' field finite > 0
+    //   3. 1
+    function resolveNumImages(): number {
+      const n = Number(resolvedBlock.params['num_images']);
+      if (isFinite(n) && n > 0) return n;
+      if (catalogModel) {
+        const f = catalogModel.inputSchema.fields.find((fld) => fld.name === 'num_images');
+        const def = Number(f?.default);
+        if (isFinite(def) && def > 0) return def;
+      }
+      return 1;
+    }
+
+    const durationS = resolveDurationSeconds();
+    const numImages = resolveNumImages();
+    const resolution = String(
+      resolvedBlock.params['resolution'] ??
+        catalogModel?.inputSchema.fields.find((f) => f.name === 'resolution')?.default ??
+        '',
+    );
+
+    const mult = pricingRow.resolutionMult?.[resolution] ?? 1;
+    const raw =
+      (pricingRow.baseAmount +
+        (pricingRow.perSecond ?? 0) * durationS +
+        (pricingRow.perImage ?? 0) * numImages) *
+      mult;
+    amount = Math.round(raw * 100) / 100;
+    currency = pricingRow.currency;
+  } else {
+    // No DB row — static FLOW_PRICE_TABLE fallback (bestEffort: true, AC-11).
+    amount = getPriceForModel(modelId) ?? 0;
+    currency = 'USD';
+  }
 
   return {
     flowId,
     blockId,
     modelId,
     estimate: {
-      currency: 'USD',
+      currency,
       amount,
     },
     bestEffort: true,

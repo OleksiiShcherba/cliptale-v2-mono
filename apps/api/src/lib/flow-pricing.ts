@@ -1,10 +1,12 @@
 /**
  * T9 — static per-model price table (ADR-0005 / AC-11).
  *
- * This module holds a static, compile-time estimate of the cost (in USD) for one
- * generation run of each supported AI model. Prices are best-effort approximations
- * based on public pricing at the time of writing; they are NOT authoritative and
- * are reconciled against actuals out of band.
+ * SEED + FALLBACK: As of migration 049 (ADR-0008), authoritative pricing lives in
+ * the `flow_model_pricing` table (see flow-model-pricing.repository.ts). This module
+ * is the seed source for that table and serves as a compile-time fallback when no DB
+ * row exists for a given model. Prices here are best-effort approximations based on
+ * public pricing at the time of writing; they are NOT authoritative and are
+ * reconciled against actuals out of band.
  *
  * Design:
  *  - Plain TypeScript — zero runtime dependencies, zero network access.

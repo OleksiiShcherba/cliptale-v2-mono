@@ -548,6 +548,62 @@ describe('T21 / validation gate — each failure maps to its specific 422 code',
   });
 });
 
+// ── U3b / AC-20 — estimateBlockCost: param-reactive DB pricing (integration) ─────
+//
+// Verifies that estimateBlockCost reads the live `flow_model_pricing` table and
+// applies the formula: amount = round2((base + per_second * duration_s) * res_mult).
+// One synthetic row is UPDATE-d into the seeded 'fal-ai/nano-banana-2' entry, the
+// estimate is taken, then the row is restored to its seed value in a finally block.
+// The pricing repository cache is cleared before the estimate call so the live row
+// is read (not a stale cached copy).
+
+describe('U3b / AC-20 — estimateBlockCost uses live flow_model_pricing table', () => {
+  it('applies per_second and base_amount from DB row to the estimate', async () => {
+    const { estimateBlockCost } = await genSvc();
+    // Import the cache map so we can flush it before the estimate call.
+    const pricingRepo = await import('@/repositories/flow-model-pricing.repository.js');
+
+    const MODEL = 'fal-ai/nano-banana-2';
+    // Use a per-second pricing: base=0.00, per_second=0.05 → 3 images * 0 + 0.05 * (no duration) → just base.
+    // Actually nano-banana-2 has no per_second in catalog, just per_image and base.
+    // We'll use per_image: base=0.01, per_image=0.02, num_images=3 → 0.01 + 0.02*3 = 0.07
+    await conn.execute(
+      `UPDATE flow_model_pricing SET base_amount = 0.01, per_image = 0.0200 WHERE model_id = ?`,
+      [MODEL],
+    );
+
+    // Seed a flow with num_images=3 for the model.
+    const blockId = randomUUID();
+    const { flowId } = await seedFlow([
+      {
+        blockId,
+        type: 'generation',
+        position: { x: 0, y: 0 },
+        params: { modelId: MODEL, prompt: 'pricing-test', num_images: 3 },
+      },
+    ]);
+
+    try {
+      // Clear the in-process cache so the live DB row is read.
+      pricingRepo.clearPricingCache();
+
+      const result = await estimateBlockCost({ flowId, blockId, userId: OWNER_ID });
+
+      // base(0.01) + per_image(0.02) * num_images(3) = 0.01 + 0.06 = 0.07
+      expect(result.estimate.amount).toBeCloseTo(0.07, 2);
+      expect(result.estimate.currency).toBe('USD');
+      expect(result.bestEffort).toBe(true);
+    } finally {
+      // Restore the seed value (base_amount=0.03, per_image=NULL).
+      await conn.execute(
+        `UPDATE flow_model_pricing SET base_amount = 0.03, per_image = NULL WHERE model_id = ?`,
+        [MODEL],
+      );
+      pricingRepo.clearPricingCache();
+    }
+  });
+});
+
 // ── T21 — AC-13: a failed generation job → ZERO assets (asset-iff-success) ───────
 //
 // The end-to-end enqueue→worker handler path is proven green in media-worker's
