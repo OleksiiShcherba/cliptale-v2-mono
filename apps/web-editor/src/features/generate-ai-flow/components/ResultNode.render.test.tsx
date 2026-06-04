@@ -84,6 +84,28 @@ describe('ResultNode — dominant media preview (AC-08/12/13)', () => {
     });
     expect(screen.getByTestId('result-media-audio')).toBeDefined();
   });
+
+  // Review pass 13 (2): an audio (music) result block stretches WIDER than the default
+  // node so the <audio> timeline scrubber gives real control over listening position.
+  it('stretches the AUDIO result block wider than the default node width', () => {
+    renderNode({
+      modality: 'audio',
+      previewUrl: 'https://cdn/x.mp3',
+      job: { jobId: 'j1', status: 'completed', progress: 100, resultAssetId: 'file-3', errorMessage: null },
+    });
+    const node = screen.getByTestId('result-node') as HTMLElement;
+    expect(parseInt(node.style.minWidth, 10)).toBeGreaterThanOrEqual(380);
+  });
+
+  it('keeps the default node width for non-audio results', () => {
+    renderNode({
+      modality: 'image',
+      previewUrl: 'https://cdn/x.png',
+      job: { jobId: 'j1', status: 'completed', progress: 100, resultAssetId: 'file-1', errorMessage: null },
+    });
+    const node = screen.getByTestId('result-node') as HTMLElement;
+    expect(parseInt(node.style.minWidth, 10)).toBe(200);
+  });
 });
 
 describe('ResultNode — failed + retry (AC-09)', () => {

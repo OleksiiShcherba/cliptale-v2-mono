@@ -40,6 +40,11 @@ export type ResultNodeData = {
   onRetry?: () => void;
 };
 
+// An audio (music) result renders a timeline scrubber — stretch the block wider than
+// the default node so the Creator has real control over the listening position
+// (a ~200px scrubber is too coarse to seek within a generated track).
+const audioNodeRoot: React.CSSProperties = { ...nodeRoot, minWidth: 380 };
+
 const mediaBox: React.CSSProperties = {
   width: '100%',
   minHeight: 140,
@@ -81,10 +86,11 @@ export function ResultNode({ id, data, selected }: NodeProps): React.ReactElemen
   const onRetry = nodeData.onRetry ?? extras.onRetry;
   const color = modality ? MODALITY_COLOR[modality] ?? '#888' : '#888';
   const status = job?.status;
+  const rootStyle = modality === 'audio' ? audioNodeRoot : nodeRoot;
 
   return (
     <div
-      style={selected ? { ...nodeRoot, ...nodeSelectedOutline } : nodeRoot}
+      style={selected ? { ...rootStyle, ...nodeSelectedOutline } : rootStyle}
       data-testid="result-node"
       data-block-id={id}
       data-source-block-id={block.params.sourceBlockId as string | undefined}

@@ -59,6 +59,12 @@ const JOB_POLL_MS = 1_500;
 /** Default model id for an added generation block (first catalog image model). */
 const DEFAULT_MODEL_ID = 'fal-ai/nano-banana-2/edit';
 
+/**
+ * Horizontal offset of a result block from its generation block — the result ALWAYS
+ * lands to the gen block's right with a small gap (gen node is ~200–260px wide).
+ */
+const RESULT_OFFSET_X = 320;
+
 type ControllerType = ReturnType<typeof useFlowCanvas>;
 
 // ── Page ───────────────────────────────────────────────────────────────────
@@ -193,7 +199,9 @@ function FlowEditor({
       );
       if (!exists) {
         const genBlk = c.canvas.blocks.find((b) => b.blockId === generatingBlockId);
-        const pos = genBlk ? { x: genBlk.position.x + 320, y: genBlk.position.y } : { x: 320, y: 0 };
+        const pos = genBlk
+          ? { x: genBlk.position.x + RESULT_OFFSET_X, y: genBlk.position.y }
+          : { x: RESULT_OFFSET_X, y: 0 };
         // Auto-create the result block AND the visible gen→result connection.
         c.addResultBlock(generatingBlockId, pos);
       }
@@ -209,6 +217,17 @@ function FlowEditor({
     return { x: 40 + addCounter.current * 24, y: 40 + addCounter.current * 24 };
   };
 
+  const handleAddResult = () => {
+    const c = controllerRef.current;
+    if (!c) return;
+    // A result block sourced from (and connected to) the most recent generation block,
+    // ALWAYS placed to its right with a small gap (same rule as the auto-created
+    // result on Generate) — never cascaded from the top-left like content blocks.
+    const gen = [...c.canvas.blocks].reverse().find((b) => b.type === 'generation');
+    const pos = gen ? { x: gen.position.x + RESULT_OFFSET_X, y: gen.position.y } : nextPos();
+    c.addResultBlock(gen?.blockId, pos);
+  };
+
   // Content blocks come in all four modalities (AC-15) — a small menu off the toolbar
   // lets the Creator add text / image / audio / video, not just text (F3).
   const [contentMenuOpen, setContentMenuOpen] = React.useState(false);
@@ -218,13 +237,6 @@ function FlowEditor({
   };
   const handleAddGeneration = () =>
     controllerRef.current?.addGenerationBlock(DEFAULT_MODEL_ID, nextPos());
-  const handleAddResult = () => {
-    const c = controllerRef.current;
-    if (!c) return;
-    // A result block sourced from (and connected to) the most recent generation block.
-    const gen = [...c.canvas.blocks].reverse().find((b) => b.type === 'generation');
-    c.addResultBlock(gen?.blockId, nextPos());
-  };
 
   // ── Model change → reconcile through the controller (rebuild handles + prune) ─
   const handleModelChange = React.useCallback((blockId: string, modelId: string) => {

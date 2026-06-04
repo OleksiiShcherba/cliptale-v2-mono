@@ -275,6 +275,22 @@ describe('FlowEditorPage', () => {
     );
   });
 
+  // Review pass 13 (1): a result block ALWAYS appears to the right of its generation
+  // block with a small gap — the toolbar path must not cascade it from the top-left.
+  it('toolbar Add result places the result block to the RIGHT of its generation block', async () => {
+    renderPage();
+    await waitFor(() => expect(document.querySelector('[data-block-id="g1"]')).not.toBeNull());
+
+    fireEvent.click(screen.getByRole('button', { name: /add result/i }));
+
+    await waitFor(() => expect(document.querySelector('[data-testid="result-node"]')).not.toBeNull());
+    const wrapper = document
+      .querySelector('[data-testid="result-node"]')
+      ?.closest('.react-flow__node') as HTMLElement;
+    // g1 sits at x=320 — the result lands at g1.x + 320 offset, same y.
+    expect(wrapper.style.transform).toMatch(/translate\(640px,\s*0px\)/);
+  });
+
   // F2 (AC-15 / AC-07): the model is pickable in the Inspector and a change persists,
   // so the reconcile path is reachable end-to-end (not dead code).
   it('lets the Creator pick/change a generation block model via the Inspector (AC-15/AC-07)', async () => {
