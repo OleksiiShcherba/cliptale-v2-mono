@@ -21,6 +21,7 @@ import { NodeDeleteButton } from './NodeDeleteButton';
 import {
   MODALITY_COLOR,
   PRIMARY,
+  TEXT_PRIMARY,
   TEXT_SECONDARY,
   handleBase,
   handleRow,
@@ -96,7 +97,10 @@ export function GenerationNode({ id, data, selected }: NodeProps): React.ReactEl
           textAlign: 'left',
           background: 'transparent',
           border: 'none',
-          color: model ? undefined : TEXT_SECONDARY,
+          // U1 (review-2026-06-04): explicit token — a native button does NOT inherit
+          // color, so `undefined` fell back to UA near-black on the dark node.
+          color: model ? TEXT_PRIMARY : TEXT_SECONDARY,
+          fontWeight: model ? 500 : undefined,
           cursor: onSelectModel ? 'pointer' : 'default',
           fontSize: 12,
           padding: 0,
