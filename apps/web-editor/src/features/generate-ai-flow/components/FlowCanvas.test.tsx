@@ -93,4 +93,31 @@ describe('FlowCanvas', () => {
       expect(last?.edges ?? [{}]).toHaveLength(0);
     });
   });
+
+  // Review pass 14 (1): a block MOVE must autosave. The drag-stop handler commits the
+  // final position via controller.setCanvas — that commit must stream the canvas to
+  // the consumer (useFlowAutosave), else a re-arranged layout is lost on reload.
+  it('a drag-stop position commit streams the canvas so the move autosaves', async () => {
+    const onReady = vi.fn();
+    const onCanvasChange = vi.fn();
+    render(<FlowCanvas initialCanvas={DOC} onCanvasReady={onReady} onCanvasChange={onCanvasChange} />);
+    await waitFor(() => expect(onReady).toHaveBeenCalled());
+    const controller = onReady.mock.calls.at(-1)![0];
+
+    // Same mutation shape as FlowCanvas.onNodeDragStop's commit.
+    act(() =>
+      controller.setCanvas((c: FlowCanvasDoc) => ({
+        ...c,
+        blocks: c.blocks.map((b) =>
+          b.blockId === 'g1' ? { ...b, position: { x: 500, y: 120 } } : b,
+        ),
+      })),
+    );
+
+    await waitFor(() => {
+      const last = onCanvasChange.mock.calls.at(-1)?.[0] as FlowCanvasDoc | undefined;
+      const moved = last?.blocks.find((b) => b.blockId === 'g1');
+      expect(moved?.position).toEqual({ x: 500, y: 120 });
+    });
+  });
 });

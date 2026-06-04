@@ -91,14 +91,17 @@ function InnerFlowCanvas({
     onCanvasReady?.(controller);
   }, [controller, onCanvasReady]);
 
-  // Stream canvas changes to the consumer for autosave, but ONLY when the CONTENT
-  // (blocks' type/params + edges) changes — never on a bare node-position move or on
-  // xyflow's layout/measurement settling at load. Position churn would otherwise fire a
-  // spurious autosave that corrupts the optimistic-lock version (AC-10b). The full
-  // canvas (positions included) is still streamed; only the trigger is content-gated.
+  // Stream canvas changes to the consumer for autosave when content OR layout changes.
+  // Positions are part of the signature: the doc only receives a position on the final
+  // drag-stop commit (xyflow owns live drag positions), so a block move is exactly one
+  // debounced autosave — no per-tick churn — and a re-arranged layout survives reload.
+  // xyflow's load-time measurement settling never writes positions into the doc.
   const contentSignature = useMemo(() => {
     const blocks = canvas.blocks
-      .map((b) => `${b.blockId}:${b.type}:${JSON.stringify(b.params ?? {})}`)
+      .map(
+        (b) =>
+          `${b.blockId}:${b.type}:${b.position.x},${b.position.y}:${JSON.stringify(b.params ?? {})}`,
+      )
       .join('|');
     const edges = canvas.edges
       .map((e) => `${e.edgeId}:${e.sourceBlockId}>${e.sourceHandle}->${e.targetBlockId}>${e.targetHandle}`)
@@ -199,10 +202,9 @@ function InnerFlowCanvas({
     [removeBlock],
   );
 
-  // Commit the final drag position to the canvas document so the doc stays consistent
-  // (and a later content-change autosave persists the new layout). Position-only changes
-  // do not themselves trigger autosave (contentSignature excludes positions), matching
-  // the optimistic-lock churn guard.
+  // Commit the final drag position to the canvas document. The commit streams through
+  // contentSignature (positions included) → one debounced autosave per move, so a
+  // re-arranged layout persists without any other content edit.
   const onNodeDragStop = useCallback(
     (_event: React.MouseEvent, node: Node) => {
       setCanvas((c) => {
