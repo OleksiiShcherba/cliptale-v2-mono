@@ -4,7 +4,7 @@
  * EPIC B: deleteAsset now calls fileRepository.softDelete instead of hard-delete.
  * Clips referencing a soft-deleted file are NOT blocked (removed ConflictError path).
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { GoneError, NotFoundError } from '@/lib/errors.js';
 import * as assetRepository from '@/repositories/asset.repository.js';
@@ -126,16 +126,25 @@ describe('asset.service', () => {
   // ── restoreAsset ────────────────────────────────────────────────────────────
 
   describe('restoreAsset', () => {
+    // Time is ANCHORED with fake timers (file.softdelete.service.test.ts idiom) so the
+    // fixture's deletedAt stays "5 days ago — within TTL" forever, not a calendar mine.
+    const RESTORE_TEST_NOW = new Date('2026-04-20T00:00:00.000Z');
     const softDeletedFileRow = {
       ...mockFileRow,
       deletedAt: new Date('2026-04-15T00:00:00.000Z'), // recent — within TTL
     };
 
     beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(RESTORE_TEST_NOW);
       vi.clearAllMocks();
       vi.mocked(fileRepository.findByIdIncludingDeleted).mockResolvedValue(softDeletedFileRow);
       vi.mocked(fileRepository.restore).mockResolvedValue(true);
       vi.mocked(assetRepository.getAssetById).mockResolvedValue(mockAsset);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
     });
 
     it('restores the file and returns the Asset on the happy path', async () => {
