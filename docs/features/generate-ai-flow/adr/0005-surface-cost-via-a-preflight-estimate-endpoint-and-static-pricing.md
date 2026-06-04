@@ -9,7 +9,7 @@ ticket: "generate-ai-flow"
 
 # 0005 — Surface cost via a pre-flight estimate endpoint and a static pricing table
 
-- **Status:** Accepted
+- **Status:** Accepted — amended in part by [ADR-0008](./0008-db-backed-param-reactive-pricing.md) (the pricing-source half: static table → DB-backed, param-reactive)
 - **Date:** 2026-06-03
 - **Deciders:** Architect + Tech Lead (Socratic walk)
 
