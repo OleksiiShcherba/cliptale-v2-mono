@@ -28,9 +28,9 @@
 | T21 | Backend integration suite | tests | Backend Lead / QA | M | T14, T15, T13 | done |
 | T22 | E2E — full flow + restore + reattach + conflict | tests | QA | M | T18, T19, T20 | done (GREEN 4/4: editor page FlowEditorPage wired at /generate-ai/:flowId assembles FlowCanvas+Inspector+useFlowAutosave+useFlowGeneration+CostConfirmModal. AC-01 assemble→typed-connection→Generate→confirm-cost→one charged generate→image in result block + library link; AC-10 reload-restore; AC-08b reattach; AC-10b two-tab 409 conflict — all pass through the real UI against the network-stubbed provider. AC-01's library-linkage assertion now fetches via page.evaluate→fetch (intercepted by page.route, consistent with the spec's own stub doctrine) and asserts the linked row's flowId; the authoritative asset-iff-success + flow_files linkage invariant is additionally proven against real MySQL in T13 (worker) + T21 (integration).) |
 
-| U1 | model label readable on gen node (pass-15) | ui | Frontend Lead | XS | — | todo |
-| U2 | Inspector voice_picker — TTS/STS voices + previews (pass-15, AC-16) | ui | Frontend Lead | S | — | todo |
-| U3a | migration 049 — flow_model_pricing + seed (pass-15, AC-20) | migration | Backend Lead | S | — | todo |
-| U3b | param-reactive DB-backed estimate (pass-15, AC-20) | app | Backend Lead | M | U3a | todo |
+| U1 | model label readable on gen node (pass-15) | ui | Frontend Lead | XS | — | done |
+| U2 | Inspector voice_picker — TTS/STS voices + previews (pass-15, AC-16) | ui | Frontend Lead | S | — | done |
+| U3a | migration 049 — flow_model_pricing + seed (pass-15, AC-20) | migration | Backend Lead | S | — | done |
+| U3b | param-reactive DB-backed estimate (pass-15, AC-20) | app | Backend Lead | M | U3a | done |
 
 **Total:** 26 tasks (22 original + 4 review-pass-15 follow-ups).
