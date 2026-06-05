@@ -1,0 +1,445 @@
+# DERIVED contract for storyboard-autosave-checkpoints — do not hand-edit field-by-field.
+#   fields + constraints  ← data-model.md (user_settings, storyboard_history +origin/+preview_kind)
+#   error responses       ← sad.md §6 sequence alt-branches (US-01…US-06 flows, Critical flows 1/2)
+#   endpoint list + shape ← spec.md §4 user stories / §5 acceptance criteria
+#
+# Brownfield deviations from the SDD defaults (all "follow the existing ClipTale API" —
+# precedent: generate-ai-flow contract, team decision 2026-06-03; see api-sync-report.md):
+#   • Error body  = repo's `{ error }` PLUS additive optional `{ code, details }`,
+#                   NOT the bare `{ code, message, details? }` SDD envelope.
+#   • JSON keys   = camelCase (draftId, previewKind, createdAt…) — the repo's wire convention.
+#   • URL prefix  = none; paths are rooted (the repo mounts routes at `/`), NOT `/api/v1`.
+#   • History list = bare array, newest-first, hard cap 50 (HISTORY_CAP) — the EXISTING
+#                   GET /storyboards/{draftId}/history shape; no cursor wrapper (the cap makes
+#                   pagination moot and the endpoint pre-exists this feature).
+#
+# Client-only behaviour (ADR-0002: the checkpoint scheduler lives in the browser) has NO
+# surface here by design: countdown/idle state (AC-05/06), drag-typing deferral (AC-03b),
+# double-save button guard (AC-07b), overdue-trigger timing (AC-03c — the trigger; the resulting
+# push IS contract-visible). The server stays a dumb, ownership-checked persistence surface.
+openapi: 3.1.0
+
+info:
+  title: storyboard-autosave-checkpoints API
+  version: 0.1.0
+  description: |
+    Splits storyboard saving on the board page ("Video Road Map") into two tiers.
+    (i) A lightweight autosave keeps persisting the current board state shortly after every
+    change — data is never at risk — but creates no History entries and takes no screenshots.
+    (ii) A checkpoint save — automatic once per Creator-configured autosave interval (presets
+    30 s / 1 / 2 / 5 / 10 min, default 1 min) and on-demand via a Save button — captures a layout
+    screenshot client-side and creates the History entry. This cuts history writes and screenshot
+    work from per-change to at-most-one-per-interval without reducing freshness of saved state.
+
+    Contract surface: the EXISTING lightweight-save endpoint (PUT /storyboards/{draftId},
+    unchanged — documented because AC-01/01b/02 and the restore flow bind to it), the EXTENDED
+    history pair (GET filters to checkpoint origin; POST becomes the checkpoint push carrying
+    `previewKind`), and the NEW me-scoped user-settings pair backing the product's first
+    Settings page. All flows are synchronous (no message bus) — there is no events contract.
+
+servers:
+  - url: https://api.cliptale.com
+    description: Production
+  - url: http://localhost
+    description: Local
+
+# Global default — every operation requires the repo's auth token (authMiddleware).
+security:
+  - BearerAuth: []
+
+paths:
+  /storyboards/{draftId}:
+    put:
+      summary: Lightweight autosave — full-replace the current board state (EXISTING, unchanged)
+      description: |
+        US-01 / AC-01, AC-01b, AC-02. The debounced client autosave (a few seconds after the
+        last change, today's timing) full-replaces blocks/edges/musicBlocks in one transaction
+        and returns the authoritative saved state. Domain invariant AC-02: this operation NEVER
+        creates a History entry and never carries a screenshot.
+
+        On failure the client shows "latest changes not saved", keeps editing unblocked, and
+        retries automatically until a 2xx (AC-01b) — the operation is a full-replace, so retries
+        are naturally idempotent; no Idempotency-Key is needed.
+
+        Also the final step of a Restore (Critical flow 2 / AC-12): after the client applies the
+        chosen snapshot to the canvas, it persists the restored state through this same endpoint.
+
+        # existing-unchanged: the body/response item shapes are the repo's existing Zod schemas
+        # (apps/api/src/controllers/storyboard.controller.schemas.ts) — source of truth there;
+        # this feature does not alter them, so they are documented summary-level only.
+      operationId: putStoryboard
+      tags: [storyboard]
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StoryboardSaveBody" }
+            example:
+              blocks:
+                - id: "22222222-2222-4222-8222-222222222222"
+                  draftId: "11111111-1111-4111-8111-111111111111"
+                  blockType: "scene"
+                  name: "Test Scene"
+                  prompt: "A test scene prompt"
+                  durationS: 5
+                  positionX: 320
+                  positionY: 180
+                  sortOrder: 0
+                  style: null
+              edges: []
+              musicBlocks: []
+      responses:
+        "200":
+          description: Saved — the authoritative persisted state (AC-01); no History entry created (AC-02)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoryboardState" }
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /storyboards/{draftId}/history:
+    get:
+      summary: List checkpoint History entries (EXTENDED — origin filter + previewKind)
+      description: |
+        US-05 / AC-08, AC-13. Returns ONLY entries with origin=checkpoint, newest first, at most
+        50 (HISTORY_CAP) — served by idx_storyboard_history_draft_origin. Legacy pre-feature rows
+        (origin=legacy) are filtered out at the query level, never deleted; they age out via the
+        existing origin-agnostic 50-cap pruning (spec non-goal). NFR: ≤ 500 ms p95.
+
+        # brownfield shape: bare array (the endpoint pre-exists this feature) — no cursor wrapper.
+      operationId: listCheckpointHistory
+      tags: [storyboard]
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      responses:
+        "200":
+          description: Checkpoint entries, newest first, ≤ 50
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 50
+                items: { $ref: "#/components/schemas/HistoryEntry" }
+              example:
+                - id: 412
+                  draftId: "11111111-1111-4111-8111-111111111111"
+                  snapshot:
+                    blocks: []
+                    edges: []
+                    screenshot: "data:image/jpeg;base64,<~15-25 KB JPEG 320x180>"
+                  previewKind: "screenshot"
+                  createdAt: "2026-06-05T12:34:56.000Z"
+                - id: 398
+                  draftId: "11111111-1111-4111-8111-111111111111"
+                  snapshot:
+                    blocks: []
+                    edges: []
+                  previewKind: "minimap"
+                  createdAt: "2026-06-05T12:33:51.000Z"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+    post:
+      summary: Push a checkpoint History entry (EXTENDED — checkpoint push with previewKind)
+      description: |
+        US-02 / US-04 / US-07 — AC-03 (interval checkpoint), AC-03c (overdue checkpoint on tab
+        return / page open), AC-04 (capture-failure fallback), AC-07 (manual Save), AC-12
+        (pre-restore checkpoint). The client captures the layout screenshot (5 s timeout) and
+        inlines it as a data-URL inside `snapshot` (ADR-0005); on capture failure/timeout it
+        still pushes with `previewKind: minimap` — a checkpoint is never silently dropped (AC-04).
+
+        The server stamps `origin = 'checkpoint'` on the inserted row (ADR-0003 — not a request
+        field; clients cannot write `legacy`) and prunes beyond HISTORY_CAP = 50 in the same
+        operation. Single-flight is enforced client-side (AC-07b double-save guard, ADR-0002);
+        the server intentionally has no concurrency lock.
+      operationId: pushCheckpoint
+      tags: [storyboard]
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CheckpointPush" }
+            example:
+              snapshot:
+                blocks: []
+                edges: []
+                screenshot: "data:image/jpeg;base64,<~15-25 KB JPEG 320x180>"
+              previewKind: "screenshot"
+      responses:
+        "201":
+          description: Checkpoint History entry created (and rows beyond the 50-cap pruned)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CheckpointCreated" }
+              example:
+                id: 413
+        "400": { $ref: "#/components/responses/ValidationFailed" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /users/me/settings:
+    get:
+      summary: Read my account settings (NEW — effective values, lazy row)
+      description: |
+        US-06 / AC-10, AC-11b. Read on board open (NFR ≤ 300 ms p95) and on the Settings page.
+        Always 200 for an authenticated user: when no `user_settings` row exists yet (it is
+        created lazily on first write), the response carries the app-layer defaults
+        (`autosaveIntervalSeconds: 60`) with `updatedAt: null`. The setting follows the account,
+        not the browser (AC-10). Owner-scoping is structural: the path addresses only the
+        authenticated account — another user's settings are not addressable (AC-11c).
+
+        If this read fails (5xx / network), the client falls back to the 1-minute session
+        default and never blocks editing (AC-11b).
+      operationId: getMySettings
+      tags: [settings]
+      responses:
+        "200":
+          description: Effective settings (stored values, or defaults when no row exists yet)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserSettings" }
+              examples:
+                stored:
+                  summary: Stored row exists
+                  value:
+                    autosaveIntervalSeconds: 300
+                    updatedAt: "2026-06-05T10:00:00.000Z"
+                defaults:
+                  summary: No row yet — app-layer defaults (AC-11b)
+                  value:
+                    autosaveIntervalSeconds: 60
+                    updatedAt: null
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+    put:
+      summary: Update my account settings (NEW — lazy upsert, preset whitelist)
+      description: |
+        US-06 / AC-09, AC-11, AC-11c. Upserts the caller's single `user_settings` row (created
+        lazily on first write). `autosaveIntervalSeconds` is validated against the preset
+        whitelist 30/60/120/300/600 s by Zod in the app layer (ADR-0004) — any other value is a
+        400. The new interval governs the NEXT countdown start; a countdown already running on
+        an open board finishes at its old cadence (AC-09 — client behaviour). On a failed write
+        the client keeps showing the previously stored interval (AC-11). Naturally idempotent
+        (single-row upsert) — no Idempotency-Key. Owner-scoping is structural (AC-11c): the path
+        addresses only the authenticated account.
+      operationId: putMySettings
+      tags: [settings]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserSettingsUpdate" }
+            example:
+              autosaveIntervalSeconds: 120
+      responses:
+        "200":
+          description: Stored — the persisted settings
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserSettings" }
+              example:
+                autosaveIntervalSeconds: 120
+                updatedAt: "2026-06-05T12:40:00.000Z"
+        "400":
+          description: Interval not in the preset whitelist (Zod, ADR-0004)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "autosaveIntervalSeconds must be one of 30, 60, 120, 300, 600"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: The repo's existing authMiddleware token. All endpoints additionally pass aclMiddleware('editor'); storyboard endpoints enforce draft ownership in the service layer (AC-13).
+
+  parameters:
+    DraftId:
+      in: path
+      name: draftId
+      required: true
+      description: generation_drafts id (CHAR(36) UUID v4) — the draft whose board is addressed
+      schema: { type: string, format: uuid }
+
+  responses:
+    ValidationFailed:
+      description: Body failed Zod validation (validateBody middleware → ValidationError)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: "Invalid request body"
+    Unauthorized:
+      description: Missing/invalid auth token (authMiddleware)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: "Unauthorized"
+    Forbidden:
+      description: Draft belongs to another user (AC-13) or role lacks editor ACL
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: "Draft belongs to another user"
+    NotFound:
+      description: Draft does not exist
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: "Draft not found"
+    PayloadTooLarge:
+      description: Body exceeds the existing express.json() limit — limits unchanged from today's saves (spec §6.1); plain-language error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: "Request body too large"
+    Internal:
+      description: Unexpected failure — the client-side behaviour is AC-01b (autosave retry loop), AC-11 (settings change not saved, previous value kept) or AC-11b (session default 60 s)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: "Internal server error"
+
+  schemas:
+    # Repo error envelope: required free-text `error`; `code`/`details` are additive and optional
+    # (used only by GateError/RateLimitedError today — this feature introduces NO new machine codes).
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          pattern: "^[a-z_]+\\.[a-z_]+$"
+          description: optional machine code (module.error_name) — unused by this feature's errors
+        details:
+          type: object
+          description: optional structured context
+
+    # ── storyboard (existing endpoint, summary-level — source of truth is the repo's Zod) ──────
+    StoryboardSaveBody:
+      type: object
+      required: [blocks, edges]
+      description: "# existing-unchanged: full-replace body of PUT /storyboards/{draftId}; item shapes are the repo's existing blockInsertSchema / edgeInsertSchema / musicBlockInsertSchema (storyboard.controller.schemas.ts) — not altered by this feature"
+      properties:
+        blocks:
+          type: array
+          items: { type: object, description: "blockInsertSchema — existing, unchanged" }
+        edges:
+          type: array
+          items: { type: object, description: "edgeInsertSchema — existing, unchanged" }
+        musicBlocks:
+          type: array
+          items: { type: object, description: "musicBlockInsertSchema — existing, unchanged" }
+
+    StoryboardState:
+      type: object
+      required: [blocks, edges]
+      description: "# existing-unchanged: authoritative persisted state returned by the existing endpoint"
+      properties:
+        blocks:
+          type: array
+          items: { type: object }
+        edges:
+          type: array
+          items: { type: object }
+        musicBlocks:
+          type: array
+          items: { type: object }
+
+    # ── history (storyboard_history — data-model.md) ────────────────────────────────────────────
+    PreviewKind:
+      type: string
+      enum: [screenshot, minimap]
+      description: storyboard_history.preview_kind — `screenshot` = real layout capture; `minimap` = SVG-minimap fallback after capture failure/5 s timeout (AC-04); feeds the server-side fallback-share count (NFR < 2%)
+
+    CheckpointPush:
+      type: object
+      required: [snapshot, previewKind]
+      additionalProperties: false
+      properties:
+        snapshot:
+          type: object
+          description: storyboard_history.snapshot (JSON NOT NULL) — full board state; for previewKind=screenshot it carries the inline data-URL JPEG 320×180 ~15–25 KB (ADR-0005); opaque to the server
+        previewKind: { $ref: "#/components/schemas/PreviewKind" }
+
+    CheckpointCreated:
+      type: object
+      required: [id]
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          description: storyboard_history.id (BIGINT UNSIGNED AUTO_INCREMENT) of the inserted row
+
+    HistoryEntry:
+      type: object
+      required: [id, draftId, snapshot, previewKind, createdAt]
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          description: storyboard_history.id — `ORDER BY id DESC` = newest first
+        draftId:
+          type: string
+          format: uuid
+          description: storyboard_history.draft_id (CHAR(36), no DB-level FK — as in 034)
+        snapshot:
+          type: object
+          description: storyboard_history.snapshot — board state (+ inline screenshot data-URL when previewKind=screenshot, ADR-0005)
+        previewKind: { $ref: "#/components/schemas/PreviewKind" }
+        createdAt:
+          type: string
+          format: date-time
+          description: storyboard_history.created_at
+      # origin (ENUM legacy|checkpoint) is deliberately NOT exposed: the list is pre-filtered to
+      # origin=checkpoint (AC-08), so the field would be a constant on the wire.
+
+    # ── settings (user_settings — data-model.md) ────────────────────────────────────────────────
+    AutosaveIntervalSeconds:
+      type: integer
+      enum: [30, 60, 120, 300, 600]
+      default: 60
+      description: user_settings.settings_json.autosaveIntervalSeconds — preset whitelist enforced by Zod in the app layer (ADR-0004); presets 30 s / 1 / 2 / 5 / 10 min; default 1 min
+
+    UserSettings:
+      type: object
+      required: [autosaveIntervalSeconds, updatedAt]
+      additionalProperties: false
+      properties:
+        autosaveIntervalSeconds: { $ref: "#/components/schemas/AutosaveIntervalSeconds" }
+        updatedAt:
+          type: [string, "null"]
+          format: date-time
+          description: user_settings.updated_at (DATETIME(3)); null = no row yet — the values shown are app-layer defaults (AC-11b)
+
+    UserSettingsUpdate:
+      type: object
+      required: [autosaveIntervalSeconds]
+      additionalProperties: false
+      properties:
+        autosaveIntervalSeconds: { $ref: "#/components/schemas/AutosaveIntervalSeconds" }
