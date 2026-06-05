@@ -1348,10 +1348,14 @@ export const openApiSpec = {
         security: [{ bearerAuth: [] }],
       },
       post: {
-        summary: 'Push a storyboard history snapshot',
+        summary: 'Push a checkpoint history snapshot',
         description:
-          'Inserts a new history snapshot for the draft and prunes the table beyond 50 rows ' +
-          '(oldest entries are deleted). Returns 201 with the auto-assigned row id.',
+          'Inserts a new checkpoint history entry for the draft and prunes the table beyond ' +
+          '50 rows (the cap is origin-agnostic — oldest entries are deleted regardless of ' +
+          'origin). The server stamps origin=checkpoint on the inserted row — origin is not ' +
+          'a request field. previewKind declares whether the snapshot carries an inline ' +
+          'layout-screenshot data-URL (screenshot) or fell back to the SVG minimap after a ' +
+          'capture failure / 5 s timeout (minimap). Returns 201 with the auto-assigned row id.',
         operationId: 'pushStoryboardHistory',
         tags: ['storyboard'],
         parameters: [
@@ -3278,16 +3282,27 @@ export const openApiSpec = {
       },
       PushHistoryBody: {
         type: 'object',
-        required: ['snapshot'],
-        description: 'Request body for POST /storyboards/:draftId/history.',
+        required: ['snapshot', 'previewKind'],
+        description:
+          'Request body for POST /storyboards/:draftId/history (checkpoint push). ' +
+          'origin is deliberately NOT a request field — the server stamps origin=checkpoint.',
         properties: {
           snapshot: {
             type: 'object',
             description:
-              'Opaque storyboard snapshot. Typically a StoryboardState-compatible object, ' +
-              'but the server stores it as-is without schema validation.',
+              'Opaque storyboard snapshot. Typically a StoryboardState-compatible object ' +
+              '(plus an inline screenshot data-URL when previewKind=screenshot); ' +
+              'the server stores it as-is without schema validation.',
           },
+          previewKind: { $ref: '#/components/schemas/PreviewKind' },
         },
+      },
+      PreviewKind: {
+        type: 'string',
+        enum: ['screenshot', 'minimap'],
+        description:
+          'storyboard_history.preview_kind — screenshot = real layout capture; ' +
+          'minimap = SVG-minimap fallback after capture failure / 5 s timeout.',
       },
       StoryboardHistoryEntry: {
         type: 'object',

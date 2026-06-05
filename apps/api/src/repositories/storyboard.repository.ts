@@ -340,8 +340,14 @@ export async function insertSentinelsInTx(
 }
 
 /**
- * Inserts a history snapshot row and then prunes rows beyond the most recent
+ * Inserts a checkpoint history row and then prunes rows beyond the most recent
  * `keepCount` for the draft (single DELETE + subquery in one round-trip).
+ *
+ * The row is stamped origin='checkpoint' here — a server-side stamp (ADR-0003),
+ * never a request field, so clients cannot write 'legacy'. preview_kind records
+ * whether the snapshot carries a real layout screenshot or the minimap fallback
+ * (AC-04). The prune stays origin-agnostic: the cap applies to legacy +
+ * checkpoint rows together (legacy rows age out — spec non-goal).
  *
  * Returns the auto-assigned id of the inserted row.
  */
@@ -349,10 +355,12 @@ export async function insertHistoryAndPrune(
   draftId: string,
   snapshot: unknown,
   keepCount: number,
+  previewKind: 'screenshot' | 'minimap',
 ): Promise<number> {
   const [result] = await pool.execute<ResultSetHeader>(
-    'INSERT INTO storyboard_history (draft_id, snapshot) VALUES (?, ?)',
-    [draftId, JSON.stringify(snapshot)],
+    `INSERT INTO storyboard_history (draft_id, snapshot, origin, preview_kind)
+     VALUES (?, ?, 'checkpoint', ?)`,
+    [draftId, JSON.stringify(snapshot), previewKind],
   );
   const insertedId = result.insertId;
 
