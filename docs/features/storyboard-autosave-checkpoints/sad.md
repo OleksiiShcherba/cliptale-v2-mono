@@ -193,23 +193,55 @@ C4Container
      📌 e.g. «author → web: composes draft → web → content API: save». Seed the primary flow(s) here;
      the `sequences` stage then covers every §5 AC (no cap). Never N/A for M+; XS/S keeps ≥1 happy-path flow. -->
 
-**Critical flow 1: <flow name>**
+**Critical flow 1: автоматичний checkpoint за інтервалом (з дефералом і фолбеком зняття)**
 
 ```mermaid
 sequenceDiagram
-    actor Actor
-    participant Web
-    participant Service
-    participant Store
-    Actor->>Web: <action>
-    Web->>Service: <call>
-    Service->>Store: <write>
-    Store-->>Service: ok
-    Service-->>Web: result
-    Web-->>Actor: confirmation
+    actor Creator
+    participant Web as web-editor
+    participant Api as api
+    participant DB as MySQL
+
+    Note over Web: autosave interval сплив і є зміни, новіші за останній checkpoint
+    opt Creator тягне блок або друкує на канвасі
+        Web->>Web: відкладає checkpoint до кінця взаємодії (кап — один додатковий інтервал)
+    end
+    Web-->>Creator: показує full-screen loader
+    Web->>Web: знімає layout screenshot живого канваса (таймаут 5 с)
+    alt зняття вдалося
+        Web->>Api: checkpoint — снапшот дошки + скриншот
+    else збій або таймаут зняття
+        Web->>Api: checkpoint — снапшот без скриншота (прев'ю — SVG-мінімапа)
+    end
+    Api->>Api: перевіряє, що запитувач — власник draft-а
+    Api->>DB: вставляє History entry (походження: checkpoint) і чистить понад кап
+    DB-->>Api: ok
+    Api-->>Web: запис створено
+    Web-->>Creator: ховає loader; новий запис зверху History; countdown перезапущено
 ```
 
-**Critical flow 2: <e.g. async event propagation>** — <if applicable, otherwise N/A>.
+**Critical flow 2: безпечний Restore із pre-restore checkpoint-ом (AC-12)**
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web as web-editor
+    participant Api as api
+    participant DB as MySQL
+
+    Creator->>Web: підтверджує Restore старішого History entry
+    opt є зміни, новіші за останній History entry
+        Web->>Web: знімає скриншот поточного стану (з фолбеком на мінімапу, ніколи не блокує Restore)
+        Web->>Api: pre-restore checkpoint поточного стану
+        Api->>DB: вставляє History entry (походження: checkpoint)
+        DB-->>Api: ok
+        Api-->>Web: запис створено
+    end
+    Web->>Web: застосовує снапшот обраного запису на канвас
+    Web->>Api: lightweight-збереження відновленого стану
+    Api->>DB: оновлює поточний стан дошки
+    Web-->>Creator: дошка у відновленому стані; pre-restore запис зверху History
+```
 
 ## 7. Deployment view
 
