@@ -193,6 +193,39 @@ C4Container
      📌 e.g. «author → web: composes draft → web → content API: save». Seed the primary flow(s) here;
      the `sequences` stage then covers every §5 AC (no cap). Never N/A for M+; XS/S keeps ≥1 happy-path flow. -->
 
+### Lightweight autosave з автоматичним повтором (US-01)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over U,UI: Precondition: Creator редагує власний draft на сторінці дошки
+    U->>UI: змінює дошку (додає, рухає, редагує чи видаляє блок або звʼязок)
+    UI->>UI: дебаунс — кілька секунд після останньої зміни (сьогоднішній таймінг)
+    UI->>S: lightweight-збереження поточного стану дошки (без скриншота)
+    S->>S: перевіряє, що запитувач — власник draft-а
+    alt збереження вдалося
+        S->>D: оновлює поточний стан дошки
+        Note over S,D: persists board snapshot — лише поточний стан, History entry не створюється (AC-02)
+        D-->>S: ok
+        S-->>UI: збереження підтверджено
+        UI-->>U: індикатор у топ-барі показує «Saved»
+    else збій збереження, наприклад проблема зі звʼязком (AC-01b)
+        S--xUI: збереження не вдалося
+        UI-->>U: індикатор показує «останні зміни не збережені», редагування не блокується
+        loop автоматичні повтори, доки збереження не вдасться
+            UI->>S: повторює lightweight-збереження поточного стану
+        end
+        S-->>UI: збереження підтверджено
+        UI-->>U: індикатор повертається у «Saved»
+    end
+    Note over U,UI: Postcondition: поточний стан збережено, список History незмінний (AC-02)
+```
+
 **Critical flow 1: автоматичний checkpoint за інтервалом (з дефералом і фолбеком зняття)**
 
 ```mermaid
@@ -217,7 +250,171 @@ sequenceDiagram
     Api->>DB: вставляє History entry (походження: checkpoint) і чистить понад кап
     DB-->>Api: ok
     Api-->>Web: запис створено
-    Web-->>Creator: ховає loader; новий запис зверху History; countdown перезапущено
+    Web-->>Creator: ховає loader, новий запис зверху History, countdown перезапущено
+```
+
+### Прострочений checkpoint при поверненні вкладки або відкритті draft-а (US-02)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over U,UI: Precondition: зміни, новіші за останній checkpoint, чекають довше за autosave interval (вкладка була у фоні або draft щойно відкрито)
+    U->>UI: повертається на вкладку дошки або відкриває draft
+    UI->>UI: виявляє прострочені зміни — час очікування перевищив інтервал
+    Note over UI: один прострочений checkpoint запускається протягом 10 секунд (AC-03c)
+    UI-->>U: показує full-screen loader
+    UI->>UI: знімає layout screenshot живого канваса (фолбек на мінімапу за правилом AC-04)
+    UI->>S: checkpoint — снапшот дошки + скриншот
+    S->>S: перевіряє, що запитувач — власник draft-а
+    S->>D: вставляє History entry з походженням checkpoint і чистить понад кап
+    Note over S,D: persists history entry (origin=checkpoint, скриншот усередині snapshot JSON)
+    D-->>S: ok
+    S-->>UI: запис створено
+    UI-->>U: ховає loader, звичайний countdown відновлюється
+    Note over U,UI: Postcondition: рівно один прострочений checkpoint виконано, регулярний відлік триває далі
+```
+
+### Життєвий цикл countdown: idle-стан і старт відліку (US-03)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+
+    Note over U,UI: Precondition: дошку відкрито, останній checkpoint уже зафіксував усі зміни
+    Note over UI: countdown bar показує idle-стан «all saved», кнопка Save неактивна (AC-05)
+    opt autosave interval спливає без жодної зміни
+        UI->>UI: не створює checkpoint — жодного нового History entry (AC-05)
+    end
+    U->>UI: робить першу зміну після idle-стану
+    UI->>UI: запускає свіжий повний відлік інтервалу (AC-06)
+    UI-->>U: countdown bar у верхньому правому куті рахує до наступного автоматичного checkpoint-а
+    Note over UI: після кожного checkpoint-а — автоматичного чи ручного — відлік скидається наново (AC-06)
+    alt на момент закінчення відліку є нові зміни
+        UI->>UI: запускає автоматичний checkpoint (див. потік автоматичного checkpoint-а вище)
+    else змін немає
+        UI-->>U: повертається в idle-стан «all saved», кнопка Save знову неактивна
+    end
+    Note over U,UI: Postcondition: відлік іде лише коли є незафіксовані в History зміни, дублікат незмінного стану неможливий
+```
+
+### Ручний Save: негайний checkpoint без дефералу (US-04)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over U,UI: Precondition: є зміни, новіші за останній checkpoint (інакше Save неактивна — AC-05)
+    U->>UI: натискає кнопку Save поруч із countdown bar
+    alt checkpoint уже виконується (AC-07b)
+        UI-->>U: кнопка Save неактивна до завершення поточного checkpoint-а — другий паралельний не стартує
+    else checkpoint не виконується
+        Note over UI: деферал AC-03b не застосовується — ручний Save запускається одразу, навіть під час drag чи набору тексту
+        UI-->>U: показує full-screen loader
+        UI->>UI: знімає layout screenshot живого канваса (фолбек на мінімапу за правилом AC-04)
+        UI->>S: checkpoint — снапшот дошки + скриншот
+        S->>S: перевіряє, що запитувач — власник draft-а
+        S->>D: вставляє History entry з походженням checkpoint і чистить понад кап
+        Note over S,D: persists history entry (origin=checkpoint, скриншот усередині snapshot JSON)
+        D-->>S: ok
+        S-->>UI: запис створено
+        UI-->>U: ховає loader, новий запис зі скриншотом зверху History, відлік інтервалу перезапущено
+    end
+    Note over U,UI: Postcondition: щонайбільше один checkpoint у польоті, відлік скинуто після успішного Save
+```
+
+### Відкриття History-панелі: лише checkpoint-и, відмова не-власнику (US-05)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over U,UI: Precondition: draft має і легасі-записи (створені до фічі), і нові checkpoint-записи
+    U->>UI: відкриває сторінку дошки та History-панель draft-а
+    UI->>S: запитує список History entries draft-а
+    alt запитувач — власник draft-а
+        S->>D: читає лише записи з походженням checkpoint, новіші зверху
+        Note over S,D: фільтр легасі — на рівні запиту до сховища (AC-08), легасі-записи не видаляються
+        D-->>S: сторінка checkpoint-записів
+        S-->>UI: список checkpoint-записів
+        UI-->>U: панель показує лише checkpoint-и, кожен із превʼю та контролем Restore
+    else запитувач не є власником draft-а (AC-13)
+        S--xUI: відмова в доступі — draft, його збереження та History доступні лише власнику
+        UI-->>U: повідомлення про відсутність доступу
+    end
+    Note over U,UI: Postcondition: не-власник не бачить ані дошки, ані History, легасі-записи приховані, не знищені
+```
+
+### Зміна autosave interval на сторінці Settings (US-06)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over U,UI: Precondition: Creator увійшов в акаунт і відкрив Settings із лівого меню Home
+    U->>UI: обирає інший пресет інтервалу (30 с, 1, 2, 5 або 10 хв)
+    UI->>S: зберігає autosave interval акаунта
+    S->>S: валідує інтервал за білим списком пресетів
+    alt запитувач — власник акаунта і запис вдався
+        S->>D: записує налаштування акаунта
+        Note over S,D: persists user settings (один рядок на користувача, autosave interval усередині)
+        D-->>S: ok
+        S-->>UI: збережено
+        UI-->>U: підтвердження зміни — новий інтервал діятиме з наступного старту відліку (AC-09)
+        Note over UI: відлік, що вже йде на відкритій дошці, дораховує за старою каденцією (AC-09)
+    else спроба читати чи змінювати налаштування чужого акаунта (AC-11c)
+        S--xUI: відмова — налаштування читає й пише лише власник акаунта
+    else запис не вдався, наприклад проблема зі звʼязком (AC-11)
+        S--xUI: зміну не збережено
+        UI-->>U: повідомлення про незбережену зміну, далі показується попередній збережений інтервал
+    end
+    Note over U,UI: Postcondition: збережений інтервал змінюється лише після підтвердженого запису власником
+```
+
+### Читання autosave interval при відкритті дошки (US-06)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over U,UI: Precondition: Creator увійшов в акаунт — на будь-якому браузері чи пристрої
+    U->>UI: відкриває свій storyboard draft на сторінці дошки
+    UI->>S: читає налаштування акаунта
+    S->>S: перевіряє, що запитувач — власник акаунта
+    alt налаштування прочитано
+        S->>D: читає збережений autosave interval
+        D-->>S: збережене значення або порожньо (користувач ще нічого не налаштовував)
+        S-->>UI: інтервал акаунта (або дефолт 1 хв, якщо запису ще немає)
+        UI->>UI: планувальник checkpoint-ів стартує з інтервалом акаунта
+        Note over UI: інтервал іде за акаунтом, не за браузером — інший пристрій бачить оновлене значення (AC-10)
+    else налаштування не вдалося прочитати (AC-11b)
+        S--xUI: збій читання
+        UI->>UI: планувальник стартує з дефолтним інтервалом 1 хв на цю сесію
+        UI-->>U: редагування не блокується
+    end
+    Note over U,UI: Postcondition: countdown завжди має чинний інтервал — збережений, дефолт за відсутності запису або сесійний дефолт при збої
 ```
 
 **Critical flow 2: безпечний Restore із pre-restore checkpoint-ом (AC-12)**
@@ -240,8 +437,14 @@ sequenceDiagram
     Web->>Web: застосовує снапшот обраного запису на канвас
     Web->>Api: lightweight-збереження відновленого стану
     Api->>DB: оновлює поточний стан дошки
-    Web-->>Creator: дошка у відновленому стані; pre-restore запис зверху History
+    Web-->>Creator: дошка у відновленому стані, pre-restore запис зверху History
 ```
+
+**Sequences-stage notes (2026-06-05):**
+- Нові потоки (7) використовують генеричний словник стадії sequences; відповідність §5: `<ui>` = web-editor, `<service>` = api, `<data-store>` = MySQL. Нових учасників, не оголошених у §5, не зʼявилося; `<message-bus>` не потрібен — усі потоки синхронні (скриншот можливий лише в живому DOM, ADR-0002).
+- Persist-підказки для `data-model`: (i) lightweight autosave — оновлення поточного стану draft-а без History; (ii) checkpoint/pre-restore — вставка History entry з origin=checkpoint + прюнінг понад кап → читання History фільтрується за draft + походження + час (новіші зверху, AC-08); (iii) user settings — один рядок на користувача, autosave interval усередині (ADR-0004).
+- Edits-log: у двох потоках, намальованих на стадії design («Critical flow 1/2»), виправлено лише синтаксис — `;` у тексті повідомлень замінено на коми (`;` ламає парсинг Mermaid); семантика не змінювалася.
+- Рендерера Mermaid у репозиторії немає — валідація структурним лінтом; рекомендовано `npx -y @mermaid-js/mermaid-cli` для повного парс-чеку.
 
 ## 7. Deployment view
 
