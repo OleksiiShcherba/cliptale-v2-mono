@@ -28,6 +28,8 @@
  *  - PUT /scene-templates/{id}                   — update scene template
  *  - DELETE /scene-templates/{id}                — soft-delete scene template
  *  - POST /scene-templates/{id}/add-to-storyboard — add template as storyboard block
+ *  - GET /users/me/settings                      — effective per-account settings (lazy row)
+ *  - PUT /users/me/settings                      — upsert settings (interval preset whitelist)
  */
 
 export const openApiSpec = {
@@ -2085,6 +2087,61 @@ export const openApiSpec = {
         security: [{ bearerAuth: [] }],
       },
     },
+    '/users/me/settings': {
+      get: {
+        summary: 'Read my account settings (effective values, lazy row)',
+        description:
+          'Returns the effective per-account settings. Always 200 for an authenticated user: ' +
+          'when no user_settings row exists yet (it is created lazily on first write), the ' +
+          'response carries the app-layer defaults (autosaveIntervalSeconds: 60) with ' +
+          'updatedAt: null. The setting follows the account, not the browser. Owner-scoping ' +
+          'is structural: the path addresses only the authenticated account.',
+        operationId: 'getMySettings',
+        tags: ['settings'],
+        responses: {
+          200: {
+            description: 'Effective settings (stored values, or defaults when no row exists yet).',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/UserSettings' },
+              },
+            },
+          },
+          401: { description: 'Missing or invalid token.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+      put: {
+        summary: 'Update my account settings (lazy upsert, preset whitelist)',
+        description:
+          'Upserts the caller\'s single user_settings row (created lazily on first write). ' +
+          'autosaveIntervalSeconds is validated against the preset whitelist 30/60/120/300/600 s ' +
+          'by Zod — any other value is a 400. Naturally idempotent (single-row upsert).',
+        operationId: 'updateMySettings',
+        tags: ['settings'],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/UserSettingsUpdate' },
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: 'Stored — the persisted settings.',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/UserSettings' },
+              },
+            },
+          },
+          400: { description: 'Interval not in the preset whitelist (Zod).' },
+          401: { description: 'Missing or invalid token.' },
+        },
+        security: [{ bearerAuth: [] }],
+      },
+    },
   },
   components: {
     securitySchemes: {
@@ -2095,6 +2152,37 @@ export const openApiSpec = {
       },
     },
     schemas: {
+      AutosaveIntervalSeconds: {
+        type: 'integer',
+        enum: [30, 60, 120, 300, 600],
+        default: 60,
+        description:
+          'user_settings.settings_json.autosaveIntervalSeconds — preset whitelist enforced ' +
+          'by Zod in the app layer; presets 30 s / 1 / 2 / 5 / 10 min; default 1 min.',
+      },
+      UserSettings: {
+        type: 'object',
+        required: ['autosaveIntervalSeconds', 'updatedAt'],
+        additionalProperties: false,
+        properties: {
+          autosaveIntervalSeconds: { $ref: '#/components/schemas/AutosaveIntervalSeconds' },
+          updatedAt: {
+            type: ['string', 'null'],
+            format: 'date-time',
+            description:
+              'user_settings.updated_at (DATETIME(3)); null = no row yet — the values shown ' +
+              'are app-layer defaults.',
+          },
+        },
+      },
+      UserSettingsUpdate: {
+        type: 'object',
+        required: ['autosaveIntervalSeconds'],
+        additionalProperties: false,
+        properties: {
+          autosaveIntervalSeconds: { $ref: '#/components/schemas/AutosaveIntervalSeconds' },
+        },
+      },
       ProjectSummary: {
         type: 'object',
         required: ['projectId', 'title', 'updatedAt', 'thumbnailUrl'],
