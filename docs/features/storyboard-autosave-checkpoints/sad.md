@@ -77,30 +77,30 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      Trust boundary — the line past which you don't trust data without checking it.
      Never N/A — greenfield still draws the planned actors + external systems. -->
 
-<Business context in 2–3 sentences. What the system does for whom.>
+Creator редагує свій storyboard draft на сторінці дошки ClipTale. Система безперервно зберігає поточний стан (lightweight autosave), періодично — за autosave interval або вручну — створює візуальні точки відновлення (checkpoint save → History entry зі layout screenshot), і дає Creator-у керувати каденцією через сторінку Settings. Уся фіча живе всередині існуючої системи ClipTale (web-editor SPA + api + MySQL); довірча межа — автентифікований акаунт: draft, його History та налаштування доступні лише власнику.
 
-<!-- brownfield: <one-line scan summary> (or «N/A — greenfield repo» if no source existed) -->
+<!-- brownfield: existing save path useStoryboardAutosave (5s debounce) → PUT /storyboards/:draftId; history POST /storyboards/:draftId/history with 50-cap prune; screenshot via html-to-image in-browser; no per-user settings surface yet (HomeSidebar has 3 nav items); scan 2026-06-05 -->
 
 **External systems (in / out):**
 
 | Actor or system | Type | Interaction |
 |---|---|---|
-| <author role> | Person | <what they do> |
-| <external service> | System (internal/external) | <interaction> |
-| <identity provider> | System (external) | <provides auth tokens> |
+| Creator | Person | Редагує дошку; отримує autosave + checkpoint-и; керує autosave interval у Settings; виконує Restore |
+| Non-owner (signed-in user, не власник draft) | Person (external to trust zone) | Будь-який доступ до чужого draft, History чи налаштувань — відмова |
+| Зовнішні сервіси | — | **Немає (свідомо):** зняття скриншота виконується в браузері (`html-to-image`), збереження — в існуючу MySQL; жодних third-party інтеграцій у v1 |
 
-**C4 Context (L1):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. -->
+**C4 Context (L1):**
 
 ```mermaid
 C4Context
-    title <feature> — System Context
+    title storyboard-autosave-checkpoints — System Context
 
-    Person(actor, "<Actor role>", "<intent>")
-    System(app, "<Our system>", "<one-sentence description>")
-    System_Ext(ext, "<External system>", "<one-sentence description>")
+    Person(creator, "Creator", "Власник storyboard draft: редагує дошку, відновлює стани, налаштовує autosave interval")
+    Person_Ext(nonowner, "Non-owner user", "Автентифікований користувач без прав на цей draft")
+    System(cliptale, "ClipTale", "AI-відеоредактор: дошка сторіборда з двома рівнями збереження, History-панель, Settings")
 
-    Rel(actor, app, "<interaction>", "<protocol>")
-    Rel(app, ext, "<interaction>", "<protocol>")
+    Rel(creator, cliptale, "Редагує дошку; autosave + checkpoints; Restore; змінює інтервал", "HTTPS")
+    Rel(nonowner, cliptale, "Спроба доступу до чужого draft/History/settings — відмова", "HTTPS")
 ```
 
 ## 4. Solution strategy
