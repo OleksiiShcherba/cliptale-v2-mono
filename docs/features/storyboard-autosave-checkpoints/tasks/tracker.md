@@ -12,7 +12,7 @@
 | T5 | Checkpoint push: POST history + origin/previewKind | ports | Oleksii (solo dev) | M | T2 | done |
 | T6 | History list: фільтр origin=checkpoint | ports | Oleksii (solo dev) | S | T2 | done |
 | T7 | captureCanvasThumbnail: 5-с таймаут + фолбек | ui | Oleksii (solo dev) | S | — | done |
-| T8 | Settings-сторінка + роут + пункт меню | ui | Oleksii (solo dev) | M | — | todo |
+| T8 | Settings-сторінка + роут + пункт меню | ui | Oleksii (solo dev) | M | — | done |
 | T9 | Checkpoint push client (rework useStoryboardHistoryPush) | ui | Oleksii (solo dev) | M | T7 | done |
 | T10 | useCheckpointScheduler | ui | Oleksii (solo dev) | L | T8, T9 | todo |
 | T11 | CheckpointCountdownBar + CaptureOverlay | ui | Oleksii (solo dev) | M | T10 | todo |
