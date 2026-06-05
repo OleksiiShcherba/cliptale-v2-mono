@@ -20,6 +20,6 @@
 | T13 | Autosave: індикатор «не збережено» + авторетрай | ui | Oleksii (solo dev) | M | — | done |
 | T14 | Wiring StoryboardPage: two-tier save | wiring | Oleksii (solo dev) | M | T10, T11, T12, T13 | done |
 | T15 | E2E: checkpoint-потоки + slow-capture | tests | Oleksii (solo dev) | L | T4, T5, T6, T14 | todo |
-| T16 | KPI-1 базлайн history-записів | docs | Oleksii (solo dev) | S | — | todo |
+| T16 | KPI-1 базлайн history-записів | docs | Oleksii (solo dev) | S | — | done |
 
 **Total:** 16 tasks, ~10–11 person-days (S≈0.25–0.5 d, M≈0.5–1 d, L≈1 d).
