@@ -21,21 +21,22 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      ¶4 is the override slot — critic `Override` resolutions emit «Decision override: <headline>
      — rationale: <reason>» bullets here so downstream skills see the deliberate choice. -->
 
-**Intent.** <One paragraph from spec §2 Goals — what we're building and for whom.>
+**Intent.** Розділити збереження сторіборда (сторінка «Video Road Map») на два рівні: (i) **lightweight autosave** — як і сьогодні, зберігає стан дошки за кілька секунд після кожної зміни, але більше не створює History entries і не знімає скриншоти; (ii) **checkpoint save** — раз на налаштований Creator-ом autosave interval (пресети 30 с / 1 / 2 / 5 / 10 хв, дефолт 1 хв) або вручну кнопкою Save знімає layout screenshot і створює History entry. Каденція видима через checkpoint countdown bar у верхньому правому куті; інтервал редагується на новій сторінці Settings — першій персональній settings-поверхні продукту (ліве меню Home). Мета — знизити навантаження з «запис історії + скриншот на кожну зміну» до «щонайбільше один на інтервал», не зменшивши свіжість збережених даних.
 
 **Top-3 quality goals (1-liners; full scenarios in §10):**
 
-1. <e.g. "Availability under partial failure of a downstream module">
-2. <e.g. "Read performance for the dashboard under data-scale growth">
-3. <e.g. "Recoverability with <30 min RTO">
+1. **Ефективність записів** — ≤ 1 History entry на autosave interval на draft (замість одного на кожну зміну сьогодні), без втрати свіжості збереженого стану.
+2. **Надійність точок відновлення** — checkpoint ніколи не зникає мовчки: збій/таймаут зняття скриншота (> 5 с) понижує прев'ю до SVG-мінімапи, але запис створюється; частка фолбеків < 2 %.
+3. **Відгук інтерфейсу** — full-screen loader ≤ 1 с p95; підтвердження lightweight autosave ≤ 500 мс p95; завантаження History-панелі ≤ 500 мс p95; читання налаштувань при відкритті дошки ≤ 300 мс p95.
 
 **Stakeholders.**
 
 | Role | Interest | Sign-off owner? |
 |---|---|---|
-| <author role from glossary> | <feature usage> | No |
-| <consumer role from glossary> | <read usage> | No |
-| Tech Lead | SAD approval | Yes |
+| Creator | Редагує дошку; покладається на autosave, History та Settings | No |
+| Steven Hayes (PM) | Продуктові рішення; консультується по §10 quality goals та §11 severities | No |
+| Tech Lead | Затвердження SAD | Yes |
+| Security Lead | Security review — обов'язковий за spec §6.1 (перший per-user settings surface) | Yes |
 
 <!-- Decision overrides (¶4) — populated by the critic resolution loop, empty otherwise. -->
 
