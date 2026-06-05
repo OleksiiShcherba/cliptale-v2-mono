@@ -252,18 +252,16 @@ sequenceDiagram
      🎯 N/A allowed for XS/S that reuses an existing deployment unit with no change.
      Deployment-diagram scaffold → templates/deployment.md. -->
 
-<Topology in 2–3 sentences. Where it runs, replicas, scaling thresholds.>
+Нових деплой-юнітів немає: фіча живе в існуючих контейнерах web-editor і api та існуючій MySQL (docker compose / prod-топологія без змін). Міграції `050`/`051` котяться існуючим in-process runner-ом при старті api (`APP_MIGRATE_ON_BOOT`) — швидкі ALTER/CREATE без даунтайму. Навантаження падає, а не росте: записи історії — з per-change до per-interval; `user_settings` — один рядок на користувача.
 
 **Monitoring:**
-- <Metrics — e.g. `<metric_name>`>
-- <Alerts — e.g. «worker lag > 10 min → page on-call»>
-- <Tracing — e.g. spans on the request boundary>
+- History row-creation rate до/після релізу (KPI-1; базлайн — тижневий підрахунок до release-гілки) — SQL-підрахунок по `storyboard_history`.
+- Частка minimap-фолбеків — серверний запит по checkpoint-записах без скриншота; ціль NFR < 2 %.
+- Латентності lightweight save / history list / settings read — з API request logs (браузерної телеметрії в проді немає — свідомо; loader-таймінги вимірюються e2e в CI).
 
 **Scaling thresholds:**
-- <e.g. comfortable in one table up to N rows/year>
-- <e.g. partition by quarter above N rows/year>
-
-<!-- For XS/S with no deployment change: <!-- N/A: reuses existing deployment unit, no infra change --> -->
+- Кап 50 записів обмежує історію ≤ ~1.5 МБ на draft (ADR-0005) — комфортно в одній таблиці без партиціювання.
+- Перегляд потрібен лише якщо кап виросте на порядок або прев'ю стануть full-size — тоді переглядається ADR-0005 (S3-винесення).
 
 ## 8. Crosscutting concepts
 
@@ -273,15 +271,20 @@ sequenceDiagram
      📋 Write: a table — concept / convention / where defined. One row per concept.
      📌 e.g. «sortable time-based IDs generated in the app layer» as a default from the convention file. -->
 
+Повне успадкування дефолтів репозиторію, нуль override-ів. Фіча-специфічні лише: білий список пресетів інтервалу в Zod (ADR-0004) і правило «settings читає/пише лише власник акаунта» (spec AC-11c).
+
 | Concept | Convention | Where defined |
 |---|---|---|
-| Logging | <e.g. structured, fields `module=<name>`> | <convention file §X or here> |
-| Authentication | <e.g. token-based via middleware> | <convention file §X> |
-| Error handling | <e.g. domain sentinel → ports error mapping → JSON> | <convention file §X> |
-| ID strategy | <e.g. sortable time-based ID in the app layer> | <convention file §X> |
-| Internationalisation | <e.g. N/A, single language> | — |
-| Observability | <e.g. tracing on the request boundary> | — |
-| Events | <module-specific patterns, if any> | <here> |
+| Logging | console + структуровані API request logs (джерело NFR-вимірів) | конвенції api |
+| Authentication | існуючий `authMiddleware` (токен) на всіх нових маршрутах | `apps/api/src/middleware` |
+| Authorization | `aclMiddleware('editor')` + ownership-перевірка в service-шарі (`req.user.userId`); settings — лише власник акаунта | карта архітектури §Conventions; spec AC-11c/AC-13 |
+| Error handling | типізовані error-класи → центральний хендлер → JSON; фронт: autosave-ретрай + індикатор «не збережено» (AC-01b), settings — повідомлення без блокування редагування (AC-11/AC-11b) | `apps/api/src/lib/errors.ts` |
+| Validation | Zod на кожному body; інтервал — білий список пресетів 30/60/120/300/600 с | конвенція api + ADR-0004 |
+| ID strategy | UUID v4 `CHAR(36)` для нових сутностей; `storyboard_history` лишається на існуючому AUTO_INCREMENT | карта архітектури |
+| Internationalisation | N/A — продукт одномовний | — |
+| Observability | API request logs; loader-таймінги — e2e в CI (без браузерної телеметрії в проді) | spec §6 |
+| Events / async | N/A — фіча не торкається BullMQ/Redis | — |
+| Server-state кеш (фронт) | TanStack Query: ключі history list і settings; інвалідація після checkpoint-а / запису налаштувань | конвенція web-editor |
 
 ## 9. Architecture decisions
 
@@ -292,10 +295,13 @@ sequenceDiagram
 
 | # | Title | Status | Section |
 |---|---|---|---|
-| <NNNN> | <imperative — e.g. "Use a sliding-window counter for rate limiting"> | Accepted | §<N> |
-| <NNNN> | <imperative — e.g. "Co-locate the worker in the API process"> | Accepted | §<N> |
+| 0001 | Deliver the feature across web-frontend and backend-service surfaces | Accepted | §4 |
+| 0002 | Run the checkpoint scheduler in the browser client | Accepted | §4 |
+| 0003 | Mark checkpoint history rows with an origin column | Accepted | §4 |
+| 0004 | Store per-user preferences in a user_settings JSON table | Accepted | §4 |
+| 0005 | Keep layout screenshots as inline data-URLs in the snapshot JSON | Accepted | §4 |
 
-ADR files live under `docs/features/<slug>/adr/NNNN-<title>.md`.
+ADR files live under `docs/features/storyboard-autosave-checkpoints/adr/NNNN-<title>.md`.
 
 ## 10. Quality requirements
 
