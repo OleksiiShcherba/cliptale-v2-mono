@@ -182,7 +182,16 @@ export function useHandleRestore({
         }
       }
     },
-    [setNodes, setEdges, pushSnapshot, removeNode, saveNow],
+    [
+      setNodes,
+      setEdges,
+      pushSnapshot,
+      removeNode,
+      saveNow,
+      pushPreRestoreCheckpoint,
+      hasChangesSinceLastCheckpoint,
+      getCurrentCanvas,
+    ],
   );
 
   return { handleRestore };

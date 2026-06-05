@@ -17,8 +17,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock the api module before importing the store so persistHistorySnapshot is never called.
+const { mockPersistHistorySnapshot } = vi.hoisted(() => ({
+  mockPersistHistorySnapshot: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../api', () => ({
-  persistHistorySnapshot: vi.fn().mockResolvedValue(undefined),
+  persistHistorySnapshot: mockPersistHistorySnapshot,
 }));
 
 // Mock the storyboard-store so applySnapshot does not throw when there are no nodes.
@@ -41,7 +45,6 @@ import {
 } from './storyboard-history-store';
 import type { CanvasSnapshot } from './storyboard-history-store';
 import type { StoryboardHistorySnapshot, StoryboardHistoryPayload } from '../api';
-import { persistHistorySnapshot } from '../api';
 
 // ── Fixture ────────────────────────────────────────────────────────────────────
 
@@ -142,11 +145,11 @@ describe('push', () => {
     expect(getHistoryCursor()).toBe(1);
   });
 
-  it('schedules server persistence after a push', async () => {
+  it('never persists to the server (AC-02: in-memory undo only)', async () => {
     push(makeSnapshot('s1'));
-    // persistHistorySnapshot is debounced at 1s; advance past the debounce.
-    await vi.advanceTimersByTimeAsync(1001);
-    expect(vi.mocked(persistHistorySnapshot)).toHaveBeenCalledTimes(1);
+    // No debounce timer exists any more — nothing fires no matter how long.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mockPersistHistorySnapshot).not.toHaveBeenCalled();
   });
 });
 

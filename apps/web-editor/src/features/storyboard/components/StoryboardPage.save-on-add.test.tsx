@@ -184,7 +184,7 @@ vi.mock('@/features/storyboard/utils/captureCanvasThumbnail', () => ({
 // ---------------------------------------------------------------------------
 
 import { StoryboardPage } from './StoryboardPage';
-import { saveStoryboard, persistHistorySnapshot, addTemplateToStoryboard } from '@/features/storyboard/api';
+import { saveStoryboard, addTemplateToStoryboard } from '@/features/storyboard/api';
 import type { StoryboardBlock } from '@/features/storyboard/types';
 
 function resetCanvasNodes(nodes: Node[] = DEFAULT_CANVAS_NODES): void {
@@ -257,7 +257,7 @@ describe('StoryboardPage / save-on-add (ST-FIX-4)', () => {
     expect(saveStoryboard).toHaveBeenCalledTimes(1);
   });
 
-  it('persists a history snapshot containing the new block when the "+" button is clicked', async () => {
+  it('does NOT create a history entry when the "+" button is clicked (AC-02, T14)', async () => {
     renderPage();
 
     const addBtn = screen.getByTestId('add-block-button');
@@ -269,10 +269,10 @@ describe('StoryboardPage / save-on-add (ST-FIX-4)', () => {
       await Promise.resolve();
     });
 
-    expect(persistHistorySnapshot).toHaveBeenCalledTimes(1);
-    const [draftId, payload] = vi.mocked(persistHistorySnapshot).mock.calls[0]!;
-    expect(draftId).toBe('test-draft-abc');
-    expect(payload.blocks.some((block) => block.blockType === 'scene')).toBe(true);
+    // Two-tier saving: the per-change path is lightweight-only; History
+    // entries are pushed exclusively by the checkpoint scheduler/manual Save.
+    expect(mockPersistHistorySnapshot).not.toHaveBeenCalled();
+    expect(saveStoryboard).toHaveBeenCalled();
   });
 
   it('opens the music modal and saves the created music block from the page Add Music action', async () => {
@@ -321,13 +321,8 @@ describe('StoryboardPage / save-on-add (ST-FIX-4)', () => {
       endSceneBlockId: 'scene-1',
     }));
 
-    const [, historyPayload] = vi.mocked(persistHistorySnapshot).mock.calls[0]!;
-    expect(historyPayload.musicBlocks).toHaveLength(1);
-    expect(historyPayload.musicBlocks?.[0]).toEqual(expect.objectContaining({
-      sourceMode: 'generate_on_step3',
-      startSceneBlockId: 'scene-1',
-      endSceneBlockId: 'scene-1',
-    }));
+    // AC-02 (T14): adding the music block creates NO history entry.
+    expect(mockPersistHistorySnapshot).not.toHaveBeenCalled();
   });
 
   it('autosave-indicator shows "Saving…" then "Saved just now" after add', async () => {

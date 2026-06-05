@@ -23,15 +23,11 @@ import type { Node, Edge } from '@xyflow/react';
 import type {
   HistoryPreviewKind,
   StoryboardHistoryPayload,
-  StoryboardHistorySnapshot,
 } from '@/features/storyboard/api';
 import { pushCheckpointSnapshot } from '@/features/storyboard/api';
 import { push as pushHistory } from '@/features/storyboard/store/storyboard-history-store';
 import type { StoryboardState } from '@/features/storyboard/types';
-import {
-  captureCanvasThumbnail,
-  captureCanvasThumbnailWithFallback,
-} from '@/features/storyboard/utils/captureCanvasThumbnail';
+import { captureCanvasThumbnailWithFallback } from '@/features/storyboard/utils/captureCanvasThumbnail';
 import { getMusicBlocksFromNodes } from './useStoryboardMusic';
 
 // ── Snapshot building (shared by the legacy and checkpoint paths) ─────────────
@@ -114,13 +110,13 @@ function buildSnapshot(
 
 export type StoryboardHistoryPushApi = {
   /**
-   * LEGACY per-change push (in-memory undo stack + debounced persistence).
-   * Removed when T14 wires the two-tier saving into StoryboardPage.
+   * Per-change push onto the IN-MEMORY undo stack only (AC-02: the lightweight
+   * path never creates a History entry — no capture, no POST).
    */
   pushSnapshot: (
     nodes: Node[],
     edges: Edge[],
-    options?: SnapshotOptions & { persistImmediately?: boolean },
+    options?: SnapshotOptions,
   ) => Promise<void>;
   /**
    * Checkpoint push: capture (5 s typed fallback) → ONE POST with
@@ -215,51 +211,21 @@ export function useStoryboardHistoryPush(draftId: string): StoryboardHistoryPush
     }
   }, [sendCheckpoint]);
 
-  // ── Legacy per-change push (until T14) ──────────────────────────────────────
+  // ── Per-change undo push (in-memory only, AC-02) ────────────────────────────
 
   const pushSnapshot = useCallback(
     async (
       currentNodes: Node[],
       currentEdges: Edge[],
-      options: SnapshotOptions & { persistImmediately?: boolean } = {},
+      options: SnapshotOptions = {},
     ): Promise<void> => {
       const snapshot = buildSnapshot(draftId, currentNodes, currentEdges, options);
-      const createdAt = new Date().toISOString();
-
-      queryClient.setQueryData<StoryboardHistorySnapshot[]>(
-        ['storyboard-history', draftId],
-        (entries = []) => [
-          ...entries,
-          {
-            snapshot,
-            createdAt,
-          },
-        ],
-      );
-
-      // Capture thumbnail after the optimistic row exists. The history panel can
-      // show the minimap immediately, then upgrade the same row when capture ends.
-      const thumbnail = await captureCanvasThumbnail();
-      const snapshotWithThumbnail = {
-        ...snapshot,
-        ...(thumbnail !== null && { thumbnail }),
-      };
-
-      if (thumbnail !== null) {
-        queryClient.setQueryData<StoryboardHistorySnapshot[]>(
-          ['storyboard-history', draftId],
-          (entries = []) =>
-            entries.map((entry) =>
-              entry.createdAt === createdAt
-                ? { ...entry, snapshot: snapshotWithThumbnail }
-                : entry,
-            ),
-        );
-      }
-
-      await pushHistory(snapshotWithThumbnail, { persistImmediately: options.persistImmediately });
+      // The old minimap-then-upgrade thumbnail capture and the optimistic
+      // history-cache row are gone with the two-phase pattern: the History
+      // panel lists server checkpoints only, the undo stack needs no preview.
+      await pushHistory(snapshot);
     },
-    [draftId, queryClient],
+    [draftId],
   );
 
   return { pushSnapshot, pushCheckpoint, retryCheckpoint, inFlight, checkpointError };
