@@ -49,23 +49,24 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      Never N/A — every feature inherits at least Conventions + Technical. -->
 
 **Technical.**
-- <Language + version>
-- <Framework(s) + version>
-- <Datastore(s) + version>
-- <Architecture convention — e.g. the layering style from the project convention file>
+- TypeScript 5.4+ (strict, ESM), Node ≥ 20; монорепо Turborepo + npm workspaces.
+- Frontend: React 18 + Vite 5, React-Router v7, TanStack Query 5; стан — кастомний external store + `useSyncExternalStore` (без Zustand/Redux); канвас сторіборда — `@xyflow/react`.
+- Backend: Express 4 + Zod-валідація; типізовані error-класи (`apps/api/src/lib/errors.ts`) з центральним хендлером.
+- БД: MySQL 8 / InnoDB через `mysql2` raw SQL (без ORM); міграції — нумеровані `NNN_*.sql` (наступний номер 050), in-process runner (`APP_MIGRATE_ON_BOOT`).
+- Зняття скриншота: бібліотека `html-to-image` вже в стеку (`apps/web-editor/src/features/storyboard/utils/captureCanvasThumbnail.ts` — JPEG 320×180, q0.6); виконується в браузері, на main thread.
+- Існуючий save-шлях: `useStoryboardAutosave` (дебаунс 5 с) → `PUT /storyboards/:draftId`; історія: `POST /storyboards/:draftId/history` → `insertHistoryAndPrune`, кап 50 записів (`HISTORY_CAP`, `storyboard.service.ts:18`).
 
 **Organisational.**
-- <Effort budget — e.g. 3 person-weeks>
-- <Deadline — e.g. 2026-Q3 hard>
-- <Team composition>
+- Розмір фічі M (1–2 спринти); бюджет/дедлайн у специфікації не зафіксовані → `TBD by PM` (рядок у §11).
+- Команда: соло-розробка з AI-агентами (SDD-пайплайн).
 
 **Conventions.**
-- <Link to the project's convention file>
-- <Naming, ID strategy, error-handling pattern>
+- `docs/architecture-rules.md` + `docs/architecture-map.md` — канонічні: api-домен = `routes → controllers → services → repositories` (без DI, singletons); web-фіча = `features/<name>/{components,hooks,api.ts,types.ts}`; UUID v4 `CHAR(36)`; `config.ts` — єдине місце читання env (`APP_*`); стилі — co-located `*.styles.ts` (inline `CSSProperties`, без Tailwind); тести Vitest co-located, інтеграційні — на живому MySQL (`singleFork`); E2E — Playwright.
+- Нових зовнішніх залежностей фіча не додає.
 
 **Regulatory / external.**
-- <e.g. data-retention / deletion behaviour per ADR-NNNN>
-- <e.g. applicable compliance controls, or N/A with a reason>
+- Класифікація даних: internal — board snapshot-и та layout screenshot-и містять контент Creator-а (spec §6.1); нова преференція (autosave interval) — несенситивна.
+- Security review обов'язковий (spec §6.1): перший per-user settings surface; ownership-правила drafts/history переносяться на нові поверхні (settings читає/пише лише власник акаунта).
 
 ## 3. Context and scope
 
