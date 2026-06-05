@@ -15,7 +15,7 @@
 | T8 | Settings-сторінка + роут + пункт меню | ui | Oleksii (solo dev) | M | — | done |
 | T9 | Checkpoint push client (rework useStoryboardHistoryPush) | ui | Oleksii (solo dev) | M | T7 | done |
 | T10 | useCheckpointScheduler | ui | Oleksii (solo dev) | L | T8, T9 | done |
-| T11 | CheckpointCountdownBar + CaptureOverlay | ui | Oleksii (solo dev) | M | T10 | todo |
+| T11 | CheckpointCountdownBar + CaptureOverlay | ui | Oleksii (solo dev) | M | T10 | done |
 | T12 | History-панель: previewKind + pre-restore checkpoint | ui | Oleksii (solo dev) | M | T9 | todo |
 | T13 | Autosave: індикатор «не збережено» + авторетрай | ui | Oleksii (solo dev) | M | — | done |
 | T14 | Wiring StoryboardPage: two-tier save | wiring | Oleksii (solo dev) | M | T10, T11, T12, T13 | todo |
