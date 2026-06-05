@@ -99,17 +99,50 @@ export type StoryboardHistorySnapshot = {
   createdAt: string;
 };
 
+/** Preview kind stored with each checkpoint entry (CheckpointPush contract). */
+export type HistoryPreviewKind = 'screenshot' | 'minimap';
+
 /**
  * Persists a history snapshot to the server (fire-and-forget).
  *
  * Maps to POST /storyboards/:draftId/history.
  * Failures are logged but not surfaced to the user.
+ *
+ * The CheckpointPush contract requires previewKind — derived here from the
+ * presence of an inline thumbnail, so this legacy path stays contract-valid
+ * until T14 removes per-change pushes.
  */
 export async function persistHistorySnapshot(
   draftId: string,
   payload: StoryboardHistoryPayload,
 ): Promise<void> {
-  const res = await apiClient.post(`/storyboards/${draftId}/history`, { snapshot: payload });
+  const previewKind: HistoryPreviewKind = payload.thumbnail ? 'screenshot' : 'minimap';
+  const res = await apiClient.post(`/storyboards/${draftId}/history`, {
+    snapshot: payload,
+    previewKind,
+  });
+  if (!res.ok) {
+    throw new Error(`POST /storyboards/${draftId}/history failed: ${res.status}`);
+  }
+}
+
+/**
+ * Pushes a checkpoint entry — snapshot (+ inline screenshot data-URL when
+ * previewKind=screenshot) and previewKind in ONE request (ADR-0002 atomicity:
+ * a checkpoint is never silently dropped, AC-04).
+ *
+ * Maps to POST /storyboards/:draftId/history (CheckpointPush).
+ * Throws on a non-ok response — the caller owns the visible error state.
+ */
+export async function pushCheckpointSnapshot(
+  draftId: string,
+  payload: StoryboardHistoryPayload,
+  previewKind: HistoryPreviewKind,
+): Promise<void> {
+  const res = await apiClient.post(`/storyboards/${draftId}/history`, {
+    snapshot: payload,
+    previewKind,
+  });
   if (!res.ok) {
     throw new Error(`POST /storyboards/${draftId}/history failed: ${res.status}`);
   }
