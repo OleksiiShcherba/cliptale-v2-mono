@@ -4,7 +4,7 @@ owner: "Architect / Tech Lead"
 reviewers: ["Tech Lead", "Security Lead"]
 updated_at: "2026-06-05"
 feature_size: "M"
-target_surfaces: []  # filled in §4 — subset of: backend-service | web-frontend | mobile-app | desktop-app | cli | worker | library-sdk. Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
+target_surfaces: [web-frontend, backend-service]  # §4 decision (ADR-0001). Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
 ---
 
 # Software Architecture Document — storyboard-autosave-checkpoints
@@ -113,9 +113,11 @@ C4Context
 
 **Top strategic choices (the seeds for ADRs):**
 
-1. **<e.g. Module isolation through events>** — <2–3 sentences citing quality goals + constraints>.
-2. **<e.g. Single-store persistence>** — <2–3 sentences>.
-3. **<e.g. Server-rendered read side>** — <2–3 sentences>.
+1. **Цільові поверхні: `web-frontend` + `backend-service` (ADR-0001).** Фіча наскрізна: браузерна частина (розділені хуки збереження, countdown bar, full-screen loader, фільтрована History-панель, Settings-сторінка) + бекенд (settings-ендпоінти, маркер/фільтр історії, міграції). Воркери не задіяні — скриншот можливий лише в живому DOM. *UI-архітектура для web-frontend — без окремого рішення: репозиторій уже зафіксував SPA (React 18 + Vite, §2); альтернатив, не виключених констрейнтами, немає → інлайн-нотатка, без ADR. Нові екрани компонуються з наявних shared-компонентів і `*.styles.ts`-підходу (карта архітектури, §Frontend).*
+2. **Клієнтський планувальник checkpoint-ів (ADR-0002).** Браузер володіє всім розкладом: countdown-таймер, деферал під час drag/typing (кап — один додатковий інтервал), обробка `visibilitychange` (прострочений checkpoint ≤ 10 с після повернення, AC-03c), pre-restore checkpoint. Бекенд — тонкий CRUD із валідацією. Причина: layout screenshot знімається лише з живого DOM (`html-to-image`); сервер фізично не має джерела зображення. Скриншот + снапшот ідуть одним запитом — атомарність живить quality goal №2. **Мульти-таб / мульти-девайс: last-writer-wins, як сьогодні** (закриває spec §8 OQ-1; рідкісний режим двох активних вкладок може дати до 2 checkpoint-ів на інтервал — ризик-рядок у §11).
+3. **Явний маркер походження History entry (ADR-0003).** Колонка `origin` у `storyboard_history` (легасі-дефолт для існуючих рядків; нові checkpoint-и — `'checkpoint'`); History-панель і API фільтрують легасі на рівні SQL (AC-08), частка minimap-фолбеків рахується серверним запитом (NFR). Деталі колонки/індексу — на етапі `data-model`.
+4. **Узагальнене сховище налаштувань користувача (ADR-0004).** Нова таблиця `user_settings` (user_id PK + JSON + updated_at) за прецедентом `user_project_ui_state`, але per-account. Autosave interval — перше поле; майбутні преференції додаються без міграцій (spec Goal 3 «scaffolding first»). Валідація білого списку пресетів (30/60/120/300/600 с) — Zod в app-шарі, як скрізь у репозиторії.
+5. **Layout screenshot — інлайн data-URL у snapshot JSON (ADR-0005).** Як сьогодні: JPEG 320×180 (~15–25 КБ) усередині JSON-колонки; один POST = запис + прев'ю атомарно, нуль нової інфраструктури. S3-винесення відхилено для v1: двофазний запис створює режими збоїв, що суперечать quality goal №2 («checkpoint ніколи не зникає мовчки»).
 
 Each tactical decision in later sections should trace to one of these seeds. Tactical decisions that *contradict* a strategic choice are red flags — surface them in §11.
 
