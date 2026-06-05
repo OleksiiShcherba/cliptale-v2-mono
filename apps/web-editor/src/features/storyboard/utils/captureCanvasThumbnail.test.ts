@@ -9,7 +9,11 @@ vi.mock('html-to-image', () => ({
   toJpeg: mockToJpeg,
 }));
 
-import { captureCanvasThumbnail } from './captureCanvasThumbnail';
+import {
+  captureCanvasThumbnail,
+  captureCanvasThumbnailWithFallback,
+  CAPTURE_TIMEOUT_MS,
+} from './captureCanvasThumbnail';
 
 describe('captureCanvasThumbnail', () => {
   beforeEach(() => {
@@ -270,5 +274,99 @@ describe('captureCanvasThumbnail', () => {
     mockToJpeg.mockRejectedValue(new Error('unexpected DOM error'));
 
     await expect(captureCanvasThumbnail()).resolves.toBeNull();
+  });
+});
+
+// ── captureCanvasThumbnailWithFallback (storyboard-autosave-checkpoints T7, AC-04) ──
+
+function mockReactFlowEl(): HTMLElement {
+  const fakeEl = document.createElement('div');
+  vi.spyOn(document, 'querySelector').mockReturnValue(fakeEl);
+  vi.spyOn(fakeEl, 'getBoundingClientRect').mockReturnValue({
+    width: 1200,
+    height: 800,
+    top: 0,
+    left: 0,
+    bottom: 800,
+    right: 1200,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  });
+  return fakeEl;
+}
+
+describe('captureCanvasThumbnailWithFallback', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it('success yields { kind: "screenshot", dataUrl }', async () => {
+    mockReactFlowEl();
+    mockToJpeg.mockResolvedValue('data:image/jpeg;base64,ok');
+
+    const result = await captureCanvasThumbnailWithFallback();
+
+    expect(result).toEqual({ kind: 'screenshot', dataUrl: 'data:image/jpeg;base64,ok' });
+  });
+
+  it('capture failure (toJpeg rejects) yields { kind: "minimap" }', async () => {
+    mockReactFlowEl();
+    mockToJpeg.mockRejectedValue(new Error('canvas rendering failed'));
+
+    const result = await captureCanvasThumbnailWithFallback();
+
+    expect(result).toEqual({ kind: 'minimap' });
+  });
+
+  it('missing .react-flow element yields { kind: "minimap" }', async () => {
+    vi.spyOn(document, 'querySelector').mockReturnValue(null);
+
+    const result = await captureCanvasThumbnailWithFallback();
+
+    expect(result).toEqual({ kind: 'minimap' });
+  });
+
+  it(`a capture hanging beyond ${CAPTURE_TIMEOUT_MS} ms resolves minimap by the timeout`, async () => {
+    vi.useFakeTimers();
+    mockReactFlowEl();
+    // Never-resolving capture — simulates a hung html-to-image render.
+    mockToJpeg.mockImplementation(() => new Promise<string>(() => {}));
+
+    const pending = captureCanvasThumbnailWithFallback();
+    let resolved: unknown = null;
+    void pending.then((r) => { resolved = r; });
+
+    // Just before the timeout the promise is still pending.
+    await vi.advanceTimersByTimeAsync(CAPTURE_TIMEOUT_MS - 1);
+    expect(resolved).toBeNull();
+
+    // At the timeout it resolves with the minimap fallback.
+    await vi.advanceTimersByTimeAsync(1);
+    expect(resolved).toEqual({ kind: 'minimap' });
+
+    vi.useRealTimers();
+  });
+
+  it('a slow-but-successful capture finishing before the timeout still yields the screenshot', async () => {
+    vi.useFakeTimers();
+    mockReactFlowEl();
+    mockToJpeg.mockImplementation(
+      () => new Promise<string>((resolve) => {
+        setTimeout(() => resolve('data:image/jpeg;base64,slow'), CAPTURE_TIMEOUT_MS - 500);
+      }),
+    );
+
+    const pending = captureCanvasThumbnailWithFallback();
+    await vi.advanceTimersByTimeAsync(CAPTURE_TIMEOUT_MS - 500);
+
+    await expect(pending).resolves.toEqual({
+      kind: 'screenshot',
+      dataUrl: 'data:image/jpeg;base64,slow',
+    });
+
+    vi.useRealTimers();
   });
 });
