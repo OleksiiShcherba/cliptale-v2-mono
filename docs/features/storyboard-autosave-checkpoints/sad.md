@@ -312,22 +312,22 @@ ADR files live under `docs/features/storyboard-autosave-checkpoints/adr/NNNN-<ti
      round ≤250ms to ≤300ms — that's a critic F6 hit).
      📌 e.g. «p95 ≤ 500 ms on a block update, verified by a 100 req/s load test». -->
 
-Each top-3 goal from §1 expanded into a full scenario:
+Each top-3 goal from §1 expanded into a full scenario (числа — дослівно зі spec §6 NFR):
 
-**QG-1. <quality attribute>**
-- **When:** <trigger condition>
-- **Then:** <expected behaviour with numbers from spec §6 NFR>
-- **How verify:** <test / chaos drill / load test / metric>
+**QG-1. Ефективність записів**
+- **When:** Creator робить кілька змін на дошці в межах одного autosave interval.
+- **Then:** створюється ≤ 1 History entry на autosave interval на draft (проти одного на кожну зміну сьогодні); підтвердження lightweight autosave сервером ≤ 500 мс p95; свіжість збереженого стану не гірша за сьогоднішню.
+- **How verify:** порівняння history-table row-creation rate до/після релізу (тижневий базлайн KPI-1); інтеграційний тест «N змін в одному інтервалі → рівно 1 checkpoint-запис»; API request logs.
 
-**QG-2. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-2. Надійність точок відновлення**
+- **When:** зняття layout screenshot збоїть або не завершується за 5 с (таймаут).
+- **Then:** loader знімається, checkpoint завершується, History entry створюється з minimap-прев'ю — запис ніколи не губиться мовчки; частка фолбек-записів < 2 % checkpoint-записів.
+- **How verify:** e2e-тест із примусово повільним зняттям (форсує таймаут → перевіряє мінімапу); серверний SQL-підрахунок частки checkpoint-записів без скриншота.
 
-**QG-3. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-3. Відгук інтерфейсу**
+- **When:** виконується checkpoint capture (автоматичний чи ручний); Creator відкриває History-панель; Creator відкриває сторінку дошки.
+- **Then:** full-screen loader видимий ≤ 1 с p95; History panel load ≤ 500 мс p95; settings read при відкритті дошки ≤ 300 мс p95.
+- **How verify:** e2e-таймінги в CI + ручні spot-check-и (loader — браузерної телеметрії в проді немає); API request logs (panel load, settings read).
 
 ## 11. Risks and technical debt
 
@@ -341,12 +341,18 @@ Each top-3 goal from §1 expanded into a full scenario:
 
 | Risk / debt | Severity | Mitigation | Owner |
 |---|---|---|---|
-| <e.g. Worker lag may reach hours during a downstream outage> | Medium | <alert >10 min, on-call playbook, retry backoff> | <DevOps> |
-| <e.g. No event-schema versioning in v1> | Medium | <ADR-NNNN planned for v2, tolerate unknown fields> | <Backend> |
-| Open architectural decision: <decision-headline> | Open question | Resolve before <stage trigger or YYYY-MM-DD>; <inline rationale from the Save-as-OQ> | <owner> |
+| Дві активні вкладки одного draft → до 2 checkpoint-ів/інтервал; lightweight-перезапис last-writer-wins (закритий spec §8 OQ-1) | Low | прийнято в ADR-0002; при скаргах користувачів — stale-tab guard окремим ADR | Steven Hayes (PM) |
+| `html-to-image` знімає на main thread: джанк/повільне зняття на великих дошках | Medium | full-screen loader ховає джанк; 5-с таймаут → мінімапа (AC-04); e2e slow-capture тест | Tech Lead |
+| Сьогоднішній history-push — fire-and-forget (помилка лише в console); checkpoint-push має стати надійним (quality goal №2) | Medium | ретрай + видимий стан помилки checkpoint-а; інтеграційний тест на збій push-у | Tech Lead |
+| Розширення prune-логіки: mysql2 не біндить LIMIT параметром — успадкувати існуючий text-protocol обхід | Low | відомий патерн у `storyboard.repository.ts` (`insertHistoryAndPrune`) | Tech Lead |
+| Бюджет/дедлайн фічі не зафіксовані (§2 Organisational) | Low | підтвердити перед `sdd:tasks` | Steven Hayes (PM) |
+| Open architectural decision: кап історії лишається 50 при checkpoint-only записах? (дефолт: так, 50) | Open question | Resolve before `sdd:data-model`; checkpoint-only записи покривають довший часовий горизонт — це може виправдати інший кап | Steven Hayes (PM) |
+| Open architectural decision: хто і як знімає тижневий базлайн KPI-1 (history writes) до релізу | Open question | Resolve before `sdd:implement`; дефолт — dev знімає тижневий SQL-підрахунок до release-гілки | Tech Lead |
 
 **Accepted debt (acceptable in v1, plan to fix later):**
-- <e.g. the entity is immutable / unversioned — OK for v1, may need audit versioning in v2>
+- Легасі-рядки історії лишаються в сховищі назавжди (лише приховані з панелі; старіють через існуючий prune) — за spec Non-goal, чищення не плануємо.
+- Браузерної телеметрії в проді немає — loader-NFR вимірюється e2e в CI + ручними spot-check-ами, не реальними користувачами.
+- Новий інтервал застосовується з наступного countdown, не миттєво (AC-09) — прийнята простота.
 
 ## 12. Glossary
 
@@ -355,8 +361,18 @@ Each top-3 goal from §1 expanded into a full scenario:
      📋 Write: a term / meaning table. Business + technical terms mixed.
      📌 e.g. «Lesson | a unit inside a course made of blocks (text, video)». -->
 
+Канонічне джерело — [CONTEXT.md](./CONTEXT.md); тут — терміни, вжиті в тілі SAD.
+
 | Term | Meaning |
 |---|---|
-| <e.g. domain object A> | <its meaning in this domain> |
-| <e.g. domain object B> | <its meaning> |
-| <e.g. domain invariant name> | <the rule, in plain language> |
+| Lightweight autosave | Автоматичне збереження поточного стану дошки після будь-якої зміни, без скриншота й без History entry (NOT checkpoint save). |
+| Checkpoint save | Збереження зі знятим layout screenshot, що створює History entry; автоматично за autosave interval або вручну кнопкою Save. |
+| Autosave interval | Обраний Creator-ом проміжок між автоматичними checkpoint-ами (пресети 30 с / 1 / 2 / 5 / 10 хв, дефолт 1 хв); зберігається per-account (NOT дебаунс lightweight autosave). |
+| History entry | Снапшот стану дошки від checkpoint save; відображається в History-панелі з прев'ю; ціль Restore. |
+| Layout screenshot | JPEG-зображення канваса (320×180), зняте в момент checkpoint save; прев'ю History entry (NOT SVG-мінімапа — та лише аварійний фолбек). |
+| Checkpoint countdown bar | Індикатор у верхньому правому куті дошки: час до наступного автоматичного checkpoint-а + кнопка Save (NOT індикатор «Saving…/Saved»). |
+| Save indicator | Існуючий статус «Saving…/Saved» lightweight autosave у верхній панелі. |
+| Origin (маркер) | Колонка в `storyboard_history`, що відрізняє checkpoint-записи від легасі (ADR-0003); панель показує лише checkpoint-и. |
+| Creator | Автентифікований власник storyboard draft — єдина діюча роль фічі. |
+| Storyboard draft | Документ, який Creator будує в generate-wizard: план сцен, блоки, ілюстрації, музика. |
+| «Checkpoint ніколи не губиться мовчки» | Інваріант: збій/таймаут зняття скриншота понижує прев'ю до мінімапи, але History entry створюється завжди. |
