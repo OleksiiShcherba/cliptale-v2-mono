@@ -1314,10 +1314,12 @@ export const openApiSpec = {
     },
     '/storyboards/{draftId}/history': {
       get: {
-        summary: 'List storyboard history snapshots',
+        summary: 'List checkpoint history entries',
         description:
-          'Returns the last 50 history snapshots for a draft, ordered newest-first. ' +
-          'Each entry contains the snapshot JSON, the row id, and a createdAt timestamp.',
+          'Returns ONLY entries with origin=checkpoint, newest first, at most 50. ' +
+          'Legacy pre-feature rows (origin=legacy) are filtered out at the query level, ' +
+          'never deleted — they age out via the origin-agnostic 50-cap pruning. ' +
+          'Each entry exposes previewKind (screenshot | minimap).',
         operationId: 'listStoryboardHistory',
         tags: ['storyboard'],
         parameters: [
@@ -3306,15 +3308,19 @@ export const openApiSpec = {
       },
       StoryboardHistoryEntry: {
         type: 'object',
-        required: ['id', 'draftId', 'snapshot', 'createdAt'],
-        description: 'A single history snapshot entry returned by GET /storyboards/:draftId/history.',
+        required: ['id', 'draftId', 'snapshot', 'previewKind', 'createdAt'],
+        description:
+          'A single checkpoint history entry returned by GET /storyboards/:draftId/history. ' +
+          'The list is pre-filtered to origin=checkpoint, so origin is not exposed on the wire.',
         properties: {
-          id: { type: 'integer', description: 'Auto-incremented row id.' },
+          id: { type: 'integer', description: 'Auto-incremented row id (ORDER BY id DESC = newest first).' },
           draftId: { type: 'string', format: 'uuid', description: 'UUID of the owning draft.' },
           snapshot: {
             type: 'object',
-            description: 'The stored storyboard snapshot JSON.',
+            description:
+              'The stored storyboard snapshot JSON (+ inline screenshot data-URL when previewKind=screenshot).',
           },
+          previewKind: { $ref: '#/components/schemas/PreviewKind' },
           createdAt: { type: 'string', format: 'date-time', description: 'When this snapshot was pushed.' },
         },
       },

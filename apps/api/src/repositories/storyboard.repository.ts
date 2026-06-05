@@ -162,7 +162,10 @@ export async function findEdgesByDraftIdForUpdate(
 }
 
 /**
- * Returns the last `limit` history snapshots for a draft, newest first.
+ * Returns the last `limit` CHECKPOINT history entries for a draft, newest
+ * first (AC-08). Legacy rows (origin='legacy') are filtered out at the query
+ * level — never deleted; they age out via the origin-agnostic 50-cap prune.
+ * Served by idx_storyboard_history_draft_origin (draft_id, origin, id DESC).
  */
 export async function findHistoryByDraftId(
   draftId: string,
@@ -171,9 +174,9 @@ export async function findHistoryByDraftId(
   // pool.query (text protocol) instead of pool.execute (prepared statement)
   // because mysql2 cannot bind LIMIT as a prepared-statement parameter (ER_WRONG_ARGUMENTS).
   const [rows] = await pool.query<HistoryRow[]>(
-    `SELECT id, draft_id, snapshot, created_at
+    `SELECT id, draft_id, snapshot, preview_kind, created_at
      FROM storyboard_history
-     WHERE draft_id = ?
+     WHERE draft_id = ? AND origin = 'checkpoint'
      ORDER BY id DESC
      LIMIT ?`,
     [draftId, limit],
