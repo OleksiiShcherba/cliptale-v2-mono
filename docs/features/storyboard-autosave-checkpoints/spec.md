@@ -228,5 +228,5 @@ Interview decisions recorded for traceability: the full-screen loader applies to
 ## 8. Open questions
 
 - [ ] Multi-tab / multi-device editing of the same draft: keep last-writer-wins, or guard checkpoints against stale-tab overwrites? Default now: last-writer-wins (as today). — owner: Steven Hayes (PM), due: before sdd:design
-- [ ] Does the 50-entry history cap stay at 50 now that entries are checkpoint-only (a longer covered time horizon)? Default now: keep 50. — owner: Steven Hayes (PM), due: before sdd:data-model
+- [x] Does the 50-entry history cap stay at 50 now that entries are checkpoint-only (a longer covered time horizon)? Default now: keep 50. — owner: Steven Hayes (PM), due: before sdd:data-model — **Resolved 2026-06-05 (data-model): cap stays 50; `HISTORY_CAP` unchanged.**
 - [ ] Who runs the pre-release baseline measurement for the KPI-1 write-rate? Default now: dev runs a one-week count before the release branch. — owner: Tech Lead, due: before sdd:implement
