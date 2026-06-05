@@ -61,7 +61,7 @@ type ApiContext = {
 export async function readBearerToken(): Promise<string> {
   const statePath = path.resolve(
     __dirname,
-    '../../test-results/e2e-auth-state.json',
+    '../../.e2e-cache/e2e-auth-state.json',
   );
   const raw = await fs.readFile(statePath, 'utf-8');
   const state = JSON.parse(raw) as {

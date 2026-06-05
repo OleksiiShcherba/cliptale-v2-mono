@@ -411,6 +411,7 @@ test.describe('Storyboard bug fixes — ST-FIX-1 through SB-UPLOAD-2', () => {
               blocks: initialState.blocks,
               edges: initialState.edges,
             },
+            previewKind: 'minimap',
           },
         },
       );
@@ -1269,6 +1270,7 @@ test.describe('Storyboard bug fixes — ST-FIX-1 through SB-UPLOAD-2', () => {
               blocks: allBlocks,
               edges: initialState.edges,
             },
+            previewKind: 'minimap',
           },
         },
       );

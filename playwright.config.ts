@@ -25,7 +25,7 @@ import { E2E_BASE_URL, IS_LOCAL_TARGET } from './e2e/helpers/env';
 
 const STORAGE_STATE_PATH = path.resolve(
   __dirname,
-  'test-results/e2e-auth-state.json',
+  '.e2e-cache/e2e-auth-state.json',
 );
 
 export default defineConfig({
