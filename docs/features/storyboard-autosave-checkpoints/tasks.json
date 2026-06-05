@@ -1,0 +1,206 @@
+{
+  "slug": "storyboard-autosave-checkpoints",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Promote the staged user_settings migration into the live migrations tree",
+      "layer": "migration",
+      "deps": [],
+      "acs": ["AC-09", "AC-10"],
+      "dod": "Promoted migration applies and reverts cleanly on live MySQL via the in-process runner; FK CASCADE verified",
+      "files_hint": [
+        "docs/features/storyboard-autosave-checkpoints/migrations/01_create_user_settings.up.sql",
+        "docs/features/storyboard-autosave-checkpoints/migrations/01_create_user_settings.down.sql"
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "Promote the staged storyboard_history origin/preview_kind migration",
+      "layer": "migration",
+      "deps": [],
+      "acs": ["AC-08", "AC-04"],
+      "dod": "INSTANT ALTER applies and reverts cleanly; existing rows read origin=legacy/preview_kind NULL; panel query EXPLAIN uses idx_storyboard_history_draft_origin",
+      "files_hint": [
+        "docs/features/storyboard-autosave-checkpoints/migrations/02_add_history_origin_preview.up.sql",
+        "docs/features/storyboard-autosave-checkpoints/migrations/02_add_history_origin_preview.down.sql"
+      ]
+    },
+    {
+      "id": "T3",
+      "title": "Settings repository + service: effective read with defaults, lazy upsert",
+      "layer": "infra",
+      "deps": ["T1"],
+      "acs": ["AC-09", "AC-10", "AC-11b"],
+      "dod": "Integration tests on live MySQL pass: missing row yields default 60/updatedAt null, lazy upsert creates then updates a single row",
+      "files_hint": [
+        "apps/api/src/repositories/settings.repository.ts",
+        "apps/api/src/services/settings.service.ts"
+      ]
+    },
+    {
+      "id": "T4",
+      "title": "Settings endpoints: GET/PUT /users/me/settings with preset whitelist",
+      "layer": "ports",
+      "deps": ["T3"],
+      "acs": ["AC-09", "AC-10", "AC-11", "AC-11c"],
+      "dod": "GET returns effective settings (defaults when no row); PUT accepts only 30/60/120/300/600 else 400; 401 without token; responses match the OpenAPI contract",
+      "files_hint": [
+        "apps/api/src/routes/settings.routes.ts",
+        "apps/api/src/controllers/settings.controller.ts",
+        "apps/api/src/index.ts",
+        "packages/api-contracts/src/openapi.ts"
+      ]
+    },
+    {
+      "id": "T5",
+      "title": "Checkpoint push: POST history stamps origin=checkpoint and stores previewKind",
+      "layer": "ports",
+      "deps": ["T2"],
+      "acs": ["AC-03", "AC-04", "AC-07", "AC-12"],
+      "dod": "Push with required previewKind inserts origin=checkpoint row and prunes beyond 50 across mixed origins; missing previewKind is 400; plan-apply insert writes explicit origin",
+      "files_hint": [
+        "apps/api/src/controllers/storyboard.controller.schemas.ts",
+        "apps/api/src/controllers/storyboard.controller.ts",
+        "apps/api/src/services/storyboard.service.ts",
+        "apps/api/src/repositories/storyboard.repository.ts",
+        "apps/api/src/repositories/storyboardHistory.repository.ts",
+        "apps/api/src/services/storyboardPlanApply.service.ts",
+        "packages/api-contracts/src/openapi.ts"
+      ]
+    },
+    {
+      "id": "T6",
+      "title": "History list: filter to origin=checkpoint and expose previewKind",
+      "layer": "ports",
+      "deps": ["T2"],
+      "acs": ["AC-08", "AC-13"],
+      "dod": "GET returns only checkpoint entries newest-first with previewKind, max 50, legacy rows remain stored; non-owner gets 403",
+      "files_hint": [
+        "apps/api/src/services/storyboard.service.ts",
+        "apps/api/src/repositories/storyboard.repository.ts",
+        "apps/api/src/controllers/storyboard.controller.ts"
+      ]
+    },
+    {
+      "id": "T7",
+      "title": "captureCanvasThumbnail: 5-second timeout with typed fallback result",
+      "layer": "ui",
+      "deps": [],
+      "acs": ["AC-04"],
+      "dod": "Unit tests pass: success yields screenshot+dataUrl, failure or >5 s yields minimap kind and resolves by the timeout; existing consumers unbroken",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/utils/captureCanvasThumbnail.ts"
+      ]
+    },
+    {
+      "id": "T8",
+      "title": "Settings feature module: page with interval presets, route, Home menu item",
+      "layer": "ui",
+      "deps": [],
+      "acs": ["AC-09", "AC-11"],
+      "dod": "Component tests pass: presets render with stored value, save confirms, failed PUT shows not-saved message keeping previous value; /settings route protected and reachable from HomeSidebar",
+      "files_hint": [
+        "apps/web-editor/src/features/settings/",
+        "apps/web-editor/src/main.tsx",
+        "apps/web-editor/src/features/home/components/HomeSidebar.tsx"
+      ]
+    },
+    {
+      "id": "T9",
+      "title": "Rework useStoryboardHistoryPush into the checkpoint push client",
+      "layer": "ui",
+      "deps": ["T7"],
+      "acs": ["AC-03", "AC-04"],
+      "dod": "One request carries snapshot+previewKind (screenshot inline on success, minimap on capture failure — push always happens); POST failure shows a visible error state and retries; inFlight exposed",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/hooks/useStoryboardHistoryPush.ts"
+      ]
+    },
+    {
+      "id": "T10",
+      "title": "useCheckpointScheduler: countdown, idle, deferral, overdue, double-save guard",
+      "layer": "ui",
+      "deps": ["T8", "T9"],
+      "acs": ["AC-03", "AC-03b", "AC-03c", "AC-05", "AC-06", "AC-07", "AC-07b", "AC-11b"],
+      "dod": "Fake-timer unit tests pass one per AC: interval fire, drag/typing deferral capped at one extra interval, overdue within 10 s on visibility, idle creates nothing, countdown resets, manual save undeferred, double-save guarded, session default 60 s on settings-read failure",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/hooks/useCheckpointScheduler.ts"
+      ]
+    },
+    {
+      "id": "T11",
+      "title": "CheckpointCountdownBar + CheckpointCaptureOverlay components",
+      "layer": "ui",
+      "deps": ["T10"],
+      "acs": ["AC-03", "AC-05", "AC-06", "AC-07", "AC-07b"],
+      "dod": "Component tests pass: ticking countdown, idle all-saved state with inactive Save, Save triggers manual checkpoint and disables while in flight, overlay shows during capture only",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/CheckpointCountdownBar.tsx",
+        "apps/web-editor/src/features/storyboard/components/CheckpointCountdownBar.styles.ts",
+        "apps/web-editor/src/features/storyboard/components/CheckpointCaptureOverlay.tsx",
+        "apps/web-editor/src/features/storyboard/components/CheckpointCaptureOverlay.styles.ts"
+      ]
+    },
+    {
+      "id": "T12",
+      "title": "History panel: previewKind rendering + pre-restore checkpoint before Restore",
+      "layer": "ui",
+      "deps": ["T9"],
+      "acs": ["AC-08", "AC-12", "AC-04"],
+      "dod": "Panel renders screenshot image vs SnapshotMinimap by previewKind; restore with newer changes pushes a pre-restore checkpoint first and never blocks on its failure",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/StoryboardHistoryPanel.tsx",
+        "apps/web-editor/src/features/storyboard/hooks/useHandleRestore.ts",
+        "apps/web-editor/src/features/storyboard/hooks/useStoryboardHistoryFetch.ts"
+      ]
+    },
+    {
+      "id": "T13",
+      "title": "Lightweight autosave: visible not-saved indicator + automatic retry",
+      "layer": "ui",
+      "deps": [],
+      "acs": ["AC-01b"],
+      "dod": "Failed PUT shows a not-saved status and auto-retries until success without user edits; editing never blocked; existing debounce/dedupe tests stay green",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/hooks/useStoryboardAutosave.ts",
+        "apps/web-editor/src/features/storyboard/components/StoryboardPage.topBar.tsx"
+      ]
+    },
+    {
+      "id": "T14",
+      "title": "Wire two-tier saving into StoryboardPage: mount scheduler/bar/overlay, remove per-change pushes",
+      "layer": "wiring",
+      "deps": ["T10", "T11", "T12", "T13"],
+      "acs": ["AC-01", "AC-02", "AC-03", "AC-06"],
+      "dod": "Page integration test: N consecutive changes produce zero history pushes (only lightweight saves); bar top-right and overlay mounted; history-seed reconciled; existing page tests green",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx",
+        "apps/web-editor/src/features/storyboard/components/StoryboardPage.topBar.tsx",
+        "apps/web-editor/src/features/storyboard/hooks/useStoryboardHistorySeed.ts"
+      ]
+    },
+    {
+      "id": "T15",
+      "title": "E2E (Playwright): checkpoint flows, slow-capture fallback, settings journey",
+      "layer": "tests",
+      "deps": ["T4", "T5", "T6", "T14"],
+      "acs": ["AC-03", "AC-04", "AC-05", "AC-07", "AC-08", "AC-09", "AC-10", "AC-12"],
+      "dod": "All scenarios green against the live stack in CI, including a deterministic forced slow-capture that yields a minimap entry with the loader dismissed",
+      "files_hint": [
+        "e2e/storyboard-checkpoints.spec.ts",
+        "e2e/settings.spec.ts"
+      ]
+    },
+    {
+      "id": "T16",
+      "title": "KPI-1 baseline: document + run the one-week history write-rate count",
+      "layer": "docs",
+      "deps": [],
+      "acs": [],
+      "dod": "_audit/kpi1-baseline.md records the SQL, measurement window, baseline number and author; spec §8 OQ-3 and the sad §11 open-question row are closed",
+      "files_hint": [
+        "docs/features/storyboard-autosave-checkpoints/_audit/kpi1-baseline.md"
+      ]
+    }
+  ]
+}
