@@ -6,7 +6,7 @@
 | # | Task | Layer | Owner | Estimate | Blocked by | Status |
 |---|---|---|---|---|---|---|
 | T1 | Staged-міграція user_settings | migration | Oleksii (solo dev) | S | — | done |
-| T2 | Staged-міграція origin + preview_kind | migration | Oleksii (solo dev) | S | — | todo |
+| T2 | Staged-міграція origin + preview_kind | migration | Oleksii (solo dev) | S | — | done |
 | T3 | Settings repository + service | infra | Oleksii (solo dev) | S | T1 | todo |
 | T4 | Settings endpoints GET/PUT /users/me/settings | ports | Oleksii (solo dev) | M | T3 | todo |
 | T5 | Checkpoint push: POST history + origin/previewKind | ports | Oleksii (solo dev) | M | T2 | todo |
