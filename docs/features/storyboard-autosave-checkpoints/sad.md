@@ -133,39 +133,54 @@ Each tactical decision in later sections should trace to one of these seeds. Tac
      just one surface's container — swap/add per what was declared in §4. → _shared/surfaces.md
      📌 e.g. «web app, content API, media worker, datastore, object store, CDN». -->
 
-<One paragraph: layered / hexagonal / clean / event-driven, and why.>
+Шаруватість успадкована від репозиторію (без нових стилів): фронтенд — фіча-модулі `features/<name>/{components,hooks,api.ts,types.ts}` зі станом у хуках/external store; бекенд — ланцюг `routes → controllers → services → repositories` із прямими singleton-імпортами. Фіча **розширює** модуль `features/storyboard/` (нові хуки/компоненти збереження), **додає** новий фіча-модуль `features/settings/` (Settings-сторінка) і новий бекенд-домен `settings` (окремий ланцюг, не вштовхнутий у storyboard-домен — інший життєвий цикл і інша таблиця).
 
 **Internal decomposition:**
 
 ```
-<e.g. modules/<feature>/>
-├── domain/       <entities + sentinel errors>
-├── app/          <use cases / services>
-├── infra/        <repository + integration impl>
-├── ports/        <handlers, DTOs, error mapping>
-└── wiring        <self-wiring entry point>
+apps/web-editor/src/features/
+├── storyboard/                                  (розширюється)
+│   ├── hooks/useStoryboardAutosave.ts           без змін — lightweight autosave, дебаунс 5 с
+│   ├── hooks/useCheckpointScheduler.ts          НОВИЙ — countdown-таймер, деферал drag/typing,
+│   │                                            visibility-обробка, прострочений запуск, double-save guard
+│   ├── hooks/useStoryboardHistoryPush.ts        стає checkpoint-push: скриншот + снапшот одним запитом
+│   ├── components/CheckpointCountdownBar.tsx    НОВИЙ — countdown bar + кнопка Save (idle-стан «all saved»)
+│   ├── components/CheckpointCaptureOverlay.tsx  НОВИЙ — full-screen loader на час зняття
+│   ├── components/StoryboardHistoryPanel.tsx    фільтр «лише checkpoint-и»; pre-restore checkpoint перед Restore
+│   └── utils/captureCanvasThumbnail.ts          + 5-с таймаут → minimap-фолбек (AC-04)
+└── settings/                                    НОВИЙ фіча-модуль
+    ├── components/SettingsPage.tsx              пресети інтервалу; помилки збереження/читання (AC-11, AC-11b)
+    ├── api.ts                                   читання/запис налаштувань через apiClient
+    └── types.ts
+    (+ пункт Settings у features/home/components/HomeSidebar.tsx)
+
+apps/api/src/
+├── routes/settings.routes.ts                    НОВИЙ ланцюг — читання/запис налаштувань власника
+├── controllers/settings.controller.ts
+├── services/settings.service.ts
+├── repositories/settings.repository.ts
+├── routes|controllers|services/storyboard.*     розширення: origin-маркер при записі, фільтр легасі в списку
+└── db/migrations/                               050_user_settings.sql + 051_history_origin.sql (точна форма — data-model)
 ```
 
-**C4 Container (L2):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. ONE Container per declared target_surface (frontmatter); the web container below is one example surface. -->
+**C4 Container (L2):**
 
 ```mermaid
 C4Container
-    title <feature> — Containers
+    title storyboard-autosave-checkpoints — Containers
 
-    Person(actor, "<Actor>")
+    Person(creator, "Creator", "Власник storyboard draft")
 
-    Container_Boundary(app, "<Our system>") {
-        Container(web, "<Web/UI>", "<technology>", "<purpose>")
-        Container(api, "<API/handler>", "<technology>", "<purpose>")
-        ContainerDb(db, "<Datastore>", "<technology>", "<purpose>")
+    Container_Boundary(cliptale, "ClipTale") {
+        Container(web, "web-editor", "React 18 SPA + @xyflow/react", "Дошка сторіборда: lightweight autosave, клієнтський checkpoint-планувальник зі скриншотом, countdown bar, History-панель, Settings-сторінка")
+        Container(api, "api", "Express 4 + Zod", "Збереження дошки, History CRUD з origin-фільтром, налаштування користувача; ownership-перевірки")
     }
 
-    System_Ext(ext, "<External>", "<purpose>")
+    ContainerDb(mysql, "MySQL 8", "InnoDB", "storyboard_history (+origin, скриншот у snapshot JSON), user_settings, drafts")
 
-    Rel(actor, web, "<interaction>", "<protocol>")
-    Rel(web, api, "<calls>")
-    Rel(api, db, "<reads/writes>", "<driver>")
-    Rel(api, ext, "<emits>", "<protocol>")
+    Rel(creator, web, "Редагує дошку; Save; Restore; змінює інтервал", "HTTPS")
+    Rel(web, api, "Lightweight save / checkpoint push / список History / читання-запис налаштувань", "JSON/HTTPS")
+    Rel(api, mysql, "Читає/пише снапшоти, History, налаштування", "mysql2 raw SQL")
 ```
 
 ## 6. Runtime view
