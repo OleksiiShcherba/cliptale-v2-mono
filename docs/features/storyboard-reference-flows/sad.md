@@ -365,20 +365,20 @@ ADR files live under `docs/features/storyboard-reference-flows/adr/NNNN-<title>.
 
 Each top-3 goal from §1 expanded into a full scenario:
 
-**QG-1. <quality attribute>**
-- **When:** <trigger condition>
-- **Then:** <expected behaviour with numbers from spec §6 NFR>
-- **How verify:** <test / chaos drill / load test / metric>
+**QG-1. Кост-безпека колективного підтвердження**
+- **When:** Creator підтверджує каст і перші запуски виконуються в rolling window.
+- **Then:** фактична сума списань перших запусків — у межах **±10%** показаної агрегатної оцінки (spec §6 «actual total within ±10% of the shown estimate»); жодного списання за генерацію, яка не стартувала (ADR-0004); витрати обмежені cast size limit (12) і вікном.
+- **How verify:** метрика `aggregate_estimate_accuracy` (billing telemetry comparison, §7) + інтеграційний тест confirm → послідовність пер-ран списань.
 
-**QG-2. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-2. Швидкість циклу курації**
+- **When:** старт каст-екстракції / відкриття канвасу з reference-блоками / підтвердження касту.
+- **Then:** екстракція p95 **≤ 60 s** (start → proposal shown); відкриття Video Road Map **≤ 1500 ms (up to 50 blocks total)**; повний каст (≤ the cast size limit) підхоплений воркером — **actually generating, not merely enqueued — ≤ 5 min** після підтвердження.
+- **How verify:** `cast_extract_duration_p95` (async job telemetry — канал storyboard-plan), `storyboard_canvas_open_ms` (frontend performance metric), `reference_window_pickup_lag` (worker queue metrics) + e2e-замір відкриття канвасу на 50 блоках.
 
-**QG-3. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-3. Цілісність даних курації під конкурентністю**
+- **When:** конкурентні правки зірок/scene links із двох вкладок; видалення сцени, що має лінки.
+- **Then:** правки **never silently lost**; конфліктні конкурентні збереження **rejected with a reload prompt** (spec §6 concurrency safety); видалена сцена автоматично зникає з linked-scenes списку кожного блока — no dangling links (AC-10b).
+- **How verify:** `curation_save_conflicts` (versioned-save conflict metric) + інтеграційні тести конкурентних UPDATE зірок/лінків + тест каскаду видалення сцени.
 
 ## 11. Risks and technical debt
 
