@@ -145,39 +145,59 @@ Each tactical decision in later sections should trace to one of these seeds. Tac
      just one surface's container — swap/add per what was declared in §4. → _shared/surfaces.md
      📌 e.g. «web app, content API, media worker, datastore, object store, CDN». -->
 
-<One paragraph: layered / hexagonal / clean / event-driven, and why.>
+Розширення існуючої layered-архітектури — жодного нового деплой-юніта: новий backend-домен `storyboard-references` за конвенцією routes → controllers → services → repositories; новий тип джоби + completion-hook у media-worker; розширення двох існуючих feature-дір SPA. По одному C4-контейнеру на кожну заявлену поверхню (`backend-service` → api, `web-frontend` → web-editor, `worker` → media-worker).
 
 **Internal decomposition:**
 
 ```
-<e.g. modules/<feature>/>
-├── domain/       <entities + sentinel errors>
-├── app/          <use cases / services>
-├── infra/        <repository + integration impl>
-├── ports/        <handlers, DTOs, error mapping>
-└── wiring        <self-wiring entry point>
+apps/api/src/
+├── routes/storyboard-references.routes.ts        ← новий домен: extract / confirm / blocks / links
+├── controllers/storyboardReference.controller.ts
+├── services/storyboardReference.service.ts       ← валідація касту, диспетч rolling window, лайфцикл блоків
+├── repositories/storyboardReference.repository.ts ← таблиці курації (ADR-0005)
+├── services/generation-flow.service.ts           ← розширення: зірки (ADR-0009), badge/warning (ADR-0010)
+└── services/storyboardIllustration.service.ts    ← розширення: star gate (ADR-0011), reference boundary
+apps/media-worker/src/jobs/
+├── cast-extract.job.ts                           ← новий тип джоби на черзі storyboard-plan (ADR-0002)
+├── ai-generate.job.ts                            ← + completion-hook rolling window (ADR-0003)
+└── scene generation master                       ← + style description (ADR-0007), вибір кандидатів (ADR-0008)
+apps/web-editor/src/features/
+├── storyboard/        ← reference-блоки на Video Road Map, модалка касту, scene-селектор, gate-повідомлення
+└── generate-ai-flow/  ← зірка на ResultNode, draft badge у списку, delete-warning, back-to-storyboard
 ```
 
-**C4 Container (L2):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. ONE Container per declared target_surface (frontmatter); the web container below is one example surface. -->
+Інлайн-рішення (D5.1, без ADR): уся нова логіка концентрується в домені `storyboard-references`; у чужих сервісах — лише мінімальні точки дотику; у `shared/` ніщо не мігрує, поки компонент не отримає другого споживача (правило репо).
+
+**C4 Container (L2):** <!-- syntax → references/c4-mermaid-syntax.md. ONE Container per declared target_surface. -->
 
 ```mermaid
 C4Container
-    title <feature> — Containers
+    title storyboard-reference-flows — Containers
 
-    Person(actor, "<Actor>")
+    Person(creator, "Creator")
 
-    Container_Boundary(app, "<Our system>") {
-        Container(web, "<Web/UI>", "<technology>", "<purpose>")
-        Container(api, "<API/handler>", "<technology>", "<purpose>")
-        ContainerDb(db, "<Datastore>", "<technology>", "<purpose>")
+    Container_Boundary(cliptale, "ClipTale") {
+        Container(web, "web-editor SPA", "React 18 + Vite + xyflow", "Video Road Map з reference-блоками; модалка касту; зірки на result-блоках флоу")
+        Container(api, "api", "Express 4 + Zod", "домен storyboard-references; star gate; диспетч rolling window; зірки/badge у флоу-сервісі")
+        Container(worker, "media-worker", "BullMQ + LLM/fal.ai клієнти", "cast-extract job; completion-hook вікна; scene generation master")
     }
 
-    System_Ext(ext, "<External>", "<purpose>")
+    ContainerDb(mysql, "MySQL 8", "InnoDB", "таблиці курації (блоки, лінки, зірки); generation_flows; user_settings; job-рядки")
+    ContainerDb(redis, "Redis 7", "BullMQ + pub/sub", "черги storyboard-plan / ai-generate; realtime-події прогресу")
+    System_Ext(llm, "LLM-провайдер (OpenAI)", "екстракція касту; style description")
+    System_Ext(imggen, "Image-провайдер (fal.ai)", "генерація зображень")
+    System_Ext(s3, "S3 / object store", "media-файли")
 
-    Rel(actor, web, "<interaction>", "<protocol>")
-    Rel(web, api, "<calls>")
-    Rel(api, db, "<reads/writes>", "<driver>")
-    Rel(api, ext, "<emits>", "<protocol>")
+    Rel(creator, web, "курує каст, зірки, лінки", "HTTPS / WS")
+    Rel(web, api, "REST + WebSocket", "JSON/HTTPS, WS")
+    Rel(api, mysql, "курація, гейт, вікно", "mysql2")
+    Rel(api, redis, "enqueue джоб; realtime", "BullMQ / pub-sub")
+    Rel(worker, redis, "споживає джоби; публікує прогрес", "BullMQ / pub-sub")
+    Rel(worker, mysql, "claim наступного pending; статуси", "mysql2")
+    Rel(worker, llm, "екстракція, style description", "HTTPS")
+    Rel(worker, imggen, "генерації", "HTTPS")
+    Rel(worker, s3, "зберігає результати", "AWS SDK")
+    Rel(web, s3, "показ зображень", "presigned URL")
 ```
 
 ## 6. Runtime view
