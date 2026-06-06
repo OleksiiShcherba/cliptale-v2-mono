@@ -77,30 +77,37 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      Trust boundary — the line past which you don't trust data without checking it.
      Never N/A — greenfield still draws the planned actors + external systems. -->
 
-<Business context in 2–3 sentences. What the system does for whom.>
+Creator у storyboard-візарді ClipTale готує мультисценові наративні відео. Фіча додає в Step 2 (Video Road Map) фазу курації референсів: ClipTale екстрагує каст зі скрипта, створює референс-блоки з 1:1-привʼязаними generation flows, Creator зірками затверджує найкращі результати, і лише тоді scene generation master генерує сцени, використовуючи затверджені зображення строго в межах reference boundary. Межа довіри: текст скрипта і завантажені зображення — недовірені користувацькі дані; у каст-екстракцію вони входять як data, а не інструкції (spec §6.1).
 
-<!-- brownfield: <one-line scan summary> (or «N/A — greenfield repo» if no source existed) -->
+<!-- brownfield: generate-ai-flow (flows/canvas/cost-confirm/rate-limit, migrations 046–049), music blocks (045), user_settings (050), storyboard-plan async job + Redis pub/sub realtime — скан 2026-06-06; architecture-map.md застаріла (reflects 9f943df), рекомендовано re-run survey -->
 
 **External systems (in / out):**
 
 | Actor or system | Type | Interaction |
 |---|---|---|
-| <author role> | Person | <what they do> |
-| <external service> | System (internal/external) | <interaction> |
-| <identity provider> | System (external) | <provides auth tokens> |
+| Creator | Person | курує каст, ітерує в reference flows, ставить зірки, запускає генерацію сцен |
+| LLM-провайдер (OpenAI) | System (external) | каст-екстракція зі скрипта; derived style description; вибір кандидатів scene generation master-ом |
+| Image-провайдер (fal.ai) | System (external) | генерація референс-зображень у flows та scene previews |
+| S3 / object store | System (external) | зберігання завантажених референс-зображень і згенерованих результатів (presigned URLs) |
 
 **C4 Context (L1):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. -->
 
 ```mermaid
 C4Context
-    title <feature> — System Context
+    title storyboard-reference-flows — System Context
 
-    Person(actor, "<Actor role>", "<intent>")
-    System(app, "<Our system>", "<one-sentence description>")
-    System_Ext(ext, "<External system>", "<one-sentence description>")
+    Person(creator, "Creator", "власник драфта: курує каст, зірки, scene links, запускає генерацію сцен")
 
-    Rel(actor, app, "<interaction>", "<protocol>")
-    Rel(app, ext, "<interaction>", "<protocol>")
+    System(cliptale, "ClipTale", "AI-відеоредактор: storyboard-візард + Generate AI flows + async-генерація")
+
+    System_Ext(llm, "LLM-провайдер (OpenAI)", "каст-екстракція зі скрипта (скрипт = data, не інструкції); derived style description")
+    System_Ext(imggen, "Image-провайдер (fal.ai)", "генерація референс-зображень і scene previews")
+    System_Ext(s3, "S3 / object store", "user-scoped media: завантажені референси, результати генерацій")
+
+    Rel(creator, cliptale, "підтверджує каст, зірки, scene links, генерація сцен", "HTTPS / WS")
+    Rel(cliptale, llm, "екстрагує каст, складає style description", "HTTPS")
+    Rel(cliptale, imggen, "генерує референси та сцени", "HTTPS")
+    Rel(cliptale, s3, "зберігає/читає media", "AWS SDK / presigned URL")
 ```
 
 ## 4. Solution strategy
