@@ -183,19 +183,20 @@ describe('storyboard.service — pushHistory', () => {
   it('calls insertHistoryAndPrune with keepCount=50', async () => {
     const snapshot = { blocks: [], edges: [] };
 
-    await storyboardService.pushHistory(USER_A, DRAFT_ID, snapshot);
+    await storyboardService.pushHistory(USER_A, DRAFT_ID, snapshot, 'screenshot');
 
     expect(mockStoryboardRepo.insertHistoryAndPrune).toHaveBeenCalledWith(
       DRAFT_ID,
       snapshot,
       50,
+      'screenshot',
     );
   });
 
   it('returns the id assigned by the repository', async () => {
     mockStoryboardRepo.insertHistoryAndPrune.mockResolvedValue(42);
 
-    const id = await storyboardService.pushHistory(USER_A, DRAFT_ID, {});
+    const id = await storyboardService.pushHistory(USER_A, DRAFT_ID, {}, 'minimap');
     expect(id).toBe(42);
   });
 });

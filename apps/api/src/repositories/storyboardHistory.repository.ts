@@ -1,5 +1,14 @@
 import type { PoolConnection, ResultSetHeader } from 'mysql2/promise';
 
+/**
+ * Transaction-scoped history insert used by the plan-apply flow.
+ *
+ * The server-side safety snapshot is stamped origin='checkpoint' with
+ * preview_kind='minimap' (task T5 default, storyboard-autosave-checkpoints):
+ * the History panel lists only origin=checkpoint rows (AC-08), so a 'legacy'
+ * stamp would make these pre-plan-apply restore points invisible. No layout
+ * screenshot exists server-side — hence the minimap preview kind.
+ */
 export async function insertHistoryAndPruneInTx(
   conn: PoolConnection,
   draftId: string,
@@ -7,7 +16,8 @@ export async function insertHistoryAndPruneInTx(
   keepCount: number,
 ): Promise<number> {
   const [result] = await conn.execute<ResultSetHeader>(
-    'INSERT INTO storyboard_history (draft_id, snapshot) VALUES (?, ?)',
+    `INSERT INTO storyboard_history (draft_id, snapshot, origin, preview_kind)
+     VALUES (?, ?, 'checkpoint', 'minimap')`,
     [draftId, JSON.stringify(snapshot)],
   );
 

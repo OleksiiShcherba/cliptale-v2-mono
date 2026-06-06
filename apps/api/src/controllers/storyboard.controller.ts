@@ -98,9 +98,10 @@ export async function getHistory(
 }
 
 /**
- * POST /storyboards/:draftId/history
- * Accepts { snapshot: object }, inserts it, prunes beyond 50 rows.
- * Returns 201.
+ * POST /storyboards/:draftId/history — checkpoint push (CheckpointPush).
+ * Accepts { snapshot: object, previewKind: 'screenshot' | 'minimap' }, inserts
+ * the row stamped origin='checkpoint' (server-side, ADR-0003) and prunes
+ * beyond 50 rows. Returns 201 { id }.
  * Body is pre-validated by validateBody(pushHistoryBodySchema).
  */
 export async function postHistory(
@@ -109,11 +110,12 @@ export async function postHistory(
   next: NextFunction,
 ): Promise<void> {
   try {
-    const { snapshot } = req.body as PushHistoryBody;
+    const { snapshot, previewKind } = req.body as PushHistoryBody;
     const id = await storyboardService.pushHistory(
       req.user!.userId,
       req.params['draftId']!,
       snapshot,
+      previewKind,
     );
     res.status(201).json({ id });
   } catch (err) {

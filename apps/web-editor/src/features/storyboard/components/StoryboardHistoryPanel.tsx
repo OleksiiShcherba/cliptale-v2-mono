@@ -173,7 +173,11 @@ function HistoryEntryRow({ entry, onRestore }: HistoryEntryRowProps): React.Reac
 
   return (
     <div style={entryRowStyle} data-testid="history-entry-row">
-      {entry.snapshot.thumbnail ? (
+      {/* The server-declared previewKind wins (AC-08/AC-04); legacy entries
+          without it fall back to thumbnail presence. */}
+      {entry.previewKind === 'minimap' ? (
+        <SnapshotMinimap blocks={entry.snapshot.blocks ?? []} />
+      ) : entry.snapshot.thumbnail ? (
         <img
           src={entry.snapshot.thumbnail}
           style={thumbnailImgStyle}

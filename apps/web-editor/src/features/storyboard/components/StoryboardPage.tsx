@@ -15,6 +15,13 @@ import { useHandleRestore } from '@/features/storyboard/hooks/useHandleRestore';
 import { useSceneModal } from '@/features/storyboard/hooks/useSceneModal';
 import { useStoryboardHistorySeed } from '@/features/storyboard/hooks/useStoryboardHistorySeed';
 import { useStoryboardAutosave } from '@/features/storyboard/hooks/useStoryboardAutosave';
+import {
+  comparableBlocks,
+  comparableEdges,
+  musicBlocksForSave,
+  stateKey,
+} from '@/features/storyboard/hooks/useStoryboardAutosavePayload';
+import { useCheckpointScheduler } from '@/features/storyboard/hooks/useCheckpointScheduler';
 import { useStoryboardDrag } from '@/features/storyboard/hooks/useStoryboardDrag';
 import { useStoryboardHistoryPush } from '@/features/storyboard/hooks/useStoryboardHistoryPush';
 import { useStoryboardKeyboard } from '@/features/storyboard/hooks/useStoryboardKeyboard';
@@ -28,6 +35,8 @@ import { storyboardHistoryStore, initHistoryStore, destroyHistoryStore } from '@
 import { setSelectedBlock, useStoryboardStore } from '@/features/storyboard/store/storyboard-store';
 import type { StoryboardSidebarTab, SceneBlockNodeData } from '@/features/storyboard/types';
 import { hasUnresolvedStep3Music } from '@/features/storyboard/utils/storyboardMusicStep3Gate';
+import { CheckpointCaptureOverlay } from './CheckpointCaptureOverlay';
+import { CheckpointCountdownBar } from './CheckpointCountdownBar';
 import { MusicBlockModal } from './MusicBlockModal';
 import { SceneModal } from './SceneModal';
 import { PrincipalImageApprovalModal } from './PrincipalImageApprovalModal';
@@ -130,17 +139,48 @@ export function StoryboardPage(): React.ReactElement {
     },
     [isGenerationBlocking, openModal, setActiveMusicBlockId],
   );
-  const { pushSnapshot } = useStoryboardHistoryPush(safeDraftId);
+  const { pushSnapshot, pushCheckpoint, inFlight } = useStoryboardHistoryPush(safeDraftId);
+
+  // ── Two-tier saving (storyboard-autosave-checkpoints) ─────────────────────────
+  // changeCounter feeds the checkpoint scheduler: it increments on every canvas
+  // change AFTER hydration. Programmatic seed restores are suppressed — they
+  // recover the latest checkpoint state, not a user change (AC-05).
+  const [changeCounter, setChangeCounter] = useState(0);
+  // Semantic content key (same comparable payload the autosave dedupes on) —
+  // node-identity churn from decoration effects must NOT count as a change.
+  const prevCanvasKeyRef = useRef<string | null>(null);
+  const suppressChangeCountRef = useRef(false);
+  useEffect(() => {
+    if (isLoading) return;
+    const key = stateKey(
+      comparableBlocks(nodes, safeDraftId),
+      comparableEdges(edges, safeDraftId),
+      musicBlocksForSave(nodes),
+    );
+    const prev = prevCanvasKeyRef.current;
+    prevCanvasKeyRef.current = key;
+    if (prev === null || prev === key) return; // hydration / no-op identity churn
+    if (suppressChangeCountRef.current) {
+      suppressChangeCountRef.current = false;
+      return;
+    }
+    setChangeCounter((c) => c + 1);
+  }, [nodes, edges, isLoading, safeDraftId]);
+
+  // Drag/typing signal for the AC-03b deferral: node drags + open inspectors.
+  const [isDraggingNode, setIsDraggingNode] = useState(false);
+
+  // After an add/knife/connect mutation: in-memory undo entry only (AC-02 —
+  // the per-change path never creates a server History entry).
   const handlePersistAddHistory = useCallback(
     async (nextNodes: Node[], nextEdges: FlowEdge[]): Promise<void> => {
       try {
-        await pushSnapshot(nextNodes, nextEdges, { persistImmediately: true });
-        await queryClient.invalidateQueries({ queryKey: ['storyboard-history', safeDraftId] });
+        await pushSnapshot(nextNodes, nextEdges);
       } catch (err: unknown) {
-        console.error('[StoryboardPage] Failed to persist add-block history:', err);
+        console.error('[StoryboardPage] Failed to push add-block undo entry:', err);
       }
     },
-    [pushSnapshot, queryClient, safeDraftId],
+    [pushSnapshot],
   );
   const { addBlock } = useAddBlock({
     nodes, edges, setNodes, draftId: safeDraftId, onRemoveNode: removeNode,
@@ -163,12 +203,49 @@ export function StoryboardPage(): React.ReactElement {
     setActiveMusicBlockId(musicBlock.id);
     setEditingMusicBlockId(musicBlock.id);
   }, [addMusicBlock, isGenerationBlocking, setActiveMusicBlockId]);
-  const { handleRestore } = useHandleRestore({ setNodes, setEdges, pushSnapshot, removeNode, saveNow });
+  // Scheduler (ADR-0002): owns the checkpoint cadence; the push client (T9)
+  // owns capture + POST + the in-flight guard.
+  const schedulerPushCheckpoint = useCallback(
+    (): Promise<boolean> => pushCheckpoint(nodes, edges),
+    [pushCheckpoint, nodes, edges],
+  );
+  const isInteracting =
+    isDraggingNode || editingBlock !== null || editingMusicBlock !== null;
+  const checkpointScheduler = useCheckpointScheduler({
+    changeCounter,
+    isInteracting,
+    inFlight,
+    pushCheckpoint: schedulerPushCheckpoint,
+  });
+
+  const { handleRestore } = useHandleRestore({
+    setNodes,
+    setEdges,
+    pushSnapshot,
+    removeNode,
+    saveNow,
+    // AC-12: a manual restore with newer changes checkpoints the current state first.
+    pushPreRestoreCheckpoint: pushCheckpoint,
+    hasChangesSinceLastCheckpoint: () => !checkpointScheduler.idle,
+    getCurrentCanvas: () => ({ nodes, edges }),
+  });
+  const handleSeedRestore = useCallback(
+    (
+      restoredNodes: Node[],
+      restoredEdges: FlowEdge[],
+      options?: { skipSave?: boolean; skipSnapshot?: boolean },
+    ): void => {
+      // The seed recovers the latest checkpoint state — not a user change.
+      suppressChangeCountRef.current = true;
+      void handleRestore(restoredNodes, restoredEdges, options);
+    },
+    [handleRestore],
+  );
   useStoryboardHistorySeed({
     draftId: safeDraftId,
     currentNodes: nodes,
     canvasIsLoading: isLoading,
-    handleRestore,
+    handleRestore: handleSeedRestore,
   });
   useStoryboardKeyboard({
     nodes,
@@ -176,7 +253,7 @@ export function StoryboardPage(): React.ReactElement {
     historyStore: storyboardHistoryStore,
     enabled: !isGenerationBlocking,
     onApplyHistorySnapshot: ({ nodes: restoredNodes, edges: restoredEdges, musicBlocks }) => {
-      handleRestore(restoredNodes, restoredEdges, {
+      void handleRestore(restoredNodes, restoredEdges, {
         skipSnapshot: true,
         deferSave: true,
         musicBlocks,
@@ -186,6 +263,21 @@ export function StoryboardPage(): React.ReactElement {
 
   const { syncRefs, handleNodeDragStart, handleNodeDrag, handleNodeDragStop } =
     useStoryboardDrag({ setNodes, setEdges, pushSnapshot, saveNow });
+  // Wrap drag start/stop to feed the AC-03b interaction signal.
+  const handleNodeDragStartWithSignal: typeof handleNodeDragStart = useCallback(
+    (...args) => {
+      setIsDraggingNode(true);
+      handleNodeDragStart(...args);
+    },
+    [handleNodeDragStart],
+  );
+  const handleNodeDragStopWithSignal: typeof handleNodeDragStop = useCallback(
+    (...args) => {
+      setIsDraggingNode(false);
+      handleNodeDragStop(...args);
+    },
+    [handleNodeDragStop],
+  );
   useEffect(() => {
     syncRefs(nodes, edges);
   }, [nodes, edges, syncRefs]);
@@ -246,6 +338,15 @@ export function StoryboardPage(): React.ReactElement {
           isHistoryOpen={isHistoryOpen}
           onHistoryToggle={() => setIsHistoryOpen((v) => !v)}
           onNavigateHome={() => { navigate('/'); }}
+          checkpointBar={
+            <CheckpointCountdownBar
+              idle={checkpointScheduler.idle}
+              remainingMs={checkpointScheduler.remainingMs}
+              canSaveNow={checkpointScheduler.canSaveNow}
+              inFlight={inFlight}
+              onSaveNow={() => void checkpointScheduler.triggerManualSave()}
+            />
+          }
         />
         <StoryboardPageWorkspace
           activeTab={activeTab} setActiveTab={setActiveTab} draftId={safeDraftId}
@@ -253,7 +354,7 @@ export function StoryboardPage(): React.ReactElement {
           isLoading={isLoading} error={error} nodes={nodes} edges={edges}
           nodeTypes={STORYBOARD_NODE_TYPES} onNodesChange={handleNodesChange} onEdgesChange={handleEdgesChange}
           onConnect={handleConnect} isValidConnection={isValidConnection}
-          onNodeDragStart={handleNodeDragStart} onNodeDrag={handleNodeDrag} onNodeDragStop={handleNodeDragStop}
+          onNodeDragStart={handleNodeDragStartWithSignal} onNodeDrag={handleNodeDrag} onNodeDragStop={handleNodeDragStopWithSignal}
           onAddBlock={handleAddBlock} onAddMusicBlock={handleAddMusicBlock}
           canAddMusicBlock={canAddMusicBlock} onNodeClick={handleNodeClick}
           isKnifeActive={isKnifeActive} onCutEdge={cutEdge} isHistoryOpen={isHistoryOpen}
@@ -300,6 +401,9 @@ export function StoryboardPage(): React.ReactElement {
         )}
 
         {step3Modal}
+
+        {/* Full-screen loader for the checkpoint capture moment (AC-03). */}
+        <CheckpointCaptureOverlay visible={inFlight} />
       </StoryboardBulkStreamUrlProvider>
     </div>
   );

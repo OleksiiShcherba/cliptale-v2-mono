@@ -3,15 +3,19 @@
  *
  * Covers:
  * - applySnapshot behavior: sentinel nodes set to draggable during undo
- * - CanvasSnapshot accepts optional thumbnail field (ST2)
- * - StoryboardHistoryPayload with thumbnail is forwarded to persistHistorySnapshot (ST2)
+ * - CanvasSnapshot accepts optional thumbnail/music fields and the stack is
+ *   purely in-memory — push never persists to the server (AC-02, T14)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock the api module before importing the store so persistHistorySnapshot is never called.
+const { mockPersistHistorySnapshot } = vi.hoisted(() => ({
+  mockPersistHistorySnapshot: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../api', () => ({
-  persistHistorySnapshot: vi.fn().mockResolvedValue(undefined),
+  persistHistorySnapshot: mockPersistHistorySnapshot,
 }));
 
 // Mock the storyboard-store so applySnapshot does not throw when there are no nodes.
@@ -31,7 +35,6 @@ import {
 } from './storyboard-history-store';
 import type { CanvasSnapshot } from './storyboard-history-store';
 import type { StoryboardHistoryPayload } from '../api';
-import { persistHistorySnapshot } from '../api';
 import { setNodes } from './storyboard-store';
 
 const MUSIC_BLOCK = {
@@ -183,7 +186,7 @@ describe('CanvasSnapshot thumbnail field (ST2)', () => {
     expect(getHistorySize()).toBe(1);
   });
 
-  it('forwards thumbnail to persistHistorySnapshot payload when present', async () => {
+  it('accepts a thumbnail field and never persists it to the server (AC-02)', async () => {
     const thumbnail = 'data:image/jpeg;base64,/9j/4AAQSkZJRgAB';
     const snapWithThumb: CanvasSnapshot = {
       blocks: [],
@@ -192,17 +195,13 @@ describe('CanvasSnapshot thumbnail field (ST2)', () => {
     };
 
     push(snapWithThumb);
-    await vi.advanceTimersByTimeAsync(1001);
+    await vi.advanceTimersByTimeAsync(10_000);
 
-    expect(vi.mocked(persistHistorySnapshot)).toHaveBeenCalledTimes(1);
-    const [, calledPayload] = vi.mocked(persistHistorySnapshot).mock.calls[0] as [
-      string,
-      StoryboardHistoryPayload,
-    ];
-    expect(calledPayload.thumbnail).toBe(thumbnail);
+    expect(getHistorySize()).toBe(1);
+    expect(mockPersistHistorySnapshot).not.toHaveBeenCalled();
   });
 
-  it('forwards music blocks to persistHistorySnapshot payload when present', async () => {
+  it('keeps music blocks on the in-memory stack without a server call (AC-02)', async () => {
     const snapWithMusic: CanvasSnapshot = {
       blocks: [],
       edges: [],
@@ -210,13 +209,10 @@ describe('CanvasSnapshot thumbnail field (ST2)', () => {
     };
 
     push(snapWithMusic);
-    await vi.advanceTimersByTimeAsync(1001);
+    await vi.advanceTimersByTimeAsync(10_000);
 
-    const [, calledPayload] = vi.mocked(persistHistorySnapshot).mock.calls[0] as [
-      string,
-      StoryboardHistoryPayload,
-    ];
-    expect(calledPayload.musicBlocks?.[0]?.name).toBe('Opening music');
+    expect(getHistorySize()).toBe(1);
+    expect(mockPersistHistorySnapshot).not.toHaveBeenCalled();
   });
 
   it('returns snapshot music blocks when undo applies a snapshot', () => {
@@ -239,20 +235,16 @@ describe('CanvasSnapshot thumbnail field (ST2)', () => {
     expect(applied?.musicBlocks).toEqual([MUSIC_BLOCK]);
   });
 
-  it('omits thumbnail from persistHistorySnapshot payload when absent', async () => {
+  it('a thumbnail-less snapshot also stays purely in memory (AC-02)', async () => {
     const snapNoThumb: CanvasSnapshot = {
       blocks: [],
       edges: [],
     };
 
     push(snapNoThumb);
-    await vi.advanceTimersByTimeAsync(1001);
+    await vi.advanceTimersByTimeAsync(10_000);
 
-    expect(vi.mocked(persistHistorySnapshot)).toHaveBeenCalledTimes(1);
-    const [, calledPayload] = vi.mocked(persistHistorySnapshot).mock.calls[0] as [
-      string,
-      StoryboardHistoryPayload,
-    ];
-    expect(calledPayload.thumbnail).toBeUndefined();
+    expect(getHistorySize()).toBe(1);
+    expect(mockPersistHistorySnapshot).not.toHaveBeenCalled();
   });
 });

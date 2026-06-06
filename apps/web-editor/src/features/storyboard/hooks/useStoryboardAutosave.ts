@@ -48,12 +48,18 @@ import {
 /** Autosave debounce window in ms. */
 const AUTOSAVE_DEBOUNCE_MS = 5_000;
 
+/**
+ * Delay before an automatic retry of a FAILED save (AC-01b): the hook keeps
+ * retrying without user edits until the save succeeds; editing is never blocked.
+ */
+export const AUTOSAVE_RETRY_MS = 5_000;
+
 /** Label refresh interval — used to age "Saved X ago" labels. */
 const LABEL_REFRESH_INTERVAL_MS = 30_000;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-export type AutosaveStatus = 'idle' | 'saving' | 'saved';
+export type AutosaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 export type UseStoryboardAutosaveResult = {
   /** Human-readable autosave indicator text for the top-bar. */
@@ -96,6 +102,10 @@ export function useStoryboardAutosave(
   const [, setLabelTick] = useState(0);
 
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Auto-retry timer armed after a failed save (AC-01b).
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Music override of the failed save, replayed verbatim by the retry.
+  const retryOverrideRef = useRef<StoryboardMusicSaveOverride>({});
   const isSavingRef = useRef(false);
   const pendingSaveRef = useRef(false);
   const pendingMusicBlocksRef = useRef<StoryboardSavePayload['musicBlocks'] | undefined>(
@@ -159,6 +169,12 @@ export function useStoryboardAutosave(
       isSavingRef.current = true;
       setStatus('saving');
 
+      // A fresh attempt supersedes any armed retry.
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+
       // Build a StoryboardState from the current React Flow state.
       const stateToSave: StoryboardSavePayload = {
         blocks: blocksToSave,
@@ -174,7 +190,15 @@ export function useStoryboardAutosave(
         setStatus('saved');
       } catch (err: unknown) {
         console.error('[useStoryboardAutosave] Save failed:', err);
-        setStatus('idle');
+        // AC-01b: surface the failure visibly and auto-retry without user
+        // edits until success. Editing stays unblocked — the retry re-reads
+        // the latest nodes/edges refs when it fires.
+        setStatus('error');
+        retryOverrideRef.current = override;
+        retryTimerRef.current = setTimeout(() => {
+          retryTimerRef.current = null;
+          void performSave(retryOverrideRef.current);
+        }, AUTOSAVE_RETRY_MS);
       } finally {
         isSavingRef.current = false;
         if (pendingSaveRef.current) {
@@ -277,11 +301,24 @@ export function useStoryboardAutosave(
     return () => clearInterval(interval);
   }, []);
 
+  // ── Retry timer cleanup on unmount ────────────────────────────────────────────
+
+  useEffect(() => {
+    return () => {
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    };
+  }, []);
+
   // ── Derived label ─────────────────────────────────────────────────────────────
 
   let saveLabel: string;
   if (status === 'saving') {
     saveLabel = 'Saving…';
+  } else if (status === 'error') {
+    saveLabel = 'Not saved — retrying…';
   } else if (status === 'saved' && lastSavedAt !== null) {
     const elapsedSeconds = Math.floor((Date.now() - lastSavedAt.getTime()) / 1000);
     saveLabel = `Saved ${formatElapsed(elapsedSeconds)}`;

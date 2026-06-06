@@ -1,12 +1,15 @@
-/** Undo/redo stack plus debounced server history persistence for storyboard canvas snapshots. */
+/**
+ * In-memory undo/redo stack for storyboard canvas snapshots.
+ *
+ * Server persistence was REMOVED here (storyboard-autosave-checkpoints T14,
+ * AC-02): the lightweight per-change path never creates History entries.
+ * History entries are now pushed ONLY by the checkpoint scheduler / manual
+ * Save / pre-restore checkpoint via the checkpoint push client (T9).
+ */
 
 import type { Node, Edge } from '@xyflow/react';
 
-import { persistHistorySnapshot } from '@/features/storyboard/api';
-import type {
-  StoryboardHistorySnapshot,
-  StoryboardHistoryPayload,
-} from '@/features/storyboard/api';
+import type { StoryboardHistorySnapshot } from '@/features/storyboard/api';
 import { BORDER } from '@/features/storyboard/components/nodeStyles';
 import type { StoryboardState } from '@/features/storyboard/types';
 import {
@@ -20,8 +23,6 @@ import type { AppliedCanvasSnapshot, CanvasSnapshot } from './storyboard-history
 export type { AppliedCanvasSnapshot, CanvasSnapshot } from './storyboard-history-types';
 
 export const MAX_HISTORY_SIZE = 50;
-
-const SERVER_PERSIST_DEBOUNCE_MS = 1000;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -40,41 +41,6 @@ let stack: CanvasSnapshot[] = [];
 /** Points to the snapshot that currently represents the canvas state. */
 let cursor = -1;
 
-let draftId = '';
-
-let persistTimerHandle: ReturnType<typeof setTimeout> | null = null;
-
-// ── Internal helpers ───────────────────────────────────────────────────────────
-
-/**
- * Schedules a fire-and-forget POST to the server.
- * Debounced at SERVER_PERSIST_DEBOUNCE_MS to coalesce rapid mutations.
- */
-function persistSnapshot(id: string, snapshot: CanvasSnapshot): Promise<void> {
-  const payload: StoryboardHistoryPayload = {
-    blocks: snapshot.blocks,
-    edges: snapshot.edges,
-    ...(snapshot.musicBlocks !== undefined && { musicBlocks: snapshot.musicBlocks }),
-    ...(snapshot.thumbnail !== undefined && { thumbnail: snapshot.thumbnail }),
-  };
-
-  return persistHistorySnapshot(id, payload);
-}
-
-function schedulePersist(snapshot: CanvasSnapshot): void {
-  if (!draftId) return;
-
-  if (persistTimerHandle !== null) {
-    clearTimeout(persistTimerHandle);
-  }
-
-  persistTimerHandle = setTimeout(() => {
-    persistSnapshot(draftId, snapshot).catch((err: unknown) => {
-      console.error('[storyboard-history-store] Failed to persist snapshot:', err);
-    });
-    persistTimerHandle = null;
-  }, SERVER_PERSIST_DEBOUNCE_MS);
-}
 
 /**
  * Restores the canvas to the snapshot at `cursor`.
@@ -141,14 +107,9 @@ function applySnapshot(snapshot: CanvasSnapshot): AppliedCanvasSnapshot {
  * Initialises the history store for a specific draft.
  * Must be called on page mount before any `push` calls.
  */
-export function initHistoryStore(id: string): void {
-  draftId = id;
+export function initHistoryStore(_id: string): void {
   stack = [];
   cursor = -1;
-  if (persistTimerHandle !== null) {
-    clearTimeout(persistTimerHandle);
-    persistTimerHandle = null;
-  }
 }
 
 /**
@@ -156,13 +117,8 @@ export function initHistoryStore(id: string): void {
  * Call on page unmount.
  */
 export function destroyHistoryStore(): void {
-  if (persistTimerHandle !== null) {
-    clearTimeout(persistTimerHandle);
-    persistTimerHandle = null;
-  }
   stack = [];
   cursor = -1;
-  draftId = '';
 }
 
 /**
@@ -206,17 +162,15 @@ export function getHistoryCursor(): number {
 }
 
 /**
- * Pushes a new canvas snapshot onto the history stack.
+ * Pushes a new canvas snapshot onto the IN-MEMORY undo stack.
  *
  * - If cursor is not at the top (user undid then mutated), the forward history
  *   is discarded first.
  * - The stack is capped at MAX_HISTORY_SIZE; oldest is dropped when exceeded.
- * - Schedules a debounced server persistence call.
+ * - Never touches the server (AC-02): History entries are created only by the
+ *   checkpoint push client.
  */
-export async function push(
-  snapshot: CanvasSnapshot,
-  options: { persistImmediately?: boolean } = {},
-): Promise<void> {
+export async function push(snapshot: CanvasSnapshot): Promise<void> {
   // Discard redo history after a new mutation.
   if (cursor < stack.length - 1) {
     stack = stack.slice(0, cursor + 1);
@@ -230,19 +184,6 @@ export async function push(
   }
 
   cursor = stack.length - 1;
-
-  if (options.persistImmediately) {
-    if (persistTimerHandle !== null) {
-      clearTimeout(persistTimerHandle);
-      persistTimerHandle = null;
-    }
-    if (draftId) {
-      await persistSnapshot(draftId, snapshot);
-    }
-    return;
-  }
-
-  schedulePersist(snapshot);
 }
 
 /**

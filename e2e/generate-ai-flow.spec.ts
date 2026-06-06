@@ -554,8 +554,8 @@ test.describe('generate-ai-flow — full journey (AC-01, AC-08b, AC-10, AC-10b)'
 
   test('two-tab save conflict: the second save is rejected with a reload warning (AC-10b)', async ({ browser }) => {
     // Tab A and Tab B open the SAME flow at version 1.
-    const ctxA = await browser.newContext({ storageState: 'test-results/e2e-auth-state.json' });
-    const ctxB = await browser.newContext({ storageState: 'test-results/e2e-auth-state.json' });
+    const ctxA = await browser.newContext({ storageState: '.e2e-cache/e2e-auth-state.json' });
+    const ctxB = await browser.newContext({ storageState: '.e2e-cache/e2e-auth-state.json' });
     const pageA = await ctxA.newPage();
     const pageB = await ctxB.newPage();
 

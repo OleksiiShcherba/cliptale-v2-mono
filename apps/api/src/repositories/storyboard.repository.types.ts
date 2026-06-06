@@ -44,11 +44,17 @@ export type StoryboardEdge = {
   targetBlockId: string;
 };
 
-/** A single history snapshot row. */
+/** A single checkpoint history entry (the list is pre-filtered to origin=checkpoint). */
 export type StoryboardHistoryEntry = {
   id: number;
   draftId: string;
   snapshot: unknown;
+  /**
+   * 'screenshot' = snapshot carries an inline layout capture; 'minimap' = SVG
+   * fallback after capture failure (AC-04). Null only for rows written before
+   * the checkpoint feature — those are origin=legacy and never listed.
+   */
+  previewKind: 'screenshot' | 'minimap' | null;
   createdAt: Date;
 };
 
@@ -113,6 +119,7 @@ export type HistoryRow = RowDataPacket & {
   id: number;
   draft_id: string;
   snapshot: unknown;
+  preview_kind: 'screenshot' | 'minimap' | null;
   created_at: Date;
 };
 
@@ -154,6 +161,7 @@ export function mapHistoryRow(row: HistoryRow): StoryboardHistoryEntry {
       typeof row.snapshot === 'string'
         ? (JSON.parse(row.snapshot) as unknown)
         : row.snapshot,
+    previewKind: row.preview_kind,
     createdAt: row.created_at,
   };
 }

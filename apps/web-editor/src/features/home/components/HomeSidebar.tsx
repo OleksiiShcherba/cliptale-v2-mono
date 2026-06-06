@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import type { HomeTab } from '../types';
 
@@ -26,6 +27,7 @@ const NAV_ITEMS: Array<{ id: HomeTab; label: string }> = [
  * Active tab uses `primary-light` background per design-guide §3.
  */
 export function HomeSidebar({ activeTab, onTabChange }: HomeSidebarProps): React.ReactElement {
+  const navigate = useNavigate();
   return (
     <nav
       aria-label="Home navigation"
@@ -101,6 +103,31 @@ export function HomeSidebar({ activeTab, onTabChange }: HomeSidebarProps): React
           );
         })}
       </ul>
+
+      {/* Settings — a route link, not an in-page tab (storyboard-autosave-checkpoints, AC-09). */}
+      <div style={{ marginTop: 'auto', padding: '8px 8px 0', borderTop: `1px solid ${BORDER}` }}>
+        <button
+          onClick={() => navigate('/settings')}
+          style={{
+            display: 'block',
+            width: '100%',
+            textAlign: 'left',
+            padding: '8px 12px',
+            fontSize: 14,
+            fontWeight: 400,
+            fontFamily: 'Inter, sans-serif',
+            color: TEXT_SECONDARY,
+            background: 'transparent',
+            border: 'none',
+            borderRadius: 8,
+            cursor: 'pointer',
+            lineHeight: '20px',
+            transition: 'background 0.15s, color 0.15s',
+          }}
+        >
+          Settings
+        </button>
+      </div>
     </nav>
   );
 }

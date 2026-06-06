@@ -16,6 +16,7 @@ import { HomePage } from '@/features/home/components/HomePage';
 import { TrashPanel } from '@/features/trash/TrashPanel';
 import { StoryboardPage } from '@/features/storyboard/components/StoryboardPage';
 import { FlowEditorPage } from '@/features/generate-ai-flow/components/FlowEditorPage';
+import { SettingsPage } from '@/features/settings/components/SettingsPage';
 
 // ---------------------------------------------------------------------------
 // Global CSS reset — applied programmatically so no separate CSS file is needed.
@@ -111,6 +112,14 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <TrashPanel />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/settings',
+    element: (
+      <ProtectedRoute>
+        <SettingsPage />
       </ProtectedRoute>
     ),
   },

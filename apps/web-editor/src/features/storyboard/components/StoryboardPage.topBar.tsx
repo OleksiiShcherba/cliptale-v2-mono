@@ -27,6 +27,11 @@ export interface StoryboardTopBarProps {
   onHistoryToggle: () => void;
   /** Called when the user clicks the Home button — navigates back to the home hub. */
   onNavigateHome: () => void;
+  /**
+   * The checkpoint countdown bar (storyboard-autosave-checkpoints, AC-06) —
+   * rendered top-right next to the lightweight autosave indicator.
+   */
+  checkpointBar?: React.ReactNode;
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
@@ -79,6 +84,7 @@ export function StoryboardTopBar({
   isHistoryOpen,
   onHistoryToggle,
   onNavigateHome,
+  checkpointBar,
 }: StoryboardTopBarProps): React.ReactElement {
   return (
     <header style={s.topBar}>
@@ -107,10 +113,18 @@ export function StoryboardTopBar({
         <WizardStepper currentStep={2} />
       </div>
       <div style={s.topBarRight}>
+        {checkpointBar}
         <span
-          style={s.autosaveIndicator}
+          // AC-01b: a failed lightweight save must be VISIBLE — the error label
+          // gets a danger tint on top of the regular indicator style.
+          style={
+            saveLabel.startsWith('Not saved')
+              ? { ...s.autosaveIndicator, color: '#F87171' }
+              : s.autosaveIndicator
+          }
           aria-label="Autosave status"
           data-testid="autosave-indicator"
+          data-save-error={saveLabel.startsWith('Not saved') ? 'true' : undefined}
         >
           {saveLabel}
         </span>

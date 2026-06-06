@@ -38,7 +38,7 @@ import { AUTH_TOKEN_LOCAL_STORAGE_KEY } from './helpers/auth';
  * This is the same token the FE injects into every apiClient request.
  */
 async function readBearerToken(): Promise<string> {
-  const statePath = path.resolve(__dirname, '../test-results/e2e-auth-state.json');
+  const statePath = path.resolve(__dirname, '../.e2e-cache/e2e-auth-state.json');
   const raw = await fs.readFile(statePath, 'utf-8');
   const state = JSON.parse(raw) as {
     origins?: Array<{ localStorage?: Array<{ name: string; value: string }> }>;
@@ -180,7 +180,7 @@ test.describe('Storyboard history endpoint — regression guard (ER_WRONG_ARGUME
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          data: { snapshot: { blocks: [], edges: [] } },
+          data: { snapshot: { blocks: [], edges: [] }, previewKind: 'minimap' },
         },
       );
 
@@ -224,7 +224,7 @@ test.describe('Storyboard history endpoint — regression guard (ER_WRONG_ARGUME
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          data: { snapshot: testSnapshot },
+          data: { snapshot: testSnapshot, previewKind: 'screenshot' },
         },
       );
       expect(postRes.status(), 'POST /history must return 201').toBe(201);
@@ -311,6 +311,7 @@ test.describe('Storyboard history endpoint — regression guard (ER_WRONG_ARGUME
               edges: [],
               thumbnail: minimalJpegDataUrl,
             },
+            previewKind: 'screenshot',
           },
         },
       );
@@ -398,7 +399,7 @@ test.describe('Storyboard history endpoint — regression guard (ER_WRONG_ARGUME
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          data: { snapshot: { blocks: [], edges: [] } },
+          data: { snapshot: { blocks: [], edges: [] }, previewKind: 'minimap' },
         },
       );
       expect(

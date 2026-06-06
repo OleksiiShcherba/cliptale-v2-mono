@@ -14,7 +14,7 @@ import * as path from 'node:path';
 
 export const E2E_CONTEXT_PATH = path.resolve(
   __dirname,
-  '../../test-results/e2e-context.json',
+  '../../.e2e-cache/e2e-context.json',
 );
 
 export interface E2eContext {

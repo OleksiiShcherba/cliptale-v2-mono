@@ -19,3 +19,4 @@ test-results/
 # SDD per-developer settings + worktrees (local only)
 .claude/*.local.md
 .worktrees/
+.e2e-cache/

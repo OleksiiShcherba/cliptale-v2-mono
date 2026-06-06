@@ -1,14 +1,15 @@
 /**
- * Tests for useStoryboardHistoryPush.
+ * Tests for useStoryboardHistoryPush (two-tier saving, storyboard-autosave-checkpoints).
  *
  * Covers:
- * 1. Calls captureCanvasThumbnail() before pushing the snapshot.
- * 2. Includes thumbnail in the push() call when captureCanvasThumbnail returns a data URL.
- * 3. Pushes snapshot without thumbnail (no throw) when captureCanvasThumbnail returns null.
+ * 1-3. pushSnapshot is an IN-MEMORY undo push only (AC-02): no capture, no
+ *      history-cache writes, no server call.
  * 4. Builds blocks correctly from scene-block nodes.
  * 5. Builds sentinel blocks from start/end nodes with correct shape.
  * 6. Builds edge list with draftId, sourceBlockId, targetBlockId.
- * 7. Returns a stable pushSnapshot reference when draftId is unchanged.
+ * 7-8. Positions captured; stable references.
+ * 9+. pushCheckpoint — the checkpoint push client (capture + ONE POST,
+ *     retry, inFlight guard, cache invalidation).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -18,12 +19,24 @@ import type { Node, Edge } from '@xyflow/react';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────────
 
-const { mockCaptureCanvasThumbnail, mockSetQueryData, mockQueryClient } = vi.hoisted(() => {
+const {
+  mockCaptureCanvasThumbnail,
+  mockCaptureWithFallback,
+  mockSetQueryData,
+  mockInvalidateQueries,
+  mockQueryClient,
+} = vi.hoisted(() => {
   const setQueryData = vi.fn();
+  const invalidateQueries = vi.fn();
   return {
     mockCaptureCanvasThumbnail: vi.fn<[], Promise<string | null>>(),
+    mockCaptureWithFallback: vi.fn<
+      [],
+      Promise<{ kind: 'screenshot'; dataUrl: string } | { kind: 'minimap' }>
+    >(),
     mockSetQueryData: setQueryData,
-    mockQueryClient: { setQueryData },
+    mockInvalidateQueries: invalidateQueries,
+    mockQueryClient: { setQueryData, invalidateQueries },
   };
 });
 
@@ -33,6 +46,8 @@ vi.mock('@tanstack/react-query', () => ({
 
 vi.mock('../utils/captureCanvasThumbnail', () => ({
   captureCanvasThumbnail: mockCaptureCanvasThumbnail,
+  captureCanvasThumbnailWithFallback: mockCaptureWithFallback,
+  CAPTURE_TIMEOUT_MS: 5_000,
 }));
 
 const { mockPush } = vi.hoisted(() => ({
@@ -41,6 +56,19 @@ const { mockPush } = vi.hoisted(() => ({
 
 vi.mock('../store/storyboard-history-store', () => ({
   push: mockPush,
+}));
+
+const { mockPushCheckpointSnapshot } = vi.hoisted(() => ({
+  mockPushCheckpointSnapshot: vi.fn<
+    [string, { thumbnail?: string }, string],
+    Promise<void>
+  >(),
+}));
+
+// Full module mock — the hook only needs pushCheckpointSnapshot at runtime
+// (its other imports from the api module are type-only and erased).
+vi.mock('../api', () => ({
+  pushCheckpointSnapshot: mockPushCheckpointSnapshot,
 }));
 
 import { useStoryboardHistoryPush } from './useStoryboardHistoryPush';
@@ -109,125 +137,46 @@ beforeEach(() => {
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
-describe('useStoryboardHistoryPush — thumbnail capture', () => {
-  it('(1) calls captureCanvasThumbnail() before calling push()', async () => {
-    const callOrder: string[] = [];
-    mockCaptureCanvasThumbnail.mockImplementation(async () => {
-      callOrder.push('captureCanvasThumbnail');
-      return 'data:image/jpeg;base64,abc';
-    });
-    mockPush.mockImplementation(() => {
-      callOrder.push('push');
+describe('useStoryboardHistoryPush — per-change undo push (AC-02)', () => {
+  it('(1) pushes the built snapshot onto the in-memory undo stack', async () => {
+    const sceneNode = makeSceneNode('scene-1');
+    const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
+
+    await act(async () => {
+      await result.current.pushSnapshot([sceneNode], []);
     });
 
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    const snapshotArg = mockPush.mock.calls[0][0] as {
+      blocks: Array<{ id: string }>;
+      thumbnail?: string;
+    };
+    expect(snapshotArg.blocks[0]).toMatchObject({ id: 'scene-1', blockType: 'scene' });
+    // No capture on the lightweight path — the snapshot never carries a thumbnail.
+    expect('thumbnail' in snapshotArg).toBe(false);
+  });
+
+  it('(2) never captures a screenshot on the per-change path', async () => {
     const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
 
     await act(async () => {
       await result.current.pushSnapshot([], []);
     });
 
-    expect(callOrder).toEqual(['captureCanvasThumbnail', 'push']);
+    expect(mockCaptureCanvasThumbnail).not.toHaveBeenCalled();
+    expect(mockCaptureWithFallback).not.toHaveBeenCalled();
   });
 
-  it('(2) includes thumbnail in push() when captureCanvasThumbnail returns a data URL', async () => {
-    const thumbnailDataUrl = 'data:image/jpeg;base64,xyz123';
-    mockCaptureCanvasThumbnail.mockResolvedValue(thumbnailDataUrl);
-
-    const sceneNode = makeSceneNode('scene-1');
+  it('(3) never touches the history query cache (server checkpoints only)', async () => {
     const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
 
     await act(async () => {
-      await result.current.pushSnapshot([sceneNode], []);
+      await result.current.pushSnapshot([makeSceneNode('scene-1')], []);
     });
 
-    expect(mockPush).toHaveBeenCalledTimes(1);
-    const snapshotArg = mockPush.mock.calls[0][0] as { thumbnail?: string };
-    expect(snapshotArg.thumbnail).toBe(thumbnailDataUrl);
+    expect(mockSetQueryData).not.toHaveBeenCalled();
+    expect(mockPushCheckpointSnapshot).not.toHaveBeenCalled();
   });
-
-  it('(3) pushes snapshot without thumbnail when captureCanvasThumbnail returns null', async () => {
-    mockCaptureCanvasThumbnail.mockResolvedValue(null);
-
-    const sceneNode = makeSceneNode('scene-1');
-    const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
-
-    await act(async () => {
-      await result.current.pushSnapshot([sceneNode], []);
-    });
-
-    // push() must be called even when thumbnail is null.
-    expect(mockPush).toHaveBeenCalledTimes(1);
-    const snapshotArg = mockPush.mock.calls[0][0] as { thumbnail?: string };
-    // thumbnail should be absent from the snapshot — not undefined explicitly, just missing.
-    expect('thumbnail' in snapshotArg).toBe(false);
-  });
-
-  it('(3b) does not throw when captureCanvasThumbnail returns null', async () => {
-    mockCaptureCanvasThumbnail.mockResolvedValue(null);
-
-    const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
-
-    await expect(
-      act(async () => {
-        await result.current.pushSnapshot([], []);
-      }),
-    ).resolves.not.toThrow();
-  });
-
-  it('(3c) adds the pushed snapshot to the storyboard history query cache immediately', async () => {
-    mockCaptureCanvasThumbnail.mockResolvedValue('data:image/jpeg;base64,abc');
-    const sceneNode = makeSceneNode('scene-1');
-    const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
-
-    await act(async () => {
-      await result.current.pushSnapshot([sceneNode], []);
-    });
-
-    expect(mockSetQueryData).toHaveBeenCalledTimes(2);
-    const [queryKey, updater] = mockSetQueryData.mock.calls[0] as [
-      unknown[],
-      (entries?: unknown[]) => unknown[],
-    ];
-    expect(queryKey).toEqual(['storyboard-history', DRAFT_ID]);
-
-    const nextEntries = updater([]);
-    expect(nextEntries).toHaveLength(1);
-    expect(nextEntries[0]).toMatchObject({
-      snapshot: {
-        blocks: [expect.objectContaining({ id: 'scene-1', blockType: 'scene' })],
-      },
-    });
-    expect(nextEntries[0]).not.toMatchObject({
-      snapshot: { thumbnail: expect.any(String) },
-    });
-  });
-
-  it('(3d) updates the optimistic cache entry with the thumbnail after capture', async () => {
-    mockCaptureCanvasThumbnail.mockResolvedValue('data:image/jpeg;base64,abc');
-    const sceneNode = makeSceneNode('scene-1');
-    const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
-
-    await act(async () => {
-      await result.current.pushSnapshot([sceneNode], []);
-    });
-
-    expect(mockSetQueryData).toHaveBeenCalledTimes(2);
-    const firstUpdater = mockSetQueryData.mock.calls[0][1] as (entries?: unknown[]) => Array<{
-      createdAt: string;
-      snapshot: unknown;
-    }>;
-    const secondUpdater = mockSetQueryData.mock.calls[1][1] as (entries?: unknown[]) => unknown[];
-    const optimisticEntries = firstUpdater([]);
-    const updatedEntries = secondUpdater(optimisticEntries) as Array<{
-      createdAt: string;
-      snapshot: { thumbnail?: string };
-    }>;
-
-    expect(updatedEntries).toHaveLength(1);
-    expect(updatedEntries[0].createdAt).toBe(optimisticEntries[0].createdAt);
-    expect(updatedEntries[0].snapshot.thumbnail).toBe('data:image/jpeg;base64,abc');
-  });
-
 });
 
 describe('useStoryboardHistoryPush — snapshot structure', () => {
@@ -320,5 +269,133 @@ describe('useStoryboardHistoryPush — stability', () => {
     const firstRef = result.current.pushSnapshot;
     rerender();
     expect(result.current.pushSnapshot).toBe(firstRef);
+  });
+});
+
+// ── Checkpoint push client (storyboard-autosave-checkpoints T9, AC-03 / AC-04) ──
+
+describe('useStoryboardHistoryPush — pushCheckpoint', () => {
+  it('successful capture → one POST with previewKind screenshot and dataUrl inside snapshot', async () => {
+    mockCaptureWithFallback.mockResolvedValue({
+      kind: 'screenshot',
+      dataUrl: 'data:image/jpeg;base64,shot',
+    });
+    mockPushCheckpointSnapshot.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.pushCheckpoint([makeSceneNode('s1')], []);
+    });
+
+    expect(ok).toBe(true);
+    expect(mockPushCheckpointSnapshot).toHaveBeenCalledTimes(1);
+    const [draftArg, snapshotArg, previewKindArg] =
+      mockPushCheckpointSnapshot.mock.calls[0] as [string, { thumbnail?: string }, string];
+    expect(draftArg).toBe(DRAFT_ID);
+    expect(previewKindArg).toBe('screenshot');
+    expect(snapshotArg.thumbnail).toBe('data:image/jpeg;base64,shot');
+  });
+
+  it('capture fallback → push still happens with previewKind minimap and no dataUrl (AC-04)', async () => {
+    mockCaptureWithFallback.mockResolvedValue({ kind: 'minimap' });
+    mockPushCheckpointSnapshot.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
+
+    await act(async () => {
+      await result.current.pushCheckpoint([makeSceneNode('s1')], []);
+    });
+
+    expect(mockPushCheckpointSnapshot).toHaveBeenCalledTimes(1);
+    const [, snapshotArg, previewKindArg] =
+      mockPushCheckpointSnapshot.mock.calls[0] as [string, { thumbnail?: string }, string];
+    expect(previewKindArg).toBe('minimap');
+    expect(snapshotArg.thumbnail).toBeUndefined();
+  });
+
+  it('POST failure → visible checkpointError; retryCheckpoint succeeds and clears it', async () => {
+    mockCaptureWithFallback.mockResolvedValue({ kind: 'minimap' });
+    mockPushCheckpointSnapshot.mockRejectedValueOnce(new Error('network down'));
+
+    const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.pushCheckpoint([], []);
+    });
+    expect(ok).toBe(false);
+    expect(result.current.checkpointError).toBe(true);
+
+    mockPushCheckpointSnapshot.mockResolvedValueOnce(undefined);
+    await act(async () => {
+      ok = await result.current.retryCheckpoint();
+    });
+    expect(ok).toBe(true);
+    expect(result.current.checkpointError).toBe(false);
+    // The retry re-sends the same failed body — capture runs once overall.
+    expect(mockCaptureWithFallback).toHaveBeenCalledTimes(1);
+    expect(mockPushCheckpointSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidates the history query key after a successful push', async () => {
+    mockCaptureWithFallback.mockResolvedValue({ kind: 'minimap' });
+    mockPushCheckpointSnapshot.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
+
+    await act(async () => {
+      await result.current.pushCheckpoint([], []);
+    });
+
+    expect(mockInvalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['storyboard-history', DRAFT_ID],
+    });
+  });
+
+  it('does NOT invalidate the history key on failure', async () => {
+    mockCaptureWithFallback.mockResolvedValue({ kind: 'minimap' });
+    mockPushCheckpointSnapshot.mockRejectedValue(new Error('boom'));
+
+    const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
+
+    await act(async () => {
+      await result.current.pushCheckpoint([], []);
+    });
+
+    expect(mockInvalidateQueries).not.toHaveBeenCalled();
+  });
+
+  it('inFlight is true during the push and false after; concurrent push is rejected', async () => {
+    let resolveCapture!: (r: { kind: 'minimap' }) => void;
+    mockCaptureWithFallback.mockImplementation(
+      () => new Promise((resolve) => { resolveCapture = resolve; }),
+    );
+    mockPushCheckpointSnapshot.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useStoryboardHistoryPush(DRAFT_ID));
+    expect(result.current.inFlight).toBe(false);
+
+    let pending!: Promise<boolean>;
+    act(() => {
+      pending = result.current.pushCheckpoint([], []);
+    });
+    expect(result.current.inFlight).toBe(true);
+
+    // A second push while in flight is refused (double-save guard source).
+    let second: boolean | undefined;
+    await act(async () => {
+      second = await result.current.pushCheckpoint([], []);
+    });
+    expect(second).toBe(false);
+    expect(mockCaptureWithFallback).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveCapture({ kind: 'minimap' });
+      await pending;
+    });
+    expect(result.current.inFlight).toBe(false);
+    expect(mockPushCheckpointSnapshot).toHaveBeenCalledTimes(1);
   });
 });
