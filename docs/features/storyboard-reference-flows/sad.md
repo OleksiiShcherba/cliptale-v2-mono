@@ -318,13 +318,18 @@ sequenceDiagram
 
 | Concept | Convention | Where defined |
 |---|---|---|
-| Logging | <e.g. structured, fields `module=<name>`> | <convention file §X or here> |
-| Authentication | <e.g. token-based via middleware> | <convention file §X> |
-| Error handling | <e.g. domain sentinel → ports error mapping → JSON> | <convention file §X> |
-| ID strategy | <e.g. sortable time-based ID in the app layer> | <convention file §X> |
-| Internationalisation | <e.g. N/A, single language> | — |
-| Observability | <e.g. tracing on the request boundary> | — |
-| Events | <module-specific patterns, if any> | <here> |
+| Logging | існуючий структурований лог api/worker; job-події в телеметрії черг | конвенції репо |
+| Authentication | існуючий token-middleware | `architecture-rules.md` |
+| Authorization | owner-scoped усюди: кожен запит фільтрується `userId`; відмова без розкриття існування (AC-13) | spec §6.1 + конвенція репо |
+| Error handling | типізовані error-класи → центральний handler → JSON | `apps/api/src/lib/errors.ts` |
+| ID strategy | UUID v4 `CHAR(36)` через `randomUUID()` | конвенція репо |
+| Validation | Zod у контролерах; **вихід LLM-екстракції обмежений Zod-схемою касту** — скрипт = data, не інструкції (spec §6.1) | here |
+| Realtime / events | існуючі Redis pub/sub → WS події, розширені типами цієї фічі (статуси екстракції, блоків, вікна) | `lib/realtime.ts` |
+| Rate limiting | існуючі per-Creator ліміти (генерація — sliding window; creation limits для ручних блоків, AC-11) — без змін | `flow-rate-limit.ts` |
+| Idempotency | `Idempotency-Key` на generate (існуючий) + атомарний claim наступного pending у вікні (ADR-0003) | here |
+| Concurrency | optimistic `version` для канвасів (існуючий); рядки курації — атомарні одно-стейтментні UPDATE (ADR-0009) | here |
+| User settings | `concurrencyLimit` у `user_settings.settings_json` (прецедент autosave-інтервалу, migration 050) | here |
+| Internationalisation | N/A — одна мова інтерфейсу (як у репо) | — |
 
 ## 9. Architecture decisions
 
