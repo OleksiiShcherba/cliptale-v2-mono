@@ -340,10 +340,19 @@ sequenceDiagram
 
 | # | Title | Status | Section |
 |---|---|---|---|
-| <NNNN> | <imperative — e.g. "Use a sliding-window counter for rate limiting"> | Accepted | §<N> |
-| <NNNN> | <imperative — e.g. "Co-locate the worker in the API process"> | Accepted | §<N> |
+| 0001 | Target the backend-service, web-frontend and worker surfaces | Accepted | §4 |
+| 0002 | Run cast extraction as a new job type on the storyboard-plan queue | Accepted | §4 |
+| 0003 | Drive the rolling window from DB state with a worker completion-hook | Accepted | §4 |
+| 0004 | Charge per run at start under the collective confirmation | Accepted | §4 |
+| 0005 | Store curation data in dedicated SQL tables, not canvas JSON | Accepted | §4 |
+| 0006 | Unlink reference blocks on draft duplication, re-validate links on checkpoint restore | Accepted | §4 |
+| 0007 | Derive the draft-global style description from starred results at scene-generation time | Accepted | §4 |
+| 0008 | Select scene references as each linked block's primary star, topped up to model capacity | Accepted | §4 |
+| 0009 | Store stars as curation rows referencing flow result files | Accepted | §5 |
+| 0010 | Derive the draft badge from the block→flow link, not a column on flows | Accepted | §5 |
+| 0011 | Enforce the star gate in the API service layer at generation start | Accepted | §5 |
 
-ADR files live under `docs/features/<slug>/adr/NNNN-<title>.md`.
+ADR files live under `docs/features/storyboard-reference-flows/adr/NNNN-<title>.md`.
 
 ## 10. Quality requirements
 
