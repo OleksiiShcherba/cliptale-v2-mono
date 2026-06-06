@@ -412,6 +412,18 @@ Each top-3 goal from §1 expanded into a full scenario:
 
 | Term | Meaning |
 |---|---|
-| <e.g. domain object A> | <its meaning in this domain> |
-| <e.g. domain object B> | <its meaning> |
-| <e.g. domain invariant name> | <the rule, in plain language> |
+| Reference block | блок на Video Road Map (off-chain, як music block), що представляє одного персонажа/оточення; лінк 1:1 на reference flow ([CONTEXT](./CONTEXT.md)) |
+| Reference flow | повноцінний Generation flow, авто-створений для одного запису касту одного драфта; у списку Generate AI — з draft badge ([CONTEXT](./CONTEXT.md)) |
+| Cast extraction | LLM-крок, що пропонує каст, призначення зображень і scene links зі скрипта; не платна генерація ([CONTEXT](./CONTEXT.md)) |
+| Cast confirmation | один колективний кост-confirm з агрегатною оцінкою, що авто-стартує перші генерації ([CONTEXT](./CONTEXT.md)) |
+| Cast size limit | доменний інваріант: ≤ **12** записів (персонажі + оточення) у пропозиції екстракції; ручні додавання не обмежує (§4, inline) |
+| Starred result / primary star | зірка = рядок курації про файл результату флоу (ADR-0009); primary — превʼю блока ([CONTEXT](./CONTEXT.md)) |
+| Star gate | правило готовності: повний набір сцен стартує лише коли кожен блок має ≥1 зірку; авторитетна перевірка в api (ADR-0011) ([CONTEXT](./CONTEXT.md)) |
+| Reference boundary | для сцени X кандидатами є тільки starred images блоків, лінкованих до X (ADR-0008) ([CONTEXT](./CONTEXT.md)) |
+| Scene link | індивідуальна (не діапазонна) асоціація блок↔сцена; рядок півот-таблиці (ADR-0005) ([CONTEXT](./CONTEXT.md)) |
+| Rolling window | механізм авто-старту перших генерацій: ≤ N одночасно (N з `user_settings`, default 4), cast-порядок, наступна — по completion-hook (ADR-0003) |
+| Atomic claim | одно-стейтментне захоплення наступного pending-рядка вікна воркером — захист від подвійного enqueue (ADR-0003) |
+| No-flow state | стан блока без флоу (видалений/unlink-нутий): без превʼю і кандидатів, фейлить star gate ([CONTEXT](./CONTEXT.md)) |
+| Draft badge | позначка драфта на флоу в списку Generate AI; похідна від існування блока з лінком (ADR-0010) |
+| Derived style description | одна драфт-глобальна текстова стилістика для нелінкованих сцен; зі starred results у момент генерації, fallback — скрипт (ADR-0007) |
+| Scene generation master | існуючий планувальник scene previews, розширений boundary-правилами й вибором кандидатів ([CONTEXT](./CONTEXT.md)) |
