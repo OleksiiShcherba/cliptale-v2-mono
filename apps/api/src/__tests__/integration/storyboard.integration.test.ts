@@ -824,7 +824,7 @@ describe('history endpoints', () => {
     const res = await request(app)
       .post(`/storyboards/${draftAId}/history`)
       .set('Authorization', authA())
-      .send({ snapshot });
+      .send({ snapshot, previewKind: 'screenshot' });
     expect(res.status).toBe(201);
     expect(typeof res.body.id).toBe('number');
   });
@@ -835,7 +835,7 @@ describe('history endpoints', () => {
       await request(app)
         .post(`/storyboards/${draftAId}/history`)
         .set('Authorization', authA())
-        .send({ snapshot: { tick: i } });
+        .send({ snapshot: { tick: i }, previewKind: 'screenshot' });
     }
 
     const res = await request(app)
@@ -855,7 +855,7 @@ describe('history endpoints', () => {
   it('POST /history returns 401 when auth header absent', async () => {
     const res = await request(app)
       .post(`/storyboards/${draftAId}/history`)
-      .send({ snapshot });
+      .send({ snapshot, previewKind: 'screenshot' });
     expect(res.status).toBe(401);
   });
 });

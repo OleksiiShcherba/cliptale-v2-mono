@@ -123,3 +123,40 @@ export async function captureCanvasThumbnail(): Promise<string | null> {
     return null;
   }
 }
+
+// ── Typed capture with timeout (storyboard-autosave-checkpoints, AC-04) ───────
+
+/** Hard ceiling for one capture attempt — checkpoints must never hang the save. */
+export const CAPTURE_TIMEOUT_MS = 5_000;
+
+/**
+ * Result of a checkpoint capture attempt:
+ * - `screenshot` — the real layout capture succeeded; `dataUrl` carries the
+ *   320×180 JPEG to inline into the snapshot (ADR-0005);
+ * - `minimap` — capture failed or exceeded {@link CAPTURE_TIMEOUT_MS}; the
+ *   History entry falls back to the SVG minimap preview (AC-04) — a checkpoint
+ *   is never silently dropped.
+ */
+export type CanvasCaptureResult =
+  | { kind: 'screenshot'; dataUrl: string }
+  | { kind: 'minimap' };
+
+/**
+ * Captures the canvas like {@link captureCanvasThumbnail} but always resolves
+ * by {@link CAPTURE_TIMEOUT_MS} with a typed result instead of `null`.
+ * Never rejects. A capture that loses the timeout race keeps running in the
+ * background but its result is discarded.
+ */
+export async function captureCanvasThumbnailWithFallback(): Promise<CanvasCaptureResult> {
+  const MINIMAP: CanvasCaptureResult = { kind: 'minimap' };
+
+  const timeout = new Promise<CanvasCaptureResult>((resolve) => {
+    setTimeout(() => resolve(MINIMAP), CAPTURE_TIMEOUT_MS);
+  });
+
+  const capture = captureCanvasThumbnail().then<CanvasCaptureResult>((dataUrl) =>
+    dataUrl ? { kind: 'screenshot', dataUrl } : MINIMAP,
+  );
+
+  return Promise.race([capture, timeout]);
+}

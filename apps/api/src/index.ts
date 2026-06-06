@@ -22,6 +22,7 @@ import { trashRouter } from '@/routes/trash.routes.js';
 import { storyboardRouter } from '@/routes/storyboard.routes.js';
 import { sceneTemplateRouter } from '@/routes/sceneTemplate.routes.js';
 import { generationFlowsRouter } from '@/routes/generation-flows.routes.js';
+import { settingsRouter } from '@/routes/settings.routes.js';
 import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, ConflictError, UnprocessableEntityError, GoneError, GateError, RateLimitedError } from '@/lib/errors.js';
 import { attachRealtimeWebSocketServer } from '@/lib/realtime.js';
 
@@ -59,6 +60,7 @@ app.use(trashRouter);
 app.use(storyboardRouter);
 app.use(sceneTemplateRouter);
 app.use(generationFlowsRouter);
+app.use(settingsRouter);
 
 /**
  * Centralized error handler — maps typed errors to HTTP status codes.

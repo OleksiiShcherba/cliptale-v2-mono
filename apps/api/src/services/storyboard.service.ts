@@ -296,16 +296,19 @@ export async function initializeStoryboard(
 }
 
 /**
- * Pushes a history snapshot for a draft and prunes the DB beyond HISTORY_CAP
- * rows. Returns the id assigned to the inserted snapshot row.
+ * Pushes a checkpoint history snapshot for a draft and prunes the DB beyond
+ * HISTORY_CAP rows (the cap is origin-agnostic — legacy rows age out with it).
+ * The row is stamped origin='checkpoint' by the repository (ADR-0003).
+ * Returns the id assigned to the inserted snapshot row.
  */
 export async function pushHistory(
   userId: string,
   draftId: string,
   snapshot: unknown,
+  previewKind: 'screenshot' | 'minimap',
 ): Promise<number> {
   await assertOwnership(userId, draftId);
-  return storyboardRepository.insertHistoryAndPrune(draftId, snapshot, HISTORY_CAP);
+  return storyboardRepository.insertHistoryAndPrune(draftId, snapshot, HISTORY_CAP, previewKind);
 }
 
 /**

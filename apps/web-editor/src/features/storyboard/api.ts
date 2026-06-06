@@ -96,20 +96,35 @@ export type StoryboardHistoryPayload = {
 /** Shape of a single history snapshot sent to / received from the server. */
 export type StoryboardHistorySnapshot = {
   snapshot: StoryboardHistoryPayload;
+  /**
+   * Server-declared preview kind of a checkpoint entry (HistoryEntry contract):
+   * 'screenshot' = inline capture in snapshot.thumbnail; 'minimap' = SVG
+   * fallback (AC-04). Absent on optimistic local rows created before a push.
+   */
+  previewKind?: HistoryPreviewKind;
   createdAt: string;
 };
 
+/** Preview kind stored with each checkpoint entry (CheckpointPush contract). */
+export type HistoryPreviewKind = 'screenshot' | 'minimap';
+
 /**
- * Persists a history snapshot to the server (fire-and-forget).
+ * Pushes a checkpoint entry — snapshot (+ inline screenshot data-URL when
+ * previewKind=screenshot) and previewKind in ONE request (ADR-0002 atomicity:
+ * a checkpoint is never silently dropped, AC-04).
  *
- * Maps to POST /storyboards/:draftId/history.
- * Failures are logged but not surfaced to the user.
+ * Maps to POST /storyboards/:draftId/history (CheckpointPush).
+ * Throws on a non-ok response — the caller owns the visible error state.
  */
-export async function persistHistorySnapshot(
+export async function pushCheckpointSnapshot(
   draftId: string,
   payload: StoryboardHistoryPayload,
+  previewKind: HistoryPreviewKind,
 ): Promise<void> {
-  const res = await apiClient.post(`/storyboards/${draftId}/history`, { snapshot: payload });
+  const res = await apiClient.post(`/storyboards/${draftId}/history`, {
+    snapshot: payload,
+    previewKind,
+  });
   if (!res.ok) {
     throw new Error(`POST /storyboards/${draftId}/history failed: ${res.status}`);
   }

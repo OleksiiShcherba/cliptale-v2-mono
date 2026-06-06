@@ -24,7 +24,7 @@ import { E2E_CONTEXT_PATH, writeE2eContext } from './helpers/e2e-context';
 
 export const STORAGE_STATE_PATH = path.resolve(
   __dirname,
-  '../test-results/e2e-auth-state.json',
+  '../.e2e-cache/e2e-auth-state.json',
 );
 
 /**

@@ -47,6 +47,16 @@ type UseHandleRestoreArgs = {
   removeNode: (nodeId: string) => void;
   /** Flushes the autosave debounce and persists immediately. */
   saveNow: (override?: StoryboardMusicSaveOverride) => Promise<void>;
+  /**
+   * Checkpoint push for the PRE-RESTORE checkpoint (AC-12): called with the
+   * CURRENT canvas before it is replaced, so the pre-restore work stays
+   * restorable. Optional — wired by StoryboardPage (T14).
+   */
+  pushPreRestoreCheckpoint?: (nodes: Node[], edges: Edge[]) => Promise<boolean>;
+  /** True when changes are newer than the latest checkpoint (scheduler dirty). */
+  hasChangesSinceLastCheckpoint?: () => boolean;
+  /** Reads the canvas state as it is right now, before the restore replaces it. */
+  getCurrentCanvas?: () => { nodes: Node[]; edges: Edge[] };
 };
 
 /**
@@ -88,10 +98,19 @@ type UseHandleRestoreResult = {
    * Receives the reconstructed nodes/edges from the external store and
    * syncs them into React state with a correctly wired `onRemove` handler.
    *
+   * On a MANUAL restore with changes newer than the latest checkpoint it
+   * first pushes a pre-restore checkpoint of the current state (AC-12); a
+   * failed push never blocks the restore. The promise resolves once the
+   * restore has been applied.
+   *
    * Pass `{ skipSave: true }` on the auto-restore / seed path to prevent
    * overwriting the DB with pre-restore state.
    */
-  handleRestore: (nodes: Node[], edges: Edge[], options?: HandleRestoreOptions) => void;
+  handleRestore: (
+    nodes: Node[],
+    edges: Edge[],
+    options?: HandleRestoreOptions,
+  ) => Promise<void>;
 };
 
 // ── Hook ───────────────────────────────────────────────────────────────────────
@@ -106,9 +125,31 @@ export function useHandleRestore({
   pushSnapshot,
   removeNode,
   saveNow,
+  pushPreRestoreCheckpoint,
+  hasChangesSinceLastCheckpoint,
+  getCurrentCanvas,
 }: UseHandleRestoreArgs): UseHandleRestoreResult {
   const handleRestore = useCallback(
-    (nodes: Node[], edges: Edge[], options?: HandleRestoreOptions): void => {
+    async (nodes: Node[], edges: Edge[], options?: HandleRestoreOptions): Promise<void> => {
+      // AC-12: a MANUAL restore (neither the seed path nor undo/redo) with
+      // changes newer than the latest checkpoint first checkpoints the CURRENT
+      // state so the pre-restore work stays restorable. The capture must finish
+      // BEFORE the canvas is replaced; a failed push never blocks the restore.
+      const isManualRestore = !options?.skipSave && !options?.skipSnapshot;
+      if (
+        isManualRestore &&
+        pushPreRestoreCheckpoint &&
+        getCurrentCanvas &&
+        (hasChangesSinceLastCheckpoint?.() ?? false)
+      ) {
+        const current = getCurrentCanvas();
+        try {
+          await pushPreRestoreCheckpoint(current.nodes, current.edges);
+        } catch {
+          // Never blocks the restore (AC-12 tail).
+        }
+      }
+
       // Re-wire onRemove for scene-block nodes. restoreFromSnapshot sets it to
       // `() => undefined` as a placeholder — replace with the real removeNode.
       const rewiredNodes = nodes.map((node) => {
@@ -141,7 +182,16 @@ export function useHandleRestore({
         }
       }
     },
-    [setNodes, setEdges, pushSnapshot, removeNode, saveNow],
+    [
+      setNodes,
+      setEdges,
+      pushSnapshot,
+      removeNode,
+      saveNow,
+      pushPreRestoreCheckpoint,
+      hasChangesSinceLastCheckpoint,
+      getCurrentCanvas,
+    ],
   );
 
   return { handleRestore };

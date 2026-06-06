@@ -72,8 +72,14 @@ export function useStoryboardHistorySeed({
   useEffect(() => {
     if (isLoading || canvasIsLoading || hasSeeded.current || entries.length === 0) return;
 
-    // The entries array is oldest-first; the last entry is the most recent.
-    const latest = entries[entries.length - 1];
+    // Checkpoint-only model (T14): entries come straight from the server
+    // (newest first) — no optimistic per-change rows are appended any more, so
+    // pick the most recent entry explicitly instead of relying on array order.
+    const latest = entries.reduce((newest, entry) =>
+      new Date(entry.createdAt).getTime() > new Date(newest.createdAt).getTime()
+        ? entry
+        : newest,
+    );
     const latestSceneCount = latest.snapshot.blocks.filter((block) => block.blockType === 'scene').length;
     const currentSceneCount = currentNodes.filter((node) => node.type === 'scene-block').length;
 

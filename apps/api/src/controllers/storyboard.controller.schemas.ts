@@ -66,7 +66,18 @@ export const saveStoryboardBodySchema = z.object({
   musicBlocks: z.array(musicBlockInsertSchema).optional(),
 });
 
-/** POST /storyboards/:draftId/history body schema. */
+/**
+ * POST /storyboards/:draftId/history body schema (OpenAPI CheckpointPush).
+ *
+ * previewKind is REQUIRED (storyboard-autosave-checkpoints, AC-04): the client
+ * declares whether the snapshot carries an inline layout screenshot data-URL
+ * ('screenshot') or fell back to the SVG minimap after a capture failure /
+ * 5 s timeout ('minimap'). The server stamps origin='checkpoint' itself
+ * (ADR-0003) — origin is deliberately NOT a request field.
+ */
 export const pushHistoryBodySchema = z.object({
-  snapshot: z.unknown(),
+  snapshot: z.unknown().refine((v) => v !== undefined, {
+    message: 'snapshot is required and must be a valid JSON value',
+  }),
+  previewKind: z.enum(['screenshot', 'minimap']),
 });
