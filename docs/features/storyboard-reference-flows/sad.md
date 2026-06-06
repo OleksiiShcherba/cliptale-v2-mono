@@ -49,23 +49,24 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      Never N/A — every feature inherits at least Conventions + Technical. -->
 
 **Technical.**
-- <Language + version>
-- <Framework(s) + version>
-- <Datastore(s) + version>
-- <Architecture convention — e.g. the layering style from the project convention file>
+- TypeScript 5.4+ (strict, ESM), Node ≥ 20; монорепо Turborepo + npm workspaces (`apps/*`, `packages/*`).
+- Backend: Express 4 + Zod-валідація; realtime через `ws` + Redis pub/sub; черги BullMQ 5 на Redis 7.
+- Frontend: React 18 + Vite 5 (SPA), TanStack Query 5, канваси на `@xyflow/react`; стилі — інлайн `CSSProperties` у co-located `*.styles.ts`.
+- DB: MySQL 8 / InnoDB через `mysql2` raw SQL (без ORM); міграції `NNN_*.sql` з in-process runner (станом на зараз останній номер — 051); IDs — UUID v4 `CHAR(36)`.
+- AI-генерація виконується тільки в media-worker через існуючу чергу `ai-generate` (fal.ai та ін.); канвас generation flow — opaque JSON-документ з optimistic lock `version` (ADR-0002 generate-ai-flow).
+- **Нуль інфраструктурних оверрайдів**: жодної нової БД, черги чи зовнішнього сервісу. Рішення §4–§8, що суперечить цьому, потребує явної Override-нотатки з посиланням на §11.
 
 **Organisational.**
-- <Effort budget — e.g. 3 person-weeks>
-- <Deadline — e.g. 2026-Q3 hard>
-- <Team composition>
+- Бюджет зусиль ~6 person-weeks (spec §1 ¶3, RICE Effort).
+- Соло-розробка (owner = Tech Lead/Oleksii); дедлайн не зафіксовано у спеці.
 
 **Conventions.**
-- <Link to the project's convention file>
-- <Naming, ID strategy, error-handling pattern>
+- `docs/architecture-map.md` + `docs/architecture-rules.md`: routes → controllers → services → repositories; типізовані error-класи (`apps/api/src/lib/errors.ts`); `config.ts` — єдине місце читання `process.env` (`APP_*`); OpenAPI (`packages/api-contracts/src/openapi.ts`) оновлюється в тому самому коміті.
+- Прецеденти, яких фіча тримається: off-chain блоки → music blocks (migration `045_storyboard_music_blocks.sql`); cost confirmation + per-Creator rate limit → generate-ai-flow (`flow-pricing.ts`, `flow-rate-limit.ts`); user-налаштування → `user_settings` (migration 050, JSON `settings_json`); async-джоба з прогресом → storyboard-plan job.
 
 **Regulatory / external.**
-- <e.g. data-retention / deletion behaviour per ADR-NNNN>
-- <e.g. applicable compliance controls, or N/A with a reason>
+- Spec §6.1: confidential user-media — завантажені референс-зображення та згенеровані персонажі можуть містити обличчя реальних людей; зберігання за існуючими user-scoped media-правилами (presigned URLs, приватні бакети).
+- Жодних нових ролей; усі нові можливості owner-scoped. Security review обовʼязковий (feature size L + новий крос-фічевий authz-периметр storyboard ↔ flows).
 
 ## 3. Context and scope
 
