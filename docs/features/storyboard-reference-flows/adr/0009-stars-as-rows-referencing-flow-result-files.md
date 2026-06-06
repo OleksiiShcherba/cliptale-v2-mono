@@ -43,6 +43,7 @@ ticket: ""
 
 **Neutral**
 - Зірка scoped до пари блок↔флоу (не library favorite) — узгоджено з глосарієм.
+- Конкурентність (Override SAD §1 ¶4, critic F1): toggle зірки — безверсійна комутативна операція (конкурентні правки сходяться, нічого не губиться мовчки); збереження списку scene links — compare-and-set по версії блока → конфлікт = відмова + reload-prompt (реалізує NFR spec §6 concurrency safety).
 
 ## Links
 

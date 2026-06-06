@@ -40,6 +40,8 @@ target_surfaces: [backend-service, web-frontend, worker]  # §4 D4.1, ADR-0001. 
 
 <!-- Decision overrides (¶4) — populated by the critic resolution loop, empty otherwise. -->
 
+**Decision override (critic F1, 2026-06-06): зірки — безверсійні атомарні toggle; versioned-save лише для scene links** — rationale: операція зірки комутативна (дві вкладки, що ставлять/знімають ту саму зірку, сходяться до одного стану — правка не «губиться мовчки»), тож NFR-механізм «conflicting concurrent saves are rejected with a reload prompt» застосовується до єдиного справжнього read-modify-write — збереження списку scene links блока (compare-and-set по версії блока → 409 + reload-prompt). Конкурентна маніпуляція primary star з двох вкладок може дати неочікуваний підсумковий стан — прийнято як борг у §11.
+
 ## 2. Constraints
 
 <!-- 🎯 Why: §4 strategy only works when §2 has fixed WHAT IS ALREADY FIXED — stack, versions,
@@ -302,7 +304,7 @@ sequenceDiagram
 - `reference_window_pickup_lag` — час від confirm до старту (running) останньої генерації касту (NFR ≤ 5 хв). **Алерт:** pending-рядок без переходу в running > 5 хв → подія «зависле вікно» в моніторинг (ADR-0003).
 - `aggregate_estimate_accuracy` — оцінка confirm vs сума фактичних списань перших запусків драфта (NFR ±10%, billing telemetry).
 - `storyboard_canvas_open_ms` — фронтенд-метрика відкриття Video Road Map з reference-блоками (NFR ≤ 1500 мс @ ≤ 50 блоків).
-- `curation_save_conflicts` — лічильник conflict-відмов (409) на зірках/scene links (NFR concurrency safety).
+- `curation_save_conflicts` — лічильник conflict-відмов (409) на збереженнях списку scene links (NFR concurrency safety; зірки — комутативні toggle без конфліктів, Override §1 ¶4).
 
 **Scaling thresholds:**
 - Черга `ai-generate` спільна для всіх фіч: rolling window обмежує внесок одного драфта (N, default 4), cast size limit обмежує batch ≤ 12 — у межах поточної пропускної здатності воркера.
@@ -327,7 +329,7 @@ sequenceDiagram
 | Realtime / events | існуючі Redis pub/sub → WS події, розширені типами цієї фічі (статуси екстракції, блоків, вікна) | `lib/realtime.ts` |
 | Rate limiting | існуючі per-Creator ліміти (генерація — sliding window; creation limits для ручних блоків, AC-11) — без змін | `flow-rate-limit.ts` |
 | Idempotency | `Idempotency-Key` на generate (існуючий) + атомарний claim наступного pending у вікні (ADR-0003) | here |
-| Concurrency | optimistic `version` для канвасів (існуючий); рядки курації — атомарні одно-стейтментні UPDATE (ADR-0009) | here |
+| Concurrency | optimistic `version` для канвасів (існуючий); зірки — безверсійні атомарні toggle (комутативні, ADR-0009); збереження списку scene links — compare-and-set по версії блока → конфлікт = відмова 409 + reload-prompt (Override §1 ¶4) | here |
 | User settings | `concurrencyLimit` у `user_settings.settings_json` (прецедент autosave-інтервалу, migration 050) | here |
 | Internationalisation | N/A — одна мова інтерфейсу (як у репо) | — |
 
@@ -377,8 +379,8 @@ Each top-3 goal from §1 expanded into a full scenario:
 
 **QG-3. Цілісність даних курації під конкурентністю**
 - **When:** конкурентні правки зірок/scene links із двох вкладок; видалення сцени, що має лінки.
-- **Then:** правки **never silently lost**; конфліктні конкурентні збереження **rejected with a reload prompt** (spec §6 concurrency safety); видалена сцена автоматично зникає з linked-scenes списку кожного блока — no dangling links (AC-10b).
-- **How verify:** `curation_save_conflicts` (versioned-save conflict metric) + інтеграційні тести конкурентних UPDATE зірок/лінків + тест каскаду видалення сцени.
+- **Then:** правки **never silently lost**: зірки — комутативні атомарні toggle (конкурентні операції сходяться до детермінованого стану); конфліктні конкурентні збереження списку scene links **rejected with a reload prompt** (spec §6 concurrency safety, механізм — compare-and-set по версії блока, Override §1 ¶4); видалена сцена автоматично зникає з linked-scenes списку кожного блока — no dangling links (AC-10b).
+- **How verify:** `curation_save_conflicts` (versioned-save conflict metric) + інтеграційні тести конкурентних toggle зірок і конкурентних збережень лінків + тест каскаду видалення сцени.
 
 ## 11. Risks and technical debt
 
@@ -399,6 +401,7 @@ Each top-3 goal from §1 expanded into a full scenario:
 | Розсинхрон зірок із видаленими результатами/файлами флоу | Medium | синхронна чистка зірок при видаленні result-блока або файлу (ADR-0009) + інтеграційний тест AC-07 | Tech Lead |
 
 **Accepted debt (acceptable in v1, plan to fix later):**
+- Конкурентна маніпуляція primary star з двох вкладок (un-star + перепризначення) може дати неочікуваний підсумковий стан без попередження — прийнято з Override §1 ¶4 (toggle-семантика без версій).
 - TOCTOU-вікно star gate (ADR-0011): генерація йде зі знімком зірок на момент старту — прийнято свідомо.
 - Подвійний носій reference-блока: XY-позиція в canvas JSON, суть у таблиці (ADR-0005); при розбіжності виграє таблиця (блок без позиції → дефолтне місце на канвасі).
 - Legacy-код principal-image живе, доки існують драфти старого механізму (spec §3: без міграції даних); видалення — окремий cleanup, коли останній старий драфт зникне.
