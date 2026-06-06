@@ -21,21 +21,22 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      ¶4 is the override slot — critic `Override` resolutions emit «Decision override: <headline>
      — rationale: <reason>» bullets here so downstream skills see the deliberate choice. -->
 
-**Intent.** <One paragraph from spec §2 Goals — what we're building and for whom.>
+**Intent.** Замінити одно-зображенний principal-image крок сторіборда на куровані референс-потоки: каст-екстракція пропонує персонажів та оточення скрипта, Creator підтверджує каст одним колективним кост-підтвердженням, кожен запис касту стає reference-блоком на Video Road Map canvas зі своїм повноцінним generation flow (1:1); зірки Creator-а визначають референс-кандидатів блока, а star gate гарантує, що дорога генерація повного набору сцен стартує лише з затвердженими референсами — і scene generation master використовує їх строго в межах reference boundary. Мета (spec §2): консистентні персонажі/оточення в усіх сценах драфта, менше змарнованих платних генерацій, автоматизований дефолтний шлях із глибиною ітерації «в один клік».
 
 **Top-3 quality goals (1-liners; full scenarios in §10):**
 
-1. <e.g. "Availability under partial failure of a downstream module">
-2. <e.g. "Read performance for the dashboard under data-scale growth">
-3. <e.g. "Recoverability with <30 min RTO">
+1. **Кост-безпека колективного підтвердження** — агрегатна оцінка в межах ±10% факту; витрати обмежені cast size limit + rolling window; підтвердження покриває тільки перші запуски.
+2. **Швидкість циклу курації** — каст-екстракція p95 ≤ 60 с; відкриття Video Road Map canvas з reference-блоками ≤ 1500 мс (до 50 блоків); перші генерації підхоплені воркером ≤ 5 хв після підтвердження.
+3. **Цілісність даних курації під конкурентністю** — зірки та scene links ніколи не губляться мовчки; конфліктні конкурентні збереження відхиляються з reload-prompt; видалення сцени не лишає dangling links.
 
 **Stakeholders.**
 
 | Role | Interest | Sign-off owner? |
 |---|---|---|
-| <author role from glossary> | <feature usage> | No |
-| <consumer role from glossary> | <read usage> | No |
-| Tech Lead | SAD approval | Yes |
+| Creator | курує каст, ітерує в reference flows, ставить зірки, отримує консистентні сцени | No |
+| PM (Oleksii) | KPI-воронка spec §7 (регенерації −30%, funnel ≥ baseline), кост-метрики; консультується на §10/§11 | No |
+| Tech Lead | затвердження SAD, технічні OQ spec §8 | Yes |
+| Security Lead | новий крос-фічевий authz-периметр (storyboard ↔ flows), security review обовʼязковий (spec §6.1) | Yes |
 
 <!-- Decision overrides (¶4) — populated by the critic resolution loop, empty otherwise. -->
 
