@@ -295,18 +295,18 @@ sequenceDiagram
      🎯 N/A allowed for XS/S that reuses an existing deployment unit with no change.
      Deployment-diagram scaffold → templates/deployment.md. -->
 
-<Topology in 2–3 sentences. Where it runs, replicas, scaling thresholds.>
+Жодних змін інфраструктури: фіча деплоїться в існуючих контейнерах (`api`, `web-editor`, `media-worker`) через стандартний docker-compose/CI; нові міграції виконує існуючий in-process runner при старті api (`APP_MIGRATE_ON_BOOT`). Реплікація й масштабування контейнерів не змінюються.
 
-**Monitoring:**
-- <Metrics — e.g. `<metric_name>`>
-- <Alerts — e.g. «worker lag > 10 min → page on-call»>
-- <Tracing — e.g. spans on the request boundary>
+**Monitoring (привʼязка до NFR spec §6):**
+- `cast_extract_duration_p95` — телеметрія джоб черги `storyboard-plan` (NFR ≤ 60 с).
+- `reference_window_pickup_lag` — час від confirm до старту (running) останньої генерації касту (NFR ≤ 5 хв). **Алерт:** pending-рядок без переходу в running > 5 хв → подія «зависле вікно» в моніторинг (ADR-0003).
+- `aggregate_estimate_accuracy` — оцінка confirm vs сума фактичних списань перших запусків драфта (NFR ±10%, billing telemetry).
+- `storyboard_canvas_open_ms` — фронтенд-метрика відкриття Video Road Map з reference-блоками (NFR ≤ 1500 мс @ ≤ 50 блоків).
+- `curation_save_conflicts` — лічильник conflict-відмов (409) на зірках/scene links (NFR concurrency safety).
 
 **Scaling thresholds:**
-- <e.g. comfortable in one table up to N rows/year>
-- <e.g. partition by quarter above N rows/year>
-
-<!-- For XS/S with no deployment change: <!-- N/A: reuses existing deployment unit, no infra change --> -->
+- Черга `ai-generate` спільна для всіх фіч: rolling window обмежує внесок одного драфта (N, default 4), cast size limit обмежує batch ≤ 12 — у межах поточної пропускної здатності воркера.
+- Якщо лаг черги стабільно > 5 хв — масштабувати репліки media-worker (існуючий механізм), не змінюючи модель вікна.
 
 ## 8. Crosscutting concepts
 
