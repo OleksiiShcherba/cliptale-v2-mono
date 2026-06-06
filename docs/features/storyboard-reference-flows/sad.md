@@ -210,23 +210,81 @@ C4Container
      📌 e.g. «author → web: composes draft → web → content API: save». Seed the primary flow(s) here;
      the `sequences` stage then covers every §5 AC (no cap). Never N/A for M+; XS/S keeps ≥1 happy-path flow. -->
 
-**Critical flow 1: <flow name>**
+**Critical flow 1: Каст-екстракція → колективне підтвердження → rolling window** (US-01, US-02; помилкова гілка AC-04 інлайн)
 
 ```mermaid
 sequenceDiagram
-    actor Actor
-    participant Web
-    participant Service
-    participant Store
-    Actor->>Web: <action>
-    Web->>Service: <call>
-    Service->>Store: <write>
-    Store-->>Service: ok
-    Service-->>Web: result
-    Web-->>Actor: confirmation
+    actor Creator
+    participant Web as web-editor SPA
+    participant API as api
+    participant Redis as Redis (черги/події)
+    participant Worker as media-worker
+    participant MySQL as MySQL
+    participant LLM as LLM-провайдер
+    participant Img as Image-провайдер
+
+    Creator->>Web: запускає reference-генерацію
+    Web->>API: старт каст-екстракції
+    API->>MySQL: створює job-рядок екстракції
+    API->>Redis: ставить екстракцію в чергу storyboard-plan
+    Worker->>Redis: бере джобу екстракції
+    Worker->>LLM: скрипт як data → пропозиція касту (обмежена схемою)
+    Worker->>MySQL: зберігає пропозицію (≤ cast size limit)
+    Worker-->>Web: прогрес і результат (realtime)
+    Web-->>Creator: каст + агрегатна оцінка (нічого не списано)
+    Creator->>Web: коригує записи, лінки, зображення та підтверджує
+    Web->>API: колективне підтвердження касту
+    API->>MySQL: блоки + флоу + перші запуски (pending, cast-порядок)
+    API->>Redis: ставить перші N генерацій (N з user_settings)
+    loop rolling window, поки є pending
+        Worker->>Redis: бере генерацію
+        Worker->>Img: генерує референс (списання пер-ран при старті)
+        alt успіх
+            Worker->>MySQL: результат + статус done
+        else провал
+            Worker->>MySQL: статус failed + зрозуміла причина (блок показує retry)
+        end
+        Worker->>MySQL: атомарний claim наступного pending цього драфта
+        Worker->>Redis: ставить наступну генерацію
+        Worker-->>Web: статуси блоків (realtime)
+    end
 ```
 
-**Critical flow 2: <e.g. async event propagation>** — <if applicable, otherwise N/A>.
+**Critical flow 2: Зіркування → star gate → генерація сцен у reference boundary** (US-04, US-06; гілка відмови гейта інлайн)
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web as web-editor SPA
+    participant API as api
+    participant MySQL as MySQL
+    participant Redis as Redis (черги/події)
+    participant Worker as media-worker
+    participant LLM as LLM-провайдер
+    participant Img as Image-провайдер
+
+    Creator->>Web: зіркує результати у reference flow
+    Web->>API: ставить зірку
+    API->>MySQL: рядок зірки (primary за правилом глосарію)
+    Creator->>Web: запускає повний набір scene previews
+    Web->>API: старт генерації сцен
+    API->>MySQL: перевіряє star gate (кожен блок драфта має зірку)
+    alt гейт не пройдено
+        API-->>Web: відмова + список блоків без зірок
+        Web-->>Creator: називає блоки та дії-виходи (retry / delete)
+    else гейт пройдено
+        API->>Redis: ставить scene-генерацію
+        Worker->>Redis: бере джобу
+        Worker->>MySQL: читає лінки + зірки кожної сцени (reference boundary)
+        Worker->>LLM: складає derived style description (для нелінкованих сцен)
+        Worker->>Img: генерує сцену з primary + добраними зірками
+        Worker->>MySQL: зберігає scene previews
+        Worker-->>Web: прогрес (realtime)
+        Web-->>Creator: консистентні scene previews
+    end
+```
+
+Решта флоу (ручне додавання блока US-07, лайфцикл видалень US-08, регенерація однієї сцени AC-08b, no-flow state AC-12) — стадія `sequences` покриває кожен AC окремо.
 
 ## 7. Deployment view
 
