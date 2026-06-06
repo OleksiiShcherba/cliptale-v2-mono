@@ -17,9 +17,9 @@ feature_size: "L"
 
 ¶2 **Why now.** The Generate AI Flows feature just shipped: node-canvas generation flows, result blocks, cost confirmation, and automatic library linkage already exist as rails. Competitive research shows no product on the market combines (a) AI-generated per-character/environment references, (b) script-driven auto-proposal of which cast entries need them, (c) a star-to-promote curation mechanic, and (d) per-scene linking back into the storyboard — adjacent tools either require manually uploaded references or offer label-only consistency. The gap is open and the rails are in place.
 
-¶3 **The committed approach.** Build **«Confirm, Auto-Cast, Open-If-You-Care» with a manual star gate** (RICE ≈ 2.8: Reach 8/10 · Impact 3 · Confidence 70% · Effort ~6 pw; feasibility Tech ☑ Skills ☑ Time ☑, each anchored by an adjacent shipped feature; the multi-perspective matrix scored this approach the only one with no negative lens — UX: «low friction, depth on demand»; the competitive gap above is the differentiation claim). Cast extraction proposes the characters/environments, their reference-image assignments, and their scene links from the script; the Creator corrects and confirms the cast once (cast confirmation = one collective cost confirmation with an aggregate estimate); each entry becomes a reference block linked 1:1 to an auto-created, fully editable reference flow whose first generation auto-starts in staged batches. The Creator stars the best results (primary star = block preview); scene-preview generation is gated until every reference block has ≥1 star, then the scene generation master picks references per scene strictly within the reference boundary.
+¶3 **The committed approach.** Build **«Confirm, Auto-Cast, Open-If-You-Care» with a manual star gate** (RICE ≈ 2.8: Reach 8/10 · Impact 3 · Confidence 70% · Effort ~6 pw; feasibility Tech ☑ Skills ☑ Time ☑, each anchored by an adjacent shipped feature; the multi-perspective matrix scored this approach the only one with no negative lens — UX: «low friction, depth on demand»; the competitive gap above is the differentiation claim). Cast extraction proposes the characters/environments, their reference-image assignments, and their scene links from the script; the Creator corrects and confirms the cast once (cast confirmation = one collective cost confirmation with an aggregate estimate); each entry becomes a reference block linked 1:1 to an auto-created, fully editable reference flow whose first generation auto-starts in a rolling concurrency window. The Creator stars the best results (primary star = block preview); scene-preview generation is gated until every reference block has ≥1 star, then the scene generation master picks references per scene strictly within the reference boundary.
 
-¶4 **Traceability context.** This feature REPLACES the principal-image approval step (its UI is removed; existing drafts keep their data and switch to the new mechanism on their next reference-generation run). Reference blocks follow the placement precedent of music blocks (off-chain canvas blocks) but link to individual scenes instead of ranges. The collective cast confirmation is a **deliberate, scoped deviation** from the generate-ai-flow per-generate cost-confirmation rule: it covers only the first run of each auto-created flow; every later regeneration confirms per generate as usual. The cost-blowout risk of one collective confirmation is mitigated by the cast size limit (a named domain invariant) plus staged batch auto-start; the stall-gate risk of the star gate is mitigated by the gate always naming exactly which blocks are missing stars.
+¶4 **Traceability context.** This feature REPLACES the principal-image approval step (its UI is removed; existing drafts keep their data and switch to the new mechanism on their next reference-generation run). Reference blocks follow the placement precedent of music blocks (off-chain canvas blocks) but link to individual scenes instead of ranges. The collective cast confirmation is a **deliberate, scoped deviation** from the generate-ai-flow per-generate cost-confirmation rule: it covers only the first run of each auto-created flow; every later regeneration confirms per generate as usual. The cost-blowout risk of one collective confirmation is mitigated by the cast size limit (a named domain invariant) plus the rolling-window auto-start; the stall-gate risk of the star gate is mitigated by the gate always naming exactly which blocks are missing stars.
 
 ## 2. Goals
 
@@ -35,6 +35,8 @@ feature_size: "L"
 - **Not a cross-draft character library** — reusing a starred character in another draft is a separate future epic.
 - **Not changing music blocks** — they keep their start/end scene-range model; individual scene links are exclusive to reference blocks.
 - **Not Seedance 2 model support** — tracked as a separate feature (seedance2-video-models).
+- **Not building a new reference-image upload UI** — cast extraction reads images the Creator already uploaded through the existing storyboard upload mechanism, which this feature leaves unchanged; it only assigns those images to cast entries.
+- **Not re-running cast extraction after confirmation** — once a draft has reference blocks, the cast grows only via manual block addition (US-07); automatic re-extraction with merge of an existing cast is a future enhancement.
 
 ## 4. User stories
 
@@ -92,25 +94,31 @@ feature_size: "L"
 
 **Given** a Creator owns a draft with a script and optionally uploaded reference images
 **When** the Creator starts reference generation
-**Then** the system runs cast extraction and presents the proposed cast (characters and environments, each with its description, assigned reference images, and proposed scene links) for review, with an aggregate cost estimate — and starts no paid generation yet
+**Then** the system runs cast extraction and presents the proposed cast (characters and environments, each with its description, assigned reference images, and proposed scene links — all correctable in place, including the scene links via the same multi-select scene selector as on blocks) for review, with an aggregate cost estimate — and starts no paid generation yet
+
+### AC-01b (US-01) — edge (repeat run)
+
+**Given** a draft that already has reference blocks (a confirmed cast)
+**When** the Creator looks for the cast-extraction action
+**Then** it is not offered — the cast is extended only by manually adding blocks (US-07); automatic re-extraction is out of scope (§3)
 
 ### AC-02 (US-01) — domain invariant (cast size limit)
 
 **Given** a draft whose script mentions more candidate characters and environments than the cast size limit
 **When** cast extraction proposes the cast
-**Then** the proposal contains at most the limit, keeps the most story-relevant entries, and tells the Creator that the remainder can be added manually later
+**Then** the proposal contains at most the limit, keeps the entries that appear in the most scenes (story relevance = scene-appearance count), and tells the Creator that the remainder can be added manually later
 
 ### AC-03 (US-02) — happy path
 
 **Given** a Creator reviewed the proposed cast
 **When** they confirm it (the collective cost confirmation)
-**Then** the system creates one reference block per entry on the Video Road Map canvas (off-chain, like music blocks), each linked 1:1 to a new reference flow pre-filled with that entry's assigned reference images or text description, and auto-starts the first generation in each flow in staged batches; the confirmation covers these first runs only
+**Then** the system creates one reference block per entry on the Video Road Map canvas (off-chain, like music blocks), each linked 1:1 to a new reference flow pre-filled with that entry's assigned reference images or text description, and auto-starts the first generation in each flow in a rolling window — generations start in cast order, at most the configured concurrency limit run at once (a Creator-configurable setting, default 4), and as soon as one finishes the next starts; the confirmation covers these first runs only
 
 ### AC-04 (US-02) — error (partial failure)
 
 **Given** confirmed cast generation is running across several flows
 **When** the first generation of some flows fails
-**Then** each affected block shows a failed status with a retry action and a plain-language reason, other blocks continue unaffected, and the draft is never left without a clear per-block status
+**Then** each affected block shows a failed status with a retry action and a plain-language reason, other blocks continue unaffected, and the draft is never left without a clear per-block status; a block left with no results counts as missing a star for the star gate, and the gate message names it together with its exit actions — retry the generation or delete the block (AC-14)
 
 ### AC-05 (US-03) — happy path
 
@@ -128,19 +136,25 @@ feature_size: "L"
 
 **Given** a reference block whose primary starred result exists
 **When** the Creator un-stars it or deletes it from the flow
-**Then** the block's preview falls back to another starred result if any, otherwise the block shows the no-preview placeholder and counts as missing a star for the star gate
+**Then** the block's preview falls back to another starred result if any, otherwise the block shows the no-preview placeholder and counts as missing a star for the star gate; the same rule applies when all starred results are removed or every result in the linked flow is deleted — the block↔flow link itself stays intact (the no-flow state applies only to a deleted flow, AC-12)
 
 ### AC-08 (US-06) — domain invariant (star gate)
 
 **Given** a draft where at least one reference block has no starred result
-**When** the Creator attempts to start scene-preview generation
+**When** the Creator attempts to start generation of the draft's full scene-preview set
 **Then** the system blocks the start and names, in plain language, exactly which blocks still need a starred result
+
+### AC-08b (US-06) — edge (gate scope)
+
+**Given** a draft whose previews exist (or whose cast is partially starred)
+**When** the Creator regenerates an individual scene X, or the draft has no reference blocks at all
+**Then** regenerating scene X requires starred results only from the blocks linked to X (unstarred blocks not linked to X don't block it); and a draft with zero reference blocks passes the gate — its scenes generate per the no-linked-blocks rule of AC-09, with the derived style description falling back to the script when no starred results exist
 
 ### AC-09 (US-06) — cross-context (reference boundary)
 
 **Given** every reference block has at least one star and scene generation starts
 **When** the scene generation master prepares scene X
-**Then** it considers only the starred images of blocks linked to X as reference candidates (choosing among them as needed), never uses images of unlinked blocks for X, and generates scenes with no linked blocks from their prompt plus a derived style description
+**Then** it considers only the starred images of blocks linked to X as reference candidates (choosing among them as needed), never uses images of unlinked blocks for X, and generates scenes with no linked blocks from their prompt plus one draft-global derived style description (shared by all such scenes of the draft)
 
 ### AC-10 (US-05) — happy path
 
@@ -148,11 +162,17 @@ feature_size: "L"
 **When** the Creator opens a block's scene selector and adds or removes individual scenes
 **Then** the block's visible linked-scenes list updates and the next scene generation respects the updated links
 
+### AC-10b (US-05) — edge (scene lifecycle)
+
+**Given** reference blocks with scene links exist
+**When** the Creator deletes a scene, adds a new scene, or reorders scenes
+**Then** deleting a scene automatically removes it from every block's linked-scenes list (no dangling links), a newly added scene receives no links automatically (the Creator adds them via the selector), and reordering changes no links — a link binds to the scene itself, not its position
+
 ### AC-11 (US-07) — happy path
 
 **Given** a Creator on the storyboard canvas after cast confirmation
 **When** they manually add a new reference block (character or environment)
-**Then** the system creates an empty linked reference flow without starting any generation or charging anything, and the block participates in the star gate like any other
+**Then** the system creates an empty linked reference flow without starting any generation or charging anything, and the block participates in the star gate like any other; manual additions are not capped by the cast size limit (it bounds only the extraction proposal) — they remain bounded by the existing per-user creation rate limits
 
 ### AC-12 (US-08) — cross-context (flow list)
 
@@ -163,8 +183,8 @@ feature_size: "L"
 ### AC-13 (US-03) — authorization
 
 **Given** a signed-in Creator who does not own the draft
-**When** they attempt to open the draft's reference blocks or their linked flows
-**Then** the system denies access without revealing the contents, because drafts and flows are private to their owner
+**When** they attempt to view or change the draft's reference data — open its reference blocks or linked flows, star or un-star results, edit scene links, confirm a cast, or delete a block or flow
+**Then** the system denies the action without revealing the contents, because drafts and flows are private to their owner
 
 ### AC-14 (US-08) — happy path (block deletion)
 
@@ -172,13 +192,19 @@ feature_size: "L"
 **When** the Creator deletes the block from the storyboard canvas
 **Then** the flow and all its results remain intact in the Generate AI list (the draft badge is removed), the block's scene links are removed, and the block no longer participates in the star gate
 
+### AC-14b (US-08) — edge (draft deletion)
+
+**Given** a draft with reference blocks and linked flows
+**When** the Creator deletes the draft itself
+**Then** every linked reference flow and its results remain intact in the Generate AI list with the draft badge removed — the same survival rule as block deletion, so hours of flow iteration are never lost with the draft
+
 ## 6. Non-functional requirements
 
 | Aspect | Target | Measurement |
 |---|---|---|
 | Latency p95 — cast extraction (start → proposal shown) | ≤ 60 s | async job telemetry (same channel as the existing storyboard planning queue) |
 | Latency p95 — Video Road Map canvas open with reference blocks | ≤ 1500 ms (up to 50 blocks total) | frontend performance metric (aligned with the generate-ai-flow NFR) |
-| Staged auto-start | ≤ 4 concurrent first generations per draft; full cast (≤ the cast size limit) all started ≤ 5 min after confirmation; never trips the per-user generation rate limit | worker queue metrics |
+| Staged auto-start | rolling window in cast order: at most N first generations run concurrently per draft, where N is a Creator-configurable setting (default 4); full cast (≤ the cast size limit) picked up by a worker — actually generating, not merely enqueued — ≤ 5 min after confirmation | worker queue metrics |
 | Aggregate cost estimate accuracy | actual total within ±10% of the shown estimate | billing telemetry comparison |
 | Availability | 99.9% (inherits the existing SLO) | monthly SLO window |
 | Concurrency safety (stars / scene links) | edits are never silently lost; conflicting concurrent saves are rejected with a reload prompt | versioned-save conflict metric |
@@ -190,7 +216,7 @@ feature_size: "L"
 - **AuthZ/AuthN impact:** all new capabilities are owner-scoped: cast extraction reads only the owner's draft; reference flows are owned by the draft's owner; block↔flow links never cross Creators. No new roles.
 - **Abuse cases:**
   - Cross-tenant access to a reference flow or block: denied without revealing existence (consistent with flow privacy).
-  - Cost abuse via giant casts: bounded by the cast size limit + one aggregate estimate before any charge + staged batch starts.
+  - Cost abuse via giant casts: bounded by the cast size limit on the extraction proposal + one aggregate estimate before any charge + rolling-window starts; manually added blocks start no generation and are bounded by the existing per-user creation rate limits.
   - Prompt injection through script text into cast extraction: script content is treated as data, never as instructions to the extraction step; extraction output is constrained to the cast schema.
   - Spam-creating reference blocks/flows: bounded by the existing per-user creation and generation rate limits.
 - **Security review:** Required — feature size L and a new cross-feature authorization surface (storyboard ↔ flows).
@@ -207,4 +233,5 @@ feature_size: "L"
 - [ ] Exact cast size limit value? Default now: 12 (characters + environments combined). — owner: PM (Oleksii), due: before sdd:design
 - [ ] Refund/retry policy for charged-but-failed first generations after the collective confirmation (inherits the unresolved generate-ai-flow §8 question)? Default now: failed runs follow the existing per-run retry with a new charge. — owner: PM, due: before sdd:design
 - [ ] Draft duplication & checkpoint-restore semantics for block↔flow pairs (duplicate flows vs share vs unlink; restoring a checkpoint that references a deleted flow)? Default now: duplication unlinks (copied blocks enter the no-flow state); checkpoint restore re-validates links and marks missing flows as no-flow. — owner: Tech Lead, due: before sdd:design
-- [ ] How is the derived style description for unlinked scenes produced (from starred results vs from the script)? Default now: derived from the set of starred results at scene-generation time. — owner: PM, due: before sdd:design
+- [ ] How is the derived style description for unlinked scenes produced (from starred results vs from the script)? Scope is fixed (clarify, 2026-06-06): one draft-global description; falls back to the script when no starred results exist. Default now: derived from the set of starred results at scene-generation time. — owner: PM, due: before sdd:design
+- [ ] Selection rule/cap for reference candidates in the scene generation master when a scene links many starred candidates? Default now: the primary starred result of each linked block, topped up with further stars to the model's reference capacity. — owner: Tech Lead, due: before sdd:design
