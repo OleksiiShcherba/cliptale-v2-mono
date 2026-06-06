@@ -230,7 +230,7 @@ sequenceDiagram
     API->>MySQL: створює job-рядок екстракції
     API->>Redis: ставить екстракцію в чергу storyboard-plan
     Worker->>Redis: бере джобу екстракції
-    Worker->>LLM: скрипт як data → пропозиція касту (обмежена схемою)
+    Worker->>LLM: скрипт як data, на виході пропозиція касту (обмежена схемою)
     Worker->>MySQL: зберігає пропозицію (≤ cast size limit)
     Worker-->>Web: прогрес і результат (realtime)
     Web-->>Creator: каст + агрегатна оцінка (нічого не списано)
@@ -286,7 +286,288 @@ sequenceDiagram
     end
 ```
 
-Решта флоу (ручне додавання блока US-07, лайфцикл видалень US-08, регенерація однієї сцени AC-08b, no-flow state AC-12) — стадія `sequences` покриває кожен AC окремо.
+Флоу 3–10 нижче додані стадією `sequences` і покривають решту US/AC; повна мапа покриття та флаги — у нотатці наприкінці §6.
+
+<!-- Flows 3–10 додані стадією `sequences` (2026-06-06): generic-учасники за словником стадії
+     (<user>/<ui>/<service>/<data-store>/<message-bus>/<external-system>); два design-seed флоу
+     вище лишені недоторканими (адитивне правило стадії). -->
+
+### Flow 3: Відкриття reference flow з блока і повернення (US-03 — AC-05, AC-13)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over U,UI: Precondition: на Video Road Map є reference-блок з лінкованим флоу
+    U->>UI: відкриває reference-блок
+    UI->>S: запитує лінкований флоу блока
+    S->>D: читає блок, лінк блок–флоу і флоу з фільтром за власником
+    alt запитувач — власник драфта і флоу
+        D-->>S: флоу знайдено
+        S-->>UI: повертає флоу
+        UI-->>U: відкриває канвас флоу в тій самій вкладці з дією «back to storyboard»
+        U->>UI: натискає «back to storyboard»
+        UI-->>U: повертає на Video Road Map того самого драфта
+        Note over U,UI: Postcondition: флоу повністю редагований як будь-який generation flow
+    else запитувач не власник (AC-13)
+        D-->>S: запис не знайдено в межах власника
+        S-->>UI: відмова без розкриття існування
+        UI-->>U: показує «не знайдено» — та сама owner-перевірка стоїть на кожному читанні і мутації фічі
+    end
+```
+
+### Flow 4: Зняття primary star — fallback превʼю блока (US-04 — AC-07)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over U,UI: Precondition: reference-блок має primary star (вона ж превʼю блока)
+    U->>UI: знімає зірку з primary результату (або видаляє сам результат у флоу)
+    UI->>S: застосовує toggle зірки
+    S->>D: видаляє рядок зірки (безверсійна комутативна операція, Override §1 ¶4)
+    Note over S,D: persists зняття зірки (рядок курації зірки видалено)
+    D-->>S: ack
+    S->>D: читає решту зірок блока
+    alt лишилась інша starred позиція
+        D-->>S: інші зірки існують
+        S-->>UI: превʼю блока перемикається на інший starred результат
+        UI-->>U: блок показує новий starred результат як превʼю
+    else зірок не лишилось
+        D-->>S: зірок немає
+        S-->>UI: блок без зірок
+        UI-->>U: no-preview placeholder, блок рахується без зірки для star gate
+    end
+    Note over U,UI: Postcondition: те саме правило діє при видаленні всіх starred результатів чи всіх результатів флоу. Лінк блок–флоу лишається цілим (no-flow state — лише при видаленні самого флоу, Flow 10)
+```
+
+### Flow 5: Редагування scene links через мульти-селектор (US-05 — AC-10, NFR concurrency)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over U,UI: Precondition: блок має AI-запропоновані scene links, видимі списком на блоці
+    U->>UI: відкриває селектор сцен блока, додає та прибирає окремі сцени
+    UI->>S: зберігає новий список scene links разом з відомою версією блока
+    S->>D: compare-and-set списку лінків за версією блока (Override §1 ¶4)
+    alt версія збігається
+        D-->>S: список лінків замінено, версію блока інкрементовано
+        Note over S,D: persists scene links (півот блок–сцена) + нова версія блока
+        S-->>UI: підтвердження з новою версією
+        UI-->>U: оновлює видимий linked-scenes список блока
+        Note over U,UI: Postcondition: наступна генерація сцен поважає оновлені лінки
+    else конкурентне збереження вже змінило версію
+        D-->>S: версія не збігається
+        S-->>UI: відмова через конфлікт (правка не загублена мовчки)
+        UI-->>U: reload-prompt — перечитати блок і повторити правку
+    end
+```
+
+### Flow 6: Лайфцикл сцен проти scene links (US-05 — AC-10b)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over U,UI: Precondition: reference-блоки драфта мають scene links
+    alt Creator видаляє сцену
+        U->>UI: видаляє сцену зі сторіборда
+        UI->>S: видаляє сцену драфта
+        S->>D: видаляє сцену і каскадно всі її scene links (FK-каскад, ADR-0005)
+        Note over S,D: persists видалення сцени + каскад лінків — жодних dangling links
+        D-->>S: ack
+        S-->>UI: оновлений стан драфта
+        UI-->>U: сцена зникає з linked-scenes списку кожного блока автоматично
+    else Creator додає нову сцену
+        U->>UI: додає сцену
+        UI->>S: створює сцену
+        S->>D: зберігає сцену без жодного лінка
+        Note over S,D: persists нова сцена (лінки авто не створюються)
+        D-->>S: ack
+        UI-->>U: нова сцена без лінків — Creator додає їх селектором (Flow 5)
+    else Creator міняє порядок сцен
+        U->>UI: перетягує сцену на нову позицію
+        UI->>S: зберігає новий порядок сцен
+        S->>D: оновлює лише позиції, scene links не змінюються
+        Note over S,D: persists порядок сцен — лінк привʼязаний до сцени, не до її позиції
+        D-->>S: ack
+        UI-->>U: порядок змінено, linked-scenes списки блоків незмінні
+    end
+```
+
+### Flow 7: Регенерація однієї сцени — scope star gate (US-06 — AC-08b)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+    participant B as <message-bus>
+    participant W as <worker>
+    participant X as <external-system>
+
+    Note over U,UI: Precondition: драфт має scene previews або частково зазіркований каст
+    U->>UI: запускає регенерацію окремої сцени X
+    UI->>S: старт регенерації сцени X
+    S->>D: читає блоки, лінковані саме до X, та їхні зірки (звужений star gate)
+    alt серед лінкованих до X блоків є без зірки
+        S-->>UI: відмова + називає саме ці блоки (незіркований блок, не лінкований до X, не блокує)
+        UI-->>U: показує блоки та дії-виходи (зазіркувати, retry або видалити блок)
+    else всі лінковані до X блоки зазірковані (або лінкованих блоків нуль)
+        S->>D: створює job-рядок регенерації сцени X
+        Note over S,D: persists job регенерації сцени
+        S->>B: ставить генерацію в чергу з idempotency-ключем
+        B->>W: доставляє джобу
+        W->>W: перевіряє idempotency-ключ (повторну доставку пропускає)
+        W->>D: читає зірки лінкованих до X блоків (reference boundary)
+        Note over W,D: нуль лінкованих блоків — сцена йде з промпту + derived style description, а без жодного starred результату в драфті style description падає назад на скрипт
+        W->>X: генерує сцену X з відібраними референсами
+        X-->>W: результат
+        W->>D: зберігає новий preview сцени X
+        Note over W,D: persists scene preview
+        W-->>UI: статус сцени (realtime)
+        UI-->>U: оновлений preview сцени X
+        Note over W,X: retry за існуючою політикою джоб з backoff
+        alt вичерпані retry
+            W->>D: маркує job-рядок failed зі зрозумілою причиною
+            W-->>UI: сцена у failed-статусі з дією retry
+        end
+    end
+```
+
+### Flow 8: Ручне додавання reference-блока після підтвердження (US-07 — AC-11, AC-01b)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over U,UI: Precondition: драфт уже має reference-блоки (підтверджений каст)
+    U->>UI: шукає дію каст-екстракції
+    UI-->>U: дія не пропонується — каст розширюється лише вручну (AC-01b, повторна екстракція поза скоупом)
+    U->>UI: вручну додає reference-блок (персонаж або оточення)
+    UI->>S: створює блок з новим порожнім лінкованим флоу
+    S->>S: перевіряє існуючий per-user creation rate limit
+    alt ліміт створення вичерпано
+        S-->>UI: відмова за rate limit
+        UI-->>U: пояснює ліміт створення (існуюче правило, без змін)
+    else ліміт дозволяє
+        S->>D: створює блок, порожній reference flow і лінк 1:1
+        Note over S,D: persists блок + порожній флоу + лінк (без генерації і без списання)
+        D-->>S: ack
+        S-->>UI: новий блок
+        UI-->>U: блок на канвасі без превʼю — бере участь у star gate як будь-який інший
+    end
+    Note over U,UI: Postcondition: cast size limit ручні додавання не обмежує (він стосується лише пропозиції екстракції)
+```
+
+### Flow 9: Видалення блока або драфта — флоу виживають (US-08 — AC-14, AC-14b)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over U,UI: Precondition: reference-блоки з лінкованими флоу існують
+    alt Creator видаляє reference-блок (AC-14)
+        U->>UI: видаляє блок зі storyboard-канвасу
+        UI->>S: видаляє блок
+        S->>D: видаляє блок, його scene links і лінк блок–флоу (сам флоу і результати не чіпає)
+        Note over S,D: persists видалення блока + каскад його лінків — флоу лишається в Generate AI списку
+        D-->>S: ack
+        S-->>UI: блок видалено
+        UI-->>U: блок зникає з канвасу і зі star gate, флоу в списку вже без draft badge (badge похідний від лінка, ADR-0010)
+    else Creator видаляє весь драфт (AC-14b)
+        U->>UI: видаляє драфт
+        UI->>S: видаляє драфт
+        S->>D: видаляє драфт, його блоки і всі лінки — кожен reference flow і його результати лишаються цілими
+        Note over S,D: persists видалення драфта + блоків + лінків (флоу не чіпаються — те саме правило виживання)
+        D-->>S: ack
+        S-->>UI: драфт видалено
+        UI-->>U: всі флоу драфта доступні в Generate AI списку, draft badge знято
+    end
+    Note over U,UI: Postcondition: години ітерацій у флоу не втрачаються разом з блоком чи драфтом
+```
+
+### Flow 10: Видалення флоу з лінкованим блоком — badge, warning, no-flow state (US-08 — AC-12)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over U,UI: Precondition: існують авто-створені reference flows, лінковані на блоки драфта
+    U->>UI: відкриває список Generate AI flows
+    UI->>S: запитує список флоу власника
+    S->>D: читає флоу + існування лінків блок–флоу
+    D-->>S: флоу з ознакою draft badge (похідна від лінка, ADR-0010)
+    S-->>UI: список флоу
+    UI-->>U: показує флоу з draft badge їхнього драфта
+    U->>UI: видаляє флоу з badge
+    UI->>S: запитує видалення флоу
+    S->>D: перевіряє, чи залежить від флоу storyboard-блок
+    D-->>S: лінкований блок існує
+    S-->>UI: вимагає підтвердження — від флоу залежить блок сторіборда
+    alt Creator скасовує
+        UI-->>U: видалення не відбувається, флоу і блок без змін
+    else Creator підтверджує
+        UI->>S: підтверджує видалення
+        S->>D: видаляє флоу з результатами і знімає лінк — блок входить у no-flow state
+        Note over S,D: persists видалення флоу + зняття лінка (блок без превʼю і кандидатів)
+        D-->>S: ack
+        S-->>UI: флоу видалено
+        UI-->>U: блок у no-flow state — фейлить star gate, доки Creator не розвʼяже стан (наприклад, видаливши блок)
+    end
+```
+
+**Покриття §4/§5 → флоу (стадія `sequences`, 2026-06-06).** Кожен US і кожен AC має runtime-покриття; N/A не знадобився жодному AC.
+
+| Spec-елемент | Де показано |
+|---|---|
+| US-01 | Flow 1 (AC-01, AC-02) · AC-01b — Flow 8 |
+| US-02 | Flow 1 (AC-03 happy + AC-04 alt провалу) |
+| US-03 | Flow 3 (AC-05 happy + AC-13 alt не-власника) |
+| US-04 | Flow 2 (AC-06) · Flow 4 (AC-07, обидві гілки fallback) |
+| US-05 | Flow 5 (AC-10 + конфліктна гілка versioned-save) · Flow 6 (AC-10b, три гілки) |
+| US-06 | Flow 2 (AC-08 alt гейта, AC-09 boundary) · Flow 7 (AC-08b, обидва правила scope) |
+| US-07 | Flow 8 (AC-11 + rate-limit гілка; AC-01b) |
+| US-08 | Flow 9 (AC-14 + AC-14b) · Flow 10 (AC-12, read-шлях badge + warning + no-flow) |
+
+Примітка до AC-02: trim-правило «лишити записи з найбільшою кількістю сцен» показане в Flow 1 повідомленням «зберігає пропозицію (≤ cast size limit)» — деталь відбору лишається текстовою (Flow 1 — design-seed, адитивне правило стадії його не редагує).
+
+**Флаги стадії `sequences` (для design / data-model, без авто-ADR):**
+- Учасник `<worker>` у Flow 7 — async-споживач понад базовий generic-словник стадії; відповідає заявленій поверхні `worker` (§5 media-worker), нового будівельного блока не вводить.
+- Flows 1–2 (design-seed) лишені з конкретними іменами контейнерів; нові Flows 3–10 — generic-учасники за правилом стадії. Єдина правка в seed-блоці — syntax-fix юнікодної стрілки в одному повідомленні Flow 1 (render-пастка з mermaid-check), логіка незмінна.
+- Idempotency/retry/dead-letter у Flow 7 повторно використовують існуючі політики джоб (§8 Idempotency, ADR-0003) — нових рішень, гідних ADR, стадія не виявила.
+- Persist-нотатки для data-model: рядки зірок (Flows 2/4), півот блок–сцена + version на блоці (Flow 5), FK-каскад сцена→лінки (Flow 6), каскад блок/драфт→лінки БЕЗ каскаду на флоу (Flow 9), зняття лінка при видаленні флоу (Flow 10), job-рядки (Flows 1/7).
 
 ## 7. Deployment view
 
