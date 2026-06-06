@@ -392,12 +392,16 @@ Each top-3 goal from §1 expanded into a full scenario:
 
 | Risk / debt | Severity | Mitigation | Owner |
 |---|---|---|---|
-| <e.g. Worker lag may reach hours during a downstream outage> | Medium | <alert >10 min, on-call playbook, retry backoff> | <DevOps> |
-| <e.g. No event-schema versioning in v1> | Medium | <ADR-NNNN planned for v2, tolerate unknown fields> | <Backend> |
-| Open architectural decision: <decision-headline> | Open question | Resolve before <stage trigger or YYYY-MM-DD>; <inline rationale from the Save-as-OQ> | <owner> |
+| Star gate створює drop-off у воронці (KPI-2: cast-to-previews funnel ≥ baseline) | High | gate завжди називає блоки + дії-виходи (AC-04/AC-08); KPI-моніторинг 30 днів post-release; ревізія PM при просіданні | PM (Oleksii) |
+| Якість екстракції: LLM пропонує нерелевантний каст → недовіра і відмова від фічі | Medium | усе коригується в cast confirmation (US-01); вихід обмежений Zod-схемою; промпт ітерується без міграцій; KPI depth usage показує реальне використання | Tech Lead |
+| Спільна черга `ai-generate`: вікна кількох драфтів + інші фічі → pickup lag > 5 хв | Medium | `reference_window_pickup_lag` + алерт (§7); масштабування реплік media-worker без зміни моделі вікна | Tech Lead |
+| Зависле вікно: краш воркера між завершенням джоби та claim наступного pending | Medium | алерт «pending > 5 хв без running»; retry на блоці (AC-04) перезапускає диспетч; ідемпотентний атомарний claim (ADR-0003) | Tech Lead |
+| Розсинхрон зірок із видаленими результатами/файлами флоу | Medium | синхронна чистка зірок при видаленні result-блока або файлу (ADR-0009) + інтеграційний тест AC-07 | Tech Lead |
 
 **Accepted debt (acceptable in v1, plan to fix later):**
-- <e.g. the entity is immutable / unversioned — OK for v1, may need audit versioning in v2>
+- TOCTOU-вікно star gate (ADR-0011): генерація йде зі знімком зірок на момент старту — прийнято свідомо.
+- Подвійний носій reference-блока: XY-позиція в canvas JSON, суть у таблиці (ADR-0005); при розбіжності виграє таблиця (блок без позиції → дефолтне місце на канвасі).
+- Legacy-код principal-image живе, доки існують драфти старого механізму (spec §3: без міграції даних); видалення — окремий cleanup, коли останній старий драфт зникне.
 
 ## 12. Glossary
 
