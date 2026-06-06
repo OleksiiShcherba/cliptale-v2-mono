@@ -4,7 +4,7 @@ owner: "Tech Lead (Oleksii)"
 reviewers: ["Tech Lead", "Security Lead"]
 updated_at: "2026-06-06"
 feature_size: "L"
-target_surfaces: []  # filled in §4 — subset of: backend-service | web-frontend | mobile-app | desktop-app | cli | worker | library-sdk. Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
+target_surfaces: [backend-service, web-frontend, worker]  # §4 D4.1, ADR-0001. Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
 ---
 
 # Software Architecture Document — storyboard-reference-flows
@@ -118,11 +118,18 @@ C4Context
      📋 Write: 3–4 choices; each a heading + 2–3 sentences of rationale.
      📌 «Store content as a table of typed blocks» is a pillar — ADR-0001 grows from it. -->
 
+**Target surfaces:** `[backend-service, web-frontend, worker]` (ADR-0001) — нові REST-ендпоінти в `apps/api`, розширення React SPA (канвас, модалка касту, зірки, scene-селектор) та новий тип async-джоби + completion-hook у `apps/media-worker`. **UI-архітектура web-поверхні (інлайн, без ADR):** існуюча React SPA; нові екрани компонуються з наявних примітивів (`shared/components/`, інлайн `*.styles.ts`); прецеденти — generate-ai-flow canvas (`@xyflow/react`, CostConfirmModal, ResultNode) і storyboard canvas. Альтернатив немає — репо вже SPA, дублювати стилістичну систему заборонено конвенціями.
+
 **Top strategic choices (the seeds for ADRs):**
 
-1. **<e.g. Module isolation through events>** — <2–3 sentences citing quality goals + constraints>.
-2. **<e.g. Single-store persistence>** — <2–3 sentences>.
-3. **<e.g. Server-rendered read side>** — <2–3 sentences>.
+1. **Каст-екстракція — async-джоба на існуючій черзі `storyboard-plan`** (ADR-0002). NFR p95 ≤ 60 с не живе в синхронному HTTP-запиті; той самий патерн, LLM-провайдер і канал телеметрії, що в storyboard planning job; результат переживає розрив зʼєднання; нуль нової інфри (тримає §2).
+2. **Rolling window: стан касту в БД + worker completion-hook** (ADR-0003). Перші запуски записуються рядками pending → running → done/failed у cast-порядку; API ставить у чергу перші N (N — налаштування Creator-а в `user_settings`, default 4); по завершенні джоби воркер атомарно claim-ить наступний pending того ж драфта. БД = джерело правди → вікно переживає рестарти api/worker (quality goal 2: повний каст підхоплений ≤ 5 хв).
+3. **Колективне підтвердження зі списанням пер-ран при старті** (ADR-0004). Confirm фіксує згоду + агрегатну оцінку (сума пер-флоу оцінок через існуючий `flow-pricing`); гроші списуються пер-ран у момент реального старту — повторне використання білінгу generate-ai-flow, без нової refund-механіки; failed first run = існуючий per-run retry з новим списанням (закриває OQ-2 spec §8). Свідоме scoped-відхилення від per-generate правила (spec §1 ¶4), покриває лише перші запуски.
+4. **Дані курації у виділених SQL-таблицях, не в canvas JSON** (ADR-0005). Reference-блоки, scene links і зірки читає бекенд без фронтенда (star gate, reference boundary, draft badge, dispatch вікна) → власні таблиці з FK за прецедентом music blocks (045); canvas JSON драфта тримає лише XY-позицію блока. Видалення сцени чистить лінки одним FK-каскадом/DELETE (quality goal 3: жодних dangling links).
+5. **Лайфцикл-семантики дублювання/чекпоїнтів: unlink при копіюванні, re-validate при відновленні** (ADR-0006). Копія драфта не дублює і не шерить флоу — скопійовані блоки входять у no-flow state; відновлення чекпоїнта ре-валідує block↔flow лінки й маркує відсутні флоу як no-flow (закриває OQ-3 spec §8).
+6. **Правила scene generation master у межах reference boundary** (ADR-0007, ADR-0008). Derived style description для нелінкованих сцен — одна драфт-глобальна, будується зі starred results у момент генерації сцен, fallback — скрипт (OQ-4). Вибір кандидатів сцени X: primary star кожного лінкованого блока + добір решти зірок до reference-місткості моделі (OQ-5).
+
+**Інлайн-рішення без ADR:** cast size limit = **12** (персонажі + оточення разом; конфіг-значення, обмежує лише пропозицію екстракції — закриває OQ-1 spec §8); per-Creator rate limits успадковуються з generate-ai-flow без змін.
 
 Each tactical decision in later sections should trace to one of these seeds. Tactical decisions that *contradict* a strategic choice are red flags — surface them in §11.
 
