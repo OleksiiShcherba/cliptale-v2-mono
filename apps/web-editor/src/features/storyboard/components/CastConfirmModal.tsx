@@ -9,6 +9,7 @@ import React, { useState, useEffect } from 'react';
 
 import type { StoryboardBlock } from '@/features/storyboard/types';
 import { SceneLinkSelector } from './SceneLinkSelector';
+import { castConfirmModalStyles } from './CastConfirmModal.styles';
 
 // ---------------------------------------------------------------------------
 // Types (mirroring openapi.yaml CastProposalEntry + CastExtractionJob shapes)
@@ -85,7 +86,7 @@ function EntryEditor({ entry, index, orderedScenes, onChange }: EntryEditorProps
   }
 
   return (
-    <div data-testid={`cast-entry-${index}`} style={{ marginBottom: '1rem', padding: '0.5rem', border: '1px solid #ccc' }}>
+    <div data-testid={`cast-entry-${index}`} style={castConfirmModalStyles.entryEditor}>
       <div>
         <label>Name</label>
         <input

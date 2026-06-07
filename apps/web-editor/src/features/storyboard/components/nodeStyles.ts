@@ -18,6 +18,11 @@ export const TEXT_SECONDARY = '#8A8AA0';
 export const ERROR = '#EF4444';
 export const SUCCESS = '#10B981';
 export const WARNING = '#F59E0B';
+// Error/alert palette (star-gate notice) + accent text.
+export const ERROR_LIGHT = '#F87171';   // red-400 — alert text / accent border
+export const ERROR_SURFACE = '#1A0A0A'; // dark red-tinted alert background
+export const ERROR_BORDER = '#7F1D1D';  // red-900 — destructive action border
+export const ACCENT_LIGHT = '#A78BFA';  // violet-400 — secondary action text
 
 // ── StartNode / EndNode styles ─────────────────────────────────────────────────
 
