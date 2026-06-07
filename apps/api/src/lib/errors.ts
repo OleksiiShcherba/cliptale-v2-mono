@@ -120,6 +120,22 @@ export class ContentInvalidError extends GateError {
 }
 
 /**
+ * Star gate failed — one or more reference blocks lack a starred result.
+ *
+ * Raised by storyboardIllustration.service assertFullSetStarGate (AC-08) and
+ * assertSceneStarGate (AC-08b). The `details.blocks` array names every offending
+ * block with its id and name so the client can surface actionable information
+ * (AC-04 / openapi.yaml 422 bodies for startStoryboardIllustrations and
+ * startStoryboardBlockIllustration).
+ */
+export class StarGateFailedError extends GateError {
+  constructor(message: string, blocks: Array<{ blockId: string; name: string }>) {
+    super(message, 'references.star_gate_failed', { blocks });
+    this.name = 'StarGateFailedError';
+  }
+}
+
+/**
  * Per-Creator generation rate limit exceeded (generate-ai-flow ADR-0004, ≤ 30/min).
  *
  * Maps to HTTP 429. Carries the seconds the caller should wait (for the

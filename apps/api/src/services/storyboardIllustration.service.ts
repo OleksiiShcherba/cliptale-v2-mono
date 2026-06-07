@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { UnprocessableEntityError } from '@/lib/errors.js';
+import { UnprocessableEntityError, StarGateFailedError } from '@/lib/errors.js';
 import * as aiGenerationJobRepository from '@/repositories/aiGenerationJob.repository.js';
 import * as storyboardRepository from '@/repositories/storyboard.repository.js';
 import * as storyboardPlanJobRepository from '@/repositories/storyboardPlanJob.repository.js';
@@ -59,19 +59,20 @@ async function assertFullSetStarGate(userId: string, draftId: string): Promise<v
   const blocks = await referenceBlocksRepository.listReferenceBlocksByDraftId({ draftId, userId });
   if (blocks.length === 0) return;
 
-  const missing: string[] = [];
+  const missing: Array<{ blockId: string; name: string }> = [];
   for (const block of blocks) {
     const stars = await referenceCurationRepository.listStarsForBlock(block.id);
     if (stars.length === 0) {
-      missing.push(block.name);
+      missing.push({ blockId: block.id, name: block.name });
     }
   }
 
   if (missing.length > 0) {
-    const names = missing.join(', ');
-    throw new UnprocessableEntityError(
-      `The following reference blocks are missing a starred result: ${names}. ` +
+    const names = missing.map((b) => b.name).join(', ');
+    throw new StarGateFailedError(
+      `${missing.length} reference block${missing.length === 1 ? '' : 's'} still need${missing.length === 1 ? 's' : ''} a starred result: ${names}. ` +
         'Please retry the generation or delete the block before starting illustrations.',
+      missing,
     );
   }
 }
@@ -89,19 +90,20 @@ async function assertSceneStarGate(draftId: string, sceneBlockId: string): Promi
   });
   if (linkedBlocks.length === 0) return;
 
-  const missing: string[] = [];
+  const missing: Array<{ blockId: string; name: string }> = [];
   for (const block of linkedBlocks) {
     const stars = await referenceCurationRepository.listStarsForBlock(block.id);
     if (stars.length === 0) {
-      missing.push(block.name);
+      missing.push({ blockId: block.id, name: block.name });
     }
   }
 
   if (missing.length > 0) {
-    const names = missing.join(', ');
-    throw new UnprocessableEntityError(
-      `The following reference blocks linked to this scene are missing a starred result: ${names}. ` +
+    const names = missing.map((b) => b.name).join(', ');
+    throw new StarGateFailedError(
+      `${missing.length} reference block${missing.length === 1 ? '' : 's'} linked to this scene still need${missing.length === 1 ? 's' : ''} a starred result: ${names}. ` +
         'Please retry the generation or delete the block before regenerating this scene.',
+      missing,
     );
   }
 }
