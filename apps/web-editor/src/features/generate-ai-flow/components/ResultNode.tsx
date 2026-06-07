@@ -189,7 +189,7 @@ function StarControls({
         data-testid="primary-star-toggle"
         aria-pressed={isPrimary}
         data-primary={isPrimary ? 'true' : 'false'}
-        aria-label={isPrimary ? 'Remove primary star' : 'Set as primary (block preview)'}
+        aria-label={isPrimary ? 'Remove primary star' : 'Star as primary (block preview)'}
         onClick={() => { void handlePrimaryClick(); }}
         style={{ ...starBtnBase, color: isPrimary ? '#F59E0B' : '#555', fontSize: 12 }}
       >
@@ -225,13 +225,15 @@ function StarControls({
 
 export function ResultNode({ id, data, selected }: NodeProps): React.ReactElement {
   const nodeData = data as ResultNodeData;
-  const { block, modality, referenceContext } = nodeData;
+  const { block, modality } = nodeData;
   // Dynamic result state comes from the FlowExtras context (keeping the xyflow node
   // array stable); the isolated render path may still pass it via `data`.
   const extras = useResultExtras(id);
   const job = nodeData.job ?? extras.job;
   const previewUrl = nodeData.previewUrl ?? extras.previewUrl;
   const onRetry = nodeData.onRetry ?? extras.onRetry;
+  // AC-06/07: reference context — extras take precedence (live state from FlowEditorPage).
+  const referenceContext = extras.referenceContext ?? nodeData.referenceContext;
   const color = modality ? MODALITY_COLOR[modality] ?? '#888' : '#888';
   const status = job?.status;
   const rootStyle = modality === 'audio' ? audioNodeRoot : nodeRoot;

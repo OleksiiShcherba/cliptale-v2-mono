@@ -17,6 +17,8 @@ interface CanvasToolbarProps {
   onAddBlock: () => void;
   onAddMusicBlock: () => void;
   canAddMusicBlock: boolean;
+  /** Optional — opens the cast extraction modal (storyboard-reference-flows AC-01). */
+  onStartReferenceGeneration?: () => void;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -29,6 +31,7 @@ export function CanvasToolbar({
   onAddBlock,
   onAddMusicBlock,
   canAddMusicBlock,
+  onStartReferenceGeneration,
 }: CanvasToolbarProps): React.ReactElement {
   return (
     <div style={s.canvasToolbar} data-testid="canvas-toolbar">
@@ -81,6 +84,30 @@ export function CanvasToolbar({
         </svg>
         Add Music
       </button>
+
+      {/* Start reference generation — shows cast extraction modal (AC-01) */}
+      {onStartReferenceGeneration !== undefined && (
+        <button
+          type="button"
+          style={s.canvasToolbarButton}
+          onClick={onStartReferenceGeneration}
+          aria-label="Start reference generation"
+          data-testid="start-reference-generation-button"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <circle cx="7" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M2 13c0-2.761 2.239-5 5-5s5 2.239 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+          Start reference generation
+        </button>
+      )}
 
       {/* Auto-Arrange — disabled placeholder */}
       <button

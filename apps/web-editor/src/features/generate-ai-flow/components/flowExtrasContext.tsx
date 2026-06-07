@@ -13,6 +13,7 @@
 import React from 'react';
 
 import type { AiGenerationJob } from '@/shared/ai-generation/types';
+import type { ReferenceContext } from './ResultNode';
 
 export type GenerationExtras = {
   onGenerate?: (blockId: string) => void;
@@ -23,6 +24,8 @@ export type ResultExtras = {
   job?: AiGenerationJob | null;
   previewUrl?: string | null;
   onRetry?: () => void;
+  /** Present when the flow is a reference flow opened from the storyboard (AC-06/07). */
+  referenceContext?: ReferenceContext;
 };
 
 /** Actions available on every node regardless of kind (e.g. delete). */

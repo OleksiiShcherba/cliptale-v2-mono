@@ -79,6 +79,8 @@ interface StoryboardPageWorkspaceProps {
   draftOwnerId: string | null;
   /** Whether the draft currently has any music block — drives loss enumeration (AC-08). */
   hasMusic: boolean;
+  /** Optional — opens the cast extraction modal (storyboard-reference-flows AC-01). */
+  onStartReferenceGeneration?: () => void;
 }
 
 export function StoryboardPageWorkspace({
@@ -113,6 +115,7 @@ export function StoryboardPageWorkspace({
   isPlanBlocking,
   draftOwnerId,
   hasMusic,
+  onStartReferenceGeneration,
 }: StoryboardPageWorkspaceProps): React.ReactElement {
   // AC-09 owner gate: only the draft's owner ever sees the status menu. Read the
   // auth context defensively — outside an AuthProvider (e.g. isolated tests) the
@@ -229,6 +232,7 @@ export function StoryboardPageWorkspace({
             onNodeClick={onNodeClick}
             cursorMode={isKnifeActive ? 'knife' : 'grab'}
             onCutEdge={onCutEdge}
+            onStartReferenceGeneration={onStartReferenceGeneration}
           />
         )}
       </div>

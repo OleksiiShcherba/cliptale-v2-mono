@@ -16,8 +16,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 import type { Node, Edge } from '@xyflow/react';
 
-import { fetchStoryboard } from '@/features/storyboard/api';
+import { fetchFileInfo, fetchStoryboard, listReferenceBlocks } from '@/features/storyboard/api';
 import type {
+  ReferenceBlockApiResponse,
+  ReferenceBlockNodeData,
   SceneBlockNodeData,
   SentinelNodeData,
   StoryboardBlock,
@@ -97,6 +99,52 @@ function edgeToFlowEdge(edge: StoryboardEdge): Edge {
 }
 
 /**
+ * Converts a ReferenceBlockApiResponse to a React Flow Node (off-chain, like musicBlockToNode).
+ * The node type is 'reference-block' — registered in STORYBOARD_NODE_TYPES.
+ *
+ * `resolvedPreviewUrl` is the pre-fetched URL for the block's previewFileId (AC-06).
+ * Pass null if no previewFileId is set or the URL could not be resolved.
+ */
+function referenceBlockToNode(
+  block: ReferenceBlockApiResponse,
+  onOpenFlow: (blockId: string) => void,
+  onRetry: (blockId: string) => void,
+  resolvedPreviewUrl: string | null = null,
+): Node {
+  const data: ReferenceBlockNodeData = {
+    referenceBlock: {
+      id: block.blockId,
+      draftId: block.draftId,
+      flowId: block.flowId,
+      castType: block.castType,
+      name: block.name,
+      description: block.description,
+      sortOrder: block.sortOrder,
+      positionX: block.positionX,
+      positionY: block.positionY,
+      windowStatus: block.windowStatus,
+      firstJobId: null,
+      errorMessage: block.errorMessage,
+      version: block.version,
+      createdAt: block.createdAt,
+      updatedAt: block.updatedAt,
+    },
+    previewUrl: resolvedPreviewUrl,
+    onOpenFlow,
+    onRetry,
+  };
+
+  return {
+    id: block.blockId,
+    type: 'reference-block',
+    position: { x: block.positionX, y: block.positionY + 350 }, // below main flow row
+    data,
+    draggable: true,
+    deletable: true,
+  };
+}
+
+/**
  * Deduplicates sentinel blocks: keeps only the first START and first END block.
  * All scene blocks are kept unchanged. This is a client-side safety net for
  * pre-existing duplicate sentinels in the DB caused by the prior race condition.
@@ -164,13 +212,36 @@ type UseStoryboardCanvasResult = CanvasState & {
   reload?: () => Promise<void>;
 };
 
+type UseStoryboardCanvasOptions = {
+  /** Called when a reference block node is clicked (opens the linked flow). Default: no-op. */
+  onOpenReferenceFlow?: (blockId: string) => void;
+  /** Called when the retry button is clicked on a failed reference block. Default: no-op. */
+  onRetryReferenceBlock?: (blockId: string) => void;
+};
+
 /**
  * Initializes the storyboard canvas on page load.
  *
  * Calls `GET /storyboards/:draftId` (which seeds sentinels server-side),
  * deduplicates any pre-existing duplicate sentinels, and hydrates React Flow state.
+ * Also fetches reference blocks from `GET /storyboards/:draftId/references/blocks`
+ * and adds them as `'reference-block'` nodes below the main story row.
  */
-export function useStoryboardCanvas(draftId: string): UseStoryboardCanvasResult {
+export function useStoryboardCanvas(
+  draftId: string,
+  options: UseStoryboardCanvasOptions = {},
+): UseStoryboardCanvasResult {
+  const { onOpenReferenceFlow, onRetryReferenceBlock } = options;
+  // Use stable ref wrappers so the reload callback doesn't change when the callbacks change.
+  const onOpenFlowRef = useRef<(blockId: string) => void>(onOpenReferenceFlow ?? (() => { /* no-op */ }));
+  const onRetryRef = useRef<(blockId: string) => void>(onRetryReferenceBlock ?? (() => { /* no-op */ }));
+  useEffect(() => {
+    if (onOpenReferenceFlow) onOpenFlowRef.current = onOpenReferenceFlow;
+  }, [onOpenReferenceFlow]);
+  useEffect(() => {
+    if (onRetryReferenceBlock) onRetryRef.current = onRetryReferenceBlock;
+  }, [onRetryReferenceBlock]);
+
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -205,8 +276,36 @@ export function useStoryboardCanvas(draftId: string): UseStoryboardCanvasResult 
     setError(null);
 
     try {
-      // Fetch canvas state — the GET endpoint seeds sentinels atomically.
-      const state = await fetchStoryboard(draftId);
+      // Fetch canvas state and reference blocks in parallel.
+      // listReferenceBlocks is caught defensively so a missing/unavailable API degrades
+      // gracefully (e.g., non-reference-flows storyboards, or test environments where
+      // only fetchStoryboard is mocked).
+      const safeListReferenceBlocks = (): Promise<{ items: ReferenceBlockApiResponse[] }> => {
+        try {
+          return listReferenceBlocks(draftId).catch(() => ({ items: [] as ReferenceBlockApiResponse[] }));
+        } catch {
+          return Promise.resolve({ items: [] });
+        }
+      };
+      const [state, refBlocksResult] = await Promise.all([
+        fetchStoryboard(draftId),
+        safeListReferenceBlocks(),
+      ]);
+
+      // Resolve preview URLs for reference blocks that have a previewFileId (AC-06).
+      const previewUrlMap = new Map<string, string>();
+      const blocksNeedingUrl = refBlocksResult.items.filter((b) => b.previewFileId != null);
+      if (blocksNeedingUrl.length > 0) {
+        const urlFetches = blocksNeedingUrl.map(async (b) => {
+          try {
+            const info = await fetchFileInfo(b.previewFileId as string);
+            if (info?.url) previewUrlMap.set(b.previewFileId as string, info.url);
+          } catch {
+            // Ignore individual fetch failures (including missing mock in tests).
+          }
+        });
+        await Promise.all(urlFetches);
+      }
 
       // Dedup: keep only first START + first END (safety net for legacy duplicates).
       const dedupedBlocks = dedupSentinels(state.blocks);
@@ -218,6 +317,17 @@ export function useStoryboardCanvas(draftId: string): UseStoryboardCanvasResult 
       const flowNodes = [
         ...positionedBlocks.map((block) => blockToNode(block, removeNode)),
         ...state.musicBlocks.map((musicBlock) => musicBlockToNode(musicBlock, orderedScenes as StoryboardBlock[])),
+        ...refBlocksResult.items.map((refBlock) => {
+          const resolvedUrl = refBlock.previewFileId
+            ? (previewUrlMap.get(refBlock.previewFileId) ?? null)
+            : null;
+          return referenceBlockToNode(
+            refBlock,
+            (blockId) => { onOpenFlowRef.current(blockId); },
+            (blockId) => { onRetryRef.current(blockId); },
+            resolvedUrl,
+          );
+        }),
       ];
       const flowEdges = state.edges.map(edgeToFlowEdge);
 

@@ -2,6 +2,7 @@ import type { NodeTypes } from '@xyflow/react';
 
 import { EndNode } from './EndNode';
 import { MusicBlockNode } from './MusicBlockNode';
+import { ReferenceBlockNode } from './ReferenceBlockNode';
 import { SceneBlockNode } from './SceneBlockNode';
 import { StartNode } from './StartNode';
 
@@ -10,4 +11,5 @@ export const STORYBOARD_NODE_TYPES: NodeTypes = {
   end: EndNode,
   'scene-block': SceneBlockNode,
   'music-block': MusicBlockNode,
+  'reference-block': ReferenceBlockNode,
 };

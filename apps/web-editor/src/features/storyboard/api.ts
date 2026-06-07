@@ -218,6 +218,12 @@ export async function startStoryboardIllustrations(
 ): Promise<StoryboardIllustrationStatusResponse> {
   const res = await apiClient.post(`/storyboards/${draftId}/illustrations`, {});
   if (!res.ok) {
+    // On 422 (star gate failure), surface the API error message verbatim.
+    if (res.status === 422) {
+      const body = await res.json().catch(() => null) as { error?: string } | null;
+      const message = body?.error ?? `POST /storyboards/${draftId}/illustrations failed: ${res.status}`;
+      throw new Error(message);
+    }
     throw new Error(`POST /storyboards/${draftId}/illustrations failed: ${res.status}`);
   }
   return res.json() as Promise<StoryboardIllustrationStatusResponse>;
@@ -566,6 +572,24 @@ export async function retryReferenceBlockGeneration(
   return res.json() as Promise<RetryReferenceBlockResponse>;
 }
 
+// ── File info API (storyboard-reference-flows AC-06) ──────────────────────────
+
+/**
+ * Fetches the public URL for a file by its ID.
+ *
+ * Maps to GET /files/:fileId.
+ * Used to resolve previewFileId on reference blocks to a displayable URL (AC-06).
+ * Returns null when the file is not found (404) so the canvas falls back gracefully.
+ */
+export async function fetchFileInfo(
+  fileId: string,
+): Promise<{ url: string } | null> {
+  const res = await apiClient.get(`/files/${fileId}`);
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  return res.json() as Promise<{ url: string }>;
+}
+
 // ── Cast extraction API (storyboard-reference-flows T17) ──────────────────────
 
 /**
@@ -578,9 +602,9 @@ export async function retryReferenceBlockGeneration(
 export async function startCastExtraction(
   draftId: string,
 ): Promise<{ jobId: string; status: 'queued' }> {
-  const res = await apiClient.post(`/storyboards/${draftId}/references/extraction`, {});
+  const res = await apiClient.post(`/storyboards/${draftId}/references/extract`, {});
   if (!res.ok) {
-    throw new Error(`POST /storyboards/${draftId}/references/extraction failed: ${res.status}`);
+    throw new Error(`POST /storyboards/${draftId}/references/extract failed: ${res.status}`);
   }
   return res.json() as Promise<{ jobId: string; status: 'queued' }>;
 }
@@ -594,11 +618,11 @@ export async function startCastExtraction(
 export async function getLatestCastExtraction(
   draftId: string,
 ): Promise<CastExtractionJob | null> {
-  const res = await apiClient.get(`/storyboards/${draftId}/references/extraction/latest`);
+  const res = await apiClient.get(`/storyboards/${draftId}/references/extraction`);
   if (res.status === 404) return null;
   if (!res.ok) {
     throw new Error(
-      `GET /storyboards/${draftId}/references/extraction/latest failed: ${res.status}`,
+      `GET /storyboards/${draftId}/references/extraction failed: ${res.status}`,
     );
   }
   return res.json() as Promise<CastExtractionJob>;
@@ -617,13 +641,13 @@ export async function confirmCast(
   entries: CastProposalEntry[],
   acknowledgedAggregateCredits: number,
 ): Promise<ReferenceBlockListResponse> {
-  const res = await apiClient.post(`/storyboards/${draftId}/references/confirm-cast`, {
+  const res = await apiClient.post(`/storyboards/${draftId}/references/confirm`, {
     entries,
     acknowledgedAggregateCredits,
   });
   if (!res.ok) {
     throw new Error(
-      `POST /storyboards/${draftId}/references/confirm-cast failed: ${res.status}`,
+      `POST /storyboards/${draftId}/references/confirm failed: ${res.status}`,
     );
   }
   return res.json() as Promise<ReferenceBlockListResponse>;

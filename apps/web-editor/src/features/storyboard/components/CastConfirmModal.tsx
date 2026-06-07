@@ -5,7 +5,7 @@
  * before the Creator confirms and triggers reference generation.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 import type { StoryboardBlock } from '@/features/storyboard/types';
 import { SceneLinkSelector } from './SceneLinkSelector';
@@ -144,6 +144,8 @@ export function CastConfirmModal({
   onCancel,
 }: CastConfirmModalProps) {
   // Initialise editable entries from the proposal (completed state).
+  // Note: extraction may arrive asynchronously (GET resolves after first render),
+  // so we also sync via useEffect when it transitions to completed.
   const initialEntries: CastProposalEntry[] =
     extraction?.status === 'completed' && extraction.proposal
       ? extraction.proposal.map((e) => ({ ...e }))
@@ -151,6 +153,13 @@ export function CastConfirmModal({
 
   const [entries, setEntries] = useState<CastProposalEntry[]>(initialEntries);
   const [submitting, setSubmitting] = useState(false);
+
+  // Sync entries when extraction arrives asynchronously (AC-01).
+  useEffect(() => {
+    if (extraction?.status === 'completed' && extraction.proposal && entries.length === 0) {
+      setEntries(extraction.proposal.map((e) => ({ ...e })));
+    }
+  }, [extraction, entries.length]);
 
   // AC-01b: draft already has confirmed reference blocks — show existing-blocks state.
   if (hasExistingBlocks) {
