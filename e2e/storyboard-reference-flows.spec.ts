@@ -26,9 +26,9 @@
  * REACHABILITY GUARDS — a beforeAll preflight detects whether the
  *   storyboard page wires reference blocks into the canvas (the
  *   reference-block-node data-testid must appear after stubbed
- *   confirmation). Tests skip with a loud reason when the feature is
- *   not yet wired, rather than faking a pass or failing on the wrong
- *   assertion.
+ *   confirmation). The preflight HARD-ASSERTS this wiring (F13): if the
+ *   canvas hook regresses the suite fails loudly instead of silently
+ *   skipping, so the headline journeys keep their executing coverage.
  *
  *   Run:  npx playwright test e2e/storyboard-reference-flows.spec.ts
  */
