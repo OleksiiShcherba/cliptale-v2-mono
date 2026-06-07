@@ -280,4 +280,20 @@ describe('ReferenceBlockNode — AC-11 (manually-added block)', () => {
     // Manually-added blocks have no auto-run status — the badge must be absent
     expect(screen.queryByTestId('reference-block-status-badge')).toBeNull();
   });
+
+  it('"Add reference block" action calls onAddBlock when the button is clicked', () => {
+    const onAddBlock = vi.fn();
+    render(<ReferenceBlockNode id="rb-add" data={makeData({ onAddBlock })} />);
+
+    const btn = screen.getByTestId('reference-block-add-button');
+    fireEvent.click(btn);
+
+    expect(onAddBlock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT render the "Add reference block" button when onAddBlock is not provided', () => {
+    render(<ReferenceBlockNode id="rb-no-add" data={makeData()} />);
+
+    expect(screen.queryByTestId('reference-block-add-button')).toBeNull();
+  });
 });

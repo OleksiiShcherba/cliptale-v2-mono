@@ -29,7 +29,7 @@ function ReferenceGlyph(): React.ReactElement {
 }
 
 export function ReferenceBlockNode({ id, data }: ReferenceBlockNodeProps): React.ReactElement {
-  const { referenceBlock, previewUrl, onOpenFlow, onRetry } = data;
+  const { referenceBlock, previewUrl, onOpenFlow, onRetry, onAddBlock } = data;
   const { flowId, name, castType, windowStatus, errorMessage } = referenceBlock;
 
   const hasFlow = flowId !== null;
@@ -46,6 +46,14 @@ export function ReferenceBlockNode({ id, data }: ReferenceBlockNodeProps): React
       onRetry(id);
     },
     [id, onRetry],
+  );
+
+  const handleAddBlock = useCallback(
+    (event: React.MouseEvent): void => {
+      event.stopPropagation();
+      onAddBlock?.();
+    },
+    [onAddBlock],
   );
 
   const statusColor = windowStatus !== null ? (STATUS_COLOR[windowStatus] ?? undefined) : undefined;
@@ -127,6 +135,19 @@ export function ReferenceBlockNode({ id, data }: ReferenceBlockNodeProps): React
           </div>
         )}
       </div>
+
+      {/* AC-11 — "Add reference block" action (US-07: manually add an entry after cast confirmation) */}
+      {onAddBlock !== undefined && (
+        <button
+          type="button"
+          style={s.addBlockButton}
+          data-testid="reference-block-add-button"
+          onClick={handleAddBlock}
+          aria-label="Add reference block"
+        >
+          + Add reference block
+        </button>
+      )}
     </div>
   );
 }

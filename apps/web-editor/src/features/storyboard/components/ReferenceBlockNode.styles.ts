@@ -168,6 +168,23 @@ export const referenceBlockNodeStyles = {
     lineHeight: '14px',
     fontWeight: 600,
   } as React.CSSProperties,
+
+  /** AC-11 — "Add reference block" footer action (US-07: manually add after cast confirmation). */
+  addBlockButton: {
+    display: 'block',
+    width: '100%',
+    border: 'none',
+    borderTop: `1px solid ${BORDER}`,
+    borderRadius: 0,
+    background: SURFACE,
+    color: PRIMARY,
+    cursor: 'pointer',
+    fontSize: '11px',
+    fontWeight: 600,
+    lineHeight: '16px',
+    padding: '6px 12px',
+    textAlign: 'left',
+  } as React.CSSProperties,
 } as const;
 
 /** Colour for each window_status value. */

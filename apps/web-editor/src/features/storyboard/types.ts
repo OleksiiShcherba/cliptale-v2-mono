@@ -295,4 +295,67 @@ export type ReferenceBlockNodeData = {
   onOpenFlow: (blockId: string) => void;
   /** Called with blockId when the retry button is clicked on a failed block (AC-04). */
   onRetry: (blockId: string) => void;
+  /**
+   * Called (no arguments) when the "Add reference block" action is triggered from
+   * the canvas (AC-11 / US-07 — manually adding a new empty linked flow).
+   * Optional: rendered only when provided.
+   */
+  onAddBlock?: () => void;
+};
+
+// ── Reference block API wire types (contracts/openapi.yaml) ──────────────────
+
+/** A star entry on a reference block (storyboard_reference_stars). */
+export type ReferenceBlockStar = {
+  fileId: string;
+  isPrimary: boolean;
+  createdAt: string;
+};
+
+/**
+ * Wire-format reference block returned from the API (openapi.yaml ReferenceBlock schema).
+ * Uses `blockId` for the server-side key name (camelCase wire convention).
+ */
+export type ReferenceBlockApiResponse = {
+  blockId: string;
+  draftId: string;
+  flowId: string | null;
+  castType: 'character' | 'environment';
+  name: string;
+  description: string | null;
+  sortOrder: number;
+  positionX: number;
+  positionY: number;
+  windowStatus: ReferenceBlockWindowStatus;
+  errorMessage: string | null;
+  version: number;
+  sceneBlockIds: string[];
+  stars: ReferenceBlockStar[];
+  previewFileId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Response shape for list reference blocks (openapi.yaml ReferenceBlockList). */
+export type ReferenceBlockListResponse = {
+  items: ReferenceBlockApiResponse[];
+};
+
+/** Request body for creating a reference block manually (AC-11 / US-07). */
+export type CreateReferenceBlockPayload = {
+  castType: 'character' | 'environment';
+  name: string;
+  description?: string | null;
+};
+
+/** Request body for updating a reference block's canvas position (versionless). */
+export type UpdateReferenceBlockPayload = {
+  positionX: number;
+  positionY: number;
+};
+
+/** Response for a retry request (openapi.yaml RetryAccepted). */
+export type RetryReferenceBlockResponse = {
+  blockId: string;
+  windowStatus: 'pending';
 };
