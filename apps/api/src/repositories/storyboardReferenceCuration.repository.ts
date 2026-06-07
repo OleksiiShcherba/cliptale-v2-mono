@@ -263,6 +263,66 @@ export async function replaceSceneLinks(params: {
 }
 
 /**
+ * Return all reference blocks linked to a specific scene block (star gate
+ * per-scene scope — AC-08b).
+ *
+ * Used by the illustration service to determine which reference blocks must
+ * have at least one star before allowing a per-scene regeneration.
+ */
+export async function listReferenceBlocksLinkedToScene(params: {
+  sceneBlockId: string;
+  draftId: string;
+}): Promise<import('./storyboardReference.repository.js').ReferenceBlock[]> {
+  type RefBlockRow = RowDataPacket & {
+    id: string;
+    draft_id: string;
+    flow_id: string | null;
+    cast_type: 'character' | 'environment';
+    name: string;
+    description: string | null;
+    sort_order: number;
+    position_x: number;
+    position_y: number;
+    window_status: import('./storyboardReference.repository.js').ReferenceBlockWindowStatus | null;
+    first_job_id: string | null;
+    error_message: string | null;
+    version: number;
+    created_at: Date;
+    updated_at: Date;
+  };
+
+  const [rows] = await pool.execute<RefBlockRow[]>(
+    `SELECT b.id, b.draft_id, b.flow_id, b.cast_type, b.name, b.description,
+            b.sort_order, b.position_x, b.position_y, b.window_status,
+            b.first_job_id, b.error_message, b.version, b.created_at, b.updated_at
+       FROM storyboard_reference_blocks b
+       JOIN storyboard_reference_scene_links l ON l.reference_block_id = b.id
+      WHERE l.scene_block_id = ?
+        AND b.draft_id = ?
+      ORDER BY b.sort_order ASC`,
+    [params.sceneBlockId, params.draftId],
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    draftId: row.draft_id,
+    flowId: row.flow_id,
+    castType: row.cast_type,
+    name: row.name,
+    description: row.description,
+    sortOrder: row.sort_order,
+    positionX: row.position_x,
+    positionY: row.position_y,
+    windowStatus: row.window_status,
+    firstJobId: row.first_job_id,
+    errorMessage: row.error_message,
+    version: row.version,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+}
+
+/**
  * Return all scene links for a reference block (AC-10 visible list).
  */
 export async function listSceneLinksForBlock(

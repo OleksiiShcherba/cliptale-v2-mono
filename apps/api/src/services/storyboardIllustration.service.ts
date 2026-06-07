@@ -5,6 +5,8 @@ import * as aiGenerationJobRepository from '@/repositories/aiGenerationJob.repos
 import * as storyboardRepository from '@/repositories/storyboard.repository.js';
 import * as storyboardPlanJobRepository from '@/repositories/storyboardPlanJob.repository.js';
 import * as referenceRepository from '@/repositories/storyboardIllustrationReference.repository.js';
+import * as referenceBlocksRepository from '@/repositories/storyboardReference.repository.js';
+import * as referenceCurationRepository from '@/repositories/storyboardReferenceCuration.repository.js';
 import { enqueueStoryboardOpenAIImage } from '@/queues/jobs/enqueue-storyboard-openai-image.js';
 import {
   STORYBOARD_OPENAI_IMAGE_MODEL_ID,
@@ -46,6 +48,64 @@ export type {
   StoryboardAutomationPhase, StoryboardAutomationStatus, StoryboardIllustrationReferenceStatusItem,
   StoryboardIllustrationStatusItem, StoryboardIllustrationStatusResponse,
 } from '@/services/storyboardIllustration.types.js';
+/**
+ * Star gate — full-set scope (AC-08, ADR-0011).
+ *
+ * Every reference block for the draft must have at least one starred result.
+ * Zero blocks → passes (AC-08b / AC-09 no-linked-blocks rule).
+ * Blocks without stars (including failed/empty ones) are named in the error (AC-04).
+ */
+async function assertFullSetStarGate(userId: string, draftId: string): Promise<void> {
+  const blocks = await referenceBlocksRepository.listReferenceBlocksByDraftId({ draftId, userId });
+  if (blocks.length === 0) return;
+
+  const missing: string[] = [];
+  for (const block of blocks) {
+    const stars = await referenceCurationRepository.listStarsForBlock(block.id);
+    if (stars.length === 0) {
+      missing.push(block.name);
+    }
+  }
+
+  if (missing.length > 0) {
+    const names = missing.join(', ');
+    throw new UnprocessableEntityError(
+      `The following reference blocks are missing a starred result: ${names}. ` +
+        'Please retry the generation or delete the block before starting illustrations.',
+    );
+  }
+}
+
+/**
+ * Star gate — per-scene scope (AC-08b, ADR-0011).
+ *
+ * Only reference blocks linked to the given scene must have at least one star.
+ * Zero linked blocks → passes.
+ */
+async function assertSceneStarGate(draftId: string, sceneBlockId: string): Promise<void> {
+  const linkedBlocks = await referenceCurationRepository.listReferenceBlocksLinkedToScene({
+    sceneBlockId,
+    draftId,
+  });
+  if (linkedBlocks.length === 0) return;
+
+  const missing: string[] = [];
+  for (const block of linkedBlocks) {
+    const stars = await referenceCurationRepository.listStarsForBlock(block.id);
+    if (stars.length === 0) {
+      missing.push(block.name);
+    }
+  }
+
+  if (missing.length > 0) {
+    const names = missing.join(', ');
+    throw new UnprocessableEntityError(
+      `The following reference blocks linked to this scene are missing a starred result: ${names}. ` +
+        'Please retry the generation or delete the block before regenerating this scene.',
+    );
+  }
+}
+
 export async function listStoryboardIllustrations(
   userId: string,
   draftId: string,
@@ -64,6 +124,7 @@ export async function startStoryboardIllustrations(
   draftId: string,
 ): Promise<StoryboardIllustrationStatusResponse> {
   const draft = await resolveDraft(userId, draftId);
+  await assertFullSetStarGate(userId, draftId);
   const blocks = await storyboardRepository.findBlocksByDraftId(draftId);
   const edges = await storyboardRepository.findEdgesByDraftId(draftId);
   const sceneBlocks = orderStoryboardSceneBlocks(blocks, edges);
@@ -102,6 +163,7 @@ export async function startStoryboardBlockIllustration(
   blockId: string,
 ): Promise<StoryboardIllustrationStatusResponse> {
   const draft = await resolveDraft(userId, draftId);
+  await assertSceneStarGate(draftId, blockId);
   const blocks = await storyboardRepository.findBlocksByDraftId(draftId);
   const block = requireSceneBlock(blocks, blockId, draftId);
   buildPrompt(block);
