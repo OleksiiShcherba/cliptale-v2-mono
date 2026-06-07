@@ -157,6 +157,36 @@ export async function findFlowsByUserId(userId: string): Promise<FlowRecord[]> {
   return rows.map(mapRowToFlow);
 }
 
+// ── findDraftBadgesByFlowIds ──────────────────────────────────────────────────
+
+/**
+ * For a list of flow IDs, returns the draft_id of the reference block that links
+ * each flow (AC-12, ADR-0010: badge is derived from the block→flow JOIN, never stored).
+ *
+ * Returns a Map<flowId, draftId>. Flows with no linked block are absent from the map
+ * (not present → badge is null).
+ */
+export async function findDraftBadgesByFlowIds(
+  flowIds: string[],
+): Promise<Map<string, string>> {
+  if (flowIds.length === 0) return new Map();
+
+  type BadgeRow = RowDataPacket & { flow_id: string; draft_id: string };
+  const placeholders = flowIds.map(() => '?').join(',');
+  const [rows] = await pool.execute<BadgeRow[]>(
+    `SELECT flow_id, draft_id
+       FROM storyboard_reference_blocks
+      WHERE flow_id IN (${placeholders})`,
+    flowIds,
+  );
+
+  const result = new Map<string, string>();
+  for (const row of rows) {
+    result.set(row.flow_id, row.draft_id);
+  }
+  return result;
+}
+
 // ── renameFlow ────────────────────────────────────────────────────────────────
 
 /**
