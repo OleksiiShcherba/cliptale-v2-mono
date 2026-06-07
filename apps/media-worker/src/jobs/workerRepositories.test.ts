@@ -14,6 +14,7 @@ vi.mock('@/lib/db.js', () => ({
 
 import {
   aiGenerationJobRepo,
+  castExtractJobRepo,
   filesRepo,
   storyboardAiGenerationJobRepo,
   storyboardIllustrationRepo,
@@ -199,5 +200,108 @@ describe('workerRepositories', () => {
     expect(sql).toContain("SET status = 'failed'");
     expect(sql).toContain('error_message = ?');
     expect(params).toEqual(['scene failed safely', 'job-1']);
+  });
+
+  // ── castExtractJobRepo (R1 — cast-extract worker now wired to the queue) ──────
+
+  it('marks a cast-extract job running by id', async () => {
+    mockExecute.mockResolvedValue([{ affectedRows: 1 }]);
+
+    await castExtractJobRepo.markRunning('job-1');
+
+    const [sql, params] = mockExecute.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('UPDATE storyboard_cast_extraction_jobs');
+    expect(sql).toContain("SET status = 'running'");
+    expect(params).toEqual(['job-1']);
+  });
+
+  it('persists the trimmed proposal, the truncated flag and the aggregate estimate on completion', async () => {
+    mockExecute.mockResolvedValue([{ affectedRows: 1 }]);
+    const proposal = {
+      cast: [
+        {
+          type: 'character' as const,
+          name: 'Alice',
+          description: '',
+          image_file_ids: [],
+          scene_block_ids: [],
+          per_run_estimate: 0.03,
+        },
+      ],
+    };
+
+    // overflow=true must reach the DB as truncated=1 (F4 carrier the worker now writes).
+    await castExtractJobRepo.markCompleted({
+      jobId: 'job-1',
+      proposal,
+      aggregateEstimateCredits: 0.03,
+      overflow: true,
+    });
+
+    const [sql, params] = mockExecute.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('UPDATE storyboard_cast_extraction_jobs');
+    expect(sql).toContain("SET status = 'completed'");
+    expect(sql).toContain('proposal_json = ?');
+    expect(sql).toContain('truncated = ?');
+    expect(sql).toContain('aggregate_estimate_credits = ?');
+    expect(params).toEqual([JSON.stringify(proposal), 1, 0.03, 'job-1']);
+  });
+
+  it('writes truncated=0 when the proposal was within the cast limit', async () => {
+    mockExecute.mockResolvedValue([{ affectedRows: 1 }]);
+
+    await castExtractJobRepo.markCompleted({
+      jobId: 'job-1',
+      proposal: { cast: [] },
+      aggregateEstimateCredits: 0,
+      overflow: false,
+    });
+
+    const [, params] = mockExecute.mock.calls[0] as [string, unknown[]];
+    expect(params[1]).toBe(0);
+  });
+
+  it('marks a cast-extract job failed with a sanitized error message', async () => {
+    mockExecute.mockResolvedValue([{ affectedRows: 1 }]);
+
+    await castExtractJobRepo.markFailed('job-1', new Error('llm boom'));
+
+    const [sql, params] = mockExecute.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('UPDATE storyboard_cast_extraction_jobs');
+    expect(sql).toContain("SET status = 'failed'");
+    expect(sql).toContain('error_message = ?');
+    expect(params[0]).toBe('llm boom');
+    expect(params[1]).toBe('job-1');
+  });
+
+  it('reads the draft script text owner-scoped and non-deleted, joining only text blocks', async () => {
+    mockQuery.mockResolvedValueOnce([
+      [
+        {
+          prompt_doc: JSON.stringify({
+            blocks: [
+              { type: 'text', value: '  Alice meets Bob  ' },
+              { type: 'media-ref', fileId: 'f1', mediaType: 'image', label: 'ref' },
+              { type: 'text', value: 'In the forest.' },
+            ],
+          }),
+        },
+      ],
+    ]);
+
+    const text = await castExtractJobRepo.getScriptText('draft-1', 'user-1');
+
+    const [sql, params] = mockQuery.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain('FROM generation_drafts');
+    expect(sql).toContain('deleted_at IS NULL');
+    expect(params).toEqual(['draft-1', 'user-1']);
+    // media-ref dropped, text trimmed + joined (mirrors storyboardPlan.context promptText)
+    expect(text).toBe('Alice meets Bob\n\nIn the forest.');
+  });
+
+  it('throws when the draft is missing or not owned by the user', async () => {
+    mockQuery.mockResolvedValueOnce([[]]);
+
+    await expect(castExtractJobRepo.getScriptText('draft-x', 'user-1')).rejects.toThrow();
   });
 });
