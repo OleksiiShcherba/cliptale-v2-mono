@@ -226,6 +226,49 @@ export async function publishCastExtractionStatus(params: {
   });
 }
 
+type ReferenceBlockRow = RowDataPacket & {
+  id: string;
+  draft_id: string;
+  user_id: string;
+  window_status: string;
+  error_message: string | null;
+};
+
+export async function publishReferenceBlockStatus(params: {
+  pool: Pool;
+  blockId: string;
+}): Promise<void> {
+  if (typeof params.pool.query !== 'function') return;
+
+  let row: ReferenceBlockRow | undefined;
+  try {
+    const [rows] = await params.pool.query<ReferenceBlockRow[]>(
+      `SELECT srb.id, srb.draft_id, gd.user_id, srb.window_status, srb.error_message
+         FROM storyboard_reference_blocks srb
+         JOIN generation_drafts gd ON gd.id = srb.draft_id
+        WHERE srb.id = ?`,
+      [params.blockId],
+    );
+    row = rows[0];
+  } catch {
+    return;
+  }
+  if (!row) return;
+
+  await publishRealtimeEvent({
+    type: 'storyboard.status.updated',
+    userId: row.user_id,
+    draftId: row.draft_id,
+    payload: {
+      resource: 'storyboardPlan',
+      jobId: row.id,
+      status: row.window_status,
+      plan: null,
+      errorMessage: row.error_message,
+    },
+  });
+}
+
 async function findStoryboardBindings(
   pool: Pool,
   jobId: string,
