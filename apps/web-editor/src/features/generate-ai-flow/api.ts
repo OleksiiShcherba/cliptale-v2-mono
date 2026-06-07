@@ -27,6 +27,7 @@ import type {
   GenerateInput,
   GenerateAccepted,
   ApiError,
+  BlockStarsState,
 } from './types';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -150,6 +151,48 @@ export async function getFileUrl(fileId: string): Promise<string | null> {
 }
 
 // ── Generate surface (T20 / T15 endpoints) ──────────────────────────────────
+
+// ── Stars (storyboard-reference-flows AC-06/07, versionless commutative toggles) ──
+
+/**
+ * PUT /storyboards/:draftId/references/blocks/:blockId/stars/:fileId
+ * Stars a result file of the linked flow (idempotent toggle). Optionally makes it
+ * primary (block preview). Returns authoritative BlockStarsState after the toggle.
+ */
+export async function starReferenceResult(
+  draftId: string,
+  blockId: string,
+  fileId: string,
+  opts?: { isPrimary?: boolean },
+): Promise<BlockStarsState> {
+  const body: Record<string, unknown> = {};
+  if (opts?.isPrimary != null) body['isPrimary'] = opts.isPrimary;
+  const res = await requireOk(
+    await apiClient.put(
+      `/storyboards/${draftId}/references/blocks/${blockId}/stars/${fileId}`,
+      body,
+    ),
+  );
+  return (await res.json()) as BlockStarsState;
+}
+
+/**
+ * DELETE /storyboards/:draftId/references/blocks/:blockId/stars/:fileId
+ * Un-stars a result (idempotent; preview falls back). Returns authoritative
+ * BlockStarsState after removal.
+ */
+export async function unstarReferenceResult(
+  draftId: string,
+  blockId: string,
+  fileId: string,
+): Promise<BlockStarsState> {
+  const res = await requireOk(
+    await apiClient.delete(
+      `/storyboards/${draftId}/references/blocks/${blockId}/stars/${fileId}`,
+    ),
+  );
+  return (await res.json()) as BlockStarsState;
+}
 
 /**
  * POST /generation-flows/:flowId/blocks/:blockId/estimate

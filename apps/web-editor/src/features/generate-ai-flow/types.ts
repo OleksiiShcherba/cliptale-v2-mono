@@ -131,3 +131,23 @@ export type ApiError = {
   code?: string | null;
   details?: Record<string, unknown>;
 };
+
+// ── Stars (storyboard-reference-flows AC-06 / AC-07) ─────────────────────────
+
+/** One star row as returned by BlockStarsState.stars. */
+export type StarEntry = {
+  fileId: string;
+  isPrimary: boolean;
+  createdAt: string;
+};
+
+/**
+ * Authoritative star state for a reference block after a toggle operation.
+ * Mirrors the BlockStarsState schema in openapi.yaml.
+ */
+export type BlockStarsState = {
+  blockId: string;
+  stars: StarEntry[];
+  /** Derived preview after the toggle (AC-07 fallback rule). Null when no stars. */
+  previewFileId: string | null;
+};
