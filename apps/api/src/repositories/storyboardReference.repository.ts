@@ -281,42 +281,68 @@ export async function listReferenceBlocksByDraftId(params: {
 
 /**
  * Atomically claim the next 'pending' block for a draft (rolling window, ADR-0003).
- * Uses a single UPDATE … ORDER BY … LIMIT 1 so at most one concurrent caller wins.
+ *
+ * Uses a transaction with SELECT … FOR UPDATE SKIP LOCKED to identify the exact
+ * candidate row, then updates only that row's window_status to 'running'.
+ * This guarantees that when multiple workers call concurrently — which is the normal
+ * N-concurrent-generation scenario (AC-03, ADR-0003) — each caller claims a DISTINCT
+ * row and can reliably re-read the row it just claimed (by id).
+ *
+ * Previous implementation used UPDATE … ORDER BY … LIMIT 1 (atomic claim) but then
+ * re-fetched with WHERE window_status='running' ORDER BY sort_order LIMIT 1, which
+ * returns the lowest-sort_order running block — not necessarily the one this call
+ * just claimed — causing wrong/duplicate dispatches when N>1 blocks are running.
+ *
  * Returns the claimed block (with windowStatus='running') or null if none were pending.
  */
 export async function claimNextPendingBlock(params: {
   draftId: string;
 }): Promise<ReferenceBlock | null> {
-  // Atomic single-statement claim: UPDATE touches exactly one row (LIMIT 1),
-  // and MySQL serialises concurrent UPDATEs on the same candidate row.
-  const [result] = await pool.execute<ResultSetHeader>(
-    `UPDATE storyboard_reference_blocks
-        SET window_status = 'running'
-      WHERE draft_id = ?
-        AND window_status = 'pending'
-      ORDER BY sort_order ASC
-      LIMIT 1`,
-    [params.draftId],
-  );
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
 
-  if (result.affectedRows === 0) {
-    return null;
+    // Lock exactly one pending candidate row; SKIP LOCKED ensures concurrent callers
+    // each get a DIFFERENT row (or null if no unlocked pending row is available).
+    const [candidates] = await conn.execute<ReferenceBlockRow[]>(
+      `SELECT id, draft_id, flow_id, cast_type, name, description, sort_order,
+              position_x, position_y, window_status, first_job_id, error_message, version,
+              created_at, updated_at
+         FROM storyboard_reference_blocks
+        WHERE draft_id = ?
+          AND window_status = 'pending'
+        ORDER BY sort_order ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED`,
+      [params.draftId],
+    );
+
+    if (!candidates.length) {
+      await conn.rollback();
+      return null;
+    }
+
+    const candidate = candidates[0]!;
+
+    // Claim this specific row by id — safe because we hold the row lock.
+    await conn.execute(
+      `UPDATE storyboard_reference_blocks
+          SET window_status = 'running'
+        WHERE id = ?`,
+      [candidate.id],
+    );
+
+    await conn.commit();
+
+    // Return the mapped block with the updated status applied in-memory
+    // (avoids a second round-trip; the UPDATE is unconditional on the locked row).
+    return mapBlockRow({ ...candidate, window_status: 'running' });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
   }
-
-  // Fetch the row that was just claimed (now window_status = 'running')
-  const [rows] = await pool.execute<ReferenceBlockRow[]>(
-    `SELECT id, draft_id, flow_id, cast_type, name, description, sort_order,
-            position_x, position_y, window_status, first_job_id, error_message, version,
-            created_at, updated_at
-       FROM storyboard_reference_blocks
-      WHERE draft_id = ?
-        AND window_status = 'running'
-      ORDER BY sort_order ASC
-      LIMIT 1`,
-    [params.draftId],
-  );
-
-  return rows.length ? mapBlockRow(rows[0]!) : null;
 }
 
 /**

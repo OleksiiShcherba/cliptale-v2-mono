@@ -397,6 +397,36 @@ describe('storyboardReference.repository — claimNextPendingBlock (AC-04 atomic
     expect(rows[0]!['window_status']).toBe('running');
   });
 
+  it('two concurrent claims on N>1 pending blocks → two DISTINCT block ids (N-concurrent rolling window, AC-03/ADR-0003)', async () => {
+    const draftId = await seedDraft(USER_A);
+    const b0 = newId('blk');
+    const b1 = newId('blk');
+    trackedBlockIds.push(b0, b1);
+
+    // Seed TWO pending blocks — simulates the N>1 rolling-window scenario
+    await createReferenceBlock({ id: b0, draftId, castType: 'character', name: 'Test Character A', sortOrder: 0, windowStatus: 'pending' });
+    await createReferenceBlock({ id: b1, draftId, castType: 'character', name: 'Test Character B', sortOrder: 1, windowStatus: 'pending' });
+
+    // Fire two concurrent claims — each must claim a DISTINCT row
+    const [r1, r2] = await Promise.all([
+      claimNextPendingBlock({ draftId }),
+      claimNextPendingBlock({ draftId }),
+    ]);
+
+    expect(r1).not.toBeNull();
+    expect(r2).not.toBeNull();
+    expect(r1!.id).not.toBe(r2!.id); // DISTINCT block ids — the core invariant
+
+    // Both claimed blocks must be 'running' in DB
+    const [rows] = await conn.query<mysql.RowDataPacket[]>(
+      `SELECT id, window_status FROM storyboard_reference_blocks WHERE id IN (?, ?) ORDER BY sort_order ASC`,
+      [b0, b1],
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!['window_status']).toBe('running');
+    expect(rows[1]!['window_status']).toBe('running');
+  });
+
   it('after a failed generation the next pending block can be claimed (window continues)', async () => {
     const draftId = await seedDraft(USER_A);
     const b0 = newId('blk');
