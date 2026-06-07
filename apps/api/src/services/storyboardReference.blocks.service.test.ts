@@ -23,8 +23,9 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import mysql, { type Connection, type RowDataPacket } from 'mysql2/promise';
+import { checkFlowRateLimit } from '@/lib/flow-rate-limit.js';
 
 // ── Env setup — must precede any app-module import ────────────────────────────
 Object.assign(process.env, {
@@ -62,6 +63,13 @@ vi.mock('@/lib/realtimePublisher.js', () => ({
   publishAiJobUpdatedById: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Stub the per-Creator creation rate limit (F10). Default: allow.
+vi.mock('@/lib/flow-rate-limit.js', () => ({
+  checkFlowRateLimit: vi.fn(),
+  FLOW_RATE_LIMIT_MAX: 30,
+  FLOW_RATE_LIMIT_WINDOW_MS: 60_000,
+}));
+
 // ── Shared DB connection ───────────────────────────────────────────────────────
 let conn: Connection;
 
@@ -89,6 +97,11 @@ beforeAll(async () => {
       [id, `${id}@example.test`, 'hash'],
     );
   }
+});
+
+// Default rate-limit behaviour: allow. Individual tests override.
+beforeEach(() => {
+  vi.mocked(checkFlowRateLimit).mockResolvedValue({ allowed: true, retryAfterSeconds: 0 });
 });
 
 afterAll(async () => {
@@ -732,5 +745,150 @@ describe('F1 / listBlocks — enrichment for canvas reload', () => {
     expect(block.previewFileId).toBeNull();
     expect(block.stars).toEqual([]);
     expect(block.sceneBlockIds).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F5 — saveSceneLinks rejects scene ids that do not belong to the draft (422
+// references.scene_not_in_draft), instead of silently linking or a FK 500.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('F5 / saveSceneLinks — out-of-draft scene rejected (422)', () => {
+  it('rejects a scene id from a different draft with references.scene_not_in_draft', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    const blockId = await seedReferenceBlock({ draftId, version: 1 });
+
+    // A scene that lives in a DIFFERENT draft.
+    const otherDraftId = await seedDraft(OWNER_ID);
+    const foreignScene = await seedSceneBlock(otherDraftId);
+
+    const { saveSceneLinks } = await svc();
+
+    let caught: unknown;
+    try {
+      await saveSceneLinks({
+        blockId,
+        draftId,
+        userId: OWNER_ID,
+        sceneBlockIds: [foreignScene],
+        version: 1,
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeTruthy();
+    expect((caught as { statusCode?: number }).statusCode).toBe(422);
+    expect((caught as { code?: string }).code).toBe('references.scene_not_in_draft');
+
+    // No link must have been written, and version must be unchanged (txn rolled back).
+    const [links] = await conn.execute<RowDataPacket[]>(
+      `SELECT scene_block_id FROM storyboard_reference_scene_links WHERE reference_block_id = ?`,
+      [blockId],
+    );
+    expect(links).toHaveLength(0);
+    const [verRows] = await conn.execute<RowDataPacket[]>(
+      `SELECT version FROM storyboard_reference_blocks WHERE id = ?`,
+      [blockId],
+    );
+    expect((verRows[0] as { version: number }).version).toBe(1);
+
+    await conn.execute(`DELETE FROM storyboard_blocks WHERE id = ?`, [foreignScene]);
+  });
+
+  it('rejects a nonexistent scene id with references.scene_not_in_draft', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    const blockId = await seedReferenceBlock({ draftId, version: 1 });
+
+    const { saveSceneLinks } = await svc();
+    await expect(
+      saveSceneLinks({
+        blockId,
+        draftId,
+        userId: OWNER_ID,
+        sceneBlockIds: [randomUUID()],
+        version: 1,
+      }),
+    ).rejects.toMatchObject({ statusCode: 422, code: 'references.scene_not_in_draft' });
+  });
+
+  it('accepts an in-draft scene id (happy path still works)', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    const blockId = await seedReferenceBlock({ draftId, version: 1 });
+    const scene   = await seedSceneBlock(draftId);
+
+    const { saveSceneLinks } = await svc();
+    const result = await saveSceneLinks({
+      blockId,
+      draftId,
+      userId: OWNER_ID,
+      sceneBlockIds: [scene],
+      version: 1,
+    });
+    expect(result.sceneBlockIds).toEqual([scene]);
+    expect(result.version).toBe(2);
+
+    await conn.execute(`DELETE FROM storyboard_blocks WHERE id = ?`, [scene]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F9 — AC-10b: reordering scenes does not change reference→scene links.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('F9 / AC-10b — reordering scenes leaves links intact', () => {
+  it('changing a linked scene sort_order does not drop or alter its link', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    const blockId = await seedReferenceBlock({ draftId });
+    const sceneA  = await seedSceneBlock(draftId);
+    const sceneB  = await seedSceneBlock(draftId);
+    await seedSceneLink(blockId, sceneA);
+    await seedSceneLink(blockId, sceneB);
+
+    // Reorder: swap their sort_order values.
+    await conn.execute(`UPDATE storyboard_blocks SET sort_order = 99 WHERE id = ?`, [sceneA]);
+    await conn.execute(`UPDATE storyboard_blocks SET sort_order = 1 WHERE id = ?`, [sceneB]);
+
+    const { listBlocks } = await svc();
+    const blocks = await listBlocks(OWNER_ID, draftId);
+    const block = blocks.find((b) => b.id === blockId)!;
+
+    expect(block.sceneBlockIds!.sort()).toEqual([sceneA, sceneB].sort());
+
+    await conn.execute(`DELETE FROM storyboard_blocks WHERE id IN (?, ?)`, [sceneA, sceneB]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F10 — AC-11: createBlock is bounded by the existing per-user creation rate limit.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('F10 / AC-11 — createBlock honours the per-user creation rate limit', () => {
+  it('throws RateLimitedError and creates no block when the cap is exceeded', async () => {
+    const { RateLimitedError } = await import('@/lib/errors.js');
+    vi.mocked(checkFlowRateLimit).mockResolvedValue({ allowed: false, retryAfterSeconds: 42 });
+
+    const draftId = await seedDraft(OWNER_ID);
+    const { createBlock } = await svc();
+
+    await expect(
+      createBlock({ draftId, userId: OWNER_ID, castType: 'character', name: 'Rate Capped' }),
+    ).rejects.toBeInstanceOf(RateLimitedError);
+
+    expect(checkFlowRateLimit).toHaveBeenCalledWith(OWNER_ID);
+
+    const [rows] = await conn.execute<RowDataPacket[]>(
+      `SELECT id FROM storyboard_reference_blocks WHERE draft_id = ?`,
+      [draftId],
+    );
+    expect(rows).toHaveLength(0);
+  });
+
+  it('creates the block when the rate limit allows', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    const { createBlock } = await svc();
+    const block = await createBlock({ draftId, userId: OWNER_ID, castType: 'character', name: 'Allowed' });
+    expect(block.id).toBeTruthy();
+    cleanupFlowIds.push(block.flowId!);
+    expect(checkFlowRateLimit).toHaveBeenCalledWith(OWNER_ID);
   });
 });

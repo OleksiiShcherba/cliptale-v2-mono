@@ -12,7 +12,13 @@ import { randomUUID } from 'node:crypto';
 import type { PoolConnection, RowDataPacket } from 'mysql2/promise';
 
 import { pool } from '@/db/connection.js';
-import { ConflictError, NotFoundError } from '@/lib/errors.js';
+import {
+  ConflictError,
+  NotFoundError,
+  RateLimitedError,
+  SceneNotInDraftError,
+} from '@/lib/errors.js';
+import { checkFlowRateLimit } from '@/lib/flow-rate-limit.js';
 import { aiGenerateQueue } from '@/queues/bullmq.js';
 import {
   REFERENCE_DEFAULT_MODEL_ID,
@@ -338,6 +344,17 @@ export async function createBlock(params: CreateBlockParams): Promise<BlockResul
     // Owner guard — existence-hiding (AC-13).
     await assertDraftOwner(conn, draftId, userId);
 
+    // Bound manual creation by the existing per-user creation rate limit
+    // (AC-11, SAD Flow 8). Creating a block creates an empty linked flow, so it
+    // consumes a flow-creation slot; over the cap → 429, before any write.
+    const rate = await checkFlowRateLimit(userId);
+    if (!rate.allowed) {
+      throw new RateLimitedError(
+        'Creation rate limit exceeded; please retry shortly.',
+        rate.retryAfterSeconds,
+      );
+    }
+
     const blockId = randomUUID();
     const flowId = randomUUID();
 
@@ -566,6 +583,24 @@ export async function saveSceneLinks(params: SaveSceneLinksParams): Promise<Save
         throw new NotFoundError(`Block not found`);
       }
       throw new ConflictError(`version_conflict: block version has changed; reload and retry`);
+    }
+
+    // Validate every submitted scene belongs to THIS draft (F5). Without this,
+    // an out-of-draft scene id is linked silently (foreign scene) or surfaces as
+    // an FK 500; the contract requires a 422 references.scene_not_in_draft.
+    const distinctScenes = [...new Set(sceneBlockIds)];
+    if (distinctScenes.length) {
+      const ph = distinctScenes.map(() => '?').join(',');
+      const [sceneRows] = await conn.execute<RowDataPacket[]>(
+        `SELECT id FROM storyboard_blocks
+          WHERE id IN (${ph}) AND draft_id = ? AND block_type = 'scene'`,
+        [...distinctScenes, draftId],
+      );
+      const found = new Set(sceneRows.map((r) => (r as { id: string }).id));
+      const missing = distinctScenes.find((id) => !found.has(id));
+      if (missing) {
+        throw new SceneNotInDraftError(missing);
+      }
     }
 
     // Replace scene links: delete all existing, insert new set.
