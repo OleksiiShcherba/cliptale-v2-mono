@@ -24,7 +24,7 @@
 | T17 | UI: cast confirmation modal + заміна principal-image | ui | Oleksii | L | T13, T16 | todo |
 | T18 | UI: зірки на ResultNode | ui | Oleksii | M | T14 | todo |
 | T19 | UI: draft badge + delete warning + back-nav | ui | Oleksii | M | T12 | done |
-| T20 | UI: gate message + concurrency setting | ui | Oleksii | S | T6, T10 | todo |
+| T20 | UI: gate message + concurrency setting | ui | Oleksii | S | T6, T10 | done |
 | T21 | E2E: повна журні extract→confirm→stars→gate→scenes | tests | Oleksii | M | T5, T7, T11, T15, T16, T17, T18, T19, T20 | todo |
 
 **Total:** 21 tasks, ~22 person-days (S=0.5 · M=1 · L=1.5).
