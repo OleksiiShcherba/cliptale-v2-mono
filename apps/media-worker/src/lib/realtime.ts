@@ -170,6 +170,49 @@ export async function publishAiGenerationJobStatus(params: {
   });
 }
 
+type CastExtractionRow = RowDataPacket & {
+  job_id: string;
+  draft_id: string;
+  user_id: string;
+  status: string;
+  aggregate_estimate_credits: string | null;
+  error_message: string | null;
+};
+
+export async function publishCastExtractionStatus(params: {
+  pool: Pool;
+  jobId: string;
+}): Promise<void> {
+  if (typeof params.pool.query !== 'function') return;
+
+  let row: CastExtractionRow | undefined;
+  try {
+    const [rows] = await params.pool.query<CastExtractionRow[]>(
+      `SELECT job_id, draft_id, user_id, status, aggregate_estimate_credits, error_message
+         FROM storyboard_cast_extraction_jobs
+        WHERE id = ?`,
+      [params.jobId],
+    );
+    row = rows[0];
+  } catch {
+    return;
+  }
+  if (!row) return;
+
+  await publishRealtimeEvent({
+    type: 'storyboard.status.updated',
+    userId: row.user_id,
+    draftId: row.draft_id,
+    payload: {
+      resource: 'storyboardPlan',
+      jobId: row.job_id,
+      status: row.status,
+      plan: null,
+      errorMessage: row.error_message,
+    },
+  });
+}
+
 async function findStoryboardBindings(
   pool: Pool,
   jobId: string,
