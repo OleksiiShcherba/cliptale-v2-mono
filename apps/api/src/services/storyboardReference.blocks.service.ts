@@ -43,6 +43,12 @@ export type CreateBlockParams = {
   description?: string;
 };
 
+export type BlockStarEntry = {
+  fileId: string;
+  isPrimary: boolean;
+  createdAt: string;
+};
+
 export type BlockResult = {
   id: string;
   draftId: string;
@@ -58,6 +64,12 @@ export type BlockResult = {
   version: number;
   createdAt: Date;
   updatedAt: Date;
+  /** Curated stars; populated by listBlocks for canvas reload (F1). */
+  stars?: BlockStarEntry[];
+  /** The primary star's file_id, or null; populated by listBlocks (F1). */
+  previewFileId?: string | null;
+  /** Linked scene block ids; populated by listBlocks (F1). */
+  sceneBlockIds?: string[];
 };
 
 export type DeleteBlockParams = {
@@ -191,10 +203,87 @@ export async function listBlocks(userId: string, draftId: string): Promise<Block
       [draftId],
     );
 
-    return rows.map(rowToBlockResult);
+    const enrichment = await enrichBlocks(conn, rows.map((r) => r.id));
+
+    return rows.map((row) => {
+      const base = rowToBlockResult(row);
+      const e = enrichment.get(row.id);
+      return {
+        ...base,
+        stars: e?.stars ?? [],
+        previewFileId: e?.previewFileId ?? null,
+        sceneBlockIds: e?.sceneBlockIds ?? [],
+      };
+    });
   } finally {
     conn.release();
   }
+}
+
+type StarEnrichRow = RowDataPacket & {
+  reference_block_id: string;
+  file_id: string;
+  is_primary: number | null;
+  created_at: Date | string;
+};
+
+type SceneLinkEnrichRow = RowDataPacket & {
+  reference_block_id: string;
+  scene_block_id: string;
+};
+
+type BlockEnrichment = {
+  stars: BlockStarEntry[];
+  previewFileId: string | null;
+  sceneBlockIds: string[];
+};
+
+/**
+ * Batch-load stars (with primary preview) and linked scene ids for a set of
+ * blocks in two queries (F1). Without this, canvas reload loses the primary-star
+ * preview and the visible linked-scene list.
+ */
+async function enrichBlocks(
+  conn: PoolConnection,
+  blockIds: string[],
+): Promise<Map<string, BlockEnrichment>> {
+  const result = new Map<string, BlockEnrichment>();
+  if (!blockIds.length) return result;
+  for (const id of blockIds) {
+    result.set(id, { stars: [], previewFileId: null, sceneBlockIds: [] });
+  }
+
+  const ph = blockIds.map(() => '?').join(',');
+
+  const [starRows] = await conn.execute<StarEnrichRow[]>(
+    `SELECT reference_block_id, file_id, is_primary, created_at
+       FROM storyboard_reference_stars
+      WHERE reference_block_id IN (${ph})
+      ORDER BY created_at ASC`,
+    blockIds,
+  );
+  for (const s of starRows) {
+    const entry = result.get(s.reference_block_id)!;
+    const isPrimary = s.is_primary === 1;
+    entry.stars.push({
+      fileId: s.file_id,
+      isPrimary,
+      createdAt: s.created_at instanceof Date ? s.created_at.toISOString() : String(s.created_at),
+    });
+    if (isPrimary) entry.previewFileId = s.file_id;
+  }
+
+  const [linkRows] = await conn.execute<SceneLinkEnrichRow[]>(
+    `SELECT reference_block_id, scene_block_id
+       FROM storyboard_reference_scene_links
+      WHERE reference_block_id IN (${ph})`,
+    blockIds,
+  );
+  for (const l of linkRows) {
+    result.get(l.reference_block_id)!.sceneBlockIds.push(l.scene_block_id);
+  }
+
+  return result;
 }
 
 /**

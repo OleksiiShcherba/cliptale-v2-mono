@@ -670,3 +670,67 @@ describe('AC-10b / scene lifecycle effects on scene links', () => {
     await conn.execute(`DELETE FROM storyboard_blocks WHERE id = ?`, [newSceneId]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F1 — listBlocks enriches stars, previewFileId and sceneBlockIds so the canvas
+// renders the primary-star preview and the linked-scene list after a reload.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('F1 / listBlocks — enrichment for canvas reload', () => {
+  it('returns stars[], previewFileId (primary), and sceneBlockIds for each block', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    const flowId  = randomUUID();
+    cleanupFlowIds.push(flowId);
+    await conn.execute(
+      `INSERT INTO generation_flows (flow_id, user_id, title, canvas, version)
+       VALUES (?, ?, 'F1 flow', '{"blocks":[],"edges":[]}', 1)`,
+      [flowId, OWNER_ID],
+    );
+    const blockId = await seedReferenceBlock({ draftId, flowId, windowStatus: 'done' });
+
+    // Two starred result files; fileB is primary.
+    const fileA = await seedFile(OWNER_ID);
+    const fileB = await seedFile(OWNER_ID);
+    await conn.execute(
+      `INSERT INTO storyboard_reference_stars (id, reference_block_id, file_id, is_primary)
+       VALUES (?, ?, ?, NULL)`,
+      [randomUUID(), blockId, fileA],
+    );
+    await conn.execute(
+      `INSERT INTO storyboard_reference_stars (id, reference_block_id, file_id, is_primary)
+       VALUES (?, ?, ?, 1)`,
+      [randomUUID(), blockId, fileB],
+    );
+
+    // One linked scene.
+    const sceneId = await seedSceneBlock(draftId);
+    await seedSceneLink(blockId, sceneId);
+
+    const { listBlocks } = await svc();
+    const blocks = await listBlocks(OWNER_ID, draftId);
+    const block = blocks.find((b) => b.id === blockId)!;
+
+    expect(block).toBeDefined();
+    expect(block.previewFileId).toBe(fileB);
+    expect(block.sceneBlockIds).toEqual([sceneId]);
+    expect(block.stars).toHaveLength(2);
+    expect(block.stars!.map((s) => s.fileId).sort()).toEqual([fileA, fileB].sort());
+    expect(block.stars!.find((s) => s.fileId === fileB)!.isPrimary).toBe(true);
+    expect(block.stars!.find((s) => s.fileId === fileA)!.isPrimary).toBe(false);
+
+    await conn.execute(`DELETE FROM storyboard_blocks WHERE id = ?`, [sceneId]);
+  });
+
+  it('blocks with no stars and no links return empty arrays and null preview', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    const blockId = await seedReferenceBlock({ draftId });
+
+    const { listBlocks } = await svc();
+    const blocks = await listBlocks(OWNER_ID, draftId);
+    const block = blocks.find((b) => b.id === blockId)!;
+
+    expect(block.previewFileId).toBeNull();
+    expect(block.stars).toEqual([]);
+    expect(block.sceneBlockIds).toEqual([]);
+  });
+});
