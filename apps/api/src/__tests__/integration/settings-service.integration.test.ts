@@ -56,7 +56,7 @@ afterAll(async () => {
 describe('settings.service — effective read with defaults (AC-11b)', () => {
   it('missing row yields autosaveIntervalSeconds=60 and updatedAt=null', async () => {
     const result = await getMySettings(USER_ID);
-    expect(result).toEqual({ autosaveIntervalSeconds: 60, updatedAt: null });
+    expect(result).toEqual({ autosaveIntervalSeconds: 60, concurrencyLimit: 4, updatedAt: null });
   });
 
   it('a row whose settings_json lacks the key still yields the default 60', async () => {
