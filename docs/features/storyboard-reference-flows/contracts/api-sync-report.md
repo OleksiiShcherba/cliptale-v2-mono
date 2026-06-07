@@ -32,7 +32,7 @@ precedent: `generate-ai-flow/contracts/openapi.yaml`, team decision 2026-06-03):
 | 2 | Block XY write-path uncovered by AC/flows (ADR-0005 makes the table authoritative) | `PATCH …/references/blocks/{blockId}` — versionless commutative position save |
 | 3 | `concurrencyLimit` bounds unspecified (SAD §8 names key + default only) | bounds **1..12** (max = cast size limit) |
 | 4 | Inferred precondition codes (`references.script_missing`, `references.no_completed_extraction`) | accepted as low-confidence proposals |
-| 5 | Exact creation-rate-limit code unknown in repo | `references.rate_limited` accepted as low-confidence proposal |
+| 5 | Exact creation-rate-limit code unknown in repo | **reconciled (R3):** reuses the shared `flow.rate_limited` — AC-11 binds this to the EXISTING per-user creation limit, so no references-specific code |
 
 ## Section A — field-origins table
 
@@ -102,7 +102,7 @@ One row per `(operation, field)`; wire camelCase ↔ column snake_case mapping i
 | references.file_not_in_flow | 422 | ADR-0009 (stars reference flow result files) | medium |
 | references.block_not_failed | 409 | inferred from AC-04/ADR-0003 (retry only failed) | medium |
 | references.star_gate_failed | 422 | spec AC-08/AC-08b + ADR-0011 + Flows 2/7 alt; 422 mirrors repo GateError | high |
-| references.rate_limited | 429 | Flow 8 alt (existing creation limit; exact repo code TBD) — drift resolution #5 | low |
+| flow.rate_limited | 429 | Flow 8 alt — reuses the shared existing creation-limit error (R3, AC-11); drift resolution #5 | high |
 | references.draft_not_found / block_not_found | 404 | spec AC-13 + Flow 3 alt (existence hiding) | high |
 | flow.linked_to_storyboard_block | 409 | spec AC-12 + Flow 10 (warning branch) | high |
 

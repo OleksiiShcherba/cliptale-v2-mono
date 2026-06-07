@@ -18,7 +18,9 @@
 #   • block XY write-path   → PATCH …/references/blocks/{blockId} (versionless, commutative)
 #   • concurrencyLimit bounds → 1..12 (max = cast size limit)
 #   • inferred codes accepted as low-confidence proposals: references.script_missing,
-#     references.no_completed_extraction, references.rate_limited
+#     references.no_completed_extraction
+#   • creation rate limit (R3): reuses the shared flow.rate_limited (AC-11 = existing
+#     per-user creation limit), not a references-specific code
 openapi: 3.1.0
 
 info:
@@ -337,14 +339,20 @@ paths:
         "404": { $ref: "#/components/responses/DraftNotFound" }
         "429":
           description: |
-            Existing per-user creation rate limit (Flow 8 alt-branch — existing rule, unchanged;
-            the code is the contract's low-confidence proposal, reconcile at implement).
+            Existing per-user creation rate limit (Flow 8 alt-branch — existing rule, unchanged).
+            AC-11 binds this to the EXISTING per-user creation limit, so the endpoint reuses the
+            shared RateLimitedError (code `flow.rate_limited`) rather than a references-specific
+            code — reconciled at implement (R3). `Retry-After` header carries the wait seconds.
+          headers:
+            Retry-After:
+              schema: { type: integer }
+              description: Seconds to wait before retrying.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
               example:
                 error: "You're creating blocks too fast. Try again in a minute."
-                code: "references.rate_limited"
+                code: "flow.rate_limited"
 
   /storyboards/{draftId}/references/blocks/{blockId}:
     parameters:
@@ -399,11 +407,12 @@ paths:
     post:
       summary: Retry a failed first generation (re-enters the rolling window)
       description: |
-        Flow 1 alt (failure) / AC-04. Returns the failed block to `windowStatus: pending` — the
-        same rolling-window mechanism dispatches it again (ADR-0003 "retry = повернути рядок у
-        pending"). A retried run is charged per run at start, like any run (ADR-0004 / spec §8
-        OQ-2). Only the auto-started FIRST generation is retried here; later regenerations go
-        through the flow's own Generate surface.
+        Flow 1 alt (failure) / AC-04. Re-dispatches the failed block immediately and returns it
+        at `windowStatus: running` (ADR-0003 rolling window + F2: the completion hook's terminal
+        UPDATE is guarded `WHERE window_status='running'`, so a retry must claim `running` to keep
+        advancing the window — a retry left at `pending` would stall). A retried run is charged per
+        run at start, like any run (ADR-0004 / spec §8 OQ-2). Only the auto-started FIRST
+        generation is retried here; later regenerations go through the flow's own Generate surface.
       operationId: retryReferenceBlockGeneration
       tags: [reference-blocks]
       parameters:
@@ -411,13 +420,13 @@ paths:
         - $ref: "#/components/parameters/IdempotencyKey"
       responses:
         "202":
-          description: Accepted — block back in the window (progress via events.md).
+          description: Accepted — block re-dispatched into the window (progress via events.md).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/RetryAccepted" }
               example:
                 blockId: "55555555-5555-4555-8555-555555555555"
-                windowStatus: "pending"
+                windowStatus: "running"
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/BlockNotFound" }
         "409":
@@ -1007,7 +1016,7 @@ components:
       additionalProperties: false
       properties:
         blockId: { type: string, format: uuid, description: "storyboard_reference_blocks.id" }
-        windowStatus: { type: string, enum: [pending], description: "storyboard_reference_blocks.window_status after retry (ADR-0003)" }
+        windowStatus: { type: string, enum: [running], description: "storyboard_reference_blocks.window_status after retry — claimed running so the rolling-window completion hook advances (ADR-0003 / F2)" }
 
     # ── Scene links (← storyboard_reference_scene_links) ────────────────────────────────────
     SceneLinksSaveRequest:
