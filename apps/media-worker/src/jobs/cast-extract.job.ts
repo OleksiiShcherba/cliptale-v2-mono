@@ -13,6 +13,42 @@ import { z } from 'zod';
 import { publishCastExtractionStatus } from '@/lib/realtime.js';
 
 // ---------------------------------------------------------------------------
+// Flow pricing — mirrors apps/api/src/lib/flow-pricing.ts (ADR-0005 / AC-11).
+// Each cast entry becomes one reference-flow image generation run; we price
+// each at the cheapest image model as a conservative preview estimate.
+// ---------------------------------------------------------------------------
+
+/** Static per-model USD price table (subset; kept in sync with api flow-pricing). */
+const FLOW_PRICE_TABLE: Readonly<Record<string, number>> = {
+  'fal-ai/ltx-2-19b/image-to-video': 0.05,
+  'fal-ai/kling-video/o3/standard/image-to-video': 0.28,
+  'fal-ai/pixverse/v6/image-to-video': 0.35,
+  'fal-ai/wan/v2.2-a14b/image-to-video': 0.12,
+  'fal-ai/kling-video/v2.5-turbo/pro/text-to-video': 0.45,
+  'fal-ai/nano-banana-2/edit': 0.04,
+  'fal-ai/gpt-image-1.5/edit': 0.04,
+  'fal-ai/nano-banana-2': 0.03,
+  'openai/gpt-image-2': 0.04,
+  'fal-ai/gpt-image-1.5': 0.04,
+  'elevenlabs/text-to-speech': 0.02,
+  'elevenlabs/voice-cloning': 0.05,
+  'elevenlabs/speech-to-speech': 0.03,
+  'elevenlabs/music-generation': 0.08,
+} as const;
+
+function getPriceForModel(modelId: string): number | undefined {
+  return Object.prototype.hasOwnProperty.call(FLOW_PRICE_TABLE, modelId)
+    ? FLOW_PRICE_TABLE[modelId]
+    : undefined;
+}
+
+/**
+ * Default image model used to price each cast entry's reference generation run.
+ * This is the cheapest image generation model in the catalog (conservative estimate).
+ */
+const DEFAULT_REFERENCE_IMAGE_MODEL_ID = 'fal-ai/nano-banana-2';
+
+// ---------------------------------------------------------------------------
 // Types exported for the test
 // ---------------------------------------------------------------------------
 
@@ -171,8 +207,16 @@ function applycastSizeLimit(proposal: CastProposal): { proposal: CastProposal; o
   return { proposal: { cast: kept }, overflow: true };
 }
 
+/**
+ * Compute the aggregate estimate credits for a cast proposal.
+ *
+ * Uses the trusted flow-pricing table (getPriceForModel) rather than the
+ * LLM-supplied per_run_estimate to avoid trusting model output for cost fields
+ * (events.md §44-45; t05 line 27).
+ */
 function computeAggregateEstimate(cast: CastEntry[]): number {
-  return cast.reduce((sum, entry) => sum + entry.per_run_estimate, 0);
+  const pricePerRun = getPriceForModel(DEFAULT_REFERENCE_IMAGE_MODEL_ID) ?? 0;
+  return cast.length * pricePerRun;
 }
 
 function validatePayload(data: unknown): CastExtractJobPayload {

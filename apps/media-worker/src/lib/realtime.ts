@@ -10,6 +10,19 @@ import type { Pool, RowDataPacket } from 'mysql2/promise';
 
 import { config } from '@/config.js';
 
+/** Local event type for cast extraction updates (events.md §87-104). */
+type RealtimeCastExtractionEvent = {
+  type: 'storyboard.cast_extraction.updated';
+  eventId?: string;
+  userId: string;
+  occurredAt?: string;
+  jobId: string;
+  draftId: string;
+  status: string;
+  aggregateEstimateCredits: number | null;
+  errorMessage: string | null;
+};
+
 type AiJobStatus = 'queued' | 'processing' | 'completed' | 'failed';
 
 type AiJobRealtimeRow = RowDataPacket & {
@@ -43,7 +56,7 @@ type StoryboardBindingRow = RowDataPacket & {
   error_message: string | null;
 };
 
-type PublishableRealtimeEvent = RealtimeAiJobEvent | RealtimeStoryboardEvent;
+type PublishableRealtimeEvent = RealtimeAiJobEvent | RealtimeStoryboardEvent | RealtimeCastExtractionEvent;
 
 let redis: Redis | null = null;
 
@@ -188,7 +201,7 @@ export async function publishCastExtractionStatus(params: {
   let row: CastExtractionRow | undefined;
   try {
     const [rows] = await params.pool.query<CastExtractionRow[]>(
-      `SELECT job_id, draft_id, user_id, status, aggregate_estimate_credits, error_message
+      `SELECT id AS job_id, draft_id, user_id, status, aggregate_estimate_credits, error_message
          FROM storyboard_cast_extraction_jobs
         WHERE id = ?`,
       [params.jobId],
@@ -200,16 +213,16 @@ export async function publishCastExtractionStatus(params: {
   if (!row) return;
 
   await publishRealtimeEvent({
-    type: 'storyboard.status.updated',
+    type: 'storyboard.cast_extraction.updated',
     userId: row.user_id,
+    jobId: row.job_id,
     draftId: row.draft_id,
-    payload: {
-      resource: 'storyboardPlan',
-      jobId: row.job_id,
-      status: row.status,
-      plan: null,
-      errorMessage: row.error_message,
-    },
+    status: row.status,
+    aggregateEstimateCredits:
+      row.aggregate_estimate_credits !== null
+        ? Number(row.aggregate_estimate_credits)
+        : null,
+    errorMessage: row.error_message,
   });
 }
 
