@@ -15,7 +15,7 @@
 | T8 | Block lifecycle + versioned scene-link save | app | Oleksii | L | T2, T3 | done |
 | T9 | Star service (toggle, primary, fallback, cleanup) | app | Oleksii | M | T2, T3 | done |
 | T10 | Star gate в illustration service | app | Oleksii | M | T2, T3 | todo |
-| T11 | Scene master: reference boundary + style description | app | Oleksii | L | T2, T3 | todo |
+| T11 | Scene master: reference boundary + style description | app | Oleksii | L | T2, T3 | done |
 | T12 | Badge + delete-warning + duplication/restore semantics | app | Oleksii | M | T2 | todo |
 | T13 | Ports: extraction + confirm endpoints | ports | Oleksii | M | T4, T6 | todo |
 | T14 | Ports: blocks/retry/links/stars endpoints | ports | Oleksii | M | T8, T9, T13 | todo |
