@@ -101,6 +101,11 @@ afterAll(async () => {
       cleanupDraftIds,
     );
   }
+  // Clean ai_generation_jobs created by confirmCast (linked by user_id).
+  await conn.execute(
+    `DELETE FROM ai_generation_jobs WHERE user_id IN (${cleanupUserIds.map(() => '?').join(',')})`,
+    cleanupUserIds,
+  );
   // Clean any generation_flows created for OWNER_ID (also carries draft-linked rows).
   await conn.execute(
     `DELETE FROM generation_flows WHERE user_id IN (${cleanupUserIds.map(() => '?').join(',')})`,
@@ -233,6 +238,66 @@ describe('AC-03 / confirmCast — happy path', () => {
       for (let i = 0; i < K; i++) {
         expect(blockRows[i]!['sort_order']).toBe(i);
       }
+
+      // BullMQ payload must be worker-consumable:
+      // each call must carry modelId, capability, provider, prompt, options.
+      for (const call of mockQueueAdd.mock.calls) {
+        const payload = call[1] as Record<string, unknown>;
+        expect(typeof payload['jobId']).toBe('string');
+        expect(typeof payload['modelId']).toBe('string');
+        expect(payload['capability']).toBe('text_to_image');
+        expect(payload['provider']).toBe('fal');
+        expect(typeof payload['prompt']).toBe('string');
+        expect(payload['prompt']).toBeTruthy();
+        expect(typeof payload['options']).toBe('object');
+        // Must NOT carry referenceBlockId/flowId as top-level discriminators
+        // (worker reads modelId/capability, not a referenceBlockId).
+        expect('referenceBlockId' in payload).toBe(false);
+      }
+
+      // DB: ai_generation_jobs rows created for the dispatched blocks (min(N,K) = K = 3).
+      const dispatchedBlockIds = result.slice(0, Math.min(N, K)).map((b) => b.blockId);
+      const [blockWithJobs] = await conn.execute<RowDataPacket[]>(
+        `SELECT id, first_job_id, window_status
+           FROM storyboard_reference_blocks
+          WHERE id IN (${dispatchedBlockIds.map(() => '?').join(',')})
+          ORDER BY sort_order ASC`,
+        dispatchedBlockIds,
+      );
+      for (const row of blockWithJobs) {
+        // first_job_id must be set for each dispatched block (ADR-0003 correlation).
+        expect(row['first_job_id']).toBeTruthy();
+        expect(typeof row['first_job_id']).toBe('string');
+      }
+
+      // Each first_job_id must correspond to a real ai_generation_jobs row.
+      const jobIds = blockWithJobs.map((r) => r['first_job_id'] as string);
+      const [jobRows] = await conn.query<RowDataPacket[]>(
+        `SELECT job_id, model_id, capability, status
+           FROM ai_generation_jobs
+          WHERE job_id IN (${jobIds.map(() => '?').join(',')})`,
+        jobIds,
+      );
+      expect(jobRows).toHaveLength(Math.min(N, K));
+      for (const row of jobRows) {
+        expect(row['status']).toBe('queued');
+        expect(row['model_id']).toBe('openai/gpt-image-2');
+        expect(row['capability']).toBe('text_to_image');
+      }
+
+      // Non-dispatched blocks (K-N when K > N, here K=N so none) have first_job_id = NULL.
+      if (K > N) {
+        const remainingIds = result.slice(N).map((b) => b.blockId);
+        const [remainingRows] = await conn.execute<RowDataPacket[]>(
+          `SELECT id, first_job_id
+             FROM storyboard_reference_blocks
+            WHERE id IN (${remainingIds.map(() => '?').join(',')})`,
+          remainingIds,
+        );
+        for (const row of remainingRows) {
+          expect(row['first_job_id']).toBeNull();
+        }
+      }
     },
   );
 
@@ -283,6 +348,39 @@ describe('AC-03 / confirmCast — happy path', () => {
       expect(blockRows).toHaveLength(K);
       for (const row of blockRows) {
         expect(row['window_status']).toBe('pending');
+      }
+
+      // Dispatched blocks (first N) must have first_job_id set; remainder must be NULL.
+      const [blockDetailsRows] = await conn.execute<RowDataPacket[]>(
+        `SELECT id, first_job_id
+           FROM storyboard_reference_blocks
+          WHERE draft_id = ? ORDER BY sort_order ASC`,
+        [draftId],
+      );
+      expect(blockDetailsRows).toHaveLength(K);
+
+      for (let i = 0; i < N; i++) {
+        expect(blockDetailsRows[i]!['first_job_id']).toBeTruthy();
+      }
+      for (let i = N; i < K; i++) {
+        expect(blockDetailsRows[i]!['first_job_id']).toBeNull();
+      }
+
+      // The N dispatched ai_generation_jobs must exist with status='queued'.
+      const dispatchedJobIds = blockDetailsRows
+        .slice(0, N)
+        .map((r) => r['first_job_id'] as string);
+      const [jobRows] = await conn.query<RowDataPacket[]>(
+        `SELECT job_id, model_id, capability, status
+           FROM ai_generation_jobs
+          WHERE job_id IN (${dispatchedJobIds.map(() => '?').join(',')})`,
+        dispatchedJobIds,
+      );
+      expect(jobRows).toHaveLength(N);
+      for (const row of jobRows) {
+        expect(row['status']).toBe('queued');
+        expect(row['model_id']).toBe('openai/gpt-image-2');
+        expect(row['capability']).toBe('text_to_image');
       }
 
       // Reset concurrencyLimit so later tests see the default.
@@ -370,7 +468,28 @@ describe('AC-03 — billing is NOT called on confirm', () => {
       const jobName: string = call[0] as string;
       // The job name passed to Queue.add should be 'ai-generate' (the queue's job name).
       expect(jobName).toBe('ai-generate');
+
+      // Payload must be worker-consumable (worker reads modelId/capability/provider/prompt/options).
+      const payload = call[1] as Record<string, unknown>;
+      expect(typeof payload['jobId']).toBe('string');
+      expect(typeof payload['modelId']).toBe('string');
+      expect(payload['capability']).toBeTruthy();
+      expect(payload['provider']).toBeTruthy();
+      expect(typeof payload['prompt']).toBe('string');
+      expect(payload['prompt']).toBeTruthy();
+      expect(typeof payload['options']).toBe('object');
     }
+
+    // DB: an ai_generation_jobs row must have been created (not just enqueued).
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+    const jobId = (mockQueueAdd.mock.calls[0]![1] as Record<string, unknown>)['jobId'] as string;
+    const [jobRows] = await conn.execute<RowDataPacket[]>(
+      `SELECT job_id, status, model_id, capability FROM ai_generation_jobs WHERE job_id = ?`,
+      [jobId],
+    );
+    expect(jobRows).toHaveLength(1);
+    expect(jobRows[0]!['status']).toBe('queued');
+    expect(jobRows[0]!['model_id']).toBe('openai/gpt-image-2');
   });
 });
 

@@ -8,7 +8,13 @@
  *   - Owner check via generation_drafts.user_id (NotFoundError hides existence).
  *   - Single DB transaction: K blocks + K flows + scene-link rows; atomicity
  *     means a FK violation rolls back everything.
+ *   - Canvas pre-fill: content blocks for each imageFileId, or a text block
+ *     for description if no images (AC-03: flows are pre-filled).
  *   - After commit: enqueue min(concurrencyLimit, K) ai-generate jobs.
+ *     Each dispatch:
+ *       1. INSERT ai_generation_jobs (status='queued', default reference model).
+ *       2. UPDATE block.first_job_id (ADR-0003 rolling-window correlation).
+ *       3. Queue.add with full worker-consumable payload.
  *   - No billing call — payment per-run is the worker's responsibility (ADR-0004).
  */
 
@@ -20,6 +26,16 @@ import { NotFoundError } from '@/lib/errors.js';
 import { aiGenerateQueue } from '@/queues/bullmq.js';
 import { DEFAULT_CONCURRENCY_LIMIT } from '@/services/settings.service.js';
 import * as settingsRepository from '@/repositories/settings.repository.js';
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+/**
+ * Default model used for the auto-started first reference generation.
+ * Mirrors the storyboard illustration default (storyboardIllustration.config.ts).
+ */
+export const REFERENCE_DEFAULT_MODEL_ID = 'openai/gpt-image-2';
+export const REFERENCE_DEFAULT_CAPABILITY = 'text_to_image' as const;
+export const REFERENCE_DEFAULT_PROVIDER = 'fal' as const;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -84,12 +100,74 @@ async function getConcurrencyLimit(userId: string): Promise<number> {
   return DEFAULT_CONCURRENCY_LIMIT;
 }
 
+/**
+ * Builds the initial canvas for a reference flow.
+ *
+ * Pre-fills with a content block per assigned image (if any), or a single text
+ * content block with the description (if no images), so the Creator sees the
+ * reference material immediately on opening the flow (AC-03).
+ *
+ * Returns a JSON-serialisable FlowCanvas-shaped object.
+ */
+function buildReferenceCanvas(entry: CastEntry): { blocks: unknown[]; edges: unknown[] } {
+  const blocks: unknown[] = [];
+  const imageFileIds = entry.imageFileIds ?? [];
+
+  if (imageFileIds.length > 0) {
+    for (let idx = 0; idx < imageFileIds.length; idx++) {
+      blocks.push({
+        blockId: randomUUID(),
+        type: 'content',
+        position: { x: idx * 220, y: 0 },
+        params: { fileId: imageFileIds[idx] },
+      });
+    }
+  } else if (entry.description) {
+    blocks.push({
+      blockId: randomUUID(),
+      type: 'content',
+      position: { x: 0, y: 0 },
+      params: { text: entry.description },
+    });
+  }
+
+  return { blocks, edges: [] };
+}
+
+/**
+ * Derives the generation prompt for the auto-started first run.
+ *
+ * Uses the description when available, otherwise the entry name.
+ */
+function buildReferencePrompt(entry: CastEntry): string {
+  return entry.description?.trim() || entry.name;
+}
+
+/**
+ * Builds the options payload for the default reference generation job.
+ * Uses the entry description or name as the image prompt.
+ */
+function buildReferenceOptions(entry: CastEntry): Record<string, unknown> {
+  return {
+    prompt: buildReferencePrompt(entry),
+    image_size: 'square_hd',
+    num_images: 1,
+    output_format: 'png',
+    sync_mode: false,
+  };
+}
+
 // ── confirmCast ───────────────────────────────────────────────────────────────
 
 /**
- * Transactionally creates K reference blocks, K generation flows, K
- * pending window rows and the requested scene links, then enqueues
+ * Transactionally creates K reference blocks, K generation flows (pre-filled),
+ * K pending window rows and the requested scene links, then enqueues
  * min(concurrencyLimit, K) ai-generate jobs.
+ *
+ * For each dispatched job:
+ *   1. Inserts an ai_generation_jobs row (status='queued', default reference model).
+ *   2. Updates block.first_job_id for ADR-0003 rolling-window correlation.
+ *   3. Enqueues the BullMQ job with a full worker-consumable payload.
  *
  * Throws NotFoundError when the draft does not exist or belongs to another user.
  */
@@ -113,7 +191,8 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmedB
       const blockId = randomUUID();
       const flowId = randomUUID();
 
-      // 1. Create the generation_flow row.
+      // 1. Create the generation_flow row pre-filled with entry's reference material.
+      const canvas = buildReferenceCanvas(entry);
       await conn.execute(
         `INSERT INTO generation_flows (flow_id, user_id, title, canvas)
          VALUES (?, ?, ?, ?)`,
@@ -121,11 +200,12 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmedB
           flowId,
           userId,
           entry.name,
-          JSON.stringify({ blocks: [], edges: [] }),
+          JSON.stringify(canvas),
         ],
       );
 
       // 2. Create the reference block linked to the flow, window_status='pending'.
+      //    first_job_id is populated after the transaction commits when the job row is inserted.
       await conn.execute(
         `INSERT INTO storyboard_reference_blocks
            (id, draft_id, flow_id, cast_type, name, description, sort_order, window_status)
@@ -163,15 +243,47 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmedB
   }
 
   // Enqueue min(N, K) jobs AFTER the transaction has committed.
+  // For each dispatched block: create the ai_generation_jobs row, write back
+  // first_job_id, then enqueue the BullMQ job with a worker-consumable payload.
   const toDispatch = Math.min(concurrencyLimit, confirmed.length);
   for (let i = 0; i < toDispatch; i++) {
     const block = confirmed[i]!;
+    const entry = entries[i]!;
+    const jobId = randomUUID();
+    const prompt = buildReferencePrompt(entry);
+    const options = buildReferenceOptions(entry);
+
+    // 1. Insert the ai_generation_jobs row so the worker can call setJobStatus('processing').
+    await pool.execute(
+      `INSERT INTO ai_generation_jobs
+         (job_id, user_id, model_id, capability, prompt, options, flow_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        jobId,
+        userId,
+        REFERENCE_DEFAULT_MODEL_ID,
+        REFERENCE_DEFAULT_CAPABILITY,
+        prompt,
+        JSON.stringify(options),
+        block.flowId,
+      ],
+    );
+
+    // 2. Link first_job_id on the block (ADR-0003: rolling-window correlation for T7 hook).
+    await pool.execute(
+      `UPDATE storyboard_reference_blocks SET first_job_id = ? WHERE id = ?`,
+      [jobId, block.blockId],
+    );
+
+    // 3. Enqueue the BullMQ job with the full worker-consumable payload.
     await aiGenerateQueue.add('ai-generate', {
-      jobId: randomUUID(),
+      jobId,
       userId,
-      referenceBlockId: block.blockId,
-      flowId: block.flowId,
-      draftId,
+      modelId: REFERENCE_DEFAULT_MODEL_ID,
+      capability: REFERENCE_DEFAULT_CAPABILITY,
+      provider: REFERENCE_DEFAULT_PROVIDER,
+      prompt,
+      options,
     });
   }
 
