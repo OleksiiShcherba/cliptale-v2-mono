@@ -7,7 +7,7 @@
 |---|---|---|---|---|---|---|
 | T1 | Promote staged curation migrations 01–04 | migration | Oleksii | S | — | done |
 | T2 | Extraction-job + reference-block repositories | infra | Oleksii | M | T1 | done |
-| T3 | Stars + scene-links repositories | infra | Oleksii | M | T1 | todo |
+| T3 | Stars + scene-links repositories | infra | Oleksii | M | T1 | done |
 | T4 | Cast-extraction service (start/get, guard, authz) | app | Oleksii | M | T2 | todo |
 | T5 | Worker cast-extract job (LLM, Zod, limit 12) | app | Oleksii | M | T2 | todo |
 | T6 | Confirm-cast service + rolling-window dispatch | app | Oleksii | L | T2, T3 | todo |
