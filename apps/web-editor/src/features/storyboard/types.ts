@@ -255,3 +255,44 @@ export type AddToStoryboardPayload = {
   templateId: string;
   draftId: string;
 };
+
+// ── Reference block types (storyboard-reference-flows T15) ───────────────────
+
+/** window_status values from storyboard_reference_blocks.window_status ENUM.
+ *  NULL = manually-added block (no auto-dispatch, AC-11). */
+export type ReferenceBlockWindowStatus = 'pending' | 'running' | 'done' | 'failed' | null;
+
+/** A reference block canvas entity (data-model.md §storyboard_reference_blocks). */
+export type StoryboardReferenceBlock = {
+  id: string;
+  draftId: string;
+  /** NULL = no-flow state (ADR-0006, AC-12). */
+  flowId: string | null;
+  castType: 'character' | 'environment';
+  name: string;
+  description: string | null;
+  sortOrder: number;
+  positionX: number;
+  positionY: number;
+  /** NULL for manually-added blocks (AC-11). */
+  windowStatus: ReferenceBlockWindowStatus;
+  firstJobId: string | null;
+  /** Plain-language reason when windowStatus === 'failed' (AC-04). */
+  errorMessage: string | null;
+  /** Compare-and-set version for scene-link saves. */
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** React Flow node data for a reference block (off-chain, like MusicBlockNodeData). */
+export type ReferenceBlockNodeData = {
+  referenceBlock: StoryboardReferenceBlock;
+  /** URL of the primary-starred result file to show as block preview (AC-03/AC-06).
+   *  NULL = no starred result → no-preview placeholder (AC-07). */
+  previewUrl: string | null;
+  /** Called with blockId when the block is clicked and flowId is non-null (AC-05). */
+  onOpenFlow: (blockId: string) => void;
+  /** Called with blockId when the retry button is clicked on a failed block (AC-04). */
+  onRetry: (blockId: string) => void;
+};
