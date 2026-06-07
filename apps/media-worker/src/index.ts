@@ -28,10 +28,8 @@ import { processStoryboardOpenAIImageJob } from '@/jobs/storyboardOpenAIImage.jo
 import {
   aiGenerationJobRepo,
   filesRepo,
-  storyboardAiGenerationJobRepo,
   storyboardIllustrationRepo,
-  storyboardImageFileReadRepo,
-  storyboardReferenceRepo,
+  buildStoryboardOpenAIImageJobDeps,
 } from '@/jobs/workerRepositories.js';
 
 const QUEUE_MEDIA_INGEST = 'media-ingest';
@@ -178,17 +176,11 @@ console.log('[media-worker] Listening for jobs on queue:', QUEUE_STORYBOARD_PLAN
 
 const storyboardOpenAIImageWorker = new Worker<StoryboardOpenAIImageJobPayload>(
   QUEUE_STORYBOARD_OPENAI_IMAGE,
-  (job) => processStoryboardOpenAIImageJob(job, {
+  (job) => processStoryboardOpenAIImageJob(job, buildStoryboardOpenAIImageJobDeps({
     openai: openaiClient,
     s3: s3Client,
-    pool,
     bucket: config.s3.bucket,
-    filesRepo,
-    fileReadRepo: storyboardImageFileReadRepo,
-    aiGenerationJobRepo: storyboardAiGenerationJobRepo,
-    storyboardReferenceRepo,
-    storyboardSceneRepo: storyboardIllustrationRepo,
-  }),
+  })),
   { connection, concurrency: 1 },
 );
 

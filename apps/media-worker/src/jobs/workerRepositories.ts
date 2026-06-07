@@ -11,6 +11,7 @@ import type {
   StoryboardImageFileReadRepo,
   StoryboardReferenceRepo,
   SceneReferenceSelectionRepo,
+  StoryboardOpenAIImageJobDeps,
 } from '@/jobs/storyboardOpenAIImage.job.js';
 import type { ReferenceBlock, ReferenceStar } from '@/jobs/referenceSelection.js';
 
@@ -315,3 +316,25 @@ export const sceneReferenceSelectionRepo: SceneReferenceSelectionRepo = {
     }));
   },
 };
+
+/**
+ * Assemble the full dependency set for processStoryboardOpenAIImageJob from the
+ * runtime clients (F3). Centralised + exported so the wiring — in particular the
+ * sceneReferenceSelectionRepo that powers the reference boundary, scoped star
+ * gate and derived style description (AC-09) — is testable instead of buried in
+ * the side-effecting worker entrypoint.
+ */
+export function buildStoryboardOpenAIImageJobDeps(
+  clients: Pick<StoryboardOpenAIImageJobDeps, 'openai' | 's3' | 'bucket'>,
+): StoryboardOpenAIImageJobDeps {
+  return {
+    ...clients,
+    pool,
+    filesRepo,
+    fileReadRepo: storyboardImageFileReadRepo,
+    aiGenerationJobRepo: storyboardAiGenerationJobRepo,
+    storyboardReferenceRepo,
+    storyboardSceneRepo: storyboardIllustrationRepo,
+    sceneReferenceSelectionRepo,
+  };
+}
