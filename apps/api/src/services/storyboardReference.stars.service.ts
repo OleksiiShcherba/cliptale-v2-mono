@@ -76,17 +76,48 @@ async function assertDraftOwner(
   }
 }
 
+type BlockFlowRow = RowDataPacket & { flow_id: string | null };
+
+/**
+ * Verify the block belongs to the draft and return its linked flow_id.
+ * Throws NotFoundError (existence-hiding) if the block is absent / wrong draft.
+ */
 async function assertBlockInDraft(
   conn: PoolConnection,
   blockId: string,
   draftId: string,
-): Promise<void> {
-  const [rows] = await conn.execute<RowDataPacket[]>(
-    `SELECT id FROM storyboard_reference_blocks WHERE id = ? AND draft_id = ? LIMIT 1`,
+): Promise<string | null> {
+  const [rows] = await conn.execute<BlockFlowRow[]>(
+    `SELECT flow_id FROM storyboard_reference_blocks WHERE id = ? AND draft_id = ? LIMIT 1`,
     [blockId, draftId],
   );
   if (!rows.length) {
     throw new NotFoundError(`Block not found`);
+  }
+  return rows[0]!.flow_id;
+}
+
+/**
+ * Verify `fileId` is a result file of the block's linked flow (flow_files pivot).
+ * `files.file_id` is globally scoped, so without this guard a foreign/cross-tenant
+ * private image could be starred and fed to scene generation (F7 — SEVERE).
+ * Throws NotFoundError (existence-hiding) if the block has no flow or the file is
+ * not a result of that flow.
+ */
+async function assertFileInFlow(
+  conn: PoolConnection,
+  flowId: string | null,
+  fileId: string,
+): Promise<void> {
+  if (!flowId) {
+    throw new NotFoundError(`File not found`);
+  }
+  const [rows] = await conn.execute<RowDataPacket[]>(
+    `SELECT 1 FROM flow_files WHERE flow_id = ? AND file_id = ? LIMIT 1`,
+    [flowId, fileId],
+  );
+  if (!rows.length) {
+    throw new NotFoundError(`File not found`);
   }
 }
 
@@ -128,7 +159,10 @@ export async function starResult(params: StarResultParams): Promise<BlockStarsSt
 
     // Owner guard (AC-13).
     await assertDraftOwner(conn, draftId, userId);
-    await assertBlockInDraft(conn, blockId, draftId);
+    const flowId = await assertBlockInDraft(conn, blockId, draftId);
+    // Boundary guard (F7): the file must be a result of the block's linked flow;
+    // never let a cross-tenant file_id be starred.
+    await assertFileInFlow(conn, flowId, fileId);
 
     if (isPrimary) {
       // Demote any existing primary for this block first (avoid unique constraint conflict).
