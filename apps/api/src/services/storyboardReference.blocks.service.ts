@@ -22,6 +22,19 @@ import {
 
 // ── Types (public surface, derived from data-model.md + openapi.yaml) ─────────
 
+export type ListBlocksParams = {
+  userId: string;
+  draftId: string;
+};
+
+export type UpdateBlockParams = {
+  blockId: string;
+  draftId: string;
+  userId: string;
+  positionX: number;
+  positionY: number;
+};
+
 export type CreateBlockParams = {
   draftId: string;
   userId: string;
@@ -157,6 +170,68 @@ function rowToBlockResult(row: BlockRow): BlockResult {
 }
 
 // ── Service functions ─────────────────────────────────────────────────────────
+
+/**
+ * List all reference blocks for a draft owned by userId (AC-11, AC-13).
+ * Non-owner → NotFoundError (existence hiding).
+ */
+export async function listBlocks(userId: string, draftId: string): Promise<BlockResult[]> {
+  const conn = await pool.getConnection();
+  try {
+    // Owner guard (AC-13).
+    await assertDraftOwner(conn, draftId, userId);
+
+    const [rows] = await conn.execute<BlockRow[]>(
+      `SELECT id, draft_id, flow_id, cast_type, name, description,
+              sort_order, position_x, position_y, window_status,
+              error_message, version, created_at, updated_at
+         FROM storyboard_reference_blocks
+        WHERE draft_id = ?
+        ORDER BY sort_order ASC, created_at ASC`,
+      [draftId],
+    );
+
+    return rows.map(rowToBlockResult);
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Update block XY position (PATCH, versionless, commutative — ADR-0005, AC-14).
+ * Non-owner → NotFoundError (AC-13).
+ */
+export async function updateBlock(params: UpdateBlockParams): Promise<BlockResult> {
+  const { blockId, draftId, userId, positionX, positionY } = params;
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // Owner guard (AC-13).
+    await assertDraftOwner(conn, draftId, userId);
+
+    // Existence guard.
+    await fetchBlockForDraft(conn, blockId, draftId);
+
+    await conn.execute(
+      `UPDATE storyboard_reference_blocks
+          SET position_x = ?, position_y = ?
+        WHERE id = ? AND draft_id = ?`,
+      [positionX, positionY, blockId, draftId],
+    );
+
+    await conn.commit();
+
+    const block = await fetchBlockForDraft(conn, blockId, draftId);
+    return rowToBlockResult(block);
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
 
 /**
  * Manually add a reference block with an empty linked flow.

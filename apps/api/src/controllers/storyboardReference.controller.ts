@@ -18,9 +18,11 @@
 import { z } from 'zod';
 import type { Request, Response, NextFunction } from 'express';
 
-import { NotFoundError, ValidationError } from '@/lib/errors.js';
+import { NotFoundError, ValidationError, ConflictError } from '@/lib/errors.js';
 import * as extractionService from '@/services/storyboardReference.extraction.service.js';
 import * as confirmService from '@/services/storyboardReference.confirm.service.js';
+import * as blocksService from '@/services/storyboardReference.blocks.service.js';
+import * as starsService from '@/services/storyboardReference.stars.service.js';
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
@@ -237,7 +239,340 @@ export async function confirmCast(
   }
 }
 
+// ── Zod schemas for T14 handlers ──────────────────────────────────────────────
+
+/** CreateReferenceBlockRequest body (openapi.yaml#/components/schemas/CreateReferenceBlockRequest). */
+const createReferenceBlockSchema = z.object({
+  castType: z.enum(['character', 'environment']),
+  name: z.string().min(1).max(255),
+  description: z.string().max(1000).optional(),
+});
+
+/** UpdateReferenceBlockRequest body (PATCH .../blocks/:blockId — versionless XY). */
+const updateReferenceBlockSchema = z.object({
+  positionX: z.number(),
+  positionY: z.number(),
+});
+
+/** SaveSceneLinksRequest body (openapi.yaml#/components/schemas/SaveSceneLinksRequest). */
+const saveSceneLinksSchema = z.object({
+  sceneBlockIds: z.array(z.string().uuid()),
+  version: z.number().int().min(1),
+});
+
+// ── GET /storyboards/:draftId/references/blocks ────────────────────────────────
+
+/**
+ * GET /storyboards/:draftId/references/blocks
+ * AC-11, AC-13.
+ *
+ * Returns 200 ReferenceBlockList { items: [...] }.
+ * Non-owner: NotFoundError forwarded to next() (existence hiding).
+ */
+export async function listReferenceBlocks(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const draftId = req.params['draftId']!;
+    const userId = req.user!.userId;
+
+    const blocks = await blocksService.listBlocks(userId, draftId);
+
+    const items = blocks.map(mapBlockToWire);
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── POST /storyboards/:draftId/references/blocks ──────────────────────────────
+
+/**
+ * POST /storyboards/:draftId/references/blocks
+ * AC-11, AC-13.
+ *
+ * Returns 201 ReferenceBlock on success.
+ * Non-owner: NotFoundError forwarded to next() (existence hiding).
+ */
+export async function createReferenceBlock(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const parsed = createReferenceBlockSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError(
+        `Invalid request body: ${parsed.error.issues.map((i) => i.message).join(', ')}`,
+      );
+    }
+
+    const draftId = req.params['draftId']!;
+    const userId = req.user!.userId;
+    const { castType, name, description } = parsed.data;
+
+    const block = await blocksService.createBlock({ draftId, userId, castType, name, description });
+
+    res.status(201).json(mapBlockToWire(block));
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── PATCH /storyboards/:draftId/references/blocks/:blockId ───────────────────
+
+/**
+ * PATCH /storyboards/:draftId/references/blocks/:blockId
+ * AC-14, AC-13.
+ *
+ * Versionless commutative XY update (ADR-0005 override, SAD §1 ¶4).
+ * Returns 200 ReferenceBlock on success.
+ * Non-owner: NotFoundError forwarded to next().
+ */
+export async function updateReferenceBlock(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const parsed = updateReferenceBlockSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError(
+        `Invalid request body: ${parsed.error.issues.map((i) => i.message).join(', ')}`,
+      );
+    }
+
+    const draftId = req.params['draftId']!;
+    const blockId = req.params['blockId']!;
+    const userId = req.user!.userId;
+    const { positionX, positionY } = parsed.data;
+
+    const block = await blocksService.updateBlock({ blockId, draftId, userId, positionX, positionY });
+
+    res.json(mapBlockToWire(block));
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── DELETE /storyboards/:draftId/references/blocks/:blockId ──────────────────
+
+/**
+ * DELETE /storyboards/:draftId/references/blocks/:blockId
+ * AC-14, AC-13.
+ *
+ * Returns 204 No Content on success.
+ * Non-owner: NotFoundError forwarded to next().
+ */
+export async function deleteReferenceBlock(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const draftId = req.params['draftId']!;
+    const blockId = req.params['blockId']!;
+    const userId = req.user!.userId;
+
+    await blocksService.deleteBlock({ blockId, draftId, userId });
+
+    res.status(204).end();
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── POST /storyboards/:draftId/references/blocks/:blockId/retry ───────────────
+
+/**
+ * POST /storyboards/:draftId/references/blocks/:blockId/retry
+ * AC-04, AC-13.
+ *
+ * Returns 202 RetryAccepted { blockId, windowStatus:'pending' } on success.
+ * Returns 409 { error, code:'references.block_not_failed' } when block is not failed.
+ * Requires Idempotency-Key header.
+ * Non-owner: NotFoundError forwarded to next().
+ */
+export async function retryReferenceBlockGeneration(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const idempotencyKey = req.header('Idempotency-Key');
+    if (!idempotencyKey || idempotencyKey.trim().length === 0) {
+      throw new ValidationError('Missing required header: Idempotency-Key.');
+    }
+
+    const draftId = req.params['draftId']!;
+    const blockId = req.params['blockId']!;
+    const userId = req.user!.userId;
+
+    const block = await blocksService.retryBlock({ blockId, draftId, userId });
+
+    res.status(202).json({ blockId: block.id, windowStatus: block.windowStatus });
+  } catch (err) {
+    if (err instanceof ConflictError) {
+      res.status(409).json({
+        error: (err as Error).message || 'Block generation is not in failed state.',
+        code: 'references.block_not_failed',
+      });
+      return;
+    }
+    next(err);
+  }
+}
+
+// ── PUT /storyboards/:draftId/references/blocks/:blockId/scene-links ──────────
+
+/**
+ * PUT /storyboards/:draftId/references/blocks/:blockId/scene-links
+ * AC-10, AC-13.
+ *
+ * Returns 200 SceneLinksSaveResponse { sceneBlockIds, version } on success.
+ * Returns 409 { error, code:'references.version_conflict' } on stale version.
+ * Non-owner: NotFoundError forwarded to next().
+ */
+export async function saveSceneLinks(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const parsed = saveSceneLinksSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new ValidationError(
+        `Invalid request body: ${parsed.error.issues.map((i) => i.message).join(', ')}`,
+      );
+    }
+
+    const draftId = req.params['draftId']!;
+    const blockId = req.params['blockId']!;
+    const userId = req.user!.userId;
+    const { sceneBlockIds, version } = parsed.data;
+
+    const result = await blocksService.saveSceneLinks({ blockId, draftId, userId, sceneBlockIds, version });
+
+    res.json({ sceneBlockIds: result.sceneBlockIds, version: result.version });
+  } catch (err) {
+    if (err instanceof ConflictError) {
+      res.status(409).json({
+        error: (err as Error).message || 'Version conflict — reload and retry.',
+        code: 'references.version_conflict',
+      });
+      return;
+    }
+    next(err);
+  }
+}
+
+// ── PUT /storyboards/:draftId/references/blocks/:blockId/stars/:fileId ────────
+
+/**
+ * PUT /storyboards/:draftId/references/blocks/:blockId/stars/:fileId
+ * AC-06, AC-13.
+ *
+ * Returns 200 BlockStarsState { blockId, stars, previewFileId }.
+ * Body: { isPrimary?: boolean } — optional, defaults to false.
+ * Non-owner: NotFoundError forwarded to next().
+ */
+export async function starReferenceResult(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const draftId = req.params['draftId']!;
+    const blockId = req.params['blockId']!;
+    const fileId = req.params['fileId']!;
+    const userId = req.user!.userId;
+    const isPrimary = req.body && typeof req.body.isPrimary === 'boolean' ? req.body.isPrimary : false;
+
+    const state = await starsService.starResult({ blockId, draftId, userId, fileId, isPrimary });
+
+    res.json(state);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── DELETE /storyboards/:draftId/references/blocks/:blockId/stars/:fileId ─────
+
+/**
+ * DELETE /storyboards/:draftId/references/blocks/:blockId/stars/:fileId
+ * AC-06, AC-13.
+ *
+ * Returns 200 BlockStarsState { blockId, stars, previewFileId }.
+ * Non-owner: NotFoundError forwarded to next().
+ */
+export async function unstarReferenceResult(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const draftId = req.params['draftId']!;
+    const blockId = req.params['blockId']!;
+    const fileId = req.params['fileId']!;
+    const userId = req.user!.userId;
+
+    const state = await starsService.unstarResult({ blockId, draftId, userId, fileId });
+
+    res.json(state);
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ── Private helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Maps a BlockResult (service layer) to the full ReferenceBlock wire shape
+ * (openapi.yaml#/components/schemas/ReferenceBlock).
+ * stars and previewFileId are not stored on BlockResult — callers that need
+ * star data enrich separately; here we default to empty/null (safe for CRUD ops).
+ */
+function mapBlockToWire(b: {
+  id: string;
+  draftId: string;
+  flowId: string | null;
+  castType: 'character' | 'environment';
+  name: string;
+  description: string | null;
+  sortOrder: number;
+  positionX: number;
+  positionY: number;
+  windowStatus: 'pending' | 'running' | 'done' | 'failed' | null;
+  errorMessage: string | null;
+  version: number;
+  createdAt: Date | string | null;
+  updatedAt: Date | string | null;
+  sceneBlockIds?: string[];
+  stars?: unknown[];
+  previewFileId?: string | null;
+}) {
+  return {
+    blockId: b.id,
+    draftId: b.draftId,
+    flowId: b.flowId ?? null,
+    castType: b.castType,
+    name: b.name,
+    description: b.description ?? null,
+    sortOrder: b.sortOrder,
+    positionX: b.positionX,
+    positionY: b.positionY,
+    windowStatus: b.windowStatus,
+    errorMessage: b.errorMessage ?? null,
+    version: b.version,
+    sceneBlockIds: b.sceneBlockIds ?? [],
+    stars: b.stars ?? [],
+    previewFileId: b.previewFileId ?? null,
+    createdAt: toIsoOrNull(b.createdAt),
+    updatedAt: toIsoOrNull(b.updatedAt),
+  };
+}
 
 function toIsoOrNull(v: Date | string | null | undefined): string | null {
   if (!v) return null;

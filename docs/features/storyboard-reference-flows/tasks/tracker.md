@@ -18,7 +18,7 @@
 | T11 | Scene master: reference boundary + style description | app | Oleksii | L | T2, T3 | done |
 | T12 | Badge + delete-warning + duplication/restore semantics | app | Oleksii | M | T2 | done |
 | T13 | Ports: extraction + confirm endpoints | ports | Oleksii | M | T4, T6 | done |
-| T14 | Ports: blocks/retry/links/stars endpoints | ports | Oleksii | M | T8, T9, T13 | todo |
+| T14 | Ports: blocks/retry/links/stars endpoints | ports | Oleksii | M | T8, T9, T13 | done |
 | T15 | UI: ReferenceBlockNode на канвасі | ui | Oleksii | L | T14 | todo |
 | T16 | UI: SceneLinkSelector + 409 reload prompt | ui | Oleksii | M | T14 | todo |
 | T17 | UI: cast confirmation modal + заміна principal-image | ui | Oleksii | L | T13, T16 | todo |
