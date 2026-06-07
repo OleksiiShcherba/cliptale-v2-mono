@@ -14,6 +14,9 @@ export type { FlowBlock, FlowEdge, FlowCanvas, FlowBlockType } from '@ai-video-e
 /**
  * Summary shape returned by GET /generation-flows and PATCH /generation-flows/:id.
  * No canvas — list-page safe.
+ *
+ * `draftBadge` is present when the flow is a reference flow auto-created for a
+ * storyboard block (AC-12 / ADR-0010). The badge UI is derived from this field.
  */
 export type FlowSummary = {
   flowId: string;
@@ -21,6 +24,8 @@ export type FlowSummary = {
   version: number;
   createdAt: string;
   updatedAt: string;
+  /** Present when this flow is linked to a storyboard block (AC-12). */
+  draftBadge?: { draftId: string } | null;
 };
 
 /**

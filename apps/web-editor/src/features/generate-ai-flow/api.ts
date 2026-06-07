@@ -108,9 +108,13 @@ export async function renameFlow(flowId: string, title: string): Promise<FlowSum
  * DELETE /generation-flows/:flowId
  * Soft-deletes a flow. Resolves on 204. Non-owner / absent → throws 404.
  * Idempotent by spec.
+ *
+ * `opts.confirm` — set to `true` when deleting a reference flow after the
+ * Creator has confirmed the dependency warning (AC-12: ?confirm=true).
  */
-export async function deleteFlow(flowId: string): Promise<void> {
-  const res = await apiClient.delete(`/generation-flows/${flowId}`);
+export async function deleteFlow(flowId: string, opts?: { confirm?: boolean }): Promise<void> {
+  const qs = opts?.confirm ? '?confirm=true' : '';
+  const res = await apiClient.delete(`/generation-flows/${flowId}${qs}`);
   if (res.status === 204) return;
   await requireOk(res); // will throw for non-2xx
 }

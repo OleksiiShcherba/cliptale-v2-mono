@@ -23,7 +23,7 @@
 | T16 | UI: SceneLinkSelector + 409 reload prompt | ui | Oleksii | M | T14 | todo |
 | T17 | UI: cast confirmation modal + заміна principal-image | ui | Oleksii | L | T13, T16 | todo |
 | T18 | UI: зірки на ResultNode | ui | Oleksii | M | T14 | todo |
-| T19 | UI: draft badge + delete warning + back-nav | ui | Oleksii | M | T12 | todo |
+| T19 | UI: draft badge + delete warning + back-nav | ui | Oleksii | M | T12 | done |
 | T20 | UI: gate message + concurrency setting | ui | Oleksii | S | T6, T10 | todo |
 | T21 | E2E: повна журні extract→confirm→stars→gate→scenes | tests | Oleksii | M | T5, T7, T11, T15, T16, T17, T18, T19, T20 | todo |
 

@@ -26,7 +26,7 @@
 
 import React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useLocation, Link } from 'react-router-dom';
 
 import { getFlow, getFileUrl } from '../api';
 import type { Flow, JobState } from '../types';
@@ -79,6 +79,12 @@ export function FlowEditorPage(): React.ReactElement {
   const { flowId } = useParams<{ flowId: string }>();
   const id = flowId ?? '';
 
+  // AC-05: detect when this flow was opened from a storyboard reference block.
+  // The navigation state carries `{ fromDraft: draftId }` (set by the block opener).
+  const location = useLocation();
+  const locationState = location.state as { fromDraft?: string } | null;
+  const fromDraft = locationState?.fromDraft ?? null;
+
   // Initial flow load (canvas + jobs). While any job is non-terminal the read is
   // polled so an in-flight generation reattaches and finishes live (AC-08b).
   const [hasPendingJob, setHasPendingJob] = React.useState(false);
@@ -104,6 +110,7 @@ export function FlowEditorPage(): React.ReactElement {
     <FlowEditor
       key={flow.flowId}
       flow={flow}
+      fromDraft={fromDraft}
       onPendingJobChange={setHasPendingJob}
     />
   );
@@ -113,9 +120,12 @@ export function FlowEditorPage(): React.ReactElement {
 
 function FlowEditor({
   flow,
+  fromDraft,
   onPendingJobChange,
 }: {
   flow: Flow;
+  /** AC-05: draftId when opened from a storyboard reference block. */
+  fromDraft: string | null;
   onPendingJobChange: (pending: boolean) => void;
 }): React.ReactElement {
   const initialCanvas = flow.canvas;
@@ -421,9 +431,21 @@ function FlowEditor({
       {/* Top chrome + toolbar (FlowListPage idiom). */}
       <div style={headerStyle}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', minWidth: 0 }}>
-          <Link to="/?tab=generate-ai" aria-label="Home" style={homeLinkStyle}>
-            ← Home
-          </Link>
+          {/* AC-05: show "Back to storyboard" when opened from a reference block;
+              otherwise show the standard Home link. */}
+          {fromDraft != null ? (
+            <Link
+              to={`/storyboard/${fromDraft}`}
+              aria-label="Back to storyboard"
+              style={homeLinkStyle}
+            >
+              ← Back to storyboard
+            </Link>
+          ) : (
+            <Link to="/?tab=generate-ai" aria-label="Home" style={homeLinkStyle}>
+              ← Home
+            </Link>
+          )}
           <h1 style={titleStyle}>{flow.title}</h1>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
