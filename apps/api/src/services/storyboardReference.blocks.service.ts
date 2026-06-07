@@ -520,9 +520,13 @@ export async function retryBlock(params: RetryBlockParams): Promise<BlockResult>
       ],
     );
 
-    // 2. Link first_job_id on the block (ADR-0003: rolling-window correlation).
+    // 2. Link first_job_id and claim the block to 'running' (F2). The completion
+    //    hook's terminal UPDATE is guarded WHERE window_status='running', so a
+    //    retry left at 'pending' would stall — the hook would match 0 rows.
     await pool.execute(
-      `UPDATE storyboard_reference_blocks SET first_job_id = ? WHERE id = ?`,
+      `UPDATE storyboard_reference_blocks
+          SET first_job_id = ?, window_status = 'running'
+        WHERE id = ?`,
       [jobId, blockId],
     );
 

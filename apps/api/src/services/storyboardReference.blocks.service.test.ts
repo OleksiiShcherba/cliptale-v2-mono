@@ -446,7 +446,7 @@ describe('AC-14 / deleteBlock — flow survives; links and stars gone', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('AC-04 / retryBlock — failed → pending + new job; done/pending → rejected', () => {
-  it('retrying a failed block sets window_status=pending and enqueues a job', async () => {
+  it('retrying a failed block claims it to window_status=running and enqueues a job', async () => {
     const { retryBlock } = await svc();
 
     const draftId = await seedDraft(OWNER_ID);
@@ -468,15 +468,16 @@ describe('AC-04 / retryBlock — failed → pending + new job; done/pending → 
 
     const result = await retryBlock({ blockId, draftId, userId: OWNER_ID });
 
-    // Returns the block with windowStatus = 'pending'.
-    expect(result.windowStatus).toBe('pending');
+    // F2: the retried block is claimed to 'running' at dispatch so the rolling-
+    // window completion hook (guarded WHERE window_status='running') can advance.
+    expect(result.windowStatus).toBe('running');
 
-    // DB: window_status now 'pending'.
+    // DB: window_status now 'running'.
     const [rows] = await conn.execute<RowDataPacket[]>(
       `SELECT window_status FROM storyboard_reference_blocks WHERE id = ?`,
       [blockId],
     );
-    expect(rows[0]!['window_status']).toBe('pending');
+    expect(rows[0]!['window_status']).toBe('running');
 
     // A job was enqueued.
     expect(mockQueueAdd).toHaveBeenCalledTimes(1);

@@ -71,7 +71,8 @@ export type ConfirmedBlock = {
   sortOrder: number;
   positionX: number;
   positionY: number;
-  windowStatus: 'pending';
+  /** 'pending' on creation; the dispatched min(N,K) are claimed to 'running' (F2). */
+  windowStatus: 'pending' | 'running';
   errorMessage: string | null;
   version: number;
   /** Scene-block UUIDs from the confirm request, echoed back (no second DB read needed). */
@@ -325,11 +326,17 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmedB
       ],
     );
 
-    // 2. Link first_job_id on the block (ADR-0003: rolling-window correlation for T7 hook).
+    // 2. Link first_job_id and claim the block to 'running' (F2). The block was
+    //    created 'pending'; claiming it at enqueue time mirrors the completion
+    //    hook's claim of the next block, so the hook's terminal UPDATE
+    //    (guarded WHERE window_status='running') matches and the window advances.
     await pool.execute(
-      `UPDATE storyboard_reference_blocks SET first_job_id = ? WHERE id = ?`,
+      `UPDATE storyboard_reference_blocks
+          SET first_job_id = ?, window_status = 'running'
+        WHERE id = ?`,
       [jobId, block.blockId],
     );
+    block.windowStatus = 'running';
 
     // 3. Enqueue the BullMQ job with the full worker-consumable payload.
     await aiGenerateQueue.add('ai-generate', {

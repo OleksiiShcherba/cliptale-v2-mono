@@ -217,9 +217,11 @@ describe('AC-03 / confirmCast — happy path', () => {
       );
       expect(blockRows).toHaveLength(K);
 
-      // All K blocks have window_status = 'pending'
+      // F2: the min(N,K) dispatched blocks are claimed to 'running' at enqueue
+      // time so the completion hook (guarded WHERE window_status='running') can
+      // advance the window. Here N=4 ≥ K=3, so all K are dispatched → all running.
       for (const row of blockRows) {
-        expect(row['window_status']).toBe('pending');
+        expect(row['window_status']).toBe('running');
       }
 
       // DB: K generation_flows created (one per block)
@@ -338,16 +340,20 @@ describe('AC-03 / confirmCast — happy path', () => {
       // Only N jobs dispatched
       expect(mockQueueAdd).toHaveBeenCalledTimes(N);
 
-      // All K blocks are pending (the N that were dispatched become 'running' only
-      // when the worker picks them up — at enqueue time they're still 'pending').
+      // F2: the first N dispatched blocks are claimed to 'running' at enqueue
+      // time (so the completion hook can advance the window); the remaining K-N
+      // stay 'pending' until the rolling window reaches them.
       const [blockRows] = await conn.execute<RowDataPacket[]>(
         `SELECT window_status FROM storyboard_reference_blocks
           WHERE draft_id = ? ORDER BY sort_order ASC`,
         [draftId],
       );
       expect(blockRows).toHaveLength(K);
-      for (const row of blockRows) {
-        expect(row['window_status']).toBe('pending');
+      for (let i = 0; i < N; i++) {
+        expect(blockRows[i]!['window_status']).toBe('running');
+      }
+      for (let i = N; i < K; i++) {
+        expect(blockRows[i]!['window_status']).toBe('pending');
       }
 
       // Dispatched blocks (first N) must have first_job_id set; remainder must be NULL.
