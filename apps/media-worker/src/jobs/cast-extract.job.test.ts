@@ -121,6 +121,8 @@ describe('processCastExtractJob', () => {
         jobId: JOB_ID,
         proposal: expect.objectContaining({ cast: expect.any(Array) }),
         aggregateEstimateCredits: expect.any(Number),
+        // F4: a within-limit proposal carries overflow=false to the DB.
+        overflow: false,
       }),
     );
   });
@@ -175,9 +177,11 @@ describe('processCastExtractJob', () => {
     }
     // Overflow flag must be present to tell Creator the rest can be added manually
     expect(result.overflow).toBe(true);
+    // F4: the overflow flag must reach the persistence layer, not just the return.
     expect(repository.markCompleted).toHaveBeenCalledWith(
       expect.objectContaining({
         proposal: expect.objectContaining({ cast: expect.any(Array) }),
+        overflow: true,
       }),
     );
     const completedCall = vi.mocked(repository.markCompleted).mock.calls[0]![0] as {

@@ -149,6 +149,7 @@ export async function getCastExtraction(
       draftId,
       status: job.status,
       proposal,
+      truncated: job.truncated,
       aggregateEstimateCredits: job.aggregateEstimateCredits
         ? parseFloat(job.aggregateEstimateCredits)
         : null,

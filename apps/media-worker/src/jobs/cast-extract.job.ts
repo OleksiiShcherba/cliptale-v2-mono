@@ -82,6 +82,8 @@ export type CastExtractJobRepository = {
     jobId: string;
     proposal: CastProposal;
     aggregateEstimateCredits: number;
+    /** AC-02: true when the proposal was trimmed to the cast size limit (F4). */
+    overflow: boolean;
   }): Promise<void>;
   markFailed(jobId: string, error: unknown): Promise<void>;
   /** Fetch the script text of the draft to send to the LLM (script = data, not instructions). */
@@ -312,7 +314,7 @@ export async function processCastExtractJob(
     const aggregateEstimateCredits = computeAggregateEstimate(trimmedProposal.cast);
 
     // Persist completion
-    await repository.markCompleted({ jobId, proposal: trimmedProposal, aggregateEstimateCredits });
+    await repository.markCompleted({ jobId, proposal: trimmedProposal, aggregateEstimateCredits, overflow });
     await publishCastExtractionStatus({ pool, jobId });
 
     return { cast: trimmedProposal.cast, overflow };

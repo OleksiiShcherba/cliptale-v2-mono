@@ -23,6 +23,8 @@ export type CastExtractionJob = {
   userId: string;
   status: CastExtractionJobStatus;
   proposalJson: unknown | null;
+  /** AC-02: true when the proposal was trimmed to the cast size limit (F4). */
+  truncated: boolean;
   aggregateEstimateCredits: string | null;
   errorMessage: string | null;
   completedAt: Date | null;
@@ -59,6 +61,7 @@ type CastExtractionJobRow = RowDataPacket & {
   user_id: string;
   status: CastExtractionJobStatus;
   proposal_json: unknown | null;
+  truncated: number;
   aggregate_estimate_credits: string | null;
   error_message: string | null;
   completed_at: Date | null;
@@ -96,6 +99,7 @@ function mapJobRow(row: CastExtractionJobRow): CastExtractionJob {
     proposalJson: row.proposal_json === null
       ? null
       : (typeof row.proposal_json === 'string' ? JSON.parse(row.proposal_json) : row.proposal_json),
+    truncated: row.truncated === 1,
     aggregateEstimateCredits: row.aggregate_estimate_credits,
     errorMessage: row.error_message,
     completedAt: row.completed_at,
@@ -142,7 +146,7 @@ export async function createCastExtractionJob(params: {
   );
 
   const [rows] = await pool.execute<CastExtractionJobRow[]>(
-    `SELECT id, draft_id, user_id, status, proposal_json, aggregate_estimate_credits,
+    `SELECT id, draft_id, user_id, status, proposal_json, truncated, aggregate_estimate_credits,
             error_message, completed_at, failed_at, created_at, updated_at
        FROM storyboard_cast_extraction_jobs
       WHERE id = ?`,
@@ -161,7 +165,7 @@ export async function findLatestCastExtractionJobForDraft(params: {
   userId: string;
 }): Promise<CastExtractionJob | null> {
   const [rows] = await pool.execute<CastExtractionJobRow[]>(
-    `SELECT id, draft_id, user_id, status, proposal_json, aggregate_estimate_credits,
+    `SELECT id, draft_id, user_id, status, proposal_json, truncated, aggregate_estimate_credits,
             error_message, completed_at, failed_at, created_at, updated_at
        FROM storyboard_cast_extraction_jobs
       WHERE draft_id = ?
@@ -180,6 +184,8 @@ export async function updateCastExtractionJobStatus(params: {
   id: string;
   status: 'completed' | 'failed';
   proposalJson?: string | null;
+  /** AC-02: persist whether the proposal was trimmed to the cast size limit (F4). */
+  truncated?: boolean;
   aggregateEstimateCredits?: string | null;
   errorMessage?: string | null;
 }): Promise<void> {
@@ -188,6 +194,7 @@ export async function updateCastExtractionJobStatus(params: {
       `UPDATE storyboard_cast_extraction_jobs
           SET status = 'completed',
               proposal_json = ?,
+              truncated = ?,
               aggregate_estimate_credits = ?,
               error_message = NULL,
               completed_at = NOW(3),
@@ -195,6 +202,7 @@ export async function updateCastExtractionJobStatus(params: {
         WHERE id = ?`,
       [
         params.proposalJson ?? null,
+        params.truncated ? 1 : 0,
         params.aggregateEstimateCredits ?? null,
         params.id,
       ],

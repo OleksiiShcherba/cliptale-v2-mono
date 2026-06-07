@@ -225,6 +225,32 @@ describe('storyboardReference.repository — createCastExtractionJob (AC-01)', (
     expect(Array.isArray(stored)).toBe(true);
   });
 
+  it('F4: persists and round-trips the truncated/overflow flag (AC-02)', async () => {
+    const draftId = await seedDraft(USER_A);
+
+    // Not truncated by default.
+    const jobNo = newId('job');
+    trackedJobIds.push(jobNo);
+    await createCastExtractionJob({ id: jobNo, draftId, userId: USER_A });
+    const created = await findLatestCastExtractionJobForDraft({ draftId, userId: USER_A });
+    expect(created!.truncated).toBe(false);
+
+    // Completed with truncated=true must round-trip as true.
+    const jobYes = newId('job');
+    trackedJobIds.push(jobYes);
+    await createCastExtractionJob({ id: jobYes, draftId, userId: USER_A });
+    await updateCastExtractionJobStatus({
+      id: jobYes,
+      status: 'completed',
+      proposalJson: MINIMAL_PROPOSAL,
+      truncated: true,
+      aggregateEstimateCredits: '0.5000',
+    });
+    const latest = await findLatestCastExtractionJobForDraft({ draftId, userId: USER_A });
+    expect(latest!.id).toBe(jobYes);
+    expect(latest!.truncated).toBe(true);
+  });
+
   it('updateCastExtractionJobStatus transitions to failed and stores error_message', async () => {
     const draftId = await seedDraft(USER_A);
     const jobId = newId('job');

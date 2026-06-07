@@ -23,6 +23,8 @@ export type GetExtractionResult = {
   jobId: string;
   status: 'queued' | 'running' | 'completed' | 'failed';
   proposalJson: unknown | null;
+  /** AC-02: whether the proposal was trimmed to the cast size limit (F4). */
+  truncated: boolean;
   aggregateEstimateCredits: string | null;
   errorMessage: string | null;
   completedAt: Date | null;
@@ -100,6 +102,7 @@ export async function getExtraction(
     jobId: job.id,
     status: job.status,
     proposalJson: job.proposalJson,
+    truncated: job.truncated,
     aggregateEstimateCredits: job.aggregateEstimateCredits,
     errorMessage: job.errorMessage,
     completedAt: job.completedAt,

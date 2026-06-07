@@ -265,6 +265,7 @@ describe('getCastExtraction handler (GET .../references/extraction)', () => {
           per_run_estimate: 0.42,
         },
       ],
+      truncated: true,
       aggregateEstimateCredits: '0.4200',
       errorMessage: null,
       completedAt: new Date('2026-06-07T12:00:00Z'),
@@ -284,6 +285,8 @@ describe('getCastExtraction handler (GET .../references/extraction)', () => {
         jobId: job.jobId,
         draftId: DRAFT_ID,
         status: 'completed',
+        // F4: the controller must surface the truncation flag to the client.
+        truncated: true,
       }),
     );
     expect(next).not.toHaveBeenCalled();
