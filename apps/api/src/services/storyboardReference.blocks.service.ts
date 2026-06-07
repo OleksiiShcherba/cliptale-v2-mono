@@ -444,7 +444,7 @@ export async function deleteBlock(params: DeleteBlockParams): Promise<void> {
 
 /**
  * Retry the first auto-started generation for a failed block (AC-04).
- * Re-queues the block (window_status → 'pending') and enqueues a job.
+ * Re-queues the block (window_status → 'running', claimed so the completion hook advances — F2) and enqueues a job.
  * Block in done/pending/running state → ConflictError (AC-04 guard).
  * Non-owner → NotFoundError (AC-13).
  */
