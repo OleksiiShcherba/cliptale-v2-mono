@@ -25,6 +25,9 @@ export type GetExtractionResult = {
   proposalJson: unknown | null;
   aggregateEstimateCredits: string | null;
   errorMessage: string | null;
+  completedAt: Date | null;
+  failedAt: Date | null;
+  createdAt: Date;
 } | null;
 
 /**
@@ -99,5 +102,8 @@ export async function getExtraction(
     proposalJson: job.proposalJson,
     aggregateEstimateCredits: job.aggregateEstimateCredits,
     errorMessage: job.errorMessage,
+    completedAt: job.completedAt,
+    failedAt: job.failedAt,
+    createdAt: job.createdAt,
   };
 }

@@ -63,8 +63,21 @@ export type ConfirmCastParams = {
 /** Per-block result returned by confirmCast. */
 export type ConfirmedBlock = {
   blockId: string;
+  draftId: string;
   flowId: string;
+  castType: 'character' | 'environment';
+  name: string;
+  description: string | null;
   sortOrder: number;
+  positionX: number;
+  positionY: number;
+  windowStatus: 'pending';
+  errorMessage: string | null;
+  version: number;
+  /** Scene-block UUIDs from the confirm request, echoed back (no second DB read needed). */
+  sceneBlockIds: string[];
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -231,7 +244,24 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmedB
         );
       }
 
-      confirmed.push({ blockId, flowId, sortOrder: i });
+      confirmed.push({
+        blockId,
+        draftId,
+        flowId,
+        castType: entry.castType,
+        name: entry.name,
+        description: entry.description ?? null,
+        sortOrder: i,
+        positionX: 0,
+        positionY: 0,
+        windowStatus: 'pending',
+        errorMessage: null,
+        version: 1,
+        sceneBlockIds: entry.sceneBlockIds ?? [],
+        // Timestamps are populated from the DB fetch-back below.
+        createdAt: new Date(0),
+        updatedAt: new Date(0),
+      });
     }
 
     await conn.commit();
@@ -240,6 +270,32 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmedB
     throw err;
   } finally {
     conn.release();
+  }
+
+  // Fetch back DB-generated timestamps for all confirmed blocks in one query.
+  if (confirmed.length > 0) {
+    const placeholders = confirmed.map(() => '?').join(',');
+    const ids = confirmed.map((b) => b.blockId);
+    const [tsRows] = await pool.execute<
+      RowDataPacket[] & { id: string; created_at: Date; updated_at: Date }[]
+    >(
+      `SELECT id, created_at, updated_at
+         FROM storyboard_reference_blocks
+        WHERE id IN (${placeholders})`,
+      ids,
+    );
+    const tsMap = new Map(
+      (tsRows as unknown as { id: string; created_at: Date; updated_at: Date }[]).map(
+        (r) => [r.id, { createdAt: r.created_at, updatedAt: r.updated_at }],
+      ),
+    );
+    for (const block of confirmed) {
+      const ts = tsMap.get(block.blockId);
+      if (ts) {
+        block.createdAt = ts.createdAt;
+        block.updatedAt = ts.updatedAt;
+      }
+    }
   }
 
   // Enqueue min(N, K) jobs AFTER the transaction has committed.

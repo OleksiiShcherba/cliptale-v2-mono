@@ -151,15 +151,9 @@ export async function getCastExtraction(
         ? parseFloat(job.aggregateEstimateCredits)
         : null,
       errorMessage: job.errorMessage ?? null,
-      completedAt: (job as unknown as { completedAt?: Date | string | null }).completedAt
-        ? toIsoOrNull((job as unknown as { completedAt: Date | string | null }).completedAt)
-        : null,
-      failedAt: (job as unknown as { failedAt?: Date | string | null }).failedAt
-        ? toIsoOrNull((job as unknown as { failedAt: Date | string | null }).failedAt)
-        : null,
-      createdAt: (job as unknown as { createdAt: Date | string }).createdAt
-        ? toIsoOrNull((job as unknown as { createdAt: Date | string }).createdAt)
-        : null,
+      completedAt: toIsoOrNull(job.completedAt),
+      failedAt: toIsoOrNull(job.failedAt),
+      createdAt: toIsoOrNull(job.createdAt),
     });
   } catch (err) {
     next(err);
@@ -206,7 +200,31 @@ export async function confirmCast(
       acknowledgedAggregateCredits,
     });
 
-    res.status(201).json({ items: blocks });
+    // Map confirmed blocks to the full ReferenceBlock wire shape
+    // (openapi.yaml#/components/schemas/ReferenceBlock).
+    // stars and previewFileId are empty/null immediately after confirm — no
+    // generation result exists yet (windowStatus = 'pending').
+    const items = blocks.map((b) => ({
+      blockId: b.blockId,
+      draftId: b.draftId,
+      flowId: b.flowId,
+      castType: b.castType,
+      name: b.name,
+      description: b.description ?? null,
+      sortOrder: b.sortOrder,
+      positionX: b.positionX,
+      positionY: b.positionY,
+      windowStatus: b.windowStatus,
+      errorMessage: b.errorMessage ?? null,
+      version: b.version,
+      sceneBlockIds: b.sceneBlockIds,
+      stars: [],
+      previewFileId: null,
+      createdAt: toIsoOrNull(b.createdAt),
+      updatedAt: toIsoOrNull(b.updatedAt),
+    }));
+
+    res.status(201).json({ items });
   } catch (err) {
     if (isCastAlreadyExtracted(err)) {
       res.status(409).json({
