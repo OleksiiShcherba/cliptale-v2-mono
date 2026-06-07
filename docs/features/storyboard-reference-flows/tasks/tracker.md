@@ -20,7 +20,7 @@
 | T13 | Ports: extraction + confirm endpoints | ports | Oleksii | M | T4, T6 | done |
 | T14 | Ports: blocks/retry/links/stars endpoints | ports | Oleksii | M | T8, T9, T13 | done |
 | T15 | UI: ReferenceBlockNode на канвасі | ui | Oleksii | L | T14 | done |
-| T16 | UI: SceneLinkSelector + 409 reload prompt | ui | Oleksii | M | T14 | todo |
+| T16 | UI: SceneLinkSelector + 409 reload prompt | ui | Oleksii | M | T14 | done |
 | T17 | UI: cast confirmation modal + заміна principal-image | ui | Oleksii | L | T13, T16 | todo |
 | T18 | UI: зірки на ResultNode | ui | Oleksii | M | T14 | todo |
 | T19 | UI: draft badge + delete warning + back-nav | ui | Oleksii | M | T12 | done |
