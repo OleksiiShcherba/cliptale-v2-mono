@@ -110,6 +110,8 @@ const FLOW_RECORD = {
   createdAt: new Date('2026-06-01T00:00:00Z'),
   updatedAt: new Date('2026-06-01T00:00:00Z'),
   deletedAt: null,
+  // AC-12 / ADR-0010: listFlows returns FlowWithBadge (badge is derived from the link).
+  draftBadge: null as { draftId: string } | null,
 };
 
 beforeEach(() => {
@@ -334,7 +336,8 @@ describe('deleteFlow handler', () => {
 
     await deleteFlow(req, res, next);
 
-    expect(mockService.deleteFlow).toHaveBeenCalledWith('flow-aaa', USER.userId);
+    // confirm defaults to false when ?confirm is absent (OpenAPI lines 681-686).
+    expect(mockService.deleteFlow).toHaveBeenCalledWith('flow-aaa', USER.userId, false);
     expect(status).toHaveBeenCalledWith(204);
     expect(end).toHaveBeenCalled();
     expect(next).not.toHaveBeenCalled();

@@ -18,6 +18,7 @@ import * as flowService from '@/services/generation-flow.service.js';
 import * as flowGenerateService from '@/services/flow-generate.service.js';
 import type { FlowRecord } from '@/repositories/generation-flow.repository.js';
 import type { AiGenerationJob } from '@/repositories/aiGenerationJob.repository.js';
+import type { FlowWithBadge } from '@/services/generation-flow.service.js';
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
 
@@ -69,6 +70,18 @@ function toSummary(flow: FlowRecord) {
   };
 }
 
+/**
+ * Maps a FlowWithBadge to the FlowSummary wire shape extended with draftBadge.
+ * AC-12 / ADR-0010: draftBadge is derived from the block→flow link and must
+ * appear on the list endpoint wire response.
+ */
+function toSummaryWithBadge(flow: FlowWithBadge) {
+  return {
+    ...toSummary(flow),
+    draftBadge: flow.draftBadge,
+  };
+}
+
 /** Maps an AiGenerationJob to the JobState wire shape for the Flow read. */
 function toJobState(job: AiGenerationJob) {
   return {
@@ -109,7 +122,7 @@ export async function listFlows(
 ): Promise<void> {
   try {
     const flows = await flowService.listFlows(req.user!.userId);
-    res.json({ items: flows.map(toSummary), nextCursor: null });
+    res.json({ items: flows.map(toSummaryWithBadge), nextCursor: null });
   } catch (err) {
     next(err);
   }
@@ -193,7 +206,10 @@ export async function deleteFlow(
 ): Promise<void> {
   try {
     const flowId = req.params['flowId']!;
-    await flowService.deleteFlow(flowId, req.user!.userId);
+    // OpenAPI lines 681-686: ?confirm=true lets the Creator force-delete a flow
+    // that a storyboard block depends on (after the client has shown the warning).
+    const confirm = req.query['confirm'] === 'true';
+    await flowService.deleteFlow(flowId, req.user!.userId, confirm);
     res.status(204).end();
   } catch (err) {
     next(err);

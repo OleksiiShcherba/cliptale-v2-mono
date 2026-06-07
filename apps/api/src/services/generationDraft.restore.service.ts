@@ -8,6 +8,7 @@
 import * as generationDraftRepository from '@/repositories/generationDraft.repository.js';
 import type { GenerationDraft } from '@/repositories/generationDraft.repository.js';
 import { GoneError, NotFoundError } from '@/lib/errors.js';
+import { pool } from '@/db/connection.js';
 
 /** Restore TTL — 30 days in milliseconds. */
 const RESTORE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -56,6 +57,23 @@ export async function restoreDraft(
   }
 
   await generationDraftRepository.restoreDraft(id);
+
+  // ADR-0006: re-validate block↔flow links after restore.
+  // A flow may have been soft-deleted while the draft was in the trash. Any reference
+  // block whose linked flow no longer exists (deleted_at IS NOT NULL or missing) must
+  // be put into no-flow state (flow_id = NULL) so it does not hold a stale link.
+  await pool.execute(
+    `UPDATE storyboard_reference_blocks rb
+        SET rb.flow_id = NULL
+      WHERE rb.draft_id = ?
+        AND rb.flow_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM generation_flows gf
+           WHERE gf.flow_id = rb.flow_id
+             AND gf.deleted_at IS NULL
+        )`,
+    [id],
+  );
 
   // Return a patched copy rather than re-querying (avoids a second round-trip).
   return { ...draft, deletedAt: null };
