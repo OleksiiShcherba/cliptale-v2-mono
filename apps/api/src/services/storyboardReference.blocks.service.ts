@@ -14,6 +14,11 @@ import type { PoolConnection, RowDataPacket } from 'mysql2/promise';
 import { pool } from '@/db/connection.js';
 import { ConflictError, NotFoundError } from '@/lib/errors.js';
 import { aiGenerateQueue } from '@/queues/bullmq.js';
+import {
+  REFERENCE_DEFAULT_MODEL_ID,
+  REFERENCE_DEFAULT_CAPABILITY,
+  REFERENCE_DEFAULT_PROVIDER,
+} from '@/services/storyboardReference.confirm.service.js';
 
 // ── Types (public surface, derived from data-model.md + openapi.yaml) ─────────
 
@@ -267,6 +272,7 @@ export async function retryBlock(params: RetryBlockParams): Promise<BlockResult>
 
   const conn = await pool.getConnection();
   let flowId: string | null = null;
+  let retryBlockData: BlockRow | null = null;
 
   try {
     await conn.beginTransaction();
@@ -284,6 +290,7 @@ export async function retryBlock(params: RetryBlockParams): Promise<BlockResult>
     }
 
     flowId = block.flow_id;
+    retryBlockData = block;
 
     // Reset window_status to 'pending'.
     await conn.execute(
@@ -301,14 +308,54 @@ export async function retryBlock(params: RetryBlockParams): Promise<BlockResult>
     conn.release();
   }
 
-  // Enqueue the retry job AFTER the transaction commits (ADR-0004).
-  await aiGenerateQueue.add('ai-generate', {
-    jobId: randomUUID(),
-    userId,
-    referenceBlockId: blockId,
-    flowId,
-    draftId,
-  });
+  // Dispatch the retry job AFTER the transaction commits (ADR-0004).
+  // Mirror confirmCast dispatch: insert ai_generation_jobs row, set first_job_id,
+  // then enqueue with full worker-consumable payload (AC-04 / ADR-0003 / ADR-0004).
+  {
+    const jobId = randomUUID();
+    // Build prompt and options from the block's name/description (same logic as confirmCast).
+    const prompt = (retryBlockData!.description?.trim()) || retryBlockData!.name;
+    const options: Record<string, unknown> = {
+      prompt,
+      image_size: 'square_hd',
+      num_images: 1,
+      output_format: 'png',
+      sync_mode: false,
+    };
+
+    // 1. Insert the ai_generation_jobs row so the worker can call setJobStatus('processing').
+    await pool.execute(
+      `INSERT INTO ai_generation_jobs
+         (job_id, user_id, model_id, capability, prompt, options, flow_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        jobId,
+        userId,
+        REFERENCE_DEFAULT_MODEL_ID,
+        REFERENCE_DEFAULT_CAPABILITY,
+        prompt,
+        JSON.stringify(options),
+        flowId,
+      ],
+    );
+
+    // 2. Link first_job_id on the block (ADR-0003: rolling-window correlation).
+    await pool.execute(
+      `UPDATE storyboard_reference_blocks SET first_job_id = ? WHERE id = ?`,
+      [jobId, blockId],
+    );
+
+    // 3. Enqueue the BullMQ job with the full worker-consumable payload.
+    await aiGenerateQueue.add('ai-generate', {
+      jobId,
+      userId,
+      modelId: REFERENCE_DEFAULT_MODEL_ID,
+      capability: REFERENCE_DEFAULT_CAPABILITY,
+      provider: REFERENCE_DEFAULT_PROVIDER,
+      prompt,
+      options,
+    });
+  }
 
   // Fetch updated block to return.
   const conn2 = await pool.getConnection();
