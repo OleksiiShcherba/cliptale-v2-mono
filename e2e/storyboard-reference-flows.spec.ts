@@ -581,6 +581,17 @@ test.beforeAll(async ({ browser }) => {
   } finally {
     await ctx.close();
   }
+
+  // F13: hard-assert the wiring instead of soft-skipping the suites. If the
+  // canvas regresses (ReferenceBlockNode dropped from STORYBOARD_NODE_TYPES), the
+  // headline-AC journeys must FAIL loudly here — not silently skip and lose
+  // their executing coverage.
+  expect(
+    referenceBlocksWired,
+    'reference-block-node must render after a stubbed confirm — the canvas wiring ' +
+      '(ReferenceBlockNode in STORYBOARD_NODE_TYPES) regressed. ' +
+      `Target API: ${E2E_API_URL}.`,
+  ).toBe(true);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -591,14 +602,9 @@ test.describe('J1 — cast to canvas (AC-01, AC-03)', () => {
   test.setTimeout(90_000);
 
   test.beforeEach(() => {
-    // eslint-disable-next-line playwright/no-skipped-test
-    test.skip(
-      !referenceBlocksWired,
-      'Reference blocks are not wired into the storyboard canvas node types ' +
-        '(ReferenceBlockNode missing from STORYBOARD_NODE_TYPES). ' +
-        'The spec is complete and will run green once the node type is registered. ' +
-        `Target API: ${E2E_API_URL}.`,
-    );
+    // F13: hard precondition — the beforeAll probe already failed the suite if the
+    // canvas regressed; this guards each test if the flag is somehow false.
+    expect(referenceBlocksWired, 'reference blocks must be wired into the canvas').toBe(true);
   });
 
   test(
@@ -677,14 +683,8 @@ test.describe('J2 — stars to scenes (AC-06, AC-08, AC-09)', () => {
   test.setTimeout(90_000);
 
   test.beforeEach(() => {
-    // eslint-disable-next-line playwright/no-skipped-test
-    test.skip(
-      !referenceBlocksWired,
-      'Reference blocks are not wired into the storyboard canvas node types ' +
-        '(ReferenceBlockNode missing from STORYBOARD_NODE_TYPES). ' +
-        'The spec is complete and will run green once the node type is registered. ' +
-        `Target API: ${E2E_API_URL}.`,
-    );
+    // F13: hard precondition — fail loudly rather than silently skip on regression.
+    expect(referenceBlocksWired, 'reference blocks must be wired into the canvas').toBe(true);
   });
 
   test(
