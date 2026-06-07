@@ -67,6 +67,7 @@ const OTHER_ID = `srf-T6-other-${randomUUID().slice(0, 8)}`;
 
 // Accumulate per-test IDs for scoped cleanup.
 const cleanupDraftIds: string[] = [];
+const cleanupFileIds: string[] = [];
 const cleanupUserIds: string[] = [OWNER_ID, OTHER_ID];
 
 beforeAll(async () => {
@@ -111,6 +112,13 @@ afterAll(async () => {
     `DELETE FROM generation_flows WHERE user_id IN (${cleanupUserIds.map(() => '?').join(',')})`,
     cleanupUserIds,
   );
+  // Clean seeded file rows (no FK from canvas JSON; safe to delete before users).
+  if (cleanupFileIds.length) {
+    await conn.query(
+      `DELETE FROM files WHERE file_id IN (${cleanupFileIds.map(() => '?').join(',')})`,
+      cleanupFileIds,
+    );
+  }
   // Clean user_settings rows.
   for (const uid of cleanupUserIds) {
     await conn.execute(`DELETE FROM user_settings WHERE user_id = ?`, [uid]);
@@ -153,6 +161,19 @@ async function seedExtractionJob(draftId: string, userId: string, k: number): Pr
        (id, draft_id, user_id, status, proposal_json, aggregate_estimate_credits, completed_at)
      VALUES (?, ?, ?, 'completed', ?, ?, NOW(3))`,
     [id, draftId, userId, JSON.stringify(proposal), (0.42 * k).toFixed(4)],
+  );
+  return id;
+}
+
+/** Insert a minimal file row owned by userId; returns its id. */
+async function seedFile(userId: string): Promise<string> {
+  const id = randomUUID();
+  cleanupFileIds.push(id);
+  await conn.execute(
+    `INSERT INTO files
+       (file_id, user_id, kind, storage_uri, mime_type, display_name, status)
+     VALUES (?, ?, 'image', ?, 'image/png', 'ref.png', 'ready')`,
+    [id, userId, `s3://test-bucket/${id}.png`],
   );
   return id;
 }
@@ -594,5 +615,65 @@ describe('AC-13 — non-owner is denied without revealing contents', () => {
         acknowledgedAggregateCredits: 0.42,
       }),
     ).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F12 — confirmCast validates client-supplied imageFileIds ownership before
+// embedding them into the new flow canvas.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('F12 / confirmCast — imageFileIds ownership', () => {
+  it('embeds an owned image file into the canvas (happy path)', async () => {
+    const { confirmCast } = await confirmSvc();
+    const draftId = await seedDraft(OWNER_ID);
+    await seedExtractionJob(draftId, OWNER_ID, 1);
+    const ownFile = await seedFile(OWNER_ID);
+
+    const result = await confirmCast({
+      draftId,
+      userId: OWNER_ID,
+      entries: [
+        { castType: 'character', name: 'Hero', description: 'D', imageFileIds: [ownFile], sceneBlockIds: [] },
+      ],
+      acknowledgedAggregateCredits: 0.42,
+    });
+    expect(result).toHaveLength(1);
+
+    const [flowRows] = await conn.query<RowDataPacket[]>(
+      `SELECT canvas FROM generation_flows WHERE flow_id = ?`,
+      [result[0]!.flowId],
+    );
+    const canvas = typeof flowRows[0]!['canvas'] === 'string'
+      ? JSON.parse(flowRows[0]!['canvas'] as string)
+      : flowRows[0]!['canvas'];
+    expect(JSON.stringify(canvas)).toContain(ownFile);
+  });
+
+  it('rejects a foreign (cross-tenant) imageFileId and creates no blocks/flows', async () => {
+    const { confirmCast } = await confirmSvc();
+    const { NotFoundError } = await import('@/lib/errors.js');
+
+    const draftId = await seedDraft(OWNER_ID);
+    await seedExtractionJob(draftId, OWNER_ID, 1);
+    const foreignFile = await seedFile(OTHER_ID); // belongs to another tenant
+
+    await expect(
+      confirmCast({
+        draftId,
+        userId: OWNER_ID,
+        entries: [
+          { castType: 'character', name: 'Hero', description: 'D', imageFileIds: [foreignFile], sceneBlockIds: [] },
+        ],
+        acknowledgedAggregateCredits: 0.42,
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+
+    // Transaction rolled back — no blocks, no flows.
+    const [blockRows] = await conn.execute<RowDataPacket[]>(
+      `SELECT id FROM storyboard_reference_blocks WHERE draft_id = ?`,
+      [draftId],
+    );
+    expect(blockRows).toHaveLength(0);
   });
 });

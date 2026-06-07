@@ -199,6 +199,25 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmedB
     // Owner guard — existence-hiding (AC-13).
     await assertDraftOwner(conn, draftId, userId);
 
+    // F12: validate every client-supplied imageFileId belongs to the caller
+    // before embedding it into the new flow canvas. Zod only validates UUID shape;
+    // without this a foreign/cross-tenant file could be baked into the canvas.
+    const allImageFileIds = [...new Set(entries.flatMap((e) => e.imageFileIds ?? []))];
+    if (allImageFileIds.length) {
+      const ph = allImageFileIds.map(() => '?').join(',');
+      const [fileRows] = await conn.execute<RowDataPacket[]>(
+        `SELECT file_id FROM files
+          WHERE file_id IN (${ph}) AND user_id = ? AND deleted_at IS NULL`,
+        [...allImageFileIds, userId],
+      );
+      const owned = new Set(fileRows.map((r) => (r as { file_id: string }).file_id));
+      const foreign = allImageFileIds.find((id) => !owned.has(id));
+      if (foreign) {
+        // Existence-hiding: never reveal whether the file exists for another user.
+        throw new NotFoundError(`File not found`);
+      }
+    }
+
     // Insert K flows + K blocks inside the transaction.
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i]!;
