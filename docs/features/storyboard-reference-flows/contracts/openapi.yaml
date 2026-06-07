@@ -859,6 +859,12 @@ components:
           type: [string, "null"]
           maxLength: 512
           description: storyboard_cast_extraction_jobs.error_message — plain-language reason on `failed`
+        truncated:
+          type: boolean
+          description: |
+            Whether the proposal was trimmed to the cast size limit (AC-02). True when more
+            candidates were extracted than the limit (12); the Creator is told that the remainder
+            can be added manually. Absent (or false) when the full proposal fits within the limit.
         completedAt: { type: [string, "null"], format: date-time, description: "storyboard_cast_extraction_jobs.completed_at" }
         failedAt: { type: [string, "null"], format: date-time, description: "storyboard_cast_extraction_jobs.failed_at" }
         createdAt: { type: string, format: date-time, description: "storyboard_cast_extraction_jobs.created_at" }

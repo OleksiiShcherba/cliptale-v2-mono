@@ -30,6 +30,8 @@ import type {
   RetryReferenceBlockResponse,
 } from './types';
 
+import type { CastExtractionJob, CastProposalEntry } from './components/CastConfirmModal';
+
 export type {
   StoryboardState,
   StoryboardSavePayload,
@@ -562,4 +564,67 @@ export async function retryReferenceBlockGeneration(
     );
   }
   return res.json() as Promise<RetryReferenceBlockResponse>;
+}
+
+// ── Cast extraction API (storyboard-reference-flows T17) ──────────────────────
+
+/**
+ * Starts cast extraction for a draft (AC-01 / US-01).
+ *
+ * Maps to POST /storyboards/:draftId/references/extraction.
+ * Enqueues a cast extraction job; no paid generation starts yet.
+ * Returns ExtractionAccepted { jobId, status: 'queued' }.
+ */
+export async function startCastExtraction(
+  draftId: string,
+): Promise<{ jobId: string; status: 'queued' }> {
+  const res = await apiClient.post(`/storyboards/${draftId}/references/extraction`, {});
+  if (!res.ok) {
+    throw new Error(`POST /storyboards/${draftId}/references/extraction failed: ${res.status}`);
+  }
+  return res.json() as Promise<{ jobId: string; status: 'queued' }>;
+}
+
+/**
+ * Polls the cast extraction job status (AC-01).
+ *
+ * Maps to GET /storyboards/:draftId/references/extraction/latest.
+ * Returns null when no extraction has been started for this draft.
+ */
+export async function getLatestCastExtraction(
+  draftId: string,
+): Promise<CastExtractionJob | null> {
+  const res = await apiClient.get(`/storyboards/${draftId}/references/extraction/latest`);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(
+      `GET /storyboards/${draftId}/references/extraction/latest failed: ${res.status}`,
+    );
+  }
+  return res.json() as Promise<CastExtractionJob>;
+}
+
+/**
+ * Confirms the proposed cast (collective cost confirmation — AC-03 / US-02).
+ *
+ * Maps to POST /storyboards/:draftId/references/confirm-cast.
+ * Creates one reference block per entry (off-chain), each linked 1:1 to a new
+ * reference flow pre-filled with the entry's images/description; auto-starts the
+ * first generation in each flow in a rolling window.
+ */
+export async function confirmCast(
+  draftId: string,
+  entries: CastProposalEntry[],
+  acknowledgedAggregateCredits: number,
+): Promise<ReferenceBlockListResponse> {
+  const res = await apiClient.post(`/storyboards/${draftId}/references/confirm-cast`, {
+    entries,
+    acknowledgedAggregateCredits,
+  });
+  if (!res.ok) {
+    throw new Error(
+      `POST /storyboards/${draftId}/references/confirm-cast failed: ${res.status}`,
+    );
+  }
+  return res.json() as Promise<ReferenceBlockListResponse>;
 }

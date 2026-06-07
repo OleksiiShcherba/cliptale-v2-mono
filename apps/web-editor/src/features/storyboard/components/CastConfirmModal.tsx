@@ -8,6 +8,7 @@
 import React, { useState } from 'react';
 
 import type { StoryboardBlock } from '@/features/storyboard/types';
+import { SceneLinkSelector } from './SceneLinkSelector';
 
 // ---------------------------------------------------------------------------
 // Types (mirroring openapi.yaml CastProposalEntry + CastExtractionJob shapes)
@@ -31,6 +32,11 @@ export type CastExtractionJob = {
   proposal: CastProposalEntry[] | null;
   aggregateEstimateCredits: number | null;
   errorMessage: string | null;
+  /**
+   * Whether the proposal was truncated to the cast size limit (AC-02).
+   * Populated by the server when more candidates existed than the limit
+   * (openapi.yaml CastExtractionJob.truncated).
+   */
   truncated?: boolean;
 };
 
@@ -52,16 +58,30 @@ export type CastConfirmModalProps = {
 type EntryEditorProps = {
   entry: CastProposalEntry;
   index: number;
+  orderedScenes: StoryboardBlock[];
   onChange: (index: number, updated: CastProposalEntry) => void;
 };
 
-function EntryEditor({ entry, index, onChange }: EntryEditorProps) {
+function EntryEditor({ entry, index, orderedScenes, onChange }: EntryEditorProps) {
   function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
     onChange(index, { ...entry, name: e.target.value });
   }
 
   function handleDescChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     onChange(index, { ...entry, description: e.target.value });
+  }
+
+  /**
+   * SceneLinkSelector.onSave adapter for the proposal context.
+   * In the proposal there is no persisted block yet — we update local state
+   * directly and return a resolved response so the selector resets cleanly.
+   */
+  async function handleSceneLinkSave(
+    sceneBlockIds: string[],
+    version: number,
+  ): Promise<{ sceneBlockIds: string[]; version: number }> {
+    onChange(index, { ...entry, sceneBlockIds });
+    return { sceneBlockIds, version };
   }
 
   return (
@@ -88,10 +108,15 @@ function EntryEditor({ entry, index, onChange }: EntryEditorProps) {
           onChange={handleDescChange}
         />
       </div>
+      {/* AC-01 / AC-10: scene links correctable in place via the same multi-select selector */}
       <div data-testid={`cast-entry-scene-links-${index}`}>
-        {entry.sceneBlockIds.map((id) => (
-          <span key={id}>{id}</span>
-        ))}
+        <SceneLinkSelector
+          blockId={`proposal-entry-${index}`}
+          orderedScenes={orderedScenes}
+          linkedSceneIds={entry.sceneBlockIds}
+          version={1}
+          onSave={handleSceneLinkSave}
+        />
       </div>
       <div>
         {entry.imageFileIds.map((fileId) => (
@@ -112,6 +137,7 @@ function EntryEditor({ entry, index, onChange }: EntryEditorProps) {
 // ---------------------------------------------------------------------------
 
 export function CastConfirmModal({
+  orderedScenes,
   extraction,
   hasExistingBlocks,
   onConfirmCast,
@@ -193,7 +219,7 @@ export function CastConfirmModal({
       )}
 
       {entries.map((entry, i) => (
-        <EntryEditor key={i} entry={entry} index={i} onChange={handleEntryChange} />
+        <EntryEditor key={i} entry={entry} index={i} orderedScenes={orderedScenes} onChange={handleEntryChange} />
       ))}
 
       <div data-testid="cast-aggregate-estimate">

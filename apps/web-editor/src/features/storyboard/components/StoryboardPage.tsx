@@ -6,6 +6,7 @@ import type { Edge as FlowEdge, Node, NodeMouseHandler } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { fetchDraft } from '@/features/generate-wizard/api';
+import { startCastExtraction, getLatestCastExtraction, confirmCast } from '@/features/storyboard/api';
 import { useAddBlock } from '@/features/storyboard/hooks/useAddBlock';
 import { useAddMusicBlock } from '@/features/storyboard/hooks/useAddMusicBlock';
 import { useHandleAddFromLibrary } from '@/features/storyboard/hooks/useHandleAddFromLibrary';
@@ -39,6 +40,8 @@ import { CheckpointCaptureOverlay } from './CheckpointCaptureOverlay';
 import { CheckpointCountdownBar } from './CheckpointCountdownBar';
 import { MusicBlockModal } from './MusicBlockModal';
 import { SceneModal } from './SceneModal';
+import { CastConfirmModal } from './CastConfirmModal';
+import type { CastExtractionJob, CastProposalEntry } from './CastConfirmModal';
 import { PrincipalImageApprovalModal } from './PrincipalImageApprovalModal';
 import { StoryboardBulkStreamUrlProvider } from './SceneBlockNode.mediaThumbnail';
 import { useStoryboardPageBulkStreamUrls } from './StoryboardPage.bulkStreamUrls';
@@ -72,6 +75,52 @@ export function StoryboardPage(): React.ReactElement {
   const reloadStoryboard = useCallback(async (): Promise<void> => {
     await reload?.();
   }, [reload]);
+
+  // ── Cast extraction state (AC-01, AC-01b, AC-03) ──────────────────────────
+  const [castModalOpen, setCastModalOpen] = useState(false);
+  const [castExtraction, setCastExtraction] = useState<CastExtractionJob | null>(null);
+  const [hasExistingReferenceBlocks, setHasExistingReferenceBlocks] = useState(false);
+
+  const handleStartCastExtraction = useCallback(async (): Promise<void> => {
+    setCastModalOpen(true);
+    try {
+      const accepted = await startCastExtraction(safeDraftId);
+      // Begin polling by storing the initial job state (queued).
+      setCastExtraction({
+        jobId: accepted.jobId,
+        draftId: safeDraftId,
+        status: accepted.status,
+        proposal: null,
+        aggregateEstimateCredits: null,
+        errorMessage: null,
+      });
+    } catch (err) {
+      console.error('[StoryboardPage] startCastExtraction failed:', err);
+    }
+  }, [safeDraftId]);
+
+  // Poll for extraction completion while the modal is open and extraction is running.
+  useEffect(() => {
+    if (!castModalOpen || !castExtraction) return;
+    if (castExtraction.status !== 'queued' && castExtraction.status !== 'running') return;
+
+    const interval = setInterval(() => {
+      void getLatestCastExtraction(safeDraftId).then((job) => {
+        if (job) setCastExtraction(job);
+      });
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [castModalOpen, castExtraction, safeDraftId]);
+
+  const handleConfirmCast = useCallback(
+    async (entries: CastProposalEntry[], acknowledgedAggregateCredits: number): Promise<void> => {
+      await confirmCast(safeDraftId, entries, acknowledgedAggregateCredits);
+      setHasExistingReferenceBlocks(true);
+      setCastModalOpen(false);
+      await reloadStoryboard();
+    },
+    [safeDraftId, reloadStoryboard],
+  );
   const { selectedBlockId } = useStoryboardStore();
   const generationFlow = useStoryboardGenerationFlow({
     draftId: safeDraftId,
@@ -387,6 +436,18 @@ export function StoryboardPage(): React.ReactElement {
           />
         )}
 
+        {/* Cast confirmation modal — new reference flow entry point (T17, AC-01/AC-03). */}
+        {castModalOpen && (
+          <CastConfirmModal
+            orderedScenes={orderedScenes}
+            extraction={castExtraction}
+            hasExistingBlocks={hasExistingReferenceBlocks}
+            onConfirmCast={handleConfirmCast}
+            onCancel={() => setCastModalOpen(false)}
+          />
+        )}
+
+        {/* Legacy principal-image approval — kept for drafts that started the old flow. */}
         {principalImageModal.shouldRender && illustrationGeneration.reference && (
           <PrincipalImageApprovalModal
             draftId={safeDraftId}
