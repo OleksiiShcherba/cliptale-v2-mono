@@ -13,6 +13,12 @@
  *                 (AC-08 image/video/audio all render; AC-12 audio, AC-13 video)
  *   - failed    → the failure reason in plain language + a Retry button (a fresh,
  *                 charged Generate via onRetry) (AC-09)
+ *
+ * T18 extension — when the flow is linked to a storyboard reference block, node data
+ * carries a `referenceContext` which enables AC-06/07 star controls:
+ *   - star toggle (versionless, optimistic, rollback on API failure)
+ *   - primary-star toggle (makes this result the block preview)
+ *   - no-preview placeholder / fallback-preview indicator states
  */
 
 import React from 'react';
@@ -27,6 +33,19 @@ import { ERROR, MODALITY_COLOR, PRIMARY, handleBase, nodeHeader, nodeRoot, nodeS
 import type { Modality } from '../hooks/useFlowCanvas';
 import { useResultExtras } from './flowExtrasContext';
 import { NodeDeleteButton } from './NodeDeleteButton';
+import { starReferenceResult, unstarReferenceResult } from '../api';
+import type { StarEntry } from '../types';
+
+// ── Reference context (T18 / AC-06 / AC-07) ──────────────────────────────────
+
+export type ReferenceContext = {
+  draftId: string;
+  blockId: string;
+  stars: StarEntry[];
+  previewFileId: string | null;
+  onStarToggle: (fileId: string, isPrimary?: boolean) => void;
+  onUnstar: (fileId: string) => void;
+};
 
 export type ResultNodeData = {
   block: FlowBlock;
@@ -38,6 +57,11 @@ export type ResultNodeData = {
   previewUrl?: string | null;
   /** Fresh, charged Generate of this block (AC-09 retry). */
   onRetry?: () => void;
+  /**
+   * Present only when the flow is linked to a storyboard reference block (T18).
+   * Enables star/primary-star controls (AC-06 / AC-07).
+   */
+  referenceContext?: ReferenceContext;
 };
 
 // An audio (music) result renders a timeline scrubber — stretch the block wider than
@@ -75,6 +99,130 @@ function DominantMedia({
   return <img data-testid="result-media-image" src={src} alt="Generated result" style={mediaBox} />;
 }
 
+// ── Star controls (AC-06 / AC-07) ────────────────────────────────────────────
+
+const starBtnBase: React.CSSProperties = {
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  padding: '2px 4px',
+  fontSize: 16,
+  lineHeight: 1,
+  borderRadius: 4,
+};
+
+function StarControls({
+  fileId,
+  referenceContext,
+}: {
+  fileId: string;
+  referenceContext: ReferenceContext;
+}): React.ReactElement {
+  const { draftId, blockId, stars, previewFileId, onStarToggle, onUnstar } = referenceContext;
+
+  const starEntry = stars.find((s) => s.fileId === fileId);
+  const isStarred = starEntry != null;
+  const isPrimary = starEntry?.isPrimary ?? false;
+
+  // Fallback state: file is starred but not the primary (previewFileId points elsewhere or null).
+  const isFallback = isStarred && !isPrimary;
+
+  async function handleStarClick(): Promise<void> {
+    if (isStarred) {
+      // Un-star optimistically via context callback, then call API.
+      onUnstar(fileId);
+      try {
+        await unstarReferenceResult(draftId, blockId, fileId);
+      } catch {
+        // Roll back by re-starring — use onStarToggle to inform parent.
+        onStarToggle(fileId, isPrimary);
+      }
+    } else {
+      // Star optimistically, then call API; roll back via onUnstar on failure.
+      onStarToggle(fileId, false);
+      try {
+        await starReferenceResult(draftId, blockId, fileId, { isPrimary: false });
+      } catch {
+        onUnstar(fileId);
+      }
+    }
+  }
+
+  async function handlePrimaryClick(): Promise<void> {
+    if (isPrimary) {
+      // Demote primary → un-star (AC-07).
+      onUnstar(fileId);
+      try {
+        await unstarReferenceResult(draftId, blockId, fileId);
+      } catch {
+        onStarToggle(fileId, true);
+      }
+    } else {
+      // Make primary.
+      onStarToggle(fileId, true);
+      try {
+        await starReferenceResult(draftId, blockId, fileId, { isPrimary: true });
+      } catch {
+        onUnstar(fileId);
+      }
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 4 }}>
+      {/* Star toggle */}
+      <button
+        type="button"
+        data-testid="star-toggle"
+        aria-pressed={isStarred}
+        data-starred={isStarred ? 'true' : 'false'}
+        aria-label={isStarred ? 'Unstar result' : 'Star result'}
+        onClick={() => { void handleStarClick(); }}
+        style={{ ...starBtnBase, color: isStarred ? '#FBBF24' : '#888' }}
+      >
+        {isStarred ? '★' : '☆'}
+      </button>
+
+      {/* Primary-star toggle (block preview) */}
+      <button
+        type="button"
+        data-testid="primary-star-toggle"
+        aria-pressed={isPrimary}
+        data-primary={isPrimary ? 'true' : 'false'}
+        aria-label={isPrimary ? 'Remove primary star' : 'Star as primary (block preview)'}
+        onClick={() => { void handlePrimaryClick(); }}
+        style={{ ...starBtnBase, color: isPrimary ? '#F59E0B' : '#555', fontSize: 12 }}
+      >
+        {isPrimary ? '◆' : '◇'}
+      </button>
+
+      {/* Fallback-preview indicator: starred but not primary */}
+      {isFallback && (
+        <span
+          data-testid="reference-preview-fallback"
+          style={{ fontSize: 10, color: '#9CA3AF' }}
+          aria-label="Fallback preview"
+        >
+          fallback
+        </span>
+      )}
+
+      {/* No-preview placeholder: no stars at all */}
+      {!isStarred && stars.length === 0 && previewFileId == null && (
+        <span
+          data-testid="reference-no-preview"
+          style={{ fontSize: 10, color: '#6B7280' }}
+          aria-label="No preview"
+        >
+          no preview
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ── ResultNode ────────────────────────────────────────────────────────────────
+
 export function ResultNode({ id, data, selected }: NodeProps): React.ReactElement {
   const nodeData = data as ResultNodeData;
   const { block, modality } = nodeData;
@@ -84,9 +232,14 @@ export function ResultNode({ id, data, selected }: NodeProps): React.ReactElemen
   const job = nodeData.job ?? extras.job;
   const previewUrl = nodeData.previewUrl ?? extras.previewUrl;
   const onRetry = nodeData.onRetry ?? extras.onRetry;
+  // AC-06/07: reference context — extras take precedence (live state from FlowEditorPage).
+  const referenceContext = extras.referenceContext ?? nodeData.referenceContext;
   const color = modality ? MODALITY_COLOR[modality] ?? '#888' : '#888';
   const status = job?.status;
   const rootStyle = modality === 'audio' ? audioNodeRoot : nodeRoot;
+
+  // fileId for star operations: the result asset id from the job.
+  const fileId = job?.resultAssetId ?? null;
 
   return (
     <div
@@ -149,6 +302,49 @@ export function ResultNode({ id, data, selected }: NodeProps): React.ReactElemen
         </div>
       ) : (
         <div style={nodeSubtle}>No result yet</div>
+      )}
+
+      {/* AC-06/07 star controls — only when the flow is a reference flow. */}
+      {referenceContext != null && fileId != null && (
+        <StarControls fileId={fileId} referenceContext={referenceContext} />
+      )}
+
+      {/* Star controls with no fileId yet (job null or resultAssetId null) —
+          still show the no-preview placeholder so the star area is consistent. */}
+      {referenceContext != null && fileId == null && (
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 4 }}>
+          <button
+            type="button"
+            data-testid="star-toggle"
+            aria-pressed={false}
+            data-starred="false"
+            aria-label="Star result"
+            disabled
+            style={{ ...starBtnBase, color: '#888', opacity: 0.5 }}
+          >
+            ☆
+          </button>
+          <button
+            type="button"
+            data-testid="primary-star-toggle"
+            aria-pressed={false}
+            data-primary="false"
+            aria-label="Set as primary (block preview)"
+            disabled
+            style={{ ...starBtnBase, color: '#555', fontSize: 12, opacity: 0.5 }}
+          >
+            ◇
+          </button>
+          {referenceContext.stars.length === 0 && referenceContext.previewFileId == null && (
+            <span
+              data-testid="reference-no-preview"
+              style={{ fontSize: 10, color: '#6B7280' }}
+              aria-label="No preview"
+            >
+              no preview
+            </span>
+          )}
+        </div>
       )}
 
       <Handle

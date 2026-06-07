@@ -116,8 +116,8 @@ describe('GET /users/me/settings — effective read', () => {
       .get('/users/me/settings')
       .set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
-    // additionalProperties: false — exactly these two keys.
-    expect(res.body).toEqual({ autosaveIntervalSeconds: 60, updatedAt: null });
+    // additionalProperties: false — exactly these three keys.
+    expect(res.body).toEqual({ autosaveIntervalSeconds: 60, concurrencyLimit: 4, updatedAt: null });
   });
 });
 
@@ -132,7 +132,7 @@ describe('PUT /users/me/settings — preset whitelist', () => {
     expect(res.status).toBe(200);
     expect(res.body.autosaveIntervalSeconds).toBe(preset);
     expect(typeof res.body.updatedAt).toBe('string');
-    expect(Object.keys(res.body).sort()).toEqual(['autosaveIntervalSeconds', 'updatedAt']);
+    expect(Object.keys(res.body).sort()).toEqual(['autosaveIntervalSeconds', 'concurrencyLimit', 'updatedAt']);
   });
 
   it.each([45, 0, -60, 3600])('rejects non-preset interval %d with 400', async (bad) => {

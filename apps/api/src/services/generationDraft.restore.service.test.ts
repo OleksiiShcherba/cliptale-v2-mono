@@ -23,6 +23,15 @@ vi.mock('@/repositories/generationDraft.repository.js', () => ({
   findAssetPreviewsByIds: vi.fn(),
 }));
 
+// ADR-0006: restoreDraft now calls pool.execute for the block re-validation step.
+// Mock the pool so the unit test stays isolated from the real DB.
+vi.mock('@/db/connection.js', () => ({
+  pool: {
+    execute: vi.fn().mockResolvedValue([{ affectedRows: 0 }]),
+    query: vi.fn().mockResolvedValue([[]]),
+  },
+}));
+
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 // Time is ANCHORED with fake timers (file.softdelete.service.test.ts idiom) so the

@@ -28,6 +28,8 @@ const PRIMARY = '#7C3AED';
 const PRIMARY_DARK = '#5B21B6';
 const ERROR = '#EF4444';
 const SUCCESS = '#22C55E';
+const WARNING_BG = '#3B2D1A';
+const WARNING_BORDER = '#F59E0B';
 
 // ── Query key ───────────────────────────────────────────────────────────────
 
@@ -108,7 +110,7 @@ function CreateButton({ isLoading, onClick }: CreateButtonProps): React.ReactEle
 interface FlowCardProps {
   flow: FlowSummary;
   onOpen: (flowId: string) => void;
-  onDelete: (flowId: string) => void;
+  onDelete: (flowId: string, opts?: { confirm: true }) => void;
   onRename: (flowId: string, title: string) => Promise<void>;
 }
 
@@ -117,6 +119,8 @@ function FlowCard({ flow, onOpen, onDelete, onRename }: FlowCardProps): React.Re
   const [renameValue, setRenameValue] = React.useState(flow.title);
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [isHovered, setIsHovered] = React.useState(false);
+  /** AC-12: true when a reference flow's delete warning is open. */
+  const [showDeleteWarning, setShowDeleteWarning] = React.useState(false);
 
   // U4 — the whole card opens the flow (like ProjectCard / AssetCard);
   // inner controls stopPropagation, and renaming suspends navigation.
@@ -145,9 +149,28 @@ function FlowCard({ flow, onOpen, onDelete, onRename }: FlowCardProps): React.Re
 
   async function handleDeleteClick(): Promise<void> {
     if (isDeleting) return;
+    // AC-12: reference flows (draftBadge present) require confirmation.
+    if (flow.draftBadge != null) {
+      setShowDeleteWarning(true);
+      return;
+    }
     setIsDeleting(true);
     try {
       onDelete(flow.flowId);
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
+  function handleWarningCancel(): void {
+    setShowDeleteWarning(false);
+  }
+
+  function handleWarningConfirm(): void {
+    setShowDeleteWarning(false);
+    setIsDeleting(true);
+    try {
+      onDelete(flow.flowId, { confirm: true });
     } finally {
       setIsDeleting(false);
     }
@@ -225,6 +248,28 @@ function FlowCard({ flow, onOpen, onDelete, onRename }: FlowCardProps): React.Re
             {flow.title}
           </h3>
         )}
+        {/* AC-12: draft badge for reference flows linked to a storyboard block. */}
+        {flow.draftBadge != null && (
+          <span
+            data-testid={`draft-badge-${flow.flowId}`}
+            aria-label="Draft — linked to storyboard block"
+            style={{
+              flexShrink: 0,
+              padding: '2px 8px',
+              background: WARNING_BG,
+              color: WARNING_BORDER,
+              border: `1px solid ${WARNING_BORDER}`,
+              borderRadius: 4,
+              fontSize: 10,
+              fontWeight: 600,
+              fontFamily: 'Inter, sans-serif',
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}
+          >
+            draft
+          </span>
+        )}
       </div>
 
       {/* Meta row */}
@@ -288,6 +333,89 @@ function FlowCard({ flow, onOpen, onDelete, onRename }: FlowCardProps): React.Re
           {isDeleting ? 'Deleting…' : 'Delete'}
         </button>
       </div>
+
+      {/* AC-12: warning dialog for reference-flow deletion (storyboard block depends on it). */}
+      {showDeleteWarning && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={`delete-warning-title-${flow.flowId}`}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(0,0,0,0.6)',
+          }}
+        >
+          <div
+            style={{
+              background: SURFACE_ELEVATED,
+              border: `1px solid ${WARNING_BORDER}`,
+              borderRadius: 10,
+              padding: 24,
+              maxWidth: 420,
+              width: '90%',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 16,
+              fontFamily: 'Inter, sans-serif',
+            }}
+          >
+            <h2
+              id={`delete-warning-title-${flow.flowId}`}
+              style={{ margin: 0, fontSize: 16, fontWeight: 700, color: TEXT_PRIMARY }}
+            >
+              Delete reference flow?
+            </h2>
+            <p style={{ margin: 0, fontSize: 14, color: TEXT_SECONDARY, lineHeight: 1.5 }}>
+              A storyboard block depends on this flow. Deleting it will unlink the block
+              from any generated content — the block returns to its no-flow state.
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                aria-label="Cancel"
+                onClick={handleWarningCancel}
+                style={{
+                  padding: '8px 16px',
+                  background: 'transparent',
+                  color: TEXT_SECONDARY,
+                  border: `1px solid ${BORDER}`,
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  fontFamily: 'Inter, sans-serif',
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                aria-label="Confirm delete"
+                onClick={handleWarningConfirm}
+                style={{
+                  padding: '8px 16px',
+                  background: ERROR,
+                  color: TEXT_PRIMARY,
+                  border: 'none',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  fontFamily: 'Inter, sans-serif',
+                  cursor: 'pointer',
+                }}
+              >
+                Delete anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -335,8 +463,9 @@ export function FlowListPage(): React.ReactElement {
   });
 
   const { mutate: doDelete } = useMutation({
-    mutationFn: (flowId: string) => deleteFlow(flowId),
-    onSuccess: (_result, flowId) => {
+    mutationFn: ({ flowId, opts }: { flowId: string; opts?: { confirm: true } }) =>
+      opts != null ? deleteFlow(flowId, opts) : deleteFlow(flowId),
+    onSuccess: (_result, { flowId }) => {
       void queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     },
   });
@@ -350,10 +479,10 @@ export function FlowListPage(): React.ReactElement {
     navigate(`/generate-ai/${flowId}`);
   }
 
-  function handleDelete(flowId: string): void {
+  function handleDelete(flowId: string, opts?: { confirm: true }): void {
     // Optimistically remove from the visible list
     setHiddenIds((prev) => new Set([...prev, flowId]));
-    doDelete(flowId, {
+    doDelete({ flowId, opts }, {
       onError: () => {
         // Restore on failure
         setHiddenIds((prev) => {

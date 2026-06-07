@@ -23,7 +23,14 @@ import type {
   SceneTemplate,
   CreateSceneTemplatePayload,
   UpdateSceneTemplatePayload,
+  ReferenceBlockApiResponse,
+  ReferenceBlockListResponse,
+  CreateReferenceBlockPayload,
+  UpdateReferenceBlockPayload,
+  RetryReferenceBlockResponse,
 } from './types';
+
+import type { CastExtractionJob, CastProposalEntry } from './components/CastConfirmModal';
 
 export type {
   StoryboardState,
@@ -211,6 +218,12 @@ export async function startStoryboardIllustrations(
 ): Promise<StoryboardIllustrationStatusResponse> {
   const res = await apiClient.post(`/storyboards/${draftId}/illustrations`, {});
   if (!res.ok) {
+    // On 422 (star gate failure), surface the API error message verbatim.
+    if (res.status === 422) {
+      const body = await res.json().catch(() => null) as { error?: string } | null;
+      const message = body?.error ?? `POST /storyboards/${draftId}/illustrations failed: ${res.status}`;
+      throw new Error(message);
+    }
     throw new Error(`POST /storyboards/${draftId}/illustrations failed: ${res.status}`);
   }
   return res.json() as Promise<StoryboardIllustrationStatusResponse>;
@@ -447,4 +460,195 @@ export async function addTemplateToStoryboard(params: {
     );
   }
   return res.json() as Promise<StoryboardBlock>;
+}
+
+// ── Reference block API (storyboard-reference-flows T15) ──────────────────────
+
+/**
+ * Fetches all reference blocks for a draft (canvas load — full read, ≤ 50 blocks).
+ *
+ * Maps to GET /storyboards/:draftId/references/blocks.
+ * Returns blocks in cast order (sortOrder). Stars + scene links are embedded so
+ * the canvas renders from one read (NFR p95 ≤ 1500 ms, up to 50 blocks).
+ */
+export async function listReferenceBlocks(
+  draftId: string,
+): Promise<ReferenceBlockListResponse> {
+  const res = await apiClient.get(`/storyboards/${draftId}/references/blocks`);
+  if (!res.ok) {
+    throw new Error(`GET /storyboards/${draftId}/references/blocks failed: ${res.status}`);
+  }
+  return res.json() as Promise<ReferenceBlockListResponse>;
+}
+
+/**
+ * Manually creates a reference block with a new empty linked reference flow (AC-11 / US-07).
+ *
+ * Maps to POST /storyboards/:draftId/references/blocks.
+ * Creates an empty linked flow and the 1:1 block↔flow link — starts no generation
+ * and charges nothing (windowStatus stays null = manual block). The block participates
+ * in the star gate like any auto-created block. Not capped by the cast size limit.
+ */
+export async function createReferenceBlock(
+  draftId: string,
+  payload: CreateReferenceBlockPayload,
+): Promise<ReferenceBlockApiResponse> {
+  const res = await apiClient.post(`/storyboards/${draftId}/references/blocks`, payload);
+  if (!res.ok) {
+    throw new Error(`POST /storyboards/${draftId}/references/blocks failed: ${res.status}`);
+  }
+  return res.json() as Promise<ReferenceBlockApiResponse>;
+}
+
+/**
+ * Updates a reference block's canvas position (versionless commutative write).
+ *
+ * Maps to PATCH /storyboards/:draftId/references/blocks/:blockId.
+ * Persists XY position — last-write-wins, never conflicts with versioned scene-link saves.
+ */
+export async function updateReferenceBlock(
+  draftId: string,
+  blockId: string,
+  payload: UpdateReferenceBlockPayload,
+): Promise<ReferenceBlockApiResponse> {
+  const res = await apiClient.patch(
+    `/storyboards/${draftId}/references/blocks/${blockId}`,
+    payload,
+  );
+  if (!res.ok) {
+    throw new Error(
+      `PATCH /storyboards/${draftId}/references/blocks/${blockId} failed: ${res.status}`,
+    );
+  }
+  return res.json() as Promise<ReferenceBlockApiResponse>;
+}
+
+/**
+ * Deletes a reference block — the linked flow and its results survive (AC-14 / US-08).
+ *
+ * Maps to DELETE /storyboards/:draftId/references/blocks/:blockId.
+ * Removes the block and its scene links; the flow and all its results remain intact in
+ * the Generate AI list (draft badge removed). The block leaves the star gate.
+ */
+export async function deleteReferenceBlock(
+  draftId: string,
+  blockId: string,
+): Promise<void> {
+  const res = await apiClient.delete(
+    `/storyboards/${draftId}/references/blocks/${blockId}`,
+  );
+  if (!res.ok) {
+    throw new Error(
+      `DELETE /storyboards/${draftId}/references/blocks/${blockId} failed: ${res.status}`,
+    );
+  }
+}
+
+/**
+ * Retries the failed first generation of a reference block (AC-04 / US-08).
+ *
+ * Maps to POST /storyboards/:draftId/references/blocks/:blockId/retry.
+ * Returns the block to windowStatus: pending — the rolling-window mechanism dispatches
+ * it again (ADR-0003). Only the auto-started first generation is retried here; later
+ * regenerations go through the flow's own Generate surface.
+ *
+ * NOTE: The contract requires an `Idempotency-Key` header (TTL 24h). The caller is
+ * responsible for generating a UUID and attaching it — the current apiClient does not
+ * yet support per-call extra headers; that extension is tracked separately.
+ */
+export async function retryReferenceBlockGeneration(
+  draftId: string,
+  blockId: string,
+): Promise<RetryReferenceBlockResponse> {
+  const res = await apiClient.post(
+    `/storyboards/${draftId}/references/blocks/${blockId}/retry`,
+    {},
+  );
+  if (!res.ok) {
+    throw new Error(
+      `POST /storyboards/${draftId}/references/blocks/${blockId}/retry failed: ${res.status}`,
+    );
+  }
+  return res.json() as Promise<RetryReferenceBlockResponse>;
+}
+
+// ── File info API (storyboard-reference-flows AC-06) ──────────────────────────
+
+/**
+ * Fetches the public URL for a file by its ID.
+ *
+ * Maps to GET /files/:fileId.
+ * Used to resolve previewFileId on reference blocks to a displayable URL (AC-06).
+ * Returns null when the file is not found (404) so the canvas falls back gracefully.
+ */
+export async function fetchFileInfo(
+  fileId: string,
+): Promise<{ url: string } | null> {
+  const res = await apiClient.get(`/files/${fileId}`);
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  return res.json() as Promise<{ url: string }>;
+}
+
+// ── Cast extraction API (storyboard-reference-flows T17) ──────────────────────
+
+/**
+ * Starts cast extraction for a draft (AC-01 / US-01).
+ *
+ * Maps to POST /storyboards/:draftId/references/extraction.
+ * Enqueues a cast extraction job; no paid generation starts yet.
+ * Returns ExtractionAccepted { jobId, status: 'queued' }.
+ */
+export async function startCastExtraction(
+  draftId: string,
+): Promise<{ jobId: string; status: 'queued' }> {
+  const res = await apiClient.post(`/storyboards/${draftId}/references/extract`, {});
+  if (!res.ok) {
+    throw new Error(`POST /storyboards/${draftId}/references/extract failed: ${res.status}`);
+  }
+  return res.json() as Promise<{ jobId: string; status: 'queued' }>;
+}
+
+/**
+ * Polls the cast extraction job status (AC-01).
+ *
+ * Maps to GET /storyboards/:draftId/references/extraction/latest.
+ * Returns null when no extraction has been started for this draft.
+ */
+export async function getLatestCastExtraction(
+  draftId: string,
+): Promise<CastExtractionJob | null> {
+  const res = await apiClient.get(`/storyboards/${draftId}/references/extraction`);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(
+      `GET /storyboards/${draftId}/references/extraction failed: ${res.status}`,
+    );
+  }
+  return res.json() as Promise<CastExtractionJob>;
+}
+
+/**
+ * Confirms the proposed cast (collective cost confirmation — AC-03 / US-02).
+ *
+ * Maps to POST /storyboards/:draftId/references/confirm-cast.
+ * Creates one reference block per entry (off-chain), each linked 1:1 to a new
+ * reference flow pre-filled with the entry's images/description; auto-starts the
+ * first generation in each flow in a rolling window.
+ */
+export async function confirmCast(
+  draftId: string,
+  entries: CastProposalEntry[],
+  acknowledgedAggregateCredits: number,
+): Promise<ReferenceBlockListResponse> {
+  const res = await apiClient.post(`/storyboards/${draftId}/references/confirm`, {
+    entries,
+    acknowledgedAggregateCredits,
+  });
+  if (!res.ok) {
+    throw new Error(
+      `POST /storyboards/${draftId}/references/confirm failed: ${res.status}`,
+    );
+  }
+  return res.json() as Promise<ReferenceBlockListResponse>;
 }

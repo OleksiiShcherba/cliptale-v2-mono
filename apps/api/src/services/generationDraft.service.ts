@@ -8,6 +8,7 @@ import type {
   GenerationDraft,
   StoryboardCard,
 } from '@/repositories/generationDraft.repository.js';
+import { pool } from '@/db/connection.js';
 import type { MediaRefBlock } from '@ai-video-editor/project-schema';
 import {
   ForbiddenError,
@@ -106,6 +107,46 @@ export async function remove(userId: string, id: string): Promise<void> {
   // Verify ownership first (throws NotFoundError / ForbiddenError as appropriate).
   await resolveDraft(userId, id);
   await generationDraftRepository.softDeleteDraft(id);
+}
+
+/**
+ * Duplicates a generation draft, enforcing ownership.
+ *
+ * ADR-0006 (unlink-on-duplicate): copied storyboard_reference_blocks enter
+ * the no-flow state (flow_id = NULL) so the 1:1 block↔flow invariant is never
+ * violated and no cross-draft flow sharing can occur.
+ *
+ * The new draft gets a fresh UUID and copies the promptDoc verbatim; all other
+ * fields reset to defaults. Reference blocks (if any) are copied with new UUIDs
+ * and flow_id forced to NULL regardless of the source block's value.
+ *
+ * @returns The newly created GenerationDraft (fresh id, defaults for status etc.).
+ */
+export async function duplicateDraft(
+  userId: string,
+  sourceId: string,
+): Promise<GenerationDraft> {
+  // Ownership check — throws NotFoundError / ForbiddenError as appropriate.
+  const source = await resolveDraft(userId, sourceId);
+
+  const newDraftId = randomUUID();
+  const newDraft = await generationDraftRepository.insertDraft(newDraftId, userId, source.promptDoc);
+
+  // ADR-0006: copy reference blocks with new UUIDs and flow_id = NULL (no-flow state).
+  // Each block gets a fresh id to satisfy the PK constraint; all curation data
+  // (stars, scene-links) is NOT copied — the Creator curates from scratch.
+  await pool.execute(
+    `INSERT INTO storyboard_reference_blocks
+       (id, draft_id, flow_id, cast_type, name, description, sort_order,
+        position_x, position_y, window_status, version)
+     SELECT UUID(), ?, NULL, cast_type, name, description, sort_order,
+            position_x, position_y, NULL, 1
+       FROM storyboard_reference_blocks
+      WHERE draft_id = ?`,
+    [newDraftId, sourceId],
+  );
+
+  return newDraft;
 }
 
 /**

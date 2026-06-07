@@ -38,6 +38,9 @@ import {
   type FileKind,
 } from '@/jobs/ai-generate.utils.js';
 import { publishAiGenerationJobStatus } from '@/lib/realtime.js';
+import {
+  onReferenceBlockJobComplete,
+} from '@/jobs/ai-generate.referenceWindow.js';
 
 // Re-export FileKind so existing imports from this module continue to work.
 export type { FileKind };
@@ -118,6 +121,9 @@ export type AiGenerateJobDeps = {
   filesRepo: FilesRepo;
   aiGenerationJobRepo: AiGenerationJobRepo;
   storyboardIllustrationRepo?: StoryboardIllustrationRepo;
+  /** When provided, the handler checks if this job is a reference block's first
+   *  run and invokes the rolling-window hook on every terminal outcome (AC-03/AC-04). */
+  aiGenerateQueue?: Queue;
 };
 
 /** Progress stored once fal.ai has accepted the submit. */
@@ -166,6 +172,7 @@ export async function processAiGenerateJob(
         },
       );
       await publishAiGenerationJobStatus({ pool, jobId });
+      await maybeAdvanceReferenceWindow(job.data.jobId, 'success', undefined, pool, deps.aiGenerateQueue);
       return;
     }
 
@@ -239,14 +246,58 @@ export async function processAiGenerateJob(
       outputFileId: fileId,
     });
     await publishAiGenerationJobStatus({ pool, jobId });
+
+    // Rolling-window hook (AC-03/AC-04): if this job is the first run of a
+    // reference block, advance the window to the next pending block.
+    await maybeAdvanceReferenceWindow(job.data.jobId, 'success', undefined, pool, deps.aiGenerateQueue);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown generation error';
     await setJobStatus(pool, jobId, 'failed', message);
     await markStoryboardAiBindingsFailed(pool, jobId, message);
     await deps.storyboardIllustrationRepo?.markFailed(jobId, message);
     await publishAiGenerationJobStatus({ pool, jobId });
+
+    // Rolling-window hook: advance even on failure so the window is not stalled (AC-04).
+    await maybeAdvanceReferenceWindow(job.data.jobId, 'failure', message, pool, deps.aiGenerateQueue);
     throw err;
   }
+}
+
+/** RowDataPacket shape for storyboard_reference_blocks first_job_id lookup. */
+type RefBlockRow = { id: string; draft_id: string };
+
+/**
+ * Queries whether `jobId` is the `first_job_id` of any reference block.
+ * If so, calls `onReferenceBlockJobComplete` to advance the rolling window
+ * (ADR-0003, AC-03, AC-04). Silently no-ops when `aiGenerateQueue` is absent
+ * (backwards-compatible: workers wired without the queue skip this step).
+ */
+async function maybeAdvanceReferenceWindow(
+  jobId: string,
+  outcome: 'success' | 'failure',
+  errorMessage: string | undefined,
+  pool: Pool,
+  aiGenerateQueue: Queue | undefined,
+): Promise<void> {
+  if (!aiGenerateQueue) return;
+
+  const [blockRows] = await pool.execute(
+    `SELECT id, draft_id
+       FROM storyboard_reference_blocks
+      WHERE first_job_id = ?
+      LIMIT 1`,
+    [jobId],
+  );
+
+  const refRows = (blockRows ?? []) as RefBlockRow[];
+  if (refRows.length === 0) return; // Not a reference-block first run.
+
+  const { id: blockId, draft_id: draftId } = refRows[0]!;
+
+  await onReferenceBlockJobComplete(
+    { jobId, blockId, draftId, outcome, errorMessage },
+    { pool, aiGenerateQueue },
+  );
 }
 
 async function markStoryboardAiBindingsFailed(

@@ -10,6 +10,8 @@ import { apiClient } from '@/lib/api-client';
 /** Effective settings returned by GET/PUT /users/me/settings (UserSettings). */
 export type UserSettings = {
   autosaveIntervalSeconds: number;
+  /** Max concurrent reference-generation jobs (AC-03, default 4, bounds 1..12). */
+  concurrencyLimit?: number;
   /** ISO 8601, or null when no row exists yet (values are app-layer defaults). */
   updatedAt: string | null;
 };
@@ -33,14 +35,26 @@ export async function fetchMySettings(): Promise<UserSettings> {
   return res.json() as Promise<UserSettings>;
 }
 
+/** Payload accepted by PUT /users/me/settings. */
+export type UpdateSettingsPayload =
+  | number
+  | { autosaveIntervalSeconds?: number; concurrencyLimit?: number };
+
 /**
- * Stores a new autosave interval (lazy single-row upsert server-side).
- * Maps to PUT /users/me/settings; non-preset values are a 400.
+ * Stores updated settings (lazy single-row upsert server-side).
+ * Maps to PUT /users/me/settings.
+ *
+ * Accepts either:
+ * - a plain number (legacy autosave-interval shorthand, AC-09); or
+ * - an object with optional autosaveIntervalSeconds / concurrencyLimit (AC-03).
  */
 export async function updateMySettings(
-  autosaveIntervalSeconds: number,
+  payload: UpdateSettingsPayload,
 ): Promise<UserSettings> {
-  const res = await apiClient.put('/users/me/settings', { autosaveIntervalSeconds });
+  const body = typeof payload === 'number'
+    ? { autosaveIntervalSeconds: payload }
+    : payload;
+  const res = await apiClient.put('/users/me/settings', body);
   if (!res.ok) {
     throw new Error(`PUT /users/me/settings failed: ${res.status}`);
   }

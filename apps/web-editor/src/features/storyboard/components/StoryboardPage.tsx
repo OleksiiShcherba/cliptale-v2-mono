@@ -6,6 +6,7 @@ import type { Edge as FlowEdge, Node, NodeMouseHandler } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { fetchDraft } from '@/features/generate-wizard/api';
+import { startCastExtraction, getLatestCastExtraction, confirmCast, startStoryboardIllustrations } from '@/features/storyboard/api';
 import { useAddBlock } from '@/features/storyboard/hooks/useAddBlock';
 import { useAddMusicBlock } from '@/features/storyboard/hooks/useAddMusicBlock';
 import { useHandleAddFromLibrary } from '@/features/storyboard/hooks/useHandleAddFromLibrary';
@@ -33,12 +34,14 @@ import { useStoryboardGenerationFlow } from '@/features/storyboard/hooks/useStor
 import { useStep3Generation } from '@/features/storyboard/hooks/useStep3Generation';
 import { storyboardHistoryStore, initHistoryStore, destroyHistoryStore } from '@/features/storyboard/store/storyboard-history-store';
 import { setSelectedBlock, useStoryboardStore } from '@/features/storyboard/store/storyboard-store';
-import type { StoryboardSidebarTab, SceneBlockNodeData } from '@/features/storyboard/types';
+import type { StoryboardSidebarTab, SceneBlockNodeData, ReferenceBlockNodeData } from '@/features/storyboard/types';
 import { hasUnresolvedStep3Music } from '@/features/storyboard/utils/storyboardMusicStep3Gate';
 import { CheckpointCaptureOverlay } from './CheckpointCaptureOverlay';
 import { CheckpointCountdownBar } from './CheckpointCountdownBar';
 import { MusicBlockModal } from './MusicBlockModal';
 import { SceneModal } from './SceneModal';
+import { CastConfirmModal } from './CastConfirmModal';
+import type { CastExtractionJob, CastProposalEntry } from './CastConfirmModal';
 import { PrincipalImageApprovalModal } from './PrincipalImageApprovalModal';
 import { StoryboardBulkStreamUrlProvider } from './SceneBlockNode.mediaThumbnail';
 import { useStoryboardPageBulkStreamUrls } from './StoryboardPage.bulkStreamUrls';
@@ -67,11 +70,87 @@ export function StoryboardPage(): React.ReactElement {
   });
   const draftOwnerId = draftMeta?.userId ?? null;
   const { openStep3Modal, step3Modal } = useStep3Generation(safeDraftId);
+
+  // Stable ref-forwarding callbacks for reference block node interactions.
+  // Defined before useStoryboardCanvas so they can be passed as stable options.
+  const nodesRef = useRef<Node[]>([]);
+  const handleOpenReferenceFlow = useCallback((blockId: string): void => {
+    const node = nodesRef.current.find((n) => n.id === blockId);
+    const flowId = (node?.data as ReferenceBlockNodeData | undefined)?.referenceBlock?.flowId ?? null;
+    if (flowId) {
+      navigate(`/generate-ai/${flowId}`, { state: { fromDraft: safeDraftId, fromBlockId: blockId } });
+    }
+  }, [navigate, safeDraftId]);
+
+  const handleRetryReferenceBlock = useCallback((_blockId: string): void => {
+    // Retry is handled via the dedicated retry API (T15 / AC-04).
+    // No-op at page level for now — the node button calls retryReferenceBlockGeneration directly.
+  }, []);
+
   const { nodes, edges, isLoading, error, setNodes, setEdges, removeNode, reload } =
-    useStoryboardCanvas(safeDraftId);
+    useStoryboardCanvas(safeDraftId, {
+      onOpenReferenceFlow: handleOpenReferenceFlow,
+      onRetryReferenceBlock: handleRetryReferenceBlock,
+    });
+  // Keep nodesRef in sync so handleOpenReferenceFlow always sees the latest nodes.
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+
   const reloadStoryboard = useCallback(async (): Promise<void> => {
     await reload?.();
   }, [reload]);
+
+  // ── Cast extraction state (AC-01, AC-01b, AC-03) ──────────────────────────
+  const [castModalOpen, setCastModalOpen] = useState(false);
+  const [castExtraction, setCastExtraction] = useState<CastExtractionJob | null>(null);
+  const [hasExistingReferenceBlocks, setHasExistingReferenceBlocks] = useState(false);
+
+  const handleStartCastExtraction = useCallback(async (): Promise<void> => {
+    setCastModalOpen(true);
+    try {
+      // First check if there is an existing completed/running extraction to resume.
+      const existing = await getLatestCastExtraction(safeDraftId);
+      if (existing) {
+        // Resume: show existing proposal (completed) or progress (queued/running).
+        setCastExtraction(existing);
+        return;
+      }
+      // No existing extraction — start a new one.
+      const accepted = await startCastExtraction(safeDraftId);
+      setCastExtraction({
+        jobId: accepted.jobId,
+        draftId: safeDraftId,
+        status: accepted.status,
+        proposal: null,
+        aggregateEstimateCredits: null,
+        errorMessage: null,
+      });
+    } catch (err) {
+      console.error('[StoryboardPage] startCastExtraction failed:', err);
+    }
+  }, [safeDraftId]);
+
+  // Poll for extraction completion while the modal is open and extraction is running.
+  useEffect(() => {
+    if (!castModalOpen || !castExtraction) return;
+    if (castExtraction.status !== 'queued' && castExtraction.status !== 'running') return;
+
+    const interval = setInterval(() => {
+      void getLatestCastExtraction(safeDraftId).then((job) => {
+        if (job) setCastExtraction(job);
+      });
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [castModalOpen, castExtraction, safeDraftId]);
+
+  const handleConfirmCast = useCallback(
+    async (entries: CastProposalEntry[], acknowledgedAggregateCredits: number): Promise<void> => {
+      await confirmCast(safeDraftId, entries, acknowledgedAggregateCredits);
+      setHasExistingReferenceBlocks(true);
+      setCastModalOpen(false);
+      await reloadStoryboard();
+    },
+    [safeDraftId, reloadStoryboard],
+  );
   const { selectedBlockId } = useStoryboardStore();
   const generationFlow = useStoryboardGenerationFlow({
     draftId: safeDraftId,
@@ -319,11 +398,36 @@ export function StoryboardPage(): React.ReactElement {
   const handleBack = (): void => { navigate(draftId ? `/generate?draftId=${draftId}` : '/generate'); };
   const isMusicBlockingStep3 = hasUnresolvedStep3Music(musicBlocks);
 
-  const handleNext = (): void => {
+  // AC-08 / AC-09: star gate alert shown when POST /illustrations returns 422.
+  const [illustrationGateError, setIllustrationGateError] = useState<string | null>(null);
+
+  // When reference blocks are present and illustrations haven't started, allow clicking
+  // "Next" to trigger the star gate check via POST /illustrations (AC-08 / AC-09).
+  // This preserves the original disabled-until-complete behavior for non-reference flows.
+  const hasReferenceBlocks = nodes.some((n) => n.type === 'reference-block');
+  const effectiveIsStep3Disabled =
+    (illustrationGeneration.status === 'idle' && hasReferenceBlocks && !isGenerationBlocking)
+      ? false
+      : isStep3Disabled;
+
+  const handleNext = useCallback((): void => {
     if (isMusicBlockingStep3) return;
-    if (isStep3Disabled) return;
+    if (effectiveIsStep3Disabled) return;
+    setIllustrationGateError(null);
+
+    // When reference blocks are present and illustrations haven't started,
+    // clicking "Next" starts them. This enforces the star gate via the API (AC-08 / AC-09).
+    if (illustrationGeneration.status === 'idle' && hasReferenceBlocks) {
+      void startStoryboardIllustrations(safeDraftId)
+        .then(() => { /* generation started — hook will poll and update */ })
+        .catch((err: unknown) => {
+          setIllustrationGateError(err instanceof Error ? err.message : String(err));
+        });
+      return;
+    }
+
     openStep3Modal();
-  };
+  }, [isMusicBlockingStep3, effectiveIsStep3Disabled, illustrationGeneration.status, hasReferenceBlocks, safeDraftId, openStep3Modal]);
 
   return (
     <div style={s.page} data-testid="storyboard-page">
@@ -362,8 +466,15 @@ export function StoryboardPage(): React.ReactElement {
           planGeneration={planGeneration} illustrationGeneration={illustrationGeneration}
           isPlanBlocking={isPlanBlocking}
           draftOwnerId={draftOwnerId} hasMusic={musicBlocks.length > 0}
+          onStartReferenceGeneration={handleStartCastExtraction}
         />
-        <StoryboardPageFooter isNextDisabled={isStep3Disabled || isMusicBlockingStep3} onBack={handleBack} onNext={handleNext} />
+        {/* AC-08: star gate error alert when POST /illustrations returns 422 */}
+        {illustrationGateError !== null && (
+          <div role="alert" style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#991B1B', padding: '12px 16px', margin: '0 16px 8px', borderRadius: 6, fontSize: 14 }}>
+            {illustrationGateError}
+          </div>
+        )}
+        <StoryboardPageFooter isNextDisabled={effectiveIsStep3Disabled || isMusicBlockingStep3} onBack={handleBack} onNext={handleNext} />
         {editingBlock !== null && (
           <SceneModal
             mode="block"
@@ -387,6 +498,18 @@ export function StoryboardPage(): React.ReactElement {
           />
         )}
 
+        {/* Cast confirmation modal — new reference flow entry point (T17, AC-01/AC-03). */}
+        {castModalOpen && (
+          <CastConfirmModal
+            orderedScenes={orderedScenes}
+            extraction={castExtraction}
+            hasExistingBlocks={hasExistingReferenceBlocks}
+            onConfirmCast={handleConfirmCast}
+            onCancel={() => setCastModalOpen(false)}
+          />
+        )}
+
+        {/* Legacy principal-image approval — kept for drafts that started the old flow. */}
         {principalImageModal.shouldRender && illustrationGeneration.reference && (
           <PrincipalImageApprovalModal
             draftId={safeDraftId}

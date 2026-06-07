@@ -1,0 +1,1075 @@
+# DERIVED contract for storyboard-reference-flows — do not hand-edit field-by-field.
+#   fields + constraints  ← data-model.md (storyboard_cast_extraction_jobs, storyboard_reference_blocks,
+#                           storyboard_reference_scene_links, storyboard_reference_stars cols)
+#   error responses       ← sad.md §6 sequence alt-branches (Flows 1–10)
+#   endpoint list + shape ← spec.md §4 user stories / §5 acceptance criteria
+#
+# Brownfield deviations from the SDD defaults (all "follow the existing ClipTale API",
+# precedent: generate-ai-flow contract, team decision 2026-06-03 — see api-sync-report.md):
+#   • Error body  = repo's `{ error }` PLUS additive optional `{ code, details }`,
+#                   NOT the bare `{ code, message, details? }` SDD envelope.
+#   • JSON keys   = camelCase (draftId, blockId, createdAt…) — the repo's wire convention.
+#   • URL prefix  = none; paths are rooted (the repo mounts routes at `/`), NOT `/api/v1`.
+#   • Blocks list = full canvas read (≤ 50 blocks, NFR ≤ 1500 ms), NOT cursor-paginated —
+#                   canvas-load semantics, mirrors GET /storyboards/{draftId}/music.
+#
+# Resolved sequence gaps (drift dialog 2026-06-07, owner decision):
+#   • concurrent extraction → 409 references.extraction_in_progress
+#   • block XY write-path   → PATCH …/references/blocks/{blockId} (versionless, commutative)
+#   • concurrencyLimit bounds → 1..12 (max = cast size limit)
+#   • inferred codes accepted as low-confidence proposals: references.script_missing,
+#     references.no_completed_extraction
+#   • creation rate limit (R3): reuses the shared flow.rate_limited (AC-11 = existing
+#     per-user creation limit), not a references-specific code
+openapi: 3.1.0
+
+info:
+  title: storyboard-reference-flows API
+  version: 0.1.0
+  description: |
+    Replaces the storyboard's single principal-image anchor with curated per-character and
+    per-environment reference flows. Cast extraction proposes the characters/environments of the
+    Creator's script (with uploaded reference images and scene links assigned); the Creator
+    corrects and confirms the cast once (one collective cost confirmation with an aggregate
+    estimate); each confirmed entry becomes a reference block on the Video Road Map canvas linked
+    1:1 to an auto-created, fully editable reference flow whose first generation auto-starts in a
+    rolling concurrency window. The Creator stars the best results (primary star = block preview);
+    scene-preview generation is gated until every reference block has ≥1 star, then the scene
+    generation master picks references per scene strictly within the reference boundary.
+
+    This contract covers the new owner-scoped `storyboard-references` domain in `api` plus the
+    additive extensions to four EXISTING surfaces: the storyboard illustration start endpoints
+    (star gate, ADR-0011), the generation-flows list/delete (draft badge + delete warning,
+    ADR-0010), and the user settings (rolling-window `concurrencyLimit`, SAD §8). It REUSES the
+    existing generation rails (storyboard-plan + ai-generate BullMQ queues → media-worker →
+    `cliptale:realtime:v1` ws relay) — async progress is an event contract, see events.md.
+
+servers:
+  - url: https://api.cliptale.com
+    description: Production
+  - url: http://localhost
+    description: Local
+
+# Global default — every operation requires a bearer JWT unless it overrides with `security: []`.
+security:
+  - BearerAuth: []
+
+paths:
+  # ───────────────────────── Cast extraction (US-01 — Flow 1) ─────────────────────────
+
+  /storyboards/{draftId}/references/extract:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    post:
+      summary: Start cast extraction for a draft (async, no charge)
+      description: |
+        Flow 1 / AC-01. Creates a `storyboard_cast_extraction_jobs` row and enqueues the
+        `cast-extract` job on the existing storyboard-plan queue (ADR-0002). No paid generation
+        starts and nothing is charged. Progress + the proposal arrive asynchronously (events.md,
+        `storyboard.cast_extraction.updated`); poll fallback via GET …/references/extraction.
+        Script content is treated as data, never as instructions; the LLM output is constrained
+        to the cast schema (spec §6.1). Retry after a failed extraction is a fresh POST (the
+        jobs table allows multiple rows per draft).
+      operationId: startCastExtraction
+      tags: [cast-extraction]
+      parameters:
+        # Mutating + async actor (Flow 1) ⇒ Idempotency-Key required (repo precedent TTL 24h).
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Accepted — extraction job enqueued (proceeds asynchronously, see events.md).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExtractionAccepted" }
+              example:
+                jobId: "11111111-1111-4111-8111-111111111111"
+                status: "queued"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/DraftNotFound" }
+        "409":
+          description: |
+            Two invariants share the status: `references.cast_already_confirmed` — the draft
+            already has reference blocks; the cast is extended only by manually adding blocks
+            (AC-01b, US-07). `references.extraction_in_progress` — an extraction job for this
+            draft is already queued/running (resolved sequence gap, 2026-06-07).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                castAlreadyConfirmed:
+                  value:
+                    error: "This draft already has a confirmed cast. Add new entries manually on the canvas."
+                    code: "references.cast_already_confirmed"
+                    details: { draftId: "22222222-2222-4222-8222-222222222222" }
+                extractionInProgress:
+                  value:
+                    error: "Cast extraction is already running for this draft."
+                    code: "references.extraction_in_progress"
+                    details: { jobId: "11111111-1111-4111-8111-111111111111" }
+        "422":
+          description: The draft has no script to extract a cast from (AC-01 Given; low-confidence code, see api-sync-report.md).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "Write a script first — cast extraction reads it to propose characters and environments."
+                code: "references.script_missing"
+
+  /storyboards/{draftId}/references/extraction:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    get:
+      summary: Latest cast-extraction job for the draft (status + proposal)
+      description: |
+        Flow 1 (the Creator reviews the stored proposal). Returns the most recent extraction job —
+        served by `idx_storyboard_cast_extraction_draft_created`. The proposal is populated only
+        on `completed`; the aggregate estimate is the sum of per-run estimates shown in the cast
+        confirmation modal. Poll/reattach fallback for the realtime channel.
+      operationId: getCastExtraction
+      tags: [cast-extraction]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CastExtractionJob" }
+              example:
+                jobId: "11111111-1111-4111-8111-111111111111"
+                draftId: "22222222-2222-4222-8222-222222222222"
+                status: "completed"
+                proposal:
+                  - type: "character"
+                    name: "Test Character"
+                    description: "A test protagonist."
+                    imageFileIds: ["33333333-3333-4333-8333-333333333333"]
+                    sceneBlockIds: ["44444444-4444-4444-8444-444444444444"]
+                    perRunEstimate: 0.4200
+                aggregateEstimateCredits: 0.4200
+                errorMessage: null
+                completedAt: "2026-06-07T12:00:00.000Z"
+                failedAt: null
+                createdAt: "2026-06-07T11:59:00.000Z"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Draft not found / not owned (AC-13, existence hiding) — or no extraction job exists yet.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "No cast extraction found for this draft."
+                code: "references.extraction_not_found"
+
+  # ──────────────────── Collective confirmation (US-02 — Flow 1) ────────────────────
+
+  /storyboards/{draftId}/references/confirm:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    post:
+      summary: Confirm the corrected cast — one collective cost confirmation
+      description: |
+        Flow 1 / AC-03. The single collective confirmation (deliberate, scoped deviation from the
+        per-generate rule — spec §1 ¶4). Creates one reference block per entry (off-chain on the
+        Video Road Map canvas), each linked 1:1 to a new reference flow pre-filled with the
+        entry's images or description, persists the AI-proposed scene links, and auto-starts the
+        first generations in a rolling window: blocks enter `windowStatus: pending` in cast order,
+        the first N are enqueued (N = `concurrencyLimit` from user settings, default 4), the
+        worker completion-hook claims the next pending as each finishes (ADR-0003). Charging is
+        per run at start (ADR-0004) — confirming charges nothing by itself, and the confirmation
+        covers these first runs only; later regenerations confirm per generate as usual.
+      operationId: confirmCast
+      tags: [cast-extraction]
+      parameters:
+        # Spend-consenting + async actors (Flow 1) ⇒ Idempotency-Key required (TTL 24h).
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConfirmCastRequest" }
+            example:
+              entries:
+                - castType: "character"
+                  name: "Test Character"
+                  description: "A test protagonist."
+                  imageFileIds: ["33333333-3333-4333-8333-333333333333"]
+                  sceneBlockIds: ["44444444-4444-4444-8444-444444444444"]
+                - castType: "environment"
+                  name: "Test Environment"
+                  description: "A test location."
+                  imageFileIds: []
+                  sceneBlockIds: []
+              acknowledgedAggregateCredits: 0.8400
+      responses:
+        "201":
+          description: Cast confirmed — blocks + flows created, first generations dispatching in the rolling window.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReferenceBlockList" }
+              example:
+                items:
+                  - blockId: "55555555-5555-4555-8555-555555555555"
+                    draftId: "22222222-2222-4222-8222-222222222222"
+                    flowId: "66666666-6666-4666-8666-666666666666"
+                    castType: "character"
+                    name: "Test Character"
+                    description: "A test protagonist."
+                    sortOrder: 0
+                    positionX: 0
+                    positionY: 0
+                    windowStatus: "pending"
+                    errorMessage: null
+                    version: 1
+                    sceneBlockIds: ["44444444-4444-4444-8444-444444444444"]
+                    stars: []
+                    previewFileId: null
+                    createdAt: "2026-06-07T12:01:00.000Z"
+                    updatedAt: "2026-06-07T12:01:00.000Z"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/DraftNotFound" }
+        "409":
+          description: The draft already has reference blocks — the cast was already confirmed (AC-01b invariant).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "This draft's cast is already confirmed."
+                code: "references.cast_already_confirmed"
+        "422":
+          description: No completed extraction proposal to confirm (low-confidence code, see api-sync-report.md).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "Run cast extraction first — there is no completed proposal to confirm."
+                code: "references.no_completed_extraction"
+
+  # ──────────────── Reference blocks (US-03/06 read, US-07 add, US-08 delete) ────────────────
+
+  /storyboards/{draftId}/references/blocks:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    get:
+      summary: All reference blocks of the draft (canvas load — full read)
+      description: |
+        Canvas open with reference blocks — NFR p95 ≤ 1500 ms up to 50 blocks (served by
+        `idx_storyboard_reference_blocks_draft_sort`, stars + scene links embedded so the canvas
+        renders from one read). Each block carries its linked `flowId` (US-03/AC-05 — the client
+        opens the flow via the existing GET /generation-flows/{flowId}), its star state
+        (US-04/AC-06/AC-07), scene links (US-05), and window status (AC-04). Full read, not
+        paginated — canvas semantics (deviation noted in api-sync-report.md).
+      operationId: listReferenceBlocks
+      tags: [reference-blocks]
+      responses:
+        "200":
+          description: OK — blocks in cast order (`sortOrder`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReferenceBlockList" }
+              example:
+                items:
+                  - blockId: "55555555-5555-4555-8555-555555555555"
+                    draftId: "22222222-2222-4222-8222-222222222222"
+                    flowId: "66666666-6666-4666-8666-666666666666"
+                    castType: "character"
+                    name: "Test Character"
+                    description: "A test protagonist."
+                    sortOrder: 0
+                    positionX: 120.5
+                    positionY: 80
+                    windowStatus: "done"
+                    errorMessage: null
+                    version: 3
+                    sceneBlockIds: ["44444444-4444-4444-8444-444444444444"]
+                    stars:
+                      - fileId: "77777777-7777-4777-8777-777777777777"
+                        isPrimary: true
+                        createdAt: "2026-06-07T12:30:00.000Z"
+                    previewFileId: "77777777-7777-4777-8777-777777777777"
+                    createdAt: "2026-06-07T12:01:00.000Z"
+                    updatedAt: "2026-06-07T12:30:00.000Z"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/DraftNotFound" }
+
+    post:
+      summary: Manually add a reference block (empty linked flow, no run, no charge)
+      description: |
+        Flow 8 / US-07 / AC-11. Creates a block with a NEW empty linked reference flow and the 1:1
+        link — starts no generation and charges nothing (`windowStatus` stays null = manual
+        block). The block participates in the star gate like any other. Manual additions are NOT
+        capped by the cast size limit (it bounds only the extraction proposal) — they remain
+        bounded by the existing per-user creation rate limits (unchanged).
+      operationId: createReferenceBlock
+      tags: [reference-blocks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateReferenceBlockRequest" }
+            example:
+              castType: "environment"
+              name: "Test Environment"
+              description: "A test location."
+      responses:
+        "201":
+          description: Created — block + empty flow + 1:1 link.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReferenceBlock" }
+              example:
+                blockId: "88888888-8888-4888-8888-888888888888"
+                draftId: "22222222-2222-4222-8222-222222222222"
+                flowId: "99999999-9999-4999-8999-999999999999"
+                castType: "environment"
+                name: "Test Environment"
+                description: "A test location."
+                sortOrder: 2
+                positionX: 0
+                positionY: 0
+                windowStatus: null
+                errorMessage: null
+                version: 1
+                sceneBlockIds: []
+                stars: []
+                previewFileId: null
+                createdAt: "2026-06-07T13:00:00.000Z"
+                updatedAt: "2026-06-07T13:00:00.000Z"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/DraftNotFound" }
+        "429":
+          description: |
+            Existing per-user creation rate limit (Flow 8 alt-branch — existing rule, unchanged).
+            AC-11 binds this to the EXISTING per-user creation limit, so the endpoint reuses the
+            shared RateLimitedError (code `flow.rate_limited`) rather than a references-specific
+            code — reconciled at implement (R3). `Retry-After` header carries the wait seconds.
+          headers:
+            Retry-After:
+              schema: { type: integer }
+              description: Seconds to wait before retrying.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "You're creating blocks too fast. Try again in a minute."
+                code: "flow.rate_limited"
+
+  /storyboards/{draftId}/references/blocks/{blockId}:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+      - $ref: "#/components/parameters/ReferenceBlockId"
+    patch:
+      summary: Move a reference block on the canvas (versionless)
+      description: |
+        Persists the block's XY position — the table is authoritative over the draft's canvas
+        JSON on divergence (ADR-0005). Versionless commutative write (last-write-wins, like
+        stars) — it never conflicts with the versioned scene-link save. Write-path resolved in
+        the drift dialog 2026-06-07 (no AC/flow covered block dragging).
+      operationId: updateReferenceBlock
+      tags: [reference-blocks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateReferenceBlockRequest" }
+            example:
+              positionX: 240.5
+              positionY: 96
+      responses:
+        "200":
+          description: OK — updated block.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReferenceBlock" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/BlockNotFound" }
+
+    delete:
+      summary: Delete a reference block — the linked flow and its results survive
+      description: |
+        Flow 9 / US-08 / AC-14. Deletes the block, its scene links (FK cascade) and the block↔flow
+        link — the flow and all its results remain intact in the Generate AI list (the draft badge
+        disappears because it is derived from the link, ADR-0010). The block leaves the star gate.
+        Deleting a block before its first generation started simply never charges (ADR-0004).
+      operationId: deleteReferenceBlock
+      tags: [reference-blocks]
+      responses:
+        "204":
+          description: Deleted — flow untouched.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/BlockNotFound" }
+
+  /storyboards/{draftId}/references/blocks/{blockId}/retry:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+      - $ref: "#/components/parameters/ReferenceBlockId"
+    post:
+      summary: Retry a failed first generation (re-enters the rolling window)
+      description: |
+        Flow 1 alt (failure) / AC-04. Re-dispatches the failed block immediately and returns it
+        at `windowStatus: running` (ADR-0003 rolling window + F2: the completion hook's terminal
+        UPDATE is guarded `WHERE window_status='running'`, so a retry must claim `running` to keep
+        advancing the window — a retry left at `pending` would stall). A retried run is charged per
+        run at start, like any run (ADR-0004 / spec §8 OQ-2). Only the auto-started FIRST
+        generation is retried here; later regenerations go through the flow's own Generate surface.
+      operationId: retryReferenceBlockGeneration
+      tags: [reference-blocks]
+      parameters:
+        # Spend-bearing + retriable async dispatch ⇒ Idempotency-Key required (TTL 24h).
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Accepted — block re-dispatched into the window (progress via events.md).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RetryAccepted" }
+              example:
+                blockId: "55555555-5555-4555-8555-555555555555"
+                windowStatus: "running"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/BlockNotFound" }
+        "409":
+          description: The block's first generation is not in a failed state (nothing to retry).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "This block's generation is not failed — there is nothing to retry."
+                code: "references.block_not_failed"
+                details: { windowStatus: "running" }
+
+  # ──────────────────── Scene links (US-05 — Flow 5, versioned save) ────────────────────
+
+  /storyboards/{draftId}/references/blocks/{blockId}/scene-links:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+      - $ref: "#/components/parameters/ReferenceBlockId"
+    put:
+      summary: Replace the block's linked-scenes list (compare-and-set on block version)
+      description: |
+        Flow 5 / AC-10 / NFR concurrency. Replaces the full scene-link list for the block —
+        individual scenes, not ranges. The body carries the block `version` the client knows;
+        a mismatch rejects the save with 409 + reload prompt (edits are never silently lost —
+        Override SAD §1 ¶4, critic F1). On success the version increments and is returned. The
+        next scene generation respects the updated links. Scene lifecycle is handled upstream:
+        deleting a scene cascades its links via FK (AC-10b), new scenes get no links, reordering
+        changes nothing (Flow 6).
+      operationId: saveSceneLinks
+      tags: [scene-links]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SceneLinksSaveRequest" }
+            example:
+              sceneBlockIds: ["44444444-4444-4444-8444-444444444444"]
+              version: 3
+      responses:
+        "200":
+          description: Saved — new authoritative list + incremented version.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SceneLinksSaveResponse" }
+              example:
+                sceneBlockIds: ["44444444-4444-4444-8444-444444444444"]
+                version: 4
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/BlockNotFound" }
+        "409":
+          description: Concurrent save already changed the block version (Flow 5 alt) — reload and retry.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "This block's scene links changed in another tab. Reload to continue."
+                code: "references.version_conflict"
+                details: { expectedVersion: 4, yourVersion: 3 }
+        "422":
+          description: A submitted scene does not belong to this draft.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "One of the selected scenes is not part of this draft."
+                code: "references.scene_not_in_draft"
+                details: { sceneBlockId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }
+
+  # ──────────────────── Stars (US-04 — Flows 2/4, versionless toggles) ────────────────────
+
+  /storyboards/{draftId}/references/blocks/{blockId}/stars/{fileId}:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+      - $ref: "#/components/parameters/ReferenceBlockId"
+      - $ref: "#/components/parameters/FileId"
+    put:
+      summary: Star a result file of the linked flow (idempotent toggle)
+      description: |
+        Flow 2 / AC-06. Inserts the star row — versionless commutative toggle (no compare-and-set;
+        Override SAD §1 ¶4, critic F1); re-starring the same file is a no-op (UNIQUE block+file,
+        ADR-0009). `isPrimary: true` makes this file the primary star (block preview) — at most
+        one primary per block (UNIQUE block+isPrimary); the previous primary demotes to a
+        non-primary star. All starred results become the block's reference candidates; the scene
+        generation master picks each linked block's primary, topped up with further stars to the
+        model's reference capacity (ADR-0008).
+      operationId: starReferenceResult
+      tags: [stars]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StarToggleRequest" }
+            example:
+              isPrimary: true
+      responses:
+        "200":
+          description: OK — the block's authoritative star state after the toggle.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BlockStarsState" }
+              example:
+                blockId: "55555555-5555-4555-8555-555555555555"
+                stars:
+                  - fileId: "77777777-7777-4777-8777-777777777777"
+                    isPrimary: true
+                    createdAt: "2026-06-07T12:30:00.000Z"
+                previewFileId: "77777777-7777-4777-8777-777777777777"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/BlockNotFound" }
+        "422":
+          description: The file is not a result of this block's linked flow (stars reference flow result files, ADR-0009).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "Only results of this block's reference flow can be starred."
+                code: "references.file_not_in_flow"
+                details: { fileId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }
+
+    delete:
+      summary: Un-star a result (idempotent; preview falls back)
+      description: |
+        Flow 4 / AC-07. Removes the star row (versionless commutative). If the removed star was
+        primary, the block preview falls back to another starred result (earliest star = default
+        primary candidate); with no stars left the block shows the no-preview placeholder and
+        counts as missing a star for the star gate. The same fallback applies when the starred
+        result file itself is deleted in the flow (FK cascade, ADR-0009) — the block↔flow link
+        always stays intact (the no-flow state applies only to a deleted flow, AC-12).
+      operationId: unstarReferenceResult
+      tags: [stars]
+      responses:
+        "200":
+          description: OK — star state after removal (both Flow 4 branches visible in `previewFileId`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BlockStarsState" }
+              example:
+                blockId: "55555555-5555-4555-8555-555555555555"
+                stars: []
+                previewFileId: null
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/BlockNotFound" }
+
+  # ──────────── EXTENSIONS of existing endpoints (documented only where extended) ────────────
+
+  /storyboards/{draftId}/illustrations:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    post:
+      summary: "EXISTING endpoint — extension: star gate on the full scene-preview set"
+      description: |
+        Flow 2 alt / AC-08 / ADR-0011. The EXISTING start-scene-illustrations endpoint gains the
+        star gate, enforced in the API service layer BEFORE any job/charge: if at least one
+        reference block of the draft has no starred result, the start is blocked with 422 naming
+        exactly those blocks (exit actions: star, retry the generation, or delete the block).
+        A draft with ZERO reference blocks passes the gate (AC-08b) — scenes generate per the
+        no-linked-blocks rule of AC-09. Gate pass = snapshot at start (accepted TOCTOU, ADR-0011).
+        Only the new 422 is documented here; the rest of the operation is unchanged.
+      operationId: startStoryboardIllustrations
+      tags: [extensions]
+      responses:
+        "422":
+          description: Star gate failed — every named block still needs a starred result.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "2 reference blocks still need a starred result: Test Character, Test Environment."
+                code: "references.star_gate_failed"
+                details:
+                  blocks:
+                    - { blockId: "55555555-5555-4555-8555-555555555555", name: "Test Character" }
+                    - { blockId: "88888888-8888-4888-8888-888888888888", name: "Test Environment" }
+
+  /storyboards/{draftId}/blocks/{blockId}/illustration:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+      - in: path
+        name: blockId
+        required: true
+        description: storyboard SCENE block id (storyboard_blocks.id — not a reference block)
+        schema: { type: string, format: uuid }
+    post:
+      summary: "EXISTING endpoint — extension: scoped star gate on single-scene regeneration"
+      description: |
+        Flow 7 / AC-08b / ADR-0011. The EXISTING single-scene illustration endpoint gains the
+        SCOPED star gate: regenerating scene X requires starred results only from the reference
+        blocks linked to X (`idx_storyboard_reference_scene_links_scene`); unstarred blocks not
+        linked to X don't block it, and zero linked blocks passes (the scene generates from its
+        prompt + the draft-global derived style description, ADR-0007). Only the new 422 is
+        documented here; the rest of the operation is unchanged.
+      operationId: startStoryboardBlockIllustration
+      tags: [extensions]
+      responses:
+        "422":
+          description: Scoped star gate failed — only blocks linked to this scene are named.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "1 reference block linked to this scene still needs a starred result: Test Character."
+                code: "references.star_gate_failed"
+                details:
+                  blocks:
+                    - { blockId: "55555555-5555-4555-8555-555555555555", name: "Test Character" }
+
+  /generation-flows:
+    get:
+      summary: "EXISTING endpoint — extension: draft badge on flow summaries"
+      description: |
+        Flow 10 / AC-12 / ADR-0010. Each FlowSummary in the EXISTING list response gains the
+        additive nullable `draftBadge` — derived at read time from the block↔flow link
+        (`uq_storyboard_reference_blocks_flow` JOIN), never stored on flows. No link → null;
+        deleting the block or the draft removes the badge automatically. Existing clients that
+        don't read `draftBadge` are unaffected. Only the new field is documented here.
+      operationId: listGenerationFlows
+      tags: [extensions]
+      responses:
+        "200":
+          description: OK — summaries extended with `draftBadge`.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: existing FlowSummaryPage; each item gains the additive field below
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      description: existing FlowSummary + the additive extension
+                      properties:
+                        draftBadge: { $ref: "#/components/schemas/DraftBadge" }
+              example:
+                items:
+                  - flowId: "66666666-6666-4666-8666-666666666666"
+                    title: "Test Character — reference"
+                    draftBadge: { draftId: "22222222-2222-4222-8222-222222222222" }
+                nextCursor: null
+
+  /generation-flows/{flowId}:
+    parameters:
+      - in: path
+        name: flowId
+        required: true
+        description: generation_flows.flow_id
+        schema: { type: string, format: uuid }
+    delete:
+      summary: "EXISTING endpoint — extension: linked-block warning + confirmed delete"
+      description: |
+        Flow 10 / AC-12. The EXISTING flow delete gains a dependency check: when a storyboard
+        reference block links to the flow, the delete is rejected with 409 unless `confirm=true`
+        is passed — the client shows the warning and re-submits on Creator confirmation. A
+        confirmed delete removes the flow with its results and clears the link
+        (FK ON DELETE SET NULL) — the block enters the no-flow state: no preview, no candidates,
+        fails the star gate until resolved. Only the new parameter + 409 are documented here.
+      operationId: deleteGenerationFlow
+      tags: [extensions]
+      parameters:
+        - in: query
+          name: confirm
+          required: false
+          description: set `true` to delete a flow that a storyboard block depends on (after showing the warning)
+          schema: { type: boolean, default: false }
+      responses:
+        "409":
+          description: A storyboard block depends on this flow — confirmation required (Flow 10 warning).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "A storyboard block depends on this flow. Deleting it leaves the block without references."
+                code: "flow.linked_to_storyboard_block"
+                details:
+                  blockId: "55555555-5555-4555-8555-555555555555"
+                  draftId: "22222222-2222-4222-8222-222222222222"
+
+  /users/me/settings:
+    put:
+      summary: "EXISTING endpoint — extension: rolling-window concurrencyLimit"
+      description: |
+        SAD §8 (precedent: autosave interval, migration 050). `settings_json` gains the additive
+        key `concurrencyLimit` — at most N first generations run concurrently per draft in the
+        rolling window (AC-03). Bounds 1..12 (max = the cast size limit; resolved 2026-06-07),
+        default 4. Read on each window dispatch — a change applies to the NEXT start, never
+        interrupts running generations (ADR-0003). Only the new key is documented here.
+      operationId: updateMySettings
+      tags: [extensions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: existing settings body; the additive key below
+              properties:
+                concurrencyLimit:
+                  type: integer
+                  minimum: 1
+                  maximum: 12
+                  default: 4
+                  description: max concurrent first generations per draft (rolling window, AC-03)
+            example:
+              concurrencyLimit: 4
+      responses:
+        "200":
+          description: OK — existing settings response, `settings_json.concurrencyLimit` included.
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    DraftId:
+      in: path
+      name: draftId
+      required: true
+      description: generation_drafts.id — every operation is owner-scoped through it (AC-13)
+      schema: { type: string, format: uuid }
+    ReferenceBlockId:
+      in: path
+      name: blockId
+      required: true
+      description: storyboard_reference_blocks.id
+      schema: { type: string, format: uuid }
+    FileId:
+      in: path
+      name: fileId
+      required: true
+      description: files.file_id — a result file of the block's linked flow (ADR-0009)
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: true
+      description: client-generated UUID; the server returns the first result on retry (TTL 24h, repo precedent)
+      schema: { type: string, format: uuid }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Unauthorized", code: "auth.unauthorized" }
+    BadRequest:
+      description: Malformed request body or parameters (Zod validation).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Invalid request body.", code: "references.invalid_request" }
+    DraftNotFound:
+      description: Draft not found OR not owned by the caller — denied without revealing existence (AC-13, Flow 3 alt).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Draft not found.", code: "references.draft_not_found" }
+    BlockNotFound:
+      description: Reference block (or its draft) not found / not owned — existence hiding (AC-13).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Reference block not found.", code: "references.block_not_found" }
+
+  schemas:
+    # Unified error envelope — repo's `{ error }` + additive `{ code, details }` (brownfield
+    # deviation, precedent generate-ai-flow). `code` = neutral `module.error_name` snake_case.
+    Error:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+          description: human-readable message (the existing repo field; safe to show to the Creator)
+        code:
+          type: [string, "null"]
+          pattern: "^[a-z_]+\\.[a-z_]+$"
+          description: machine-readable code, neutral `module.error_name` convention; null on legacy errors
+          example: "references.star_gate_failed"
+        details:
+          type: object
+          description: optional structured context (blocks missing stars, conflicting version, …)
+          additionalProperties: true
+
+    # ── Cast extraction (← storyboard_cast_extraction_jobs) ─────────────────────────────────
+    CastProposalEntry:
+      type: object
+      description: one element of storyboard_cast_extraction_jobs.proposal_json
+      required: [type, name]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [character, environment]
+          description: proposal_json[].type (mirrors storyboard_reference_blocks.cast_type)
+        name: { type: string, maxLength: 255, description: "proposal_json[].name" }
+        description: { type: [string, "null"], description: "proposal_json[].description" }
+        imageFileIds:
+          type: array
+          description: proposal_json[].image_file_ids — Creator-uploaded reference images assigned to the entry
+          items: { type: string, format: uuid }
+        sceneBlockIds:
+          type: array
+          description: proposal_json[].scene_block_ids — AI-proposed scene links (individual scenes)
+          items: { type: string, format: uuid }
+        perRunEstimate:
+          type: number
+          description: proposal_json[].per_run_estimate — credits estimate for the entry's first run
+
+    CastExtractionJob:
+      type: object
+      required: [jobId, draftId, status, createdAt]
+      additionalProperties: false
+      properties:
+        jobId: { type: string, format: uuid, description: "storyboard_cast_extraction_jobs.id" }
+        draftId: { type: string, format: uuid, description: "storyboard_cast_extraction_jobs.draft_id" }
+        status:
+          type: string
+          enum: [queued, running, completed, failed]
+          description: storyboard_cast_extraction_jobs.status
+        proposal:
+          type: [array, "null"]
+          description: |
+            storyboard_cast_extraction_jobs.proposal_json — populated on `completed`; at most the
+            cast size limit (12) entries, trimmed by scene-appearance count with the remainder
+            addable manually (AC-02).
+          maxItems: 12
+          items: { $ref: "#/components/schemas/CastProposalEntry" }
+        aggregateEstimateCredits:
+          type: [number, "null"]
+          description: storyboard_cast_extraction_jobs.aggregate_estimate_credits — DECIMAL(10,4), sum of per-run estimates (NFR ±10%)
+        errorMessage:
+          type: [string, "null"]
+          maxLength: 512
+          description: storyboard_cast_extraction_jobs.error_message — plain-language reason on `failed`
+        truncated:
+          type: boolean
+          description: |
+            Whether the proposal was trimmed to the cast size limit (AC-02). True when more
+            candidates were extracted than the limit (12); the Creator is told that the remainder
+            can be added manually. Absent (or false) when the full proposal fits within the limit.
+        completedAt: { type: [string, "null"], format: date-time, description: "storyboard_cast_extraction_jobs.completed_at" }
+        failedAt: { type: [string, "null"], format: date-time, description: "storyboard_cast_extraction_jobs.failed_at" }
+        createdAt: { type: string, format: date-time, description: "storyboard_cast_extraction_jobs.created_at" }
+
+    ExtractionAccepted:
+      type: object
+      required: [jobId, status]
+      additionalProperties: false
+      properties:
+        jobId: { type: string, format: uuid, description: "storyboard_cast_extraction_jobs.id" }
+        status: { type: string, enum: [queued], description: "storyboard_cast_extraction_jobs.status at accept" }
+
+    # ── Collective confirmation ──────────────────────────────────────────────────────────────
+    ConfirmCastEntry:
+      type: object
+      description: a corrected cast entry — becomes one storyboard_reference_blocks row
+      required: [castType, name]
+      additionalProperties: false
+      properties:
+        castType:
+          type: string
+          enum: [character, environment]
+          description: storyboard_reference_blocks.cast_type
+        name: { type: string, maxLength: 255, description: "storyboard_reference_blocks.name (editable in the modal)" }
+        description: { type: [string, "null"], description: "storyboard_reference_blocks.description — sent to the flow" }
+        imageFileIds:
+          type: array
+          description: reference images pre-filling the auto-created flow (AC-03)
+          items: { type: string, format: uuid }
+        sceneBlockIds:
+          type: array
+          description: corrected scene links → storyboard_reference_scene_links rows (AC-01 — same multi-select selector)
+          items: { type: string, format: uuid }
+
+    ConfirmCastRequest:
+      type: object
+      required: [entries, acknowledgedAggregateCredits]
+      additionalProperties: false
+      properties:
+        entries:
+          type: array
+          minItems: 1
+          maxItems: 12
+          description: the corrected cast — bounded by the cast size limit (12, spec §8 OQ-1 resolved)
+          items: { $ref: "#/components/schemas/ConfirmCastEntry" }
+        acknowledgedAggregateCredits:
+          type: number
+          description: |
+            the aggregate estimate the Creator saw and consented to (AC-03 collective cost
+            confirmation; repo precedent — GenerateRequest.acknowledgedCost). Consent record only:
+            charging stays per run at start (ADR-0004).
+
+    # ── Reference block aggregate (← storyboard_reference_blocks + links + stars) ───────────
+    Star:
+      type: object
+      required: [fileId, isPrimary, createdAt]
+      additionalProperties: false
+      properties:
+        fileId: { type: string, format: uuid, description: "storyboard_reference_stars.file_id — the starred result asset" }
+        isPrimary:
+          type: boolean
+          description: storyboard_reference_stars.is_primary — true ⇢ 1 (block preview), false ⇢ NULL (non-primary)
+        createdAt: { type: string, format: date-time, description: "storyboard_reference_stars.created_at — earliest star = default primary candidate" }
+
+    ReferenceBlock:
+      type: object
+      required: [blockId, draftId, flowId, castType, name, sortOrder, positionX, positionY,
+                 windowStatus, version, sceneBlockIds, stars, previewFileId, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        blockId: { type: string, format: uuid, description: "storyboard_reference_blocks.id" }
+        draftId: { type: string, format: uuid, description: "storyboard_reference_blocks.draft_id" }
+        flowId:
+          type: [string, "null"]
+          format: uuid
+          description: storyboard_reference_blocks.flow_id — 1:1 linked flow; null = no-flow state (ADR-0006/AC-12)
+        castType: { type: string, enum: [character, environment], description: "storyboard_reference_blocks.cast_type" }
+        name: { type: string, maxLength: 255, description: "storyboard_reference_blocks.name" }
+        description: { type: [string, "null"], description: "storyboard_reference_blocks.description" }
+        sortOrder: { type: integer, description: "storyboard_reference_blocks.sort_order — cast order = window dispatch order (ADR-0003)" }
+        positionX: { type: number, description: "storyboard_reference_blocks.position_x — authoritative over canvas JSON (ADR-0005)" }
+        positionY: { type: number, description: "storyboard_reference_blocks.position_y" }
+        windowStatus:
+          type: [string, "null"]
+          enum: [pending, running, done, failed, null]
+          description: storyboard_reference_blocks.window_status — null = manually added block (no auto-dispatch, AC-11)
+        errorMessage:
+          type: [string, "null"]
+          maxLength: 512
+          description: storyboard_reference_blocks.error_message — plain-language reason when windowStatus = failed (AC-04)
+        version: { type: integer, minimum: 1, description: "storyboard_reference_blocks.version — compare-and-set guard for scene-link saves" }
+        sceneBlockIds:
+          type: array
+          description: storyboard_reference_scene_links.scene_block_id — the block's linked scenes (individual, not ranges)
+          items: { type: string, format: uuid }
+        stars:
+          type: array
+          description: storyboard_reference_stars rows — the block's reference candidates (AC-06)
+          items: { $ref: "#/components/schemas/Star" }
+        previewFileId:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            derived — the primary star's fileId; with no primary, falls back to the earliest
+            remaining star; null with no stars (no-preview placeholder + fails the star gate,
+            AC-07 both branches).
+        createdAt: { type: string, format: date-time, description: "storyboard_reference_blocks.created_at" }
+        updatedAt: { type: string, format: date-time, description: "storyboard_reference_blocks.updated_at" }
+
+    ReferenceBlockList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          description: all blocks of the draft in cast order — full canvas read, not paginated (NFR ≤ 50 blocks)
+          items: { $ref: "#/components/schemas/ReferenceBlock" }
+
+    CreateReferenceBlockRequest:
+      type: object
+      required: [castType, name]
+      additionalProperties: false
+      properties:
+        castType: { type: string, enum: [character, environment], description: "storyboard_reference_blocks.cast_type" }
+        name: { type: string, maxLength: 255, description: "storyboard_reference_blocks.name" }
+        description: { type: [string, "null"], description: "storyboard_reference_blocks.description" }
+
+    UpdateReferenceBlockRequest:
+      type: object
+      required: [positionX, positionY]
+      additionalProperties: false
+      properties:
+        positionX: { type: number, description: "storyboard_reference_blocks.position_x" }
+        positionY: { type: number, description: "storyboard_reference_blocks.position_y" }
+
+    RetryAccepted:
+      type: object
+      required: [blockId, windowStatus]
+      additionalProperties: false
+      properties:
+        blockId: { type: string, format: uuid, description: "storyboard_reference_blocks.id" }
+        windowStatus: { type: string, enum: [running], description: "storyboard_reference_blocks.window_status after retry — claimed running so the rolling-window completion hook advances (ADR-0003 / F2)" }
+
+    # ── Scene links (← storyboard_reference_scene_links) ────────────────────────────────────
+    SceneLinksSaveRequest:
+      type: object
+      required: [sceneBlockIds, version]
+      additionalProperties: false
+      properties:
+        sceneBlockIds:
+          type: array
+          description: the full replacement list — storyboard_reference_scene_links.scene_block_id
+          items: { type: string, format: uuid }
+        version: { type: integer, minimum: 1, description: "storyboard_reference_blocks.version the client knows (compare-and-set)" }
+
+    SceneLinksSaveResponse:
+      type: object
+      required: [sceneBlockIds, version]
+      additionalProperties: false
+      properties:
+        sceneBlockIds:
+          type: array
+          items: { type: string, format: uuid }
+        version: { type: integer, minimum: 1, description: "the incremented storyboard_reference_blocks.version" }
+
+    # ── Stars ────────────────────────────────────────────────────────────────────────────────
+    StarToggleRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        isPrimary:
+          type: boolean
+          default: false
+          description: true → make this file the primary star (block preview); the previous primary demotes
+
+    BlockStarsState:
+      type: object
+      required: [blockId, stars, previewFileId]
+      additionalProperties: false
+      properties:
+        blockId: { type: string, format: uuid, description: "storyboard_reference_blocks.id" }
+        stars:
+          type: array
+          items: { $ref: "#/components/schemas/Star" }
+        previewFileId:
+          type: [string, "null"]
+          format: uuid
+          description: derived preview after the toggle (AC-07 fallback rule)
+
+    # ── Flow-list extension (ADR-0010) ──────────────────────────────────────────────────────
+    DraftBadge:
+      type: [object, "null"]
+      description: |
+        additive extension of the existing FlowSummary — derived at read time from
+        uq_storyboard_reference_blocks_flow (ADR-0010); null when no block links to the flow.
+      required: [draftId]
+      properties:
+        draftId: { type: string, format: uuid, description: "storyboard_reference_blocks.draft_id of the linking block" }

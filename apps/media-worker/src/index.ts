@@ -3,7 +3,6 @@ import type {
   MediaIngestJobPayload,
   TranscriptionJobPayload,
   EnhancePromptJobPayload,
-  StoryboardPlanJobPayload,
   StoryboardOpenAIImageJobPayload,
 } from '@ai-video-editor/project-schema';
 import OpenAI from 'openai';
@@ -23,15 +22,13 @@ import { processIngestJob } from '@/jobs/ingest.job.js';
 import { processTranscribeJob } from '@/jobs/transcribe.job.js';
 import { processAiGenerateJob, type AiGenerateJobPayload } from '@/jobs/ai-generate.job.js';
 import { processEnhancePromptJob } from '@/jobs/enhancePrompt.job.js';
-import { processStoryboardPlanJob } from '@/jobs/storyboardPlan.job.js';
 import { processStoryboardOpenAIImageJob } from '@/jobs/storyboardOpenAIImage.job.js';
+import { routeStoryboardPlanQueueJob } from '@/jobs/storyboardPlanQueue.processor.js';
 import {
   aiGenerationJobRepo,
   filesRepo,
-  storyboardAiGenerationJobRepo,
   storyboardIllustrationRepo,
-  storyboardImageFileReadRepo,
-  storyboardReferenceRepo,
+  buildStoryboardOpenAIImageJobDeps,
 } from '@/jobs/workerRepositories.js';
 
 const QUEUE_MEDIA_INGEST = 'media-ingest';
@@ -153,10 +150,12 @@ aiEnhanceWorker.on('error', (err) => {
 console.log('[media-worker] Listening for jobs on queue:', QUEUE_AI_ENHANCE);
 
 // ── Storyboard planning worker (concurrency 1 — multimodal OpenAI planning) ─
+// Carries two job types (ADR-0002): storyboard-plan AND cast-extract — routed by
+// job.name so the cast-extract handler actually runs in production (R1).
 
-const storyboardPlanWorker = new Worker<StoryboardPlanJobPayload>(
+const storyboardPlanWorker = new Worker(
   QUEUE_STORYBOARD_PLAN,
-  (job) => processStoryboardPlanJob(job, { openai: openaiClient, pool }),
+  (job) => routeStoryboardPlanQueueJob(job, { openai: openaiClient, pool }),
   { connection, concurrency: 1 },
 );
 
@@ -178,17 +177,11 @@ console.log('[media-worker] Listening for jobs on queue:', QUEUE_STORYBOARD_PLAN
 
 const storyboardOpenAIImageWorker = new Worker<StoryboardOpenAIImageJobPayload>(
   QUEUE_STORYBOARD_OPENAI_IMAGE,
-  (job) => processStoryboardOpenAIImageJob(job, {
+  (job) => processStoryboardOpenAIImageJob(job, buildStoryboardOpenAIImageJobDeps({
     openai: openaiClient,
     s3: s3Client,
-    pool,
     bucket: config.s3.bucket,
-    filesRepo,
-    fileReadRepo: storyboardImageFileReadRepo,
-    aiGenerationJobRepo: storyboardAiGenerationJobRepo,
-    storyboardReferenceRepo,
-    storyboardSceneRepo: storyboardIllustrationRepo,
-  }),
+  })),
   { connection, concurrency: 1 },
 );
 

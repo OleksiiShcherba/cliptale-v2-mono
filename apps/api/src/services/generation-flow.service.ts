@@ -19,9 +19,15 @@ import * as flowRepo from '@/repositories/generation-flow.repository.js';
 import type { AiGenerationJob } from '@/repositories/aiGenerationJob.repository.js';
 import * as jobRepo from '@/repositories/aiGenerationJob.repository.js';
 import * as flowFileRepo from '@/repositories/flow-file.repository.js';
-import { NotFoundError, OptimisticLockError, ValidationError } from '@/lib/errors.js';
+import { NotFoundError, OptimisticLockError, ValidationError, ConflictError } from '@/lib/errors.js';
 import { flowCanvasSchema } from '@ai-video-editor/project-schema';
 import type { FlowCanvas } from '@ai-video-editor/project-schema';
+import { pool } from '@/db/connection.js';
+import type { RowDataPacket } from 'mysql2/promise';
+
+// pool and RowDataPacket are used directly in deleteFlow for the reference-block
+// no-flow-state UPDATE (AC-12: the FK ON DELETE SET NULL fires only on hard deletes,
+// so the soft-delete path must explicitly NULL the link).
 
 // ── Return types ──────────────────────────────────────────────────────────────
 
@@ -31,14 +37,39 @@ export type OpenFlowResult = {
   jobs: AiGenerationJob[];
 };
 
+/**
+ * FlowRecord augmented with a draft badge (AC-12, ADR-0010).
+ * Badge is derived from the block→flow link (storyboard_reference_blocks.flow_id);
+ * it is never stored on generation_flows.
+ * `draftBadge` is null when no reference block links to this flow.
+ */
+export type FlowWithBadge = FlowRecord & {
+  draftBadge: { draftId: string } | null;
+};
+
 // ── listFlows ─────────────────────────────────────────────────────────────────
 
 /**
  * Lists all non-deleted flows owned by the calling user, newest-first.
  * AC-04: only this user's flows are returned.
+ * AC-12 / ADR-0010: each flow carries a `draftBadge` derived from the
+ * storyboard_reference_blocks JOIN — null when no block links to the flow.
  */
-export async function listFlows(userId: string): Promise<FlowRecord[]> {
-  return flowRepo.findFlowsByUserId(userId);
+export async function listFlows(userId: string): Promise<FlowWithBadge[]> {
+  // Fetch the base flow records.
+  const flows = await flowRepo.findFlowsByUserId(userId);
+  if (flows.length === 0) return [];
+
+  // Derive the draftBadge from the reference-block link (AC-12, ADR-0010).
+  const badgeMap = await flowRepo.findDraftBadgesByFlowIds(flows.map((f) => f.flowId));
+
+  return flows.map((f) => {
+    const draftId = badgeMap.get(f.flowId);
+    return {
+      ...f,
+      draftBadge: draftId != null ? { draftId } : null,
+    };
+  });
 }
 
 // ── createFlow ────────────────────────────────────────────────────────────────
@@ -120,6 +151,11 @@ export async function renameFlow(
  * AC-04: the repository UPDATE is owner-scoped. A zero-row result means the flow
  * does not exist for this user — raises NotFoundError (no 403, no existence leak).
  *
+ * AC-12: if a storyboard reference block links to this flow and `confirm` is false,
+ * a ConflictError (409) is raised before any deletion — the caller must confirm.
+ * The FK ON DELETE SET NULL on storyboard_reference_blocks.flow_id ensures the block
+ * transitions to no-flow state automatically when the flow is deleted (ADR-0010).
+ *
  * AC-19: only the flow row and its flow_files pivot links are soft-deleted.
  * The library asset rows in `files` are NOT touched — assets outlive flows.
  *
@@ -127,12 +163,51 @@ export async function renameFlow(
  * a non-owner/absent flow → 404, and we never touch the pivot in that case). Only
  * after the delete is confirmed do we drop the flow→asset linkage, so deleting a
  * flow leaves its result assets in the library but unlinked (AC-19).
+ *
+ * @param confirm - When false (default) and a reference block links to the flow,
+ *                  throws ConflictError to warn the caller. Pass true to force delete.
  */
-export async function deleteFlow(flowId: string, userId: string): Promise<void> {
+export async function deleteFlow(
+  flowId: string,
+  userId: string,
+  confirm = false,
+): Promise<void> {
+  // F11: gate ownership FIRST (existence hiding). The linked-block probe below is
+  // unscoped, so running it before the ownership check would 409 a non-owner and
+  // leak the flow's existence. A non-owner / missing flow → NotFoundError.
+  const flow = await flowRepo.findFlowById(flowId, userId);
+  if (!flow) {
+    throw new NotFoundError(`Flow "${flowId}" not found`);
+  }
+
+  // AC-12: check for a linked storyboard reference block before deletion.
+  // Only raise the warning when confirm is false; when confirmed, proceed directly.
+  if (!confirm) {
+    type LinkRow = RowDataPacket & { id: string };
+    const [linkRows] = await pool.execute<LinkRow[]>(
+      `SELECT id FROM storyboard_reference_blocks WHERE flow_id = ? LIMIT 1`,
+      [flowId],
+    );
+    if (linkRows.length > 0) {
+      throw new ConflictError(
+        `Flow "${flowId}" is linked to a storyboard reference block. ` +
+          'Pass confirm=true to delete the flow and put the block in no-flow state.',
+      );
+    }
+  }
+
   const deleted = await flowRepo.softDeleteFlow(flowId, userId);
   if (!deleted) {
     throw new NotFoundError(`Flow "${flowId}" not found`);
   }
+
+  // AC-12 / ADR-0010: put linked reference blocks into no-flow state.
+  // The FK is ON DELETE SET NULL but that only fires on a hard delete of the flow row;
+  // since we soft-delete (update deleted_at), we must explicitly NULL the link.
+  await pool.execute(
+    `UPDATE storyboard_reference_blocks SET flow_id = NULL WHERE flow_id = ?`,
+    [flowId],
+  );
 
   // AC-19: drop the flow→asset linkage. The `files` rows are untouched (RESTRICT FK).
   await flowFileRepo.softUnlinkAllFilesFromFlow(flowId);

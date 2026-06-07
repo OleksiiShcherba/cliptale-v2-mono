@@ -120,6 +120,38 @@ export class ContentInvalidError extends GateError {
 }
 
 /**
+ * A submitted scene does not belong to the reference block's draft (F5).
+ * Maps to HTTP 422 with the contract code `references.scene_not_in_draft`; the
+ * out-of-draft scene id is surfaced in details so the client can react.
+ */
+export class SceneNotInDraftError extends GateError {
+  constructor(sceneBlockId: string) {
+    super(
+      'One of the selected scenes is not part of this draft.',
+      'references.scene_not_in_draft',
+      { sceneBlockId },
+    );
+    this.name = 'SceneNotInDraftError';
+  }
+}
+
+/**
+ * Star gate failed — one or more reference blocks lack a starred result.
+ *
+ * Raised by storyboardIllustration.service assertFullSetStarGate (AC-08) and
+ * assertSceneStarGate (AC-08b). The `details.blocks` array names every offending
+ * block with its id and name so the client can surface actionable information
+ * (AC-04 / openapi.yaml 422 bodies for startStoryboardIllustrations and
+ * startStoryboardBlockIllustration).
+ */
+export class StarGateFailedError extends GateError {
+  constructor(message: string, blocks: Array<{ blockId: string; name: string }>) {
+    super(message, 'references.star_gate_failed', { blocks });
+    this.name = 'StarGateFailedError';
+  }
+}
+
+/**
  * Per-Creator generation rate limit exceeded (generate-ai-flow ADR-0004, ≤ 30/min).
  *
  * Maps to HTTP 429. Carries the seconds the caller should wait (for the

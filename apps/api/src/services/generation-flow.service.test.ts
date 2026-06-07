@@ -22,6 +22,7 @@ import { NotFoundError, OptimisticLockError, ValidationError } from '@/lib/error
 // Hoisted mock — must appear before the first import of the service module.
 vi.mock('@/repositories/generation-flow.repository.js', () => ({
   findFlowsByUserId: vi.fn(),
+  findDraftBadgesByFlowIds: vi.fn().mockResolvedValue(new Map()),
   createFlow: vi.fn(),
   findFlowById: vi.fn(),
   renameFlow: vi.fn(),
@@ -79,14 +80,31 @@ describe('generation-flow.service', () => {
   // ── listFlows ─────────────────────────────────────────────────────────────
 
   describe('listFlows', () => {
-    it('returns the repo result for the calling user', async () => {
+    it('returns flows with draftBadge derived from the reference-block link (AC-12, ADR-0010)', async () => {
       const flows = [makeFlow(), makeFlow({ flowId: 'flow-2' })];
       vi.mocked(flowRepo.findFlowsByUserId).mockResolvedValue(flows);
+      // No reference block links these flows → badge is null for both.
+      vi.mocked(flowRepo.findDraftBadgesByFlowIds).mockResolvedValue(new Map());
 
       const result = await listFlows(OWNER_ID);
 
       expect(flowRepo.findFlowsByUserId).toHaveBeenCalledWith(OWNER_ID);
-      expect(result).toEqual(flows);
+      expect(flowRepo.findDraftBadgesByFlowIds).toHaveBeenCalledWith([FLOW_ID, 'flow-2']);
+      // Each flow gets a draftBadge field (null when no block links).
+      expect(result).toEqual(flows.map((f) => ({ ...f, draftBadge: null })));
+    });
+
+    it('returns draftBadge with draftId when a reference block links the flow', async () => {
+      const flows = [makeFlow()];
+      const draftId = 'draft-00000000-0000-4000-8000-000000000001';
+      vi.mocked(flowRepo.findFlowsByUserId).mockResolvedValue(flows);
+      vi.mocked(flowRepo.findDraftBadgesByFlowIds).mockResolvedValue(
+        new Map([[FLOW_ID, draftId]]),
+      );
+
+      const result = await listFlows(OWNER_ID);
+
+      expect(result[0]!.draftBadge).toEqual({ draftId });
     });
 
     it('returns an empty array when the user has no flows', async () => {
@@ -191,6 +209,7 @@ describe('generation-flow.service', () => {
 
   describe('deleteFlow', () => {
     it('soft-deletes without error when the owner deletes their flow', async () => {
+      vi.mocked(flowRepo.findFlowById).mockResolvedValue(makeFlow());
       vi.mocked(flowRepo.softDeleteFlow).mockResolvedValue(true);
 
       await expect(deleteFlow(FLOW_ID, OWNER_ID)).resolves.toBeUndefined();
@@ -199,6 +218,7 @@ describe('generation-flow.service', () => {
 
     // AC-19 (F5): deleting a flow drops the flow→asset linkage but never the assets.
     it('soft-unlinks the flow_files pivot links after a successful soft-delete (AC-19)', async () => {
+      vi.mocked(flowRepo.findFlowById).mockResolvedValue(makeFlow());
       vi.mocked(flowRepo.softDeleteFlow).mockResolvedValue(true);
 
       await deleteFlow(FLOW_ID, OWNER_ID);

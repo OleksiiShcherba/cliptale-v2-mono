@@ -90,6 +90,8 @@ interface StoryboardCanvasProps {
    * Receives the edge ID to remove.
    */
   onCutEdge?: (edgeId: string) => void;
+  /** Optional — opens the cast extraction modal (storyboard-reference-flows AC-01). */
+  onStartReferenceGeneration?: () => void;
 }
 
 // ── Inner canvas (needs ReactFlow context for useReactFlow) ────────────────────
@@ -107,9 +109,10 @@ function InnerCanvas({
   onAddBlock,
   onAddMusicBlock,
   canAddMusicBlock,
+  onStartReferenceGeneration,
   zoom,
   onZoomChange,
-}: Pick<InnerCanvasProps, 'onAddBlock' | 'onAddMusicBlock' | 'canAddMusicBlock' | 'zoom' | 'onZoomChange'>): React.ReactElement {
+}: Pick<InnerCanvasProps, 'onAddBlock' | 'onAddMusicBlock' | 'canAddMusicBlock' | 'onStartReferenceGeneration' | 'zoom' | 'onZoomChange'>): React.ReactElement {
   const { zoomTo } = useReactFlow();
 
   const handleZoomChange = useCallback(
@@ -127,6 +130,7 @@ function InnerCanvas({
         onAddBlock={onAddBlock}
         onAddMusicBlock={onAddMusicBlock}
         canAddMusicBlock={canAddMusicBlock}
+        onStartReferenceGeneration={onStartReferenceGeneration}
       />
     </>
   );
@@ -155,6 +159,7 @@ export function StoryboardCanvas({
   onNodeClick,
   cursorMode = 'grab',
   onCutEdge,
+  onStartReferenceGeneration,
 }: StoryboardCanvasProps): React.ReactElement {
   // Track zoom locally so ZoomToolbar percentage display stays in sync.
   const [zoom, setZoom] = useState<number>(DEFAULT_ZOOM);
@@ -211,6 +216,7 @@ export function StoryboardCanvas({
           onAddBlock={onAddBlock}
           onAddMusicBlock={onAddMusicBlock}
           canAddMusicBlock={canAddMusicBlock}
+          onStartReferenceGeneration={onStartReferenceGeneration}
           zoom={zoom}
           onZoomChange={setZoom}
         />

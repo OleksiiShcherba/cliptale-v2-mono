@@ -1,0 +1,270 @@
+{
+  "slug": "storyboard-reference-flows",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Promote staged curation migrations 01–04 into the live migration tree",
+      "layer": "migration",
+      "deps": [],
+      "acs": ["AC-06", "AC-07", "AC-10b"],
+      "dod": "All four staged up/down pairs are promoted, apply and revert cleanly on a real MySQL, and the schema constraints (UNIQUE flow 1:1, single primary star, scene-link cascade) hold",
+      "files_hint": [
+        "docs/features/storyboard-reference-flows/migrations/01_create_storyboard_cast_extraction_jobs.up.sql",
+        "docs/features/storyboard-reference-flows/migrations/02_create_storyboard_reference_blocks.up.sql",
+        "docs/features/storyboard-reference-flows/migrations/03_create_storyboard_reference_scene_links.up.sql",
+        "docs/features/storyboard-reference-flows/migrations/04_create_storyboard_reference_stars.up.sql"
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "Implement extraction-job + reference-block repositories (atomic window claim, CAS version)",
+      "layer": "infra",
+      "deps": ["T1"],
+      "acs": ["AC-01", "AC-03", "AC-04"],
+      "dod": "Integration tests against real MySQL pass for job CRUD, block CRUD in cast order, atomic claim of the next pending block per draft, and compare-and-set version increment",
+      "files_hint": [
+        "apps/api/src/repositories/storyboardReference.repository.ts",
+        "apps/api/src/repositories/storyboardReference.repository.test.ts"
+      ]
+    },
+    {
+      "id": "T3",
+      "title": "Implement stars + scene-links repositories (idempotent toggle, primary uniqueness, cascade)",
+      "layer": "infra",
+      "deps": ["T1"],
+      "acs": ["AC-06", "AC-07", "AC-10", "AC-10b"],
+      "dod": "Integration tests pass for idempotent star toggle, at-most-one primary per block, links replace-set under CAS, and scene-deletion cascade removing links with no dangling rows",
+      "files_hint": [
+        "apps/api/src/repositories/storyboardReferenceCuration.repository.ts",
+        "apps/api/src/repositories/storyboardReferenceCuration.repository.test.ts"
+      ]
+    },
+    {
+      "id": "T4",
+      "title": "Build cast-extraction service: start (owner-scoped, AC-01b guard) + get proposal",
+      "layer": "app",
+      "deps": ["T2"],
+      "acs": ["AC-01", "AC-01b", "AC-13"],
+      "dod": "Unit/integration tests pass: start creates a job row and enqueues on storyboard-plan, repeat-extraction on a draft with existing blocks is rejected, non-owner is denied without revealing existence",
+      "files_hint": [
+        "apps/api/src/services/storyboardReference.extraction.service.ts",
+        "apps/api/src/services/storyboardReference.extraction.service.test.ts"
+      ]
+    },
+    {
+      "id": "T5",
+      "title": "Build worker cast-extract job: LLM proposal constrained by Zod cast schema, limit 12, scene-relevance ranking",
+      "layer": "app",
+      "deps": ["T2"],
+      "acs": ["AC-01", "AC-02"],
+      "dod": "Job tests pass: script treated as data, output validated by the cast Zod schema, proposal capped at 12 keeping highest scene-appearance counts with an overflow notice, aggregate estimate computed, realtime event published, failure writes a plain-language error",
+      "files_hint": [
+        "apps/media-worker/src/jobs/cast-extract.job.ts",
+        "apps/media-worker/src/jobs/cast-extract.job.test.ts"
+      ]
+    },
+    {
+      "id": "T6",
+      "title": "Build confirm-cast service: blocks + flows + pending window rows, aggregate estimate, dispatch first N (user concurrencyLimit)",
+      "layer": "app",
+      "deps": ["T2", "T3"],
+      "acs": ["AC-03", "AC-13"],
+      "dod": "Integration tests pass: confirm transactionally creates one block per entry with a 1:1 pre-filled flow and proposed scene links, marks all first runs pending in cast order, enqueues exactly min(N, cast) generations where N comes from user_settings (default 4), and charges nothing at confirm time",
+      "files_hint": [
+        "apps/api/src/services/storyboardReference.confirm.service.ts",
+        "apps/api/src/services/storyboardReference.confirm.service.test.ts",
+        "apps/api/src/services/settings.service.ts"
+      ]
+    },
+    {
+      "id": "T7",
+      "title": "Add rolling-window completion-hook to the ai-generate worker job",
+      "layer": "app",
+      "deps": ["T2"],
+      "acs": ["AC-03", "AC-04"],
+      "dod": "Job tests pass: on first-run completion the block flips to done/failed (failed keeps a plain-language reason), the next pending block of the same draft is atomically claimed and enqueued, other blocks are unaffected, redelivery never double-charges or double-claims",
+      "files_hint": [
+        "apps/media-worker/src/jobs/ai-generate.job.ts",
+        "apps/media-worker/src/jobs/ai-generate.referenceWindow.ts",
+        "apps/media-worker/src/jobs/ai-generate.referenceWindow.test.ts"
+      ]
+    },
+    {
+      "id": "T8",
+      "title": "Build block-lifecycle service: manual add (no run, no charge), update, delete (flow survives), retry, versioned scene-link save",
+      "layer": "app",
+      "deps": ["T2", "T3"],
+      "acs": ["AC-04", "AC-10", "AC-10b", "AC-11", "AC-13", "AC-14"],
+      "dod": "Integration tests pass: manual add creates an empty linked flow with window_status NULL and no charge, delete removes the block + its links while the flow and results survive, retry re-dispatches a failed first run, scene-link save with a stale version returns a conflict and a fresh version succeeds, all owner-scoped",
+      "files_hint": [
+        "apps/api/src/services/storyboardReference.blocks.service.ts",
+        "apps/api/src/services/storyboardReference.blocks.service.test.ts"
+      ]
+    },
+    {
+      "id": "T9",
+      "title": "Build star service: versionless atomic toggle, primary designation, preview fallback, cleanup sync on result/file deletion",
+      "layer": "app",
+      "deps": ["T2", "T3"],
+      "acs": ["AC-06", "AC-07", "AC-13"],
+      "dod": "Integration tests pass: star/unstar are idempotent commutative toggles, primary star designation is atomic, removing the primary falls back to another star or the no-preview state, deleting a flow result/file removes its star rows synchronously, non-owner denied",
+      "files_hint": [
+        "apps/api/src/services/generation-flow.stars.service.ts",
+        "apps/api/src/services/generation-flow.stars.service.test.ts"
+      ]
+    },
+    {
+      "id": "T10",
+      "title": "Enforce the star gate in the storyboard illustration service (full-set, per-scene scope, zero-blocks pass)",
+      "layer": "app",
+      "deps": ["T2", "T3"],
+      "acs": ["AC-04", "AC-08", "AC-08b"],
+      "dod": "Tests pass: full-set start with any unstarred block is rejected naming exactly the missing blocks (a no-results block counts as missing and the message includes retry/delete exits), single-scene regeneration checks only blocks linked to that scene, a draft with zero reference blocks passes",
+      "files_hint": [
+        "apps/api/src/services/storyboardIllustration.service.ts",
+        "apps/api/src/services/storyboardIllustration.validation.ts",
+        "apps/api/src/controllers/storyboardIllustration.controller.ts"
+      ]
+    },
+    {
+      "id": "T11",
+      "title": "Apply the reference boundary in the worker scene generation master: primary + top-up selection, draft-global derived style description",
+      "layer": "app",
+      "deps": ["T2", "T3"],
+      "acs": ["AC-08b", "AC-09"],
+      "dod": "Job tests pass: scene X uses only starred images of blocks linked to X (primary first, topped up to model reference capacity), unlinked blocks' images never leak into X, scenes with no linked blocks share one draft-global style description derived from starred results with script fallback when no stars exist",
+      "files_hint": [
+        "apps/media-worker/src/jobs/storyboardOpenAIImage.job.ts",
+        "apps/media-worker/src/jobs/referenceSelection.ts",
+        "apps/media-worker/src/jobs/referenceSelection.test.ts"
+      ]
+    },
+    {
+      "id": "T12",
+      "title": "Derive the draft badge, delete-flow warning + no-flow state, draft-deletion survival, duplication unlink + checkpoint re-validation",
+      "layer": "app",
+      "deps": ["T2"],
+      "acs": ["AC-12", "AC-14b"],
+      "dod": "Integration tests pass: flow list exposes the badge derived from the block link, deleting a linked flow requires confirmation and leaves the block in the no-flow state, deleting a draft leaves flows intact with badges gone, duplicating a draft unlinks copied blocks, checkpoint restore re-validates links marking missing flows as no-flow",
+      "files_hint": [
+        "apps/api/src/services/generation-flow.service.ts",
+        "apps/api/src/controllers/generation-flow.controller.ts",
+        "apps/api/src/services/generationDraft.restore.service.ts",
+        "apps/api/src/services/generationDraft.service.ts"
+      ]
+    },
+    {
+      "id": "T13",
+      "title": "Expose extraction + confirm endpoints (routes, controller, Zod schemas) per the OpenAPI contract",
+      "layer": "ports",
+      "deps": ["T4", "T6"],
+      "acs": ["AC-01", "AC-01b", "AC-03", "AC-13"],
+      "dod": "Controller tests pass: startCastExtraction / getCastExtraction / confirmCast match contracts/openapi.yaml shapes and status codes, repeat extraction returns the contract error, non-owner gets the not-found-style denial",
+      "files_hint": [
+        "apps/api/src/routes/storyboard-references.routes.ts",
+        "apps/api/src/controllers/storyboardReference.controller.ts",
+        "apps/api/src/controllers/storyboardReference.controller.schemas.ts"
+      ]
+    },
+    {
+      "id": "T14",
+      "title": "Expose block CRUD, retry, scene-links and star endpoints per the OpenAPI contract",
+      "layer": "ports",
+      "deps": ["T8", "T9", "T13"],
+      "acs": ["AC-04", "AC-06", "AC-10", "AC-11", "AC-13", "AC-14"],
+      "dod": "Controller tests pass: listReferenceBlocks / createReferenceBlock / updateReferenceBlock / deleteReferenceBlock / retryReferenceBlockGeneration / saveSceneLinks (409 on stale version) / starReferenceResult / unstarReferenceResult match contracts/openapi.yaml, all owner-scoped",
+      "files_hint": [
+        "apps/api/src/routes/storyboard-references.routes.ts",
+        "apps/api/src/controllers/storyboardReference.controller.ts",
+        "apps/api/src/controllers/storyboardReference.controller.schemas.ts"
+      ]
+    },
+    {
+      "id": "T15",
+      "title": "Build the ReferenceBlockNode on the Video Road Map canvas: preview, window statuses + retry, no-flow state, open-flow navigation, manual add",
+      "layer": "ui",
+      "deps": ["T14"],
+      "acs": ["AC-03", "AC-04", "AC-05", "AC-07", "AC-11"],
+      "dod": "Component tests pass: block renders primary-star preview or placeholder, shows pending/running/failed (failed with reason + retry), no-flow state is visually distinct, clicking opens the linked flow in the same tab, the canvas offers manual character/environment block creation, realtime status events update the node",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/ReferenceBlockNode.tsx",
+        "apps/web-editor/src/features/storyboard/components/ReferenceBlockNode.styles.ts",
+        "apps/web-editor/src/features/storyboard/components/ReferenceBlockNode.test.tsx",
+        "apps/web-editor/src/features/storyboard/api.ts"
+      ]
+    },
+    {
+      "id": "T16",
+      "title": "Build the SceneLinkSelector multi-select + visible linked-scenes list with 409 reload prompt",
+      "layer": "ui",
+      "deps": ["T14"],
+      "acs": ["AC-10", "AC-10b"],
+      "dod": "Component tests pass: selector lists draft scenes with multi-select add/remove, the block shows its visible linked-scenes list, save sends the block version and a 409 response shows the reload prompt without silently dropping edits, deleted scenes disappear from the list",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/SceneLinkSelector.tsx",
+        "apps/web-editor/src/features/storyboard/components/SceneLinkSelector.test.tsx"
+      ]
+    },
+    {
+      "id": "T17",
+      "title": "Build the cast confirmation modal (review/edit entries, images, scene links, aggregate estimate) and replace the principal-image entry point",
+      "layer": "ui",
+      "deps": ["T13", "T16"],
+      "acs": ["AC-01", "AC-01b", "AC-02", "AC-03"],
+      "dod": "Component tests pass: starting reference generation launches extraction with realtime progress, the proposal is editable in place (names, descriptions, image assignment, scene links via SceneLinkSelector), the cap-overflow notice renders, confirm shows the aggregate estimate, drafts with existing blocks never see the extraction action, and the principal-image approval UI is removed",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/CastConfirmModal.tsx",
+        "apps/web-editor/src/features/storyboard/components/CastConfirmModal.test.tsx",
+        "apps/web-editor/src/features/storyboard/components/PrincipalImageApprovalModal.tsx",
+        "apps/web-editor/src/features/storyboard/components/PrincipalImageApprovalControls.tsx"
+      ]
+    },
+    {
+      "id": "T18",
+      "title": "Add star + primary-star controls to the flow ResultNode with block-preview sync",
+      "layer": "ui",
+      "deps": ["T14"],
+      "acs": ["AC-06", "AC-07"],
+      "dod": "Component tests pass: results in a reference flow show star toggle and primary designation, starring/un-starring updates optimistically and converges with the server, removing the primary reflects the fallback preview, non-reference flows show no star controls",
+      "files_hint": [
+        "apps/web-editor/src/features/generate-ai-flow/components/ResultNode.tsx",
+        "apps/web-editor/src/features/generate-ai-flow/api.ts"
+      ]
+    },
+    {
+      "id": "T19",
+      "title": "Show the draft badge in the flow list, the delete-flow dependency warning, and the back-to-storyboard action",
+      "layer": "ui",
+      "deps": ["T12"],
+      "acs": ["AC-05", "AC-12"],
+      "dod": "Component tests pass: reference flows carry their draft badge in the Generate AI list, deleting such a flow shows the dependency warning and proceeds only after confirmation, a flow opened from a block shows a back-to-storyboard action returning to the same draft",
+      "files_hint": [
+        "apps/web-editor/src/features/generate-ai-flow/components/FlowListPage.tsx",
+        "apps/web-editor/src/features/generate-ai-flow/components/FlowEditorPage.tsx"
+      ]
+    },
+    {
+      "id": "T20",
+      "title": "Render the star-gate message with exit actions and add the concurrency-limit setting UI",
+      "layer": "ui",
+      "deps": ["T6", "T10"],
+      "acs": ["AC-03", "AC-08"],
+      "dod": "Component tests pass: a blocked scene-preview start names exactly the unstarred blocks with retry/delete exits in plain language, and the settings surface exposes the rolling-window concurrency limit (default 4) persisted via updateMySettings",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/",
+        "apps/web-editor/src/features/settings/"
+      ]
+    },
+    {
+      "id": "T21",
+      "title": "Add the cross-layer e2e journey: extract → confirm → window → stars → gate → boundary-respecting scenes",
+      "layer": "tests",
+      "deps": ["T5", "T7", "T11", "T15", "T16", "T17", "T18", "T19", "T20"],
+      "acs": ["AC-01", "AC-03", "AC-06", "AC-08", "AC-09", "AC-13", "AC-14b"],
+      "dod": "Playwright e2e passes: a seeded Creator runs extraction, confirms the cast, watches blocks fill via the rolling window, stars results, is blocked then passed by the star gate, generates boundary-respecting scenes; a second user is denied access; draft deletion leaves flows in the list",
+      "files_hint": [
+        "e2e/storyboard-reference-flows.spec.ts"
+      ]
+    }
+  ]
+}

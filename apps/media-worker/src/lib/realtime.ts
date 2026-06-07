@@ -10,6 +10,19 @@ import type { Pool, RowDataPacket } from 'mysql2/promise';
 
 import { config } from '@/config.js';
 
+/** Local event type for cast extraction updates (events.md §87-104). */
+type RealtimeCastExtractionEvent = {
+  type: 'storyboard.cast_extraction.updated';
+  eventId?: string;
+  userId: string;
+  occurredAt?: string;
+  jobId: string;
+  draftId: string;
+  status: string;
+  aggregateEstimateCredits: number | null;
+  errorMessage: string | null;
+};
+
 type AiJobStatus = 'queued' | 'processing' | 'completed' | 'failed';
 
 type AiJobRealtimeRow = RowDataPacket & {
@@ -43,7 +56,7 @@ type StoryboardBindingRow = RowDataPacket & {
   error_message: string | null;
 };
 
-type PublishableRealtimeEvent = RealtimeAiJobEvent | RealtimeStoryboardEvent;
+type PublishableRealtimeEvent = RealtimeAiJobEvent | RealtimeStoryboardEvent | RealtimeCastExtractionEvent;
 
 let redis: Redis | null = null;
 
@@ -166,6 +179,92 @@ export async function publishAiGenerationJobStatus(params: {
       resource: 'aiGenerationJob',
       ...payload,
       storyboardBindings: await findStoryboardBindings(params.pool, row.job_id),
+    },
+  });
+}
+
+type CastExtractionRow = RowDataPacket & {
+  job_id: string;
+  draft_id: string;
+  user_id: string;
+  status: string;
+  aggregate_estimate_credits: string | null;
+  error_message: string | null;
+};
+
+export async function publishCastExtractionStatus(params: {
+  pool: Pool;
+  jobId: string;
+}): Promise<void> {
+  if (typeof params.pool.query !== 'function') return;
+
+  let row: CastExtractionRow | undefined;
+  try {
+    const [rows] = await params.pool.query<CastExtractionRow[]>(
+      `SELECT id AS job_id, draft_id, user_id, status, aggregate_estimate_credits, error_message
+         FROM storyboard_cast_extraction_jobs
+        WHERE id = ?`,
+      [params.jobId],
+    );
+    row = rows[0];
+  } catch {
+    return;
+  }
+  if (!row) return;
+
+  await publishRealtimeEvent({
+    type: 'storyboard.cast_extraction.updated',
+    userId: row.user_id,
+    jobId: row.job_id,
+    draftId: row.draft_id,
+    status: row.status,
+    aggregateEstimateCredits:
+      row.aggregate_estimate_credits !== null
+        ? Number(row.aggregate_estimate_credits)
+        : null,
+    errorMessage: row.error_message,
+  });
+}
+
+type ReferenceBlockRow = RowDataPacket & {
+  id: string;
+  draft_id: string;
+  user_id: string;
+  window_status: string;
+  error_message: string | null;
+};
+
+export async function publishReferenceBlockStatus(params: {
+  pool: Pool;
+  blockId: string;
+}): Promise<void> {
+  if (typeof params.pool.query !== 'function') return;
+
+  let row: ReferenceBlockRow | undefined;
+  try {
+    const [rows] = await params.pool.query<ReferenceBlockRow[]>(
+      `SELECT srb.id, srb.draft_id, gd.user_id, srb.window_status, srb.error_message
+         FROM storyboard_reference_blocks srb
+         JOIN generation_drafts gd ON gd.id = srb.draft_id
+        WHERE srb.id = ?`,
+      [params.blockId],
+    );
+    row = rows[0];
+  } catch {
+    return;
+  }
+  if (!row) return;
+
+  await publishRealtimeEvent({
+    type: 'storyboard.status.updated',
+    userId: row.user_id,
+    draftId: row.draft_id,
+    payload: {
+      resource: 'storyboardPlan',
+      jobId: row.id,
+      status: row.window_status,
+      plan: null,
+      errorMessage: row.error_message,
     },
   });
 }

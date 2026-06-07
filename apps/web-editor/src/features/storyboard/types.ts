@@ -255,3 +255,107 @@ export type AddToStoryboardPayload = {
   templateId: string;
   draftId: string;
 };
+
+// ── Reference block types (storyboard-reference-flows T15) ───────────────────
+
+/** window_status values from storyboard_reference_blocks.window_status ENUM.
+ *  NULL = manually-added block (no auto-dispatch, AC-11). */
+export type ReferenceBlockWindowStatus = 'pending' | 'running' | 'done' | 'failed' | null;
+
+/** A reference block canvas entity (data-model.md §storyboard_reference_blocks). */
+export type StoryboardReferenceBlock = {
+  id: string;
+  draftId: string;
+  /** NULL = no-flow state (ADR-0006, AC-12). */
+  flowId: string | null;
+  castType: 'character' | 'environment';
+  name: string;
+  description: string | null;
+  sortOrder: number;
+  positionX: number;
+  positionY: number;
+  /** NULL for manually-added blocks (AC-11). */
+  windowStatus: ReferenceBlockWindowStatus;
+  firstJobId: string | null;
+  /** Plain-language reason when windowStatus === 'failed' (AC-04). */
+  errorMessage: string | null;
+  /** Compare-and-set version for scene-link saves. */
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** React Flow node data for a reference block (off-chain, like MusicBlockNodeData). */
+export type ReferenceBlockNodeData = {
+  referenceBlock: StoryboardReferenceBlock;
+  /** URL of the primary-starred result file to show as block preview (AC-03/AC-06).
+   *  NULL = no starred result → no-preview placeholder (AC-07). */
+  previewUrl: string | null;
+  /** Called with blockId when the block is clicked and flowId is non-null (AC-05). */
+  onOpenFlow: (blockId: string) => void;
+  /** Called with blockId when the retry button is clicked on a failed block (AC-04). */
+  onRetry: (blockId: string) => void;
+  /**
+   * Called (no arguments) when the "Add reference block" action is triggered from
+   * the canvas (AC-11 / US-07 — manually adding a new empty linked flow).
+   * Optional: rendered only when provided.
+   */
+  onAddBlock?: () => void;
+};
+
+// ── Reference block API wire types (contracts/openapi.yaml) ──────────────────
+
+/** A star entry on a reference block (storyboard_reference_stars). */
+export type ReferenceBlockStar = {
+  fileId: string;
+  isPrimary: boolean;
+  createdAt: string;
+};
+
+/**
+ * Wire-format reference block returned from the API (openapi.yaml ReferenceBlock schema).
+ * Uses `blockId` for the server-side key name (camelCase wire convention).
+ */
+export type ReferenceBlockApiResponse = {
+  blockId: string;
+  draftId: string;
+  flowId: string | null;
+  castType: 'character' | 'environment';
+  name: string;
+  description: string | null;
+  sortOrder: number;
+  positionX: number;
+  positionY: number;
+  windowStatus: ReferenceBlockWindowStatus;
+  errorMessage: string | null;
+  version: number;
+  sceneBlockIds: string[];
+  stars: ReferenceBlockStar[];
+  previewFileId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Response shape for list reference blocks (openapi.yaml ReferenceBlockList). */
+export type ReferenceBlockListResponse = {
+  items: ReferenceBlockApiResponse[];
+};
+
+/** Request body for creating a reference block manually (AC-11 / US-07). */
+export type CreateReferenceBlockPayload = {
+  castType: 'character' | 'environment';
+  name: string;
+  description?: string | null;
+};
+
+/** Request body for updating a reference block's canvas position (versionless). */
+export type UpdateReferenceBlockPayload = {
+  positionX: number;
+  positionY: number;
+};
+
+/** Response for a retry request (openapi.yaml RetryAccepted). */
+export type RetryReferenceBlockResponse = {
+  blockId: string;
+  windowStatus: 'pending';
+};

@@ -26,10 +26,10 @@
 
 import React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useLocation, Link } from 'react-router-dom';
 
-import { getFlow, getFileUrl } from '../api';
-import type { Flow, JobState } from '../types';
+import { getFlow, getFileUrl, starReferenceResult, unstarReferenceResult } from '../api';
+import type { Flow, JobState, StarEntry, BlockStarsState } from '../types';
 import type { FlowCanvas as FlowCanvasDoc, FlowBlock } from '@ai-video-editor/project-schema';
 
 import { FlowCanvas } from './FlowCanvas';
@@ -79,6 +79,13 @@ export function FlowEditorPage(): React.ReactElement {
   const { flowId } = useParams<{ flowId: string }>();
   const id = flowId ?? '';
 
+  // AC-05: detect when this flow was opened from a storyboard reference block.
+  // The navigation state carries `{ fromDraft: draftId, fromBlockId: blockId }`.
+  const location = useLocation();
+  const locationState = location.state as { fromDraft?: string; fromBlockId?: string } | null;
+  const fromDraft = locationState?.fromDraft ?? null;
+  const fromBlockId = locationState?.fromBlockId ?? null;
+
   // Initial flow load (canvas + jobs). While any job is non-terminal the read is
   // polled so an in-flight generation reattaches and finishes live (AC-08b).
   const [hasPendingJob, setHasPendingJob] = React.useState(false);
@@ -104,6 +111,8 @@ export function FlowEditorPage(): React.ReactElement {
     <FlowEditor
       key={flow.flowId}
       flow={flow}
+      fromDraft={fromDraft}
+      fromBlockId={fromBlockId}
       onPendingJobChange={setHasPendingJob}
     />
   );
@@ -113,9 +122,15 @@ export function FlowEditorPage(): React.ReactElement {
 
 function FlowEditor({
   flow,
+  fromDraft,
+  fromBlockId,
   onPendingJobChange,
 }: {
   flow: Flow;
+  /** AC-05: draftId when opened from a storyboard reference block. */
+  fromDraft: string | null;
+  /** AC-06: blockId of the reference block that opened this flow (for star context). */
+  fromBlockId: string | null;
   onPendingJobChange: (pending: boolean) => void;
 }): React.ReactElement {
   const initialCanvas = flow.canvas;
@@ -123,6 +138,47 @@ function FlowEditor({
   const controllerRef = React.useRef<ControllerType | null>(null);
   const [selectedBlockId, setSelectedBlockId] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
+
+  // ── AC-06/07: reference context (stars) when opened from a storyboard block ──
+  // The flow response may carry `stars` (reference-flows extension). We track them
+  // locally for optimistic updates (toggle → API → authoritative state on success).
+  const flowWithStars = flow as Flow & { stars?: StarEntry[]; previewFileId?: string | null };
+  const [referenceStars, setReferenceStars] = React.useState<StarEntry[]>(
+    flowWithStars.stars ?? [],
+  );
+  const [referencePreviewFileId, setReferencePreviewFileId] = React.useState<string | null>(
+    flowWithStars.previewFileId ?? null,
+  );
+
+  const handleStarToggle = React.useCallback(
+    (fileId: string, isPrimary?: boolean): void => {
+      setReferenceStars((prev) => {
+        const exists = prev.find((s) => s.fileId === fileId);
+        if (exists) {
+          return prev.map((s) =>
+            s.fileId === fileId ? { ...s, isPrimary: isPrimary ?? s.isPrimary } : s,
+          );
+        }
+        return [...prev, { fileId, isPrimary: isPrimary ?? false, createdAt: new Date().toISOString() }];
+      });
+      if (isPrimary) setReferencePreviewFileId(fileId);
+    },
+    [],
+  );
+
+  const handleUnstar = React.useCallback(
+    (fileId: string): void => {
+      setReferenceStars((prev) => prev.filter((s) => s.fileId !== fileId));
+      setReferencePreviewFileId((prev) => (prev === fileId ? null : prev));
+    },
+    [],
+  );
+
+  // Sync authoritative state after API calls.
+  const applyStarsState = React.useCallback((state: BlockStarsState): void => {
+    setReferenceStars(state.stars);
+    setReferencePreviewFileId(state.previewFileId);
+  }, []);
 
   const onCanvasReady = React.useCallback((c: ControllerType) => {
     controllerRef.current = c;
@@ -369,6 +425,32 @@ function FlowEditor({
   const handleGenerateRef = React.useRef(handleGenerate);
   handleGenerateRef.current = handleGenerate;
 
+  // Build reference context for star controls (AC-06/07) — only when opened from a block.
+  const refCtxRef = React.useRef<import('./ResultNode').ReferenceContext | undefined>(undefined);
+  if (fromDraft != null && fromBlockId != null) {
+    refCtxRef.current = {
+      draftId: fromDraft,
+      blockId: fromBlockId,
+      stars: referenceStars,
+      previewFileId: referencePreviewFileId,
+      onStarToggle: (fileId, isPrimary) => {
+        handleStarToggle(fileId, isPrimary);
+        // Kick off the API call; roll back on failure via applyStarsState.
+        void starReferenceResult(fromDraft, fromBlockId, fileId, { isPrimary: isPrimary ?? false })
+          .then(applyStarsState)
+          .catch(() => { /* rollback: ignore, API is authoritative on next reload */ });
+      },
+      onUnstar: (fileId) => {
+        handleUnstar(fileId);
+        void unstarReferenceResult(fromDraft, fromBlockId, fileId)
+          .then(applyStarsState)
+          .catch(() => { /* rollback: ignore */ });
+      },
+    };
+  } else {
+    refCtxRef.current = undefined;
+  }
+
   const flowExtras = React.useMemo<FlowExtras>(
     () => ({
       generation: () => ({
@@ -401,6 +483,7 @@ function FlowEditor({
           onRetry: () => {
             if (sourceGen) handleGenerateRef.current(sourceGen);
           },
+          referenceContext: refCtxRef.current,
         };
       },
       nodeActions: (blockId) => ({
@@ -413,7 +496,8 @@ function FlowEditor({
     }),
     // Re-create the value object on data changes so context consumers re-render with
     // fresh job/preview state (cheap — does NOT touch the xyflow nodes array).
-    [jobsById, latestJobByBlock, liveResultBlockId, generation.job, previewUrls, canvas.blocks],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [jobsById, latestJobByBlock, liveResultBlockId, generation.job, previewUrls, canvas.blocks, referenceStars, referencePreviewFileId],
   );
 
   return (
@@ -421,9 +505,21 @@ function FlowEditor({
       {/* Top chrome + toolbar (FlowListPage idiom). */}
       <div style={headerStyle}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', minWidth: 0 }}>
-          <Link to="/?tab=generate-ai" aria-label="Home" style={homeLinkStyle}>
-            ← Home
-          </Link>
+          {/* AC-05: show "Back to storyboard" when opened from a reference block;
+              otherwise show the standard Home link. */}
+          {fromDraft != null ? (
+            <Link
+              to={`/storyboard/${fromDraft}`}
+              aria-label="Back to storyboard"
+              style={homeLinkStyle}
+            >
+              ← Back to storyboard
+            </Link>
+          ) : (
+            <Link to="/?tab=generate-ai" aria-label="Home" style={homeLinkStyle}>
+              ← Home
+            </Link>
+          )}
           <h1 style={titleStyle}>{flow.title}</h1>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
