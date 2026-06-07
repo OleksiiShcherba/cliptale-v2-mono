@@ -301,4 +301,70 @@ describe('generation-flow.service / AC-12 badge + delete-warning lifecycle (T12)
     // draftBadge must be null — the block is gone, nothing links this flow to a draft.
     expect(afterEntry!.draftBadge).toBeNull();
   });
+
+  // ── F6 / AC-14b on the REAL (soft) delete path ───────────────────────────────
+
+  it('AC-14b: soft-deleting a draft via the service removes the badge though the block keeps its flow_id', async () => {
+    const { listFlows } = await svc();
+    const { remove } = await import('@/services/generationDraft.service.js');
+
+    const draftId = await seedDraft(OWNER_ID);
+    const flowId  = await seedFlow(OWNER_ID, 'Flow surviving soft draft deletion');
+    await seedReferenceBlock({ draftId, flowId });
+
+    // Pre-check: badge present.
+    const before = await listFlows(OWNER_ID);
+    expect(before.find((f) => f.flowId === flowId)!.draftBadge).toEqual({ draftId });
+
+    // The user-facing delete is a SOFT delete (deleted_at), not a row removal.
+    await remove(OWNER_ID, draftId);
+
+    // The draft is soft-deleted and the block STILL carries its flow_id…
+    const [draftRows] = await conn.query<RowDataPacket[]>(
+      `SELECT deleted_at FROM generation_drafts WHERE id = ?`,
+      [draftId],
+    );
+    expect(draftRows[0]!['deleted_at']).not.toBeNull();
+    const [blockRows] = await conn.query<RowDataPacket[]>(
+      `SELECT flow_id FROM storyboard_reference_blocks WHERE draft_id = ?`,
+      [draftId],
+    );
+    expect(blockRows).toHaveLength(1);
+    expect(blockRows[0]!['flow_id']).toBe(flowId);
+
+    // …yet the badge must be gone — the draft is deleted from the user's view.
+    const after = await listFlows(OWNER_ID);
+    expect(after.find((f) => f.flowId === flowId)!.draftBadge).toBeNull();
+  });
+
+  // ── F11: deleteFlow must hide flow existence from a non-owner ─────────────────
+
+  it('F11: a non-owner deleting a linked flow gets NotFound, not a 409 that leaks existence', async () => {
+    const { deleteFlow } = await svc();
+    const { NotFoundError, ConflictError } = await import('@/lib/errors.js');
+
+    // OWNER's flow with a linked reference block (would 409 for the owner w/o confirm).
+    const draftId = await seedDraft(OWNER_ID);
+    const flowId  = await seedFlow(OWNER_ID, 'Owner flow with linked block');
+    await seedReferenceBlock({ draftId, flowId });
+
+    const STRANGER = `srf-T12-stranger-${RUN}`;
+
+    let caught: unknown;
+    try {
+      await deleteFlow(flowId, STRANGER, false);
+    } catch (e) {
+      caught = e;
+    }
+    // Must be a 404 existence-hiding error, NOT the 409 linked-block warning.
+    expect(caught).toBeInstanceOf(NotFoundError);
+    expect(caught).not.toBeInstanceOf(ConflictError);
+
+    // The owner's block + flow must be untouched.
+    const [blockRows] = await conn.query<RowDataPacket[]>(
+      `SELECT flow_id FROM storyboard_reference_blocks WHERE draft_id = ?`,
+      [draftId],
+    );
+    expect(blockRows[0]!['flow_id']).toBe(flowId);
+  });
 });

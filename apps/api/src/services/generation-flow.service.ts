@@ -172,6 +172,14 @@ export async function deleteFlow(
   userId: string,
   confirm = false,
 ): Promise<void> {
+  // F11: gate ownership FIRST (existence hiding). The linked-block probe below is
+  // unscoped, so running it before the ownership check would 409 a non-owner and
+  // leak the flow's existence. A non-owner / missing flow → NotFoundError.
+  const flow = await flowRepo.findFlowById(flowId, userId);
+  if (!flow) {
+    throw new NotFoundError(`Flow "${flowId}" not found`);
+  }
+
   // AC-12: check for a linked storyboard reference block before deletion.
   // Only raise the warning when confirm is false; when confirmed, proceed directly.
   if (!confirm) {

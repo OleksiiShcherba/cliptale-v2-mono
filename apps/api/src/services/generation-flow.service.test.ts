@@ -209,6 +209,7 @@ describe('generation-flow.service', () => {
 
   describe('deleteFlow', () => {
     it('soft-deletes without error when the owner deletes their flow', async () => {
+      vi.mocked(flowRepo.findFlowById).mockResolvedValue(makeFlow());
       vi.mocked(flowRepo.softDeleteFlow).mockResolvedValue(true);
 
       await expect(deleteFlow(FLOW_ID, OWNER_ID)).resolves.toBeUndefined();
@@ -217,6 +218,7 @@ describe('generation-flow.service', () => {
 
     // AC-19 (F5): deleting a flow drops the flow→asset linkage but never the assets.
     it('soft-unlinks the flow_files pivot links after a successful soft-delete (AC-19)', async () => {
+      vi.mocked(flowRepo.findFlowById).mockResolvedValue(makeFlow());
       vi.mocked(flowRepo.softDeleteFlow).mockResolvedValue(true);
 
       await deleteFlow(FLOW_ID, OWNER_ID);

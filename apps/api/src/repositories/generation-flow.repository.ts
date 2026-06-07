@@ -173,10 +173,15 @@ export async function findDraftBadgesByFlowIds(
 
   type BadgeRow = RowDataPacket & { flow_id: string; draft_id: string };
   const placeholders = flowIds.map(() => '?').join(',');
+  // F6: a draft delete is a SOFT delete (deleted_at), and the block keeps its
+  // flow_id, so the badge must exclude blocks whose draft is soft-deleted —
+  // otherwise the draft badge persists after the user deletes the draft.
   const [rows] = await pool.execute<BadgeRow[]>(
-    `SELECT flow_id, draft_id
-       FROM storyboard_reference_blocks
-      WHERE flow_id IN (${placeholders})`,
+    `SELECT srb.flow_id, srb.draft_id
+       FROM storyboard_reference_blocks srb
+       JOIN generation_drafts gd ON gd.id = srb.draft_id
+      WHERE srb.flow_id IN (${placeholders})
+        AND gd.deleted_at IS NULL`,
     flowIds,
   );
 
