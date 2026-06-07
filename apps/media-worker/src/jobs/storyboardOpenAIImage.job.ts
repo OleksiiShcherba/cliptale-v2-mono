@@ -14,11 +14,22 @@ import { parseStorageUri } from '@/lib/storage-uri.js';
 import { publishAiGenerationJobStatus } from '@/lib/realtime.js';
 import { setJobProgress, setJobStatus } from '@/jobs/ai-generate.utils.js';
 import type { CreateFileParams, FilesRepo, AiGenerationJobRepo } from '@/jobs/ai-generate.job.js';
+import {
+  selectSceneReferences,
+  checkScopedStarGate,
+  buildDraftStyleDescription,
+  type ReferenceBlock,
+} from '@/jobs/referenceSelection.js';
 
 const OPENAI_STORYBOARD_IMAGE_MODEL = 'gpt-image-2';
 const OUTPUT_CONTENT_TYPE = 'image/png';
 const OUTPUT_EXTENSION = 'png';
 const PROGRESS_OPENAI_DONE = 80;
+/**
+ * Maximum number of reference images supported by gpt-image-2 in a single
+ * images.edit call (ADR-0008: primary star + top-up to model capacity).
+ */
+const GPT_IMAGE_2_MODEL_CAPACITY = 16;
 
 type ReferenceFile = {
   fileId: string;
@@ -48,6 +59,15 @@ export type StoryboardSceneRepo = {
   markFailed: (aiJobId: string, errorMessage: string) => Promise<void>;
 };
 
+/**
+ * Repository for loading reference blocks (with their stars and scene links)
+ * for a given draft. Used by the scene generation master to enforce the
+ * reference boundary (AC-09, ADR-0008).
+ */
+export type SceneReferenceSelectionRepo = {
+  loadBlocksForDraft: (draftId: string) => Promise<ReferenceBlock[]>;
+};
+
 export type StoryboardOpenAIImageJobDeps = {
   openai: OpenAI;
   s3: S3Client;
@@ -60,6 +80,8 @@ export type StoryboardOpenAIImageJobDeps = {
   };
   storyboardReferenceRepo?: StoryboardReferenceRepo;
   storyboardSceneRepo?: StoryboardSceneRepo;
+  /** Optional: when present, enforces the reference boundary (AC-09) for scene jobs. */
+  sceneReferenceSelectionRepo?: SceneReferenceSelectionRepo;
 };
 
 function sanitizeStoryboardImageError(error: unknown): string {
@@ -165,6 +187,64 @@ async function resolveOutputBuffer(response: Awaited<ReturnType<OpenAI['images']
   throw new Error('OpenAI Images response did not include image data');
 }
 
+/**
+ * For kind='scene' jobs: applies the reference boundary (AC-09, ADR-0008) and
+ * the scoped star gate (AC-08b) when the optional sceneReferenceSelectionRepo
+ * is wired. Returns the effective referenceFileIds and prompt to use.
+ *
+ * - If the repo is absent: falls back to payload values (backward compat).
+ * - If linked blocks exist: uses selectSceneReferences to derive file IDs
+ *   within the boundary (only starred images of blocks linked to the scene).
+ * - If no linked blocks: passes an empty fileIds list and augments the prompt
+ *   with a draft-global derived style description (ADR-0007, AC-08b).
+ */
+async function resolveSceneInputs(
+  payload: StoryboardOpenAIImageJobPayload,
+  deps: StoryboardOpenAIImageJobDeps,
+): Promise<{ referenceFileIds: string[]; prompt: string }> {
+  if (payload.kind !== 'scene' || !payload.blockId || !deps.sceneReferenceSelectionRepo) {
+    return { referenceFileIds: payload.referenceFileIds, prompt: payload.prompt };
+  }
+
+  const allBlocks = await deps.sceneReferenceSelectionRepo.loadBlocksForDraft(payload.draftId);
+
+  // AC-08b: scoped star gate — check only blocks linked to this scene
+  const gate = checkScopedStarGate({ sceneId: payload.blockId, allBlocks });
+  if (!gate.passes) {
+    // The API service is the authoritative enforcement point (ADR-0011); the
+    // worker logs the violation but does not abort (to avoid orphaned jobs after
+    // TOCTOU — stars could have changed between enqueue and execution).
+    // The prompt will still be sent with whatever references are available.
+  }
+
+  // AC-09, ADR-0008: select only starred images of blocks linked to this scene
+  const selectedFileIds = selectSceneReferences({
+    sceneId: payload.blockId,
+    allBlocks,
+    modelCapacity: GPT_IMAGE_2_MODEL_CAPACITY,
+  });
+
+  // AC-09, ADR-0007: scenes with no linked blocks get a draft-global derived
+  // style description instead of linked-block references (shared by all such
+  // scenes of this draft's generation run).
+  const hasLinkedBlocks = allBlocks.some((b) => b.linkedSceneIds.includes(payload.blockId!));
+  let effectivePrompt = payload.prompt;
+  if (!hasLinkedBlocks) {
+    const allStarredFileIds = allBlocks.flatMap((b) => b.stars.map((s) => s.fileId));
+    const styleDescription = buildDraftStyleDescription({
+      starredFileIds: allStarredFileIds,
+      scriptFallback: payload.prompt,
+    });
+    // Prepend the derived style description to the scene prompt so the model
+    // receives both visual-style context and the scene-specific narrative.
+    effectivePrompt = styleDescription !== payload.prompt
+      ? `${styleDescription}\n\n${payload.prompt}`
+      : payload.prompt;
+  }
+
+  return { referenceFileIds: selectedFileIds, prompt: effectivePrompt };
+}
+
 export async function processStoryboardOpenAIImageJob(
   job: Job<StoryboardOpenAIImageJobPayload>,
   deps: StoryboardOpenAIImageJobDeps,
@@ -175,20 +255,27 @@ export async function processStoryboardOpenAIImageJob(
   await publishAiGenerationJobStatus({ pool: deps.pool, jobId: payload.jobId });
 
   try {
-    const imageInputs = await buildImageInputs({ payload, deps });
+    const { referenceFileIds: effectiveReferenceFileIds, prompt: effectivePrompt } =
+      await resolveSceneInputs(payload, deps);
+    const effectivePayload: StoryboardOpenAIImageJobPayload = {
+      ...payload,
+      referenceFileIds: effectiveReferenceFileIds,
+      prompt: effectivePrompt,
+    };
+    const imageInputs = await buildImageInputs({ payload: effectivePayload, deps });
     const size = normalizeSize(payload.size);
     const response = imageInputs.length
       ? await deps.openai.images.edit({
           model: OPENAI_STORYBOARD_IMAGE_MODEL,
           image: imageInputs.length === 1 ? imageInputs[0]! : imageInputs,
-          prompt: payload.prompt,
+          prompt: effectivePrompt,
           n: 1,
           size,
           quality: 'auto',
         })
       : await deps.openai.images.generate({
           model: OPENAI_STORYBOARD_IMAGE_MODEL,
-          prompt: payload.prompt,
+          prompt: effectivePrompt,
           n: 1,
           size,
           quality: 'auto',

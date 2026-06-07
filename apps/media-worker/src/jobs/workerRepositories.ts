@@ -10,7 +10,9 @@ import type {
 import type {
   StoryboardImageFileReadRepo,
   StoryboardReferenceRepo,
+  SceneReferenceSelectionRepo,
 } from '@/jobs/storyboardOpenAIImage.job.js';
+import type { ReferenceBlock, ReferenceStar } from '@/jobs/referenceSelection.js';
 
 export const filesRepo: FilesRepo = {
   async createFile(params: CreateFileParams): Promise<string> {
@@ -239,5 +241,77 @@ export const storyboardIllustrationRepo: StoryboardIllustrationRepo = {
         WHERE ai_job_id = ?`,
       [errorMessage, aiJobId],
     );
+  },
+};
+
+/**
+ * Loads all reference blocks for a draft, including their stars and scene links,
+ * in cast order (sort_order ASC). Used by the scene generation master to enforce
+ * the reference boundary (AC-09, ADR-0008).
+ */
+export const sceneReferenceSelectionRepo: SceneReferenceSelectionRepo = {
+  async loadBlocksForDraft(draftId: string): Promise<ReferenceBlock[]> {
+    // Fetch all reference blocks for the draft in cast order
+    const [blockRows] = await pool.query<Array<{
+      id: string;
+    } & RowDataPacket>>(
+      `SELECT id
+         FROM storyboard_reference_blocks
+        WHERE draft_id = ?
+        ORDER BY sort_order ASC`,
+      [draftId],
+    );
+
+    if (!blockRows.length) {
+      return [];
+    }
+
+    const blockIds = blockRows.map((r) => r.id);
+    const placeholders = blockIds.map(() => '?').join(',');
+
+    // Fetch all scene links for these blocks in one query
+    const [linkRows] = await pool.query<Array<{
+      reference_block_id: string;
+      scene_block_id: string;
+    } & RowDataPacket>>(
+      `SELECT reference_block_id, scene_block_id
+         FROM storyboard_reference_scene_links
+        WHERE reference_block_id IN (${placeholders})`,
+      blockIds,
+    );
+
+    // Fetch all stars for these blocks in one query
+    const [starRows] = await pool.query<Array<{
+      reference_block_id: string;
+      file_id: string;
+      is_primary: number | null;
+    } & RowDataPacket>>(
+      `SELECT reference_block_id, file_id, is_primary
+         FROM storyboard_reference_stars
+        WHERE reference_block_id IN (${placeholders})
+        ORDER BY is_primary DESC, created_at ASC`,
+      blockIds,
+    );
+
+    // Build maps for efficient lookup
+    const linksByBlock = new Map<string, string[]>();
+    for (const link of linkRows) {
+      const existing = linksByBlock.get(link.reference_block_id) ?? [];
+      existing.push(link.scene_block_id);
+      linksByBlock.set(link.reference_block_id, existing);
+    }
+
+    const starsByBlock = new Map<string, ReferenceStar[]>();
+    for (const star of starRows) {
+      const existing = starsByBlock.get(star.reference_block_id) ?? [];
+      existing.push({ fileId: star.file_id, isPrimary: star.is_primary === 1 });
+      starsByBlock.set(star.reference_block_id, existing);
+    }
+
+    return blockRows.map((block): ReferenceBlock => ({
+      id: block.id,
+      linkedSceneIds: linksByBlock.get(block.id) ?? [],
+      stars: starsByBlock.get(block.id) ?? [],
+    }));
   },
 };
