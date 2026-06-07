@@ -12,7 +12,7 @@
 | T5 | Worker cast-extract job (LLM, Zod, limit 12) | app | Oleksii | M | T2 | done |
 | T6 | Confirm-cast service + rolling-window dispatch | app | Oleksii | L | T2, T3 | done |
 | T7 | Rolling-window completion-hook | app | Oleksii | M | T2 | done |
-| T8 | Block lifecycle + versioned scene-link save | app | Oleksii | L | T2, T3 | todo |
+| T8 | Block lifecycle + versioned scene-link save | app | Oleksii | L | T2, T3 | done |
 | T9 | Star service (toggle, primary, fallback, cleanup) | app | Oleksii | M | T2, T3 | todo |
 | T10 | Star gate в illustration service | app | Oleksii | M | T2, T3 | todo |
 | T11 | Scene master: reference boundary + style description | app | Oleksii | L | T2, T3 | todo |
