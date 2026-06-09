@@ -205,23 +205,66 @@ C4Container
      📌 e.g. «author → web: composes draft → web → content API: save». Seed the primary flow(s) here;
      the `sequences` stage then covers every §5 AC (no cap). Never N/A for M+; XS/S keeps ≥1 happy-path flow. -->
 
-**Critical flow 1: <flow name>**
+**Critical flow 1: Full-draft старт через Reference-done gate** (US-01/US-02; гілки AC-02 not-ready, AC-04b reference-less, AC-04 zero-ref інлайн)
 
 ```mermaid
 sequenceDiagram
-    actor Actor
-    participant Web
-    participant Service
-    participant Store
-    Actor->>Web: <action>
-    Web->>Service: <call>
-    Service->>Store: <write>
-    Store-->>Service: ok
-    Service-->>Web: result
-    Web-->>Actor: confirmation
+    actor Creator
+    participant Web as web-editor SPA
+    participant API as api
+    participant MySQL as MySQL
+    participant Redis as Redis (черга/події)
+    participant Worker as media-worker
+    participant Ext as OpenAI / S3
+
+    Creator->>Web: запускає повну генерацію сцен
+    Web->>API: старт генерації сцен драфта
+    API->>MySQL: owner-scoped resolve + читає всі reference-блоки, output-existence, scene-links
+    alt будь-який блок not-ready (manual / unstarred / ще генерується — нема completed output)
+        API-->>Web: відмова + named blocking блоки і дії (retry / remove)
+        Web-->>Creator: показує які референси завершити, повторити чи видалити
+    else є ≥1 блок, але сцена без лінка
+        API-->>Web: відмова + named reference-less сцени (link a reference)
+        Web-->>Creator: показує сцени без лінка
+    else нуль reference-блоків, або всі ready і всі сцени лінковані
+        API->>Redis: ставить scene-генерацію в чергу; підтверджує старт
+        Worker->>Redis: бере scene-джобу
+        Worker->>MySQL: читає selected output лінкованих блоків (reference boundary)
+        Worker->>Ext: генерує сцену (style description для нелінкованих) і зберігає preview
+        Worker-->>Web: статус сцени (realtime)
+        Web-->>Creator: консистентні scene previews
+    end
 ```
 
-**Critical flow 2: <e.g. async event propagation>** — <if applicable, otherwise N/A>.
+**Critical flow 2: Per-scene регенерація — scene-scoped gate + single-output selection** (US-03/US-05/US-06; AC-03/AC-03b/AC-06/AC-06b)
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web as web-editor SPA
+    participant API as api
+    participant MySQL as MySQL
+    participant Redis as Redis (черга/події)
+    participant Worker as media-worker
+    participant Ext as OpenAI / S3
+
+    Creator->>Web: регенерує одну сцену S
+    Web->>API: старт регенерації сцени S
+    API->>MySQL: owner-scoped resolve + читає лише блоки, лінковані до S, та їх output-existence
+    alt лінкований до S блок not-ready
+        API-->>Web: відмова + named саме ці блоки (нелінкований not-ready блок не блокує)
+        Web-->>Creator: дії-виходи для блоків сцени S
+    else усі лінковані до S блоки ready (або лінкованих нуль)
+        API->>Redis: ставить регенерацію S у чергу
+        Worker->>Redis: бере джобу
+        Worker->>MySQL: для кожного лінкованого блока обирає один output — primary star якщо completed-usable, інакше latest completed (ADR-0003)
+        Worker->>Ext: генерує S з рівно одним output на блок (boundary); зберігає preview
+        Worker-->>Web: статус сцени S (realtime)
+        Web-->>Creator: оновлений preview сцени S
+    end
+```
+
+Решту US/AC (AC-05 reference boundary, AC-07 cross-context readiness, AC-08 principal retired, AC-09 authorization) покриває стадія `sequences` — повна мапа покриття там.
 
 ## 7. Deployment view
 
