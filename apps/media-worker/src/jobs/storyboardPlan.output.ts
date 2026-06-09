@@ -123,12 +123,76 @@ function normalizeCompositionPlanSections(
     ? Math.round(fallback.durationMs / sections.length)
     : null;
 
-  return sections.map((section, index) =>
+  const normalized = sections.map((section, index) =>
     normalizeCompositionPlanSection(section, {
       name: fallback.name,
       index,
       durationMs: fallbackDurationMs,
     }),
+  );
+
+  return reconcileSectionDurationsMs(normalized, fallback.durationMs);
+}
+
+/**
+ * Rescale a list of integer-millisecond durations so they sum exactly to `targetMs`,
+ * preserving each entry's relative proportion. The model is asked to make these durations
+ * add up, but its arithmetic drifts by a few hundred milliseconds; the strict schema then
+ * hard-fails the whole job. Reconciling the small drift here turns that validation into a
+ * safety net instead of a hard gate. Returns the input untouched when reconciliation is not
+ * safely possible (non-numeric or non-positive durations, or no usable target), so genuinely
+ * malformed output still surfaces as a validation error.
+ */
+function reconcileIntegerMsDurations(values: number[], targetMs: number): number[] {
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (total <= 0) return values;
+
+  const scaled = values.map((value) => Math.max(1, Math.round((value * targetMs) / total)));
+  const residual = targetMs - scaled.reduce((sum, value) => sum + value, 0);
+
+  let largestIndex = 0;
+  for (let index = 1; index < scaled.length; index += 1) {
+    if (scaled[index]! > scaled[largestIndex]!) largestIndex = index;
+  }
+  scaled[largestIndex] = Math.max(1, scaled[largestIndex]! + residual);
+
+  return scaled;
+}
+
+function reconcileSectionDurationsMs(sections: unknown[], targetMs: number | null): unknown[] {
+  if (targetMs === null || !Number.isFinite(targetMs) || targetMs <= 0) return sections;
+
+  const durations = sections.map((section) =>
+    isRecord(section) && typeof section.duration_ms === 'number' ? section.duration_ms : null,
+  );
+  if (durations.some((duration) => duration === null || !Number.isFinite(duration) || duration <= 0)) {
+    return sections;
+  }
+
+  const reconciled = reconcileIntegerMsDurations(durations as number[], Math.round(targetMs));
+  return sections.map((section, index) =>
+    isRecord(section) ? { ...section, duration_ms: reconciled[index] } : section,
+  );
+}
+
+function reconcileSceneDurations(scenes: unknown[], videoLengthSeconds: unknown): unknown[] {
+  if (typeof videoLengthSeconds !== 'number' || !Number.isFinite(videoLengthSeconds) || videoLengthSeconds <= 0) {
+    return scenes;
+  }
+
+  const durationsMs = scenes.map((scene) =>
+    isRecord(scene) &&
+    typeof scene.durationSeconds === 'number' &&
+    Number.isFinite(scene.durationSeconds) &&
+    scene.durationSeconds > 0
+      ? Math.round(scene.durationSeconds * 1_000)
+      : null,
+  );
+  if (durationsMs.some((duration) => duration === null)) return scenes;
+
+  const reconciled = reconcileIntegerMsDurations(durationsMs as number[], Math.round(videoLengthSeconds * 1_000));
+  return scenes.map((scene, index) =>
+    isRecord(scene) ? { ...scene, durationSeconds: reconciled[index]! / 1_000 } : scene,
   );
 }
 
@@ -246,12 +310,17 @@ function normalizeStoryboardPlanCandidate(rawPlan: unknown): unknown {
   const wrappedPlan = pickValue(rawPlan, ['storyboardPlan', 'storyboard_plan', 'plan']);
   const plan = isRecord(wrappedPlan) ? wrappedPlan : rawPlan;
   const scenes = plan.scenes;
+  const videoLengthSeconds = pickValue(plan, ['videoLengthSeconds', 'video_length_seconds']);
   const musicSegments = pickValue(plan, ['musicSegments', 'music_segments']);
-  const normalizedScenes = Array.isArray(scenes) ? scenes.map(normalizeScene) : scenes;
+  // Reconcile scene drift first so music segments measure their covered range against the
+  // same durations the schema validates.
+  const normalizedScenes = Array.isArray(scenes)
+    ? reconcileSceneDurations(scenes.map(normalizeScene), videoLengthSeconds)
+    : scenes;
 
   return {
     schemaVersion: pickValue(plan, ['schemaVersion', 'schema_version']),
-    videoLengthSeconds: pickValue(plan, ['videoLengthSeconds', 'video_length_seconds']),
+    videoLengthSeconds,
     sceneCount: pickValue(plan, ['sceneCount', 'scene_count']),
     scenes: normalizedScenes,
     musicSegments: Array.isArray(musicSegments)

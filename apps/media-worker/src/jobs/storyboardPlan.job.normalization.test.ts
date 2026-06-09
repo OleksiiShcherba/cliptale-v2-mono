@@ -235,6 +235,71 @@ describe('processStoryboardPlanJob output normalization', () => {
     expect(repository.markCompleted).toHaveBeenCalledWith(expect.objectContaining({ plan: result }));
   });
 
+  it('reconciles small scene and composition duration drift before validation', async () => {
+    const repository = makeRepository();
+    const rawPlan = {
+      schema_version: STORYBOARD_PLAN_SCHEMA_VERSION,
+      video_length_seconds: 30,
+      scene_count: 5,
+      // Each scene drifts +0.2s → sum 31s, 1.0s over videoLengthSeconds (> 0.5s tolerance).
+      scenes: Array.from({ length: 5 }, (_, index) => ({
+        ...makeScene(index + 1),
+        duration_seconds: 6.2,
+      })),
+      music_segments: [
+        {
+          name: 'Opening cue',
+          prompt: 'Instrumental cue building across the first beats.',
+          // Covered scene range (1-3) is 18s; sections sum to 16s (2s short).
+          compositionPlan: {
+            positiveGlobalStyles: ['instrumental'],
+            negativeGlobalStyles: ['vocals'],
+            sections: [
+              { section_name: 'Intro', duration_ms: 8_000 },
+              { section_name: 'Build', duration_ms: 8_000 },
+            ],
+          },
+          start_scene_number: 1,
+          end_scene_number: 3,
+        },
+        {
+          name: 'Closing cue',
+          prompt: 'Calm instrumental resolution for the final beats.',
+          // Covered scene range (4-5) is 12s; single section sums to 5s.
+          compositionPlan: {
+            positiveGlobalStyles: ['instrumental'],
+            negativeGlobalStyles: ['vocals'],
+            sections: [{ section_name: 'Resolve', duration_ms: 5_000 }],
+          },
+          start_scene_number: 4,
+          end_scene_number: 5,
+        },
+      ],
+    };
+
+    const result = await processStoryboardPlanJob(makeJob(), {
+      openai: makeOpenAiMock(JSON.stringify(rawPlan)),
+      pool,
+      repository,
+      resolveContext: vi.fn(async () => makeContext()),
+    });
+
+    // Scene durations reconciled to sum exactly to videoLengthSeconds.
+    const totalSceneSeconds = result.scenes.reduce((sum, scene) => sum + scene.durationSeconds, 0);
+    expect(totalSceneSeconds).toBeCloseTo(30, 6);
+    expect(result.scenes.every((scene) => scene.durationSeconds === 6)).toBe(true);
+
+    // Composition sections reconciled to the covered scene range, preserving proportions.
+    const firstSections = result.musicSegments[0]!.compositionPlan.sections;
+    expect(firstSections.reduce((sum, section) => sum + section.duration_ms, 0)).toBe(18_000);
+    expect(firstSections.map((section) => section.duration_ms)).toEqual([9_000, 9_000]);
+
+    const secondSections = result.musicSegments[1]!.compositionPlan.sections;
+    expect(secondSections.reduce((sum, section) => sum + section.duration_ms, 0)).toBe(12_000);
+
+    expect(repository.markCompleted).toHaveBeenCalledWith(expect.objectContaining({ plan: result }));
+  });
+
   it('reports nested schema errors instead of a generic root union error', async () => {
     const repository = makeRepository();
     const invalidPlan = {
