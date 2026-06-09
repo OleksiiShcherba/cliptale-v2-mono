@@ -275,18 +275,18 @@ sequenceDiagram
      🎯 N/A allowed for XS/S that reuses an existing deployment unit with no change.
      Deployment-diagram scaffold → templates/deployment.md. -->
 
-<Topology in 2–3 sentences. Where it runs, replicas, scaling thresholds.>
+Жодних змін інфраструктури: фіча деплоїться в наявних контейнерах (`api`, `web-editor`, `media-worker`) через стандартний docker-compose/CI. **Нова міграція в цій фічі не потрібна** — readiness читається з наявних reference-таблиць (053–055), а row-доля legacy `storyboard_illustration_references` — OQ для `data-model` (§11). Реплікація й масштабування контейнерів незмінні.
 
-**Monitoring:**
-- <Metrics — e.g. `<metric_name>`>
-- <Alerts — e.g. «worker lag > 10 min → page on-call»>
-- <Tracing — e.g. spans on the request boundary>
+**Monitoring (прив'язка до NFR spec §6 + KPI §7):**
+- `scene_start_latency_p95` — час старту генерації сцен, включно з оцінкою гейта (NFR ≤ 500 мс).
+- `readiness_read_latency_p95` — час readiness/status read драфта (NFR ≤ 300 мс).
+- `gate_deadlock_incidents` — драфти, що не стартують попри завершені Creator-ом референси (KPI §7, target 0). **Алерт:** будь-який інцидент → ревізія readiness-логіки.
+- `reference_utilization_rate` — частка сцен, що спожили ≥1 лінкований output (KPI §7, ≥ 80% за 30 днів).
+- `principal_image_generations` — legacy-шлях; target → 0 за 7 днів post-rollout (KPI §7).
 
 **Scaling thresholds:**
-- <e.g. comfortable in one table up to N rows/year>
-- <e.g. partition by quarter above N rows/year>
-
-<!-- For XS/S with no deployment change: <!-- N/A: reuses existing deployment unit, no infra change --> -->
+- Черга `storyboard-openai-image` спільна; гейт додає лише дешевий persisted read на старті — у межах поточної пропускної здатності.
+- Якщо лаг черги стабільно росте — масштабувати репліки media-worker (наявний механізм), модель гейта не змінюється.
 
 ## 8. Crosscutting concepts
 
@@ -298,13 +298,16 @@ sequenceDiagram
 
 | Concept | Convention | Where defined |
 |---|---|---|
-| Logging | <e.g. structured, fields `module=<name>`> | <convention file §X or here> |
-| Authentication | <e.g. token-based via middleware> | <convention file §X> |
-| Error handling | <e.g. domain sentinel → ports error mapping → JSON> | <convention file §X> |
-| ID strategy | <e.g. sortable time-based ID in the app layer> | <convention file §X> |
-| Internationalisation | <e.g. N/A, single language> | — |
-| Observability | <e.g. tracing on the request boundary> | — |
-| Events | <module-specific patterns, if any> | <here> |
+| Authentication | наявний token-middleware | `architecture-rules.md` |
+| Authorization | owner-scoped resolve **перед** оцінкою гейта; non-owner — відмова без розкриття стану референсів/сцен (AC-09) | spec §6.1 + конвенція |
+| Error handling | типізовані error-класи → central handler → JSON; **новий `ReferenceNotReadyError`** (422, `details: { blocks: [...], scenes: [...] }`) замінює `StarGateFailedError` на scene-старті | `apps/api/src/lib/errors.ts` |
+| Gate evaluation cost | readiness — суто persisted read; **жодного виклику провайдера** на gate-шляху (NFR §6: readiness eval + blocking/unlinked naming + status read) | here |
+| Realtime / events | наявні Redis pub/sub → WS статуси сцен — без змін | `lib/realtime.ts` |
+| Idempotency / retry | наявні політики scene-джоб (Idempotency-Key, backoff) — без змін | конвенція |
+| ID strategy | UUID v4 `CHAR(36)` через `randomUUID()` | конвенція |
+| Validation | Zod у контролерах | конвенція |
+| Principal image | ignore-on-read у рантаймі (ADR-0004) — не годує сцену, не впливає на гейт (AC-08) | here |
+| Internationalisation | N/A — одна мова інтерфейсу (як у репо) | — |
 
 ## 9. Architecture decisions
 
