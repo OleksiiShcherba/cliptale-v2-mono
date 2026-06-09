@@ -21,21 +21,22 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      ¶4 is the override slot — critic `Override` resolutions emit «Decision override: <headline>
      — rationale: <reason>» bullets here so downstream skills see the deliberate choice. -->
 
-**Intent.** <One paragraph from spec §2 Goals — what we're building and for whom.>
+**Intent.** Замінити двотрекову модель готовності сторіборда — старіння кожного reference-блока *плюс* окремий up-front **principal image** — на єдиний **Reference-done gate**: повна генерація сцен стартує лише коли кожен character/environment reference-блок драфта є **ready reference block** (має ≥1 завершений результат), а в драфті з ≥1 reference-блоком кожна сцена має лінк до референса; сцени споживають **selected reference output** своїх лінкованих блоків (рівно один на блок), а legacy principal image вилучено зі scene-шляху. Мета (spec §2): консистентні персонажі/оточення в кожній сцені, єдиний зрозумілий шлях готовності замість двох, і неможливість стартувати генерацію поки референс не завершено.
 
 **Top-3 quality goals (1-liners; full scenarios in §10):**
 
-1. <e.g. "Availability under partial failure of a downstream module">
-2. <e.g. "Read performance for the dashboard under data-scale growth">
-3. <e.g. "Recoverability with <30 min RTO">
+1. **Коректність гейта без дедлоків** — готовність визначається існуванням output, а не сирим `window_status` і не starring-ом; manually-added блоки (без rolling-window стану) і завершені-але-незазірковані блоки ніколи не клинять гейт і сцена ніколи не лишається з порожнім референсом.
+2. **Цілісність reference boundary** — 0 сцен, що отримали output нелінкованого блока (spec §6, invariant assertion в автотестах).
+3. **Дешевий і швидкий гейт** — старт генерації сцен p95 ≤ 500 мс, status/readiness read p95 ≤ 300 мс; оцінка готовності не тригерить жодної платної генерації.
 
 **Stakeholders.**
 
 | Role | Interest | Sign-off owner? |
 |---|---|---|
-| <author role from glossary> | <feature usage> | No |
-| <consumer role from glossary> | <read usage> | No |
-| Tech Lead | SAD approval | Yes |
+| Creator | стартує генерацію сцен, отримує консистентні сцени, дізнається які референси блокують | No |
+| PM (Oleksii) | KPI spec §7 (reference-utilization ≥ 80%, gate-deadlock 0, principal-gen → 0, consistency complaints −30%); консультується на §10/§11 | No |
+| Tech Lead | затвердження SAD, технічні OQ spec §8 | Yes |
+| Security Lead | review (spec §6.1 → security review **N/A**: без нового authz-периметра й нових PII) | No |
 
 <!-- Decision overrides (¶4) — populated by the critic resolution loop, empty otherwise. -->
 
@@ -48,23 +49,24 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      Never N/A — every feature inherits at least Conventions + Technical. -->
 
 **Technical.**
-- <Language + version>
-- <Framework(s) + version>
-- <Datastore(s) + version>
-- <Architecture convention — e.g. the layering style from the project convention file>
+- TypeScript 5.4+ (strict, ESM), Node ≥ 20; монорепо Turborepo + npm workspaces (`apps/*`, `packages/*`).
+- Backend: Express 4 + Zod-валідація; realtime через `ws` + Redis pub/sub; черги BullMQ 5 на Redis 7.
+- Frontend: React 18 + Vite 5 (SPA), TanStack Query 5, storyboard-канвас на `@xyflow/react`; стилі — інлайн `CSSProperties` у co-located `*.styles.ts`.
+- DB: MySQL 8 / InnoDB через `mysql2` raw SQL (без ORM); міграції `NNN_*.sql` з in-process runner (останній номер — `056`); IDs — UUID v4 `CHAR(36)`.
+- Генерація сцен виконується тільки в media-worker через існуючу чергу `storyboard-openai-image` (OpenAI images-pipeline); reference-генерація — окремий rolling-window на черзі `ai-generate`. Цей feature **споживає** їхній persisted-стан, не змінює сам механізм генерації.
+- **Нуль інфраструктурних оверрайдів**: жодної нової БД, черги чи зовнішнього сервісу. Рішення, що цьому суперечить, потребує явної Override-нотатки з посиланням на §11.
 
 **Organisational.**
-- <Effort budget — e.g. 3 person-weeks>
-- <Deadline — e.g. 2026-Q3 hard>
-- <Team composition>
+- Соло-розробка (owner = Oleksii / Storyboard squad); дедлайн у спеці не зафіксовано.
+- Розмір фічі — **M** (фокусована ревізія контракту, а не нова підсистема).
 
 **Conventions.**
-- <Link to the project's convention file>
-- <Naming, ID strategy, error-handling pattern>
+- `docs/architecture-map.md` + `docs/architecture-rules.md`: routes → controllers → services → repositories; типізовані error-класи (`apps/api/src/lib/errors.ts`); `config.ts` — єдине місце читання `process.env` (`APP_*`); OpenAPI (`packages/api-contracts/src/openapi.ts`) оновлюється в тому самому коміті.
+- Прецедент, який ця фіча **ревізує**: `storyboard-reference-flows` (merged 2026-06-07) — зокрема її star gate (ADR-0011) і multi-candidate selection (ADR-0008). Нові ADR цієї фічі їх supersede-ять.
 
 **Regulatory / external.**
-- <e.g. data-retention / deletion behaviour per ADR-NNNN>
-- <e.g. applicable compliance controls, or N/A with a reason>
+- Spec §6.1: internal data — драфти, reference-блоки й згенеровані зображення приватні для власника-Creator-а; жодних нових PII-полів.
+- Жодних нових ролей чи authz-периметрів; усе лишається owner-scoped. **Security review N/A** (spec §6.1: без нового authz-кордону, без нових PII, без нової зовнішньої поверхні).
 
 ## 3. Context and scope
 
@@ -75,30 +77,34 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      Trust boundary — the line past which you don't trust data without checking it.
      Never N/A — greenfield still draws the planned actors + external systems. -->
 
-<Business context in 2–3 sentences. What the system does for whom.>
+Creator у storyboard-візарді ClipTale генерує мультисценові сцени. Ця фіча змінює дві речі на scene-шляху: **передумову старту** генерації (зі star gate на Reference-done gate, що читає існування завершеного output) і **вибір референсів** (один selected output на лінкований блок замість multi-candidate; principal image вилучено). Межа довіри незмінна: кожна операція старту/регенерації/readiness owner-scoped — non-owner отримує відмову без розкриття існування чи стану референсів/сцен драфта (spec §6.1).
 
-<!-- brownfield: <one-line scan summary> (or «N/A — greenfield repo» if no source existed) -->
+<!-- brownfield: scene-start gate + selection живуть у apps/api/src/services/storyboardIllustration.service.ts (assertFullSetStarGate / assertSceneStarGate, StarGateFailedError) та apps/media-worker/src/jobs/{storyboardOpenAIImage.job.ts, referenceSelection.ts}; principal image — storyboard_illustration_references (migration 040) + storyboardIllustration.jobs.ts; reference-стан — storyboard_reference_blocks/stars/scene_links (migrations 053–055). Скан 2026-06-09; architecture-map.md відстає (reflects 9f943df, +216 комітів) — рекомендовано re-run survey. -->
 
 **External systems (in / out):**
 
 | Actor or system | Type | Interaction |
 |---|---|---|
-| <author role> | Person | <what they do> |
-| <external service> | System (internal/external) | <interaction> |
-| <identity provider> | System (external) | <provides auth tokens> |
+| Creator | Person | стартує генерацію сцен (full-draft / per-scene), отримує consistent scene previews, бачить які референси блокують |
+| OpenAI | System (external) | derived style description для нелінкованих сцен + генерація зображень сцен (images-pipeline, черга `storyboard-openai-image`) |
+| S3 / object store | System (external) | читання selected reference outputs, запис scene previews (presigned URLs, приватні бакети) |
 
 **C4 Context (L1):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. -->
 
 ```mermaid
 C4Context
-    title <feature> — System Context
+    title scene-generation-reference-gate — System Context
 
-    Person(actor, "<Actor role>", "<intent>")
-    System(app, "<Our system>", "<one-sentence description>")
-    System_Ext(ext, "<External system>", "<one-sentence description>")
+    Person(creator, "Creator", "власник драфта: стартує генерацію сцен, отримує консистентні сцени")
 
-    Rel(actor, app, "<interaction>", "<protocol>")
-    Rel(app, ext, "<interaction>", "<protocol>")
+    System(cliptale, "ClipTale", "AI-відеоредактор: storyboard scene generation з Reference-done gate")
+
+    System_Ext(openai, "OpenAI", "style description для нелінкованих сцен; генерація зображень сцен (images-pipeline)")
+    System_Ext(s3, "S3 / object store", "user-scoped media: читання reference outputs, запис scene previews")
+
+    Rel(creator, cliptale, "стартує генерацію сцен, читає readiness/blocking блоки", "HTTPS / WS")
+    Rel(cliptale, openai, "style description; генерація сцен", "HTTPS")
+    Rel(cliptale, s3, "читає reference outputs, зберігає scene previews", "presigned URL")
 ```
 
 ## 4. Solution strategy
