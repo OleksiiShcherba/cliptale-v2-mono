@@ -227,7 +227,7 @@ sequenceDiagram
         API-->>Web: відмова + named reference-less сцени (link a reference)
         Web-->>Creator: показує сцени без лінка
     else нуль reference-блоків, або всі ready і всі сцени лінковані
-        API->>Redis: ставить scene-генерацію в чергу; підтверджує старт
+        API->>Redis: ставить scene-генерацію в чергу і підтверджує старт
         Worker->>Redis: бере scene-джобу
         Worker->>MySQL: читає selected output лінкованих блоків (reference boundary)
         Worker->>Ext: генерує сцену (style description для нелінкованих) і зберігає preview
@@ -258,13 +258,160 @@ sequenceDiagram
         API->>Redis: ставить регенерацію S у чергу
         Worker->>Redis: бере джобу
         Worker->>MySQL: для кожного лінкованого блока обирає один output — primary star якщо completed-usable, інакше latest completed (ADR-0003)
-        Worker->>Ext: генерує S з рівно одним output на блок (boundary); зберігає preview
+        Worker->>Ext: генерує S з рівно одним output на блок (boundary) і зберігає preview
         Worker-->>Web: статус сцени S (realtime)
         Web-->>Creator: оновлений preview сцени S
     end
 ```
 
-Решту US/AC (AC-05 reference boundary, AC-07 cross-context readiness, AC-08 principal retired, AC-09 authorization) покриває стадія `sequences` — повна мапа покриття там.
+### Critical flow 3: Виконання scene-джоби — reference boundary + один selected output (async)
+
+(US-05/US-06; AC-05 dedicated, деталізація AC-06/AC-06b; generic-учасники за правилом стадії `sequences` — конкретні імена зафіксовані в §5)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as <client>
+    participant B as <message-bus>
+    participant S as <service>
+    participant X as <external-system>
+    participant D as <data-store>
+
+    Note over C,B: Trigger: Reference-done gate пройдено (Flow 1/2) - scene-джобу поставлено в чергу
+    C->>B: ставить scene-джобу в чергу (full-draft або сцена S)
+    B->>S: доставляє джобу
+    S->>S: перевіряє idempotency key (пропускає, якщо вже оброблено)
+    S->>D: читає лінки сцени S і для кожного лінкованого блока обирає рівно один output
+    D-->>S: selected output кожного лінкованого блока
+    Note over S,D: вибір на блок: primary star якщо це completed-usable output, інакше latest completed (AC-06b / AC-06)
+    Note over S,D: reference boundary: outputs нелінкованих блоків ніколи не читаються для S (AC-05, invariant)
+    alt у драфта нуль reference-блоків
+        S->>X: генерує сцену лише з промпта + derived style description
+    else сцена має лінковані блоки (у referenced-драфті - завжди, AC-04b)
+        S->>X: генерує сцену з рівно одним selected output на лінкований блок
+    end
+    X-->>S: зображення сцени
+    S->>X: зберігає preview сцени в object store
+    S->>D: записує результат і статус сцени
+    Note over S,D: persists scene preview + scene status (informs data-model indexes)
+    D-->>S: підтвердження
+    S-->>C: публікує realtime-статус сцени
+    Note over S,X: retry N разів з експоненційним backoff при збої генерації
+    alt вичерпано retry
+        S->>B: маршрутизує джобу в dead-letter
+        Note over S,B: dead-letter після N невдалих спроб - сцену позначено failed
+    end
+```
+
+### Critical flow 4: Cross-context readiness — генерація сцен не випереджає генерацію референсів
+
+(US-01; AC-07 dedicated — still-generating блок = немає persisted output = not-ready; гейт читає persisted стан, не підписується на live-події; generic-учасники)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+    participant B as <message-bus>
+
+    Note over U,S: Precondition: перша генерація character-блока R ще триває в reference-generation context - completed output для R не persisted
+    U->>UI: стартує повну генерацію сцен
+    UI->>S: старт генерації сцен драфта
+    S->>D: owner-scoped resolve + читає output-existence всіх блоків (суто persisted read, без completion-event підписки)
+    D-->>S: для блока R немає жодного completed output
+    S-->>UI: відмова, R названо blocking-блоком (сцени не можуть випередити референси)
+    UI-->>U: показує R як незавершений референс з діями finish / retry / remove
+    Note over D: пізніше reference-generation context завершує R і persists його completed output (окремий контекст, поза цим потоком)
+    U->>UI: повторює старт після завершення R
+    UI->>S: старт генерації сцен драфта
+    S->>D: той самий persisted read output-existence
+    D-->>S: кожен блок має completed output і всі сцени лінковані
+    S->>B: ставить scene-генерацію в чергу (далі за Flow 3)
+    S-->>UI: підтверджує старт
+    UI-->>U: генерація сцен розпочата
+    Note over U,S: Postcondition: старт відбувся лише після того, як readiness став видимим через persisted output-existence (AC-07)
+```
+
+### Critical flow 5: Principal image вилучено — legacy-запис ігнорується на читанні
+
+(US-07; AC-08 dedicated — жодної principal-генерації, жодного approve-кроку; ignore-on-read за ADR-0004; generic-учасники)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+    participant B as <message-bus>
+
+    Note over U,S: Precondition: драфт містить legacy principal-image запис із попередньої двотрекової моделі готовності
+    U->>UI: відкриває storyboard і стартує генерацію сцен
+    Note over UI: в інтерфейсі немає кроку approve/generate principal image (US-07)
+    UI->>S: старт генерації сцен драфта
+    S->>D: owner-scoped resolve + читає reference-блоки та їх output-existence
+    Note over S,D: legacy principal-image запис ігнорується на читанні - не годує сцену і не впливає на гейт (ADR-0004, AC-08)
+    D-->>S: readiness вирішено виключно правилом Reference-done gate
+    alt гейт пройдено
+        S->>B: ставить scene-генерацію в чергу (жодної principal-генерації не enqueue-иться)
+        S-->>UI: підтверджує старт
+        UI-->>U: генерація розпочата, principal-кроку немає
+    else гейт не пройдено
+        S-->>UI: відмова з blocking-блоками / reference-less сценами за звичайним правилом (Flow 1)
+        UI-->>U: показує що завершити або злінкувати
+    end
+    Note over U,S: Postcondition: жоден principal image не згенеровано і не вимагано - legacy-запис не прочитано на scene-шляху (row-доля відкладена до data-model)
+```
+
+### Critical flow 6: Відмова не-власнику — ownership перед будь-якою оцінкою гейта
+
+(US-01; AC-09 dedicated — non-owner не досягає naming-шляху blocking-блоків; spec §6.1; generic-учасники)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as <user>
+    participant UI as <ui>
+    participant S as <service>
+    participant D as <data-store>
+
+    Note over U,S: Precondition: викликач НЕ є власником драфта (cross-tenant спроба)
+    U->>UI: намагається стартувати генерацію сцен чужого драфта
+    UI->>S: старт генерації сцен драфта
+    S->>D: owner-scoped resolve драфта (перед будь-якою оцінкою гейта)
+    D-->>S: драфт не належить викликачу
+    S-->>UI: відмова без розкриття стану референсів чи сцен (існування драфта не підтверджується)
+    UI-->>U: дія заборонена
+    Note over U,S: Postcondition: гейт не оцінювався - naming-шлях blocking-блоків недосяжний для не-власника (AC-09, spec §6.1)
+```
+
+**Покриття §4/§5 → потоки** (стадія `sequences`, 2026-06-09; жоден US/AC не лишився непокритим):
+
+| US / AC | Де показано |
+|---|---|
+| US-01 | Flow 1 (happy), Flow 4 (cross-context), Flow 6 (authz) |
+| US-02 | Flow 1, alt-гілка not-ready |
+| US-03 | Flow 2 |
+| US-04 | Flow 1, гілка «нуль reference-блоків» |
+| US-05 | Flow 1 (AC-04b гілка), Flow 3 (boundary) |
+| US-06 | Flow 2, Flow 3 (selection) |
+| US-07 | Flow 5 |
+| AC-01 | Flow 1, гілка «всі ready і всі сцени лінковані» |
+| AC-02 | Flow 1, alt-гілка not-ready (named blocking блоки + дії) |
+| AC-03 | Flow 2, гілка «усі лінковані до S блоки ready» |
+| AC-03b | Flow 2, alt-гілка «лінкований до S блок not-ready» |
+| AC-04 | Flow 1, гілка «нуль reference-блоків»; worker-бік — Flow 3, гілка zero-ref |
+| AC-04b | Flow 1, alt-гілка «сцена без лінка» |
+| AC-05 | Flow 3 (dedicated) — інваріант reference boundary нотаткою + читання лише лінкованих блоків |
+| AC-06 | Flow 2 (selection-крок) + Flow 3, нотатка «інакше latest completed» |
+| AC-06b | Flow 2 (selection-крок) + Flow 3, нотатка «primary star якщо completed-usable» |
+| AC-07 | Flow 4 (dedicated) — persisted read, без completion-event підписки |
+| AC-08 | Flow 5 (dedicated) — ignore-on-read, жодного principal-кроку |
+| AC-09 | Flow 6 (dedicated) — ownership перед оцінкою гейта, без розкриття стану |
+
+**Нотатки стадії `sequences`:** нових учасників поза §5 не знадобилося; ADR-вартих рішень не виявлено (idempotency/retry/dead-letter у Flow 3 — наявні політики scene-джоб, §8). Flows 1–2 успадковані від стадії `design` з конкретними іменами §5 і не редагувалися; Flows 3–6 — generic-учасники за правилом runtime view.
 
 ## 7. Deployment view
 
