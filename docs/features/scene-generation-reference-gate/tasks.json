@@ -1,0 +1,175 @@
+{
+  "slug": "scene-generation-reference-gate",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Add readiness reads (Q1–Q3) to the reference repositories",
+      "layer": "infra",
+      "deps": [],
+      "acs": ["AC-01", "AC-02", "AC-03", "AC-03b", "AC-04b", "AC-07"],
+      "dod": "Repository methods return full-set readiness, scene-scoped readiness and reference-less scenes per data-model Q1–Q3; integration tests cover manual-no-flow, running-no-output, done-with-output and deleted-output block states against live MySQL.",
+      "files_hint": [
+        "apps/api/src/repositories/storyboardReference.repository.ts",
+        "apps/api/src/repositories/storyboardReference.repository.test.ts",
+        "apps/api/src/repositories/storyboardReferenceCuration.repository.ts"
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "Add ReferenceNotReadyError replacing StarGateFailedError in the error module",
+      "layer": "domain",
+      "deps": [],
+      "acs": ["AC-02", "AC-03b", "AC-04b"],
+      "dod": "ReferenceNotReadyError maps to 422 with codes references.reference_gate_failed / references.unlinked_scenes and details { blocks, scenes } through the central handler; unit tests assert the wire shape from contracts/openapi.yaml.",
+      "files_hint": ["apps/api/src/lib/errors.ts", "apps/api/src/lib/errors.test.ts"]
+    },
+    {
+      "id": "T3",
+      "title": "Replace the full-draft star gate with the Reference-done gate in the illustration service",
+      "layer": "app",
+      "deps": ["T1", "T2"],
+      "acs": ["AC-01", "AC-02", "AC-04", "AC-04b", "AC-07", "AC-09"],
+      "dod": "Full-draft start passes only when every reference block is ready and (with ≥1 block) every scene is linked; zero-block drafts pass; rejection names blocking blocks or unlinked scenes; owner-scoped resolve precedes gate evaluation; service unit tests cover all branches.",
+      "files_hint": [
+        "apps/api/src/services/storyboardIllustration.service.ts",
+        "apps/api/src/services/storyboardIllustration.service.test.ts",
+        "apps/api/src/services/storyboardIllustration.starGate.service.test.ts"
+      ]
+    },
+    {
+      "id": "T4",
+      "title": "Scope the per-scene regeneration gate to the blocks linked to that scene",
+      "layer": "app",
+      "deps": ["T3"],
+      "acs": ["AC-03", "AC-03b"],
+      "dod": "Per-scene start checks only blocks linked to the scene (data-model Q2): unlinked not-ready blocks never block, zero linked blocks pass, and the rejection names only the scene's blocking blocks — verified by service unit tests.",
+      "files_hint": [
+        "apps/api/src/services/storyboardIllustration.service.ts",
+        "apps/api/src/services/storyboardIllustration.service.test.ts"
+      ]
+    },
+    {
+      "id": "T5",
+      "title": "Remove the principal image from the scene-generation app path",
+      "layer": "app",
+      "deps": ["T4"],
+      "acs": ["AC-08"],
+      "dod": "Scene start no longer calls ensureReadyReference/createReferenceJob, the status read no longer calls getLatestReference, and the wire type drops the reference object plus the two principal automation phases; a seeded legacy principal row changes nothing on the scene path (unit-tested).",
+      "files_hint": [
+        "apps/api/src/services/storyboardIllustration.jobs.ts",
+        "apps/api/src/services/storyboardIllustration.status.ts",
+        "apps/api/src/services/storyboardIllustration.types.ts",
+        "apps/api/src/services/storyboardIllustration.service.ts"
+      ]
+    },
+    {
+      "id": "T6",
+      "title": "Delete the four principal-image routes and update the API contract package",
+      "layer": "ports",
+      "deps": ["T5"],
+      "acs": ["AC-02", "AC-04b", "AC-08"],
+      "dod": "The four principal-image routes and their controller handlers are deleted (Express answers 404), packages/api-contracts openapi.ts reflects the revised status schema and 422 gate branches in the same commit, and contract path tests pass.",
+      "files_hint": [
+        "apps/api/src/routes/storyboard.routes.ts",
+        "apps/api/src/controllers/storyboardIllustration.controller.ts",
+        "packages/api-contracts/src/openapi.ts",
+        "packages/api-contracts/src/openapi.storyboard.paths.test.ts"
+      ]
+    },
+    {
+      "id": "T7",
+      "title": "Select exactly one reference output per linked block in the worker selection module",
+      "layer": "domain",
+      "deps": [],
+      "acs": ["AC-05", "AC-06", "AC-06b"],
+      "dod": "selectSceneReferences returns one output per linked block — primary star if completed-usable, else latest completed (created_at DESC, file_id DESC tie-break) — and the scoped star-gate rudiment checks output-existence instead of stars; unit tests cover star-usable, star-deleted-fallback and no-star cases.",
+      "files_hint": [
+        "apps/media-worker/src/jobs/referenceSelection.ts",
+        "apps/media-worker/src/jobs/referenceSelection.test.ts"
+      ]
+    },
+    {
+      "id": "T8",
+      "title": "Drop the principal-image read from the scene job inputs",
+      "layer": "infra",
+      "deps": ["T7"],
+      "acs": ["AC-04", "AC-05", "AC-08"],
+      "dod": "resolveSceneInputs no longer reads the principal referenceOutputFileId; zero-reference drafts generate from prompt + derived style; only the selected outputs of blocks linked to the scene are passed to generation — verified by job unit tests.",
+      "files_hint": [
+        "apps/media-worker/src/jobs/storyboardOpenAIImage.job.ts",
+        "apps/media-worker/src/jobs/storyboardOpenAIImage.job.test.ts"
+      ]
+    },
+    {
+      "id": "T9",
+      "title": "Remove the principal-image step and components from the storyboard SPA",
+      "layer": "ui",
+      "deps": ["T6"],
+      "acs": ["AC-08"],
+      "dod": "PrincipalImageApprovalModal/Preview/Lightbox/ApprovalControls and their hook/api/type usages are deleted, the generation flow proceeds without any principal step, and no client code calls the removed endpoints; existing component tests updated and green.",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/",
+        "apps/web-editor/src/features/storyboard/hooks/useStoryboardGenerationFlow.ts",
+        "apps/web-editor/src/features/storyboard/api.ts",
+        "apps/web-editor/src/features/storyboard/types.ts"
+      ]
+    },
+    {
+      "id": "T10",
+      "title": "Render the Reference-done gate rejection with named blocks and unlinked scenes",
+      "layer": "ui",
+      "deps": ["T9"],
+      "acs": ["AC-02", "AC-03b", "AC-04b"],
+      "dod": "A 422 with references.reference_gate_failed lists the named blocking blocks with finish/retry/remove guidance (existing reference-flow controls), and references.unlinked_scenes lists the named scenes with link-a-reference guidance — built from existing shared components and co-located *.styles.ts; component tests cover both branches.",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/",
+        "apps/web-editor/src/features/storyboard/hooks/",
+        "apps/web-editor/src/features/storyboard/api.ts"
+      ]
+    },
+    {
+      "id": "T11",
+      "title": "Add API integration tests for the gate against live MySQL",
+      "layer": "tests",
+      "deps": ["T6"],
+      "acs": ["AC-01", "AC-02", "AC-03", "AC-03b", "AC-04", "AC-04b", "AC-07", "AC-08", "AC-09"],
+      "dod": "Endpoint-level integration tests cover every gate AC including the seeded legacy-principal ignore-on-read case and a non-owner 404 without state disclosure, plus an assertion that the gate path performs no provider call (spec §6 gate-evaluation cost); seed helpers follow data-model §Test fixtures.",
+      "files_hint": [
+        "apps/api/src/__tests__/integration/storyboard-illustration-endpoints.test.ts"
+      ]
+    },
+    {
+      "id": "T12",
+      "title": "Add worker tests for the reference boundary invariant and selection",
+      "layer": "tests",
+      "deps": ["T8"],
+      "acs": ["AC-04", "AC-05", "AC-06", "AC-06b", "AC-08"],
+      "dod": "Worker integration tests assert the invariant (an unlinked block's output is never read for a scene — spec §6: 0 scenes fed an unlinked output), the selection rule including the deleted-star fallback, the zero-reference path, and that a legacy principal row is never consumed.",
+      "files_hint": [
+        "apps/media-worker/src/jobs/storyboardOpenAIImage.job.integration.test.ts",
+        "apps/media-worker/src/jobs/referenceSelection.test.ts"
+      ]
+    },
+    {
+      "id": "T13",
+      "title": "Add a Playwright e2e flow for the gate through the UI",
+      "layer": "tests",
+      "deps": ["T10", "T12"],
+      "acs": ["AC-01", "AC-02", "AC-08"],
+      "dod": "An e2e spec drives a draft with a not-ready reference to a blocked start showing the named block, then to a successful start after the reference completes, with no principal-image step anywhere in the flow.",
+      "files_hint": ["apps/web-editor/e2e/"]
+    },
+    {
+      "id": "T14",
+      "title": "Document the adopted defaults and close the spec open questions",
+      "layer": "docs",
+      "deps": ["T11", "T12", "T13"],
+      "acs": ["AC-08"],
+      "dod": "Spec §8 OQ-2 (no reaper — out of scope) and OQ-3 (one-shot start check) are checked off as resolved-by-default with the known limitation documented, and the feature docs note that the deferred DROP stays in migrations/_deferred/ pending the KPI window.",
+      "files_hint": [
+        "docs/features/scene-generation-reference-gate/spec.md",
+        "docs/features/scene-generation-reference-gate/sad.md"
+      ]
+    }
+  ]
+}
