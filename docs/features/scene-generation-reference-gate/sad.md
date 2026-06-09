@@ -318,10 +318,12 @@ sequenceDiagram
 
 | # | Title | Status | Section |
 |---|---|---|---|
-| <NNNN> | <imperative — e.g. "Use a sliding-window counter for rate limiting"> | Accepted | §<N> |
-| <NNNN> | <imperative — e.g. "Co-locate the worker in the API process"> | Accepted | §<N> |
+| 0001 | Target the backend-service, web-frontend and worker surfaces | Accepted | §4 |
+| 0002 | Gate scene generation on persisted reference-output existence (supersedes storyboard-reference-flows ADR-0011) | Accepted | §4 |
+| 0003 | Feed each linked block a single selected reference output (supersedes storyboard-reference-flows ADR-0008) | Accepted | §4 |
+| 0004 | Retire the principal image by ignoring it on read, defer row migration | Accepted | §4 |
 
-ADR files live under `docs/features/<slug>/adr/NNNN-<title>.md`.
+ADR files live under `docs/features/scene-generation-reference-gate/adr/NNNN-<title>.md`.
 
 ## 10. Quality requirements
 
@@ -334,20 +336,20 @@ ADR files live under `docs/features/<slug>/adr/NNNN-<title>.md`.
 
 Each top-3 goal from §1 expanded into a full scenario:
 
-**QG-1. <quality attribute>**
-- **When:** <trigger condition>
-- **Then:** <expected behaviour with numbers from spec §6 NFR>
-- **How verify:** <test / chaos drill / load test / metric>
+**QG-1. Коректність гейта без дедлоків**
+- **When:** Creator стартує генерацію на драфті з manually-added блоками (без `window_status`), завершеними-але-незазіркованими блоками, або нуль reference-блоків.
+- **Then:** гейт оцінює готовність за існуванням persisted output, тож manual/unstarred/still-generating блоки читаються коректно — гейт ніколи не клинить готовий драфт; коли блок ready+linked, але без зірки, сцена отримує latest completed output (ніколи не порожній референс, AC-06/AC-06b).
+- **How verify:** інтеграційні тести AC-04 / AC-04b / AC-06 / AC-06b / AC-07 + KPI `gate_deadlock_incidents` = 0 (spec §7, перші 30 днів).
 
-**QG-2. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-2. Цілісність reference boundary**
+- **When:** генерується сцена S, лінкована до частини блоків і не лінкована до інших, усі ready.
+- **Then:** **0 scenes fed an output from an unlinked block** (spec §6 verbatim) — тільки selected outputs лінкованих до S блоків годують S.
+- **How verify:** **invariant assertion covered by automated tests** (spec §6 measurement verbatim) — AC-05.
 
-**QG-3. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-3. Дешевий і швидкий гейт**
+- **When:** старт генерації сцен (вкл. оцінку гейта) / readiness read драфта.
+- **Then:** старт p95 **≤ 500 ms** і readiness read p95 **≤ 300 ms** (spec §6 verbatim); **no additional paid generation triggered by evaluating readiness** — gate-шлях (readiness eval + blocking/unlinked naming + status read) не викликає платного провайдера.
+- **How verify:** API request timing metric на start/status операціях; code review + integration test, що на gate-шляху немає виклику провайдера (spec §6 measurement verbatim).
 
 ## 11. Risks and technical debt
 
@@ -361,12 +363,16 @@ Each top-3 goal from §1 expanded into a full scenario:
 
 | Risk / debt | Severity | Mitigation | Owner |
 |---|---|---|---|
-| <e.g. Worker lag may reach hours during a downstream outage> | Medium | <alert >10 min, on-call playbook, retry backoff> | <DevOps> |
-| <e.g. No event-schema versioning in v1> | Medium | <ADR-NNNN planned for v2, tolerate unknown fields> | <Backend> |
-| Open architectural decision: <decision-headline> | Open question | Resolve before <stage trigger or YYYY-MM-DD>; <inline rationale from the Save-as-OQ> | <owner> |
+| Reference-done gate створює drop-off у воронці (Creator не може стартувати, KPI §7) | High | гейт завжди називає blocking блоки + reference-less сцени + дії-виходи (AC-02/AC-04b); KPI `gate_deadlock_incidents` + ревізія PM при просіданні | PM (Oleksii) |
+| Manual-block readiness misread: output-existence для manual-блока (без `window_status`) читається інакше, ніж для rolling-window | Medium | єдиний readiness-предикат «≥1 completed output» для обох видів блоків; інтеграційні тести AC-04b + manual-block; ADR-0002 | Tech Lead |
+| Open architectural decision: row-доля legacy principal-image рядків (drop / backfill / ignore) | Open question | Resolve before `sdd:data-model`; default — ignore-on-read (ADR-0004), драфт ре-гейтиться на reference readiness; механіку фіналізує data-model (spec §8 OQ-1) | Tech Lead |
+| Open architectural decision: reference-блок застряг in-progress (job lost, completion ніколи не fire) тримає гейт закритим | Open question | Resolve before `sdd:tasks`; default — out of scope (delete/retry блока), revisit якщо deadlock-інциденти > 0 (spec §8 OQ-2) | Tech Lead |
+| Open architectural decision: mid-run регенерація reference-блока під час повного scene-пасу — re-validate per scene чи one-shot start check | Open question | Resolve before `sdd:tasks`; default — one-shot check at start, документований known limitation (spec §8 OQ-3) | Tech Lead |
 
 **Accepted debt (acceptable in v1, plan to fix later):**
-- <e.g. the entity is immutable / unversioned — OK for v1, may need audit versioning in v2>
+- Legacy `storyboard_illustration_references` рядки лишаються в БД й ігноруються на читанні, доки `data-model` не вирішить їхню row-долю (ADR-0004).
+- Один selected output на блок знижує креативну варіативність порівняно з multi-candidate-моделлю предка — прийнято свідомо; старіння й далі контролює *який* output (ADR-0003).
+- TOCTOU-вікно між api-гейтом і виконанням у worker: гейт — знімок output-existence на момент старту (успадковано від `storyboard-reference-flows`, ADR-0002).
 
 ## 12. Glossary
 
@@ -377,6 +383,11 @@ Each top-3 goal from §1 expanded into a full scenario:
 
 | Term | Meaning |
 |---|---|
-| <e.g. domain object A> | <its meaning in this domain> |
-| <e.g. domain object B> | <its meaning> |
-| <e.g. domain invariant name> | <the rule, in plain language> |
+| Ready reference block | reference-блок з ≥1 completed result, придатним годувати сцену; rolling-window: `window_status=done` + output; manual: лінкований flow дав ≥1 result ([CONTEXT](./CONTEXT.md)) |
+| Reference-done gate | правило готовності старту (replaces Star gate): full-draft стартує лише коли кожен блок ready І (за наявності ≥1 блока) кожна сцена лінкована; per-scene — лише блоки, лінковані до сцени; авторитетний server-side в api (ADR-0002) ([CONTEXT](./CONTEXT.md)) |
+| Selected reference output | єдиний output, що годує сцену для лінкованого блока: primary star якщо completed-usable, інакше latest completed output (ADR-0003) ([CONTEXT](./CONTEXT.md)) |
+| Reference-generation context | контекст, що *продукує* outputs (media-worker rolling-window + flows manual-блоків); гейт читає його **persisted** стан, не підписується на live-подію (ADR-0002) ([CONTEXT](./CONTEXT.md)) |
+| Principal image (deprecated) | legacy single up-front референс (`storyboard_illustration_references`); ця фіча його retire-ить — ignore-on-read, не годує сцену, не гейтить (ADR-0004) ([CONTEXT](./CONTEXT.md)) |
+| Blocking block | non-ready блок, названий у відмові гейта, щоб Creator знав що завершити/повторити/видалити ([CONTEXT](./CONTEXT.md)) |
+| Scene block / Scene generation | блок-сцена на Video Road Map; його preview продукує scene generation (full-draft або per-scene), споживаючи selected reference outputs лінкованих блоків ([CONTEXT](./CONTEXT.md)) |
+| Reference boundary | для сцени S годують лише selected outputs блоків, лінкованих до S; images нелінкованих блоків ніколи не використовуються для S (успадкований інваріант, AC-05) ([CONTEXT](./CONTEXT.md)) |
