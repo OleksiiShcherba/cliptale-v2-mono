@@ -4,7 +4,7 @@ owner: "Oleksii (Storyboard squad)"
 reviewers: ["Tech Lead", "Security Lead"]
 updated_at: "2026-06-09"
 feature_size: "M"
-target_surfaces: []  # filled in §4 — subset of: backend-service | web-frontend | mobile-app | desktop-app | cli | worker | library-sdk. Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
+target_surfaces: [backend-service, web-frontend, worker]  # §4 D4.1, ADR-0001. Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
 ---
 
 # Software Architecture Document — scene-generation-reference-gate
@@ -115,11 +115,16 @@ C4Context
      📋 Write: 3–4 choices; each a heading + 2–3 sentences of rationale.
      📌 «Store content as a table of typed blocks» is a pillar — ADR-0001 grows from it. -->
 
+**Target surfaces:** `[backend-service, web-frontend, worker]` (ADR-0001) — гейт і вибір референсів у `apps/api`; зведення multi→single і зняття principal-read у `apps/media-worker`; зняття principal-кроку та рендер gate-відмови в React SPA. **UI-архітектура web-поверхні (інлайн, без ADR):** існуюча React SPA; екран storyboard прибирає principal-image модалку й рендерить Reference-done-gate відмову (named blocking blocks + reference-less scenes) наявними примітивами (`shared/components/`, інлайн `*.styles.ts`). Альтернатив немає — репо вже SPA, дублювати стилістичну систему заборонено конвенціями.
+
 **Top strategic choices (the seeds for ADRs):**
 
-1. **<e.g. Module isolation through events>** — <2–3 sentences citing quality goals + constraints>.
-2. **<e.g. Single-store persistence>** — <2–3 sentences>.
-3. **<e.g. Server-rendered read side>** — <2–3 sentences>.
+1. **Три поверхні: api + web-editor + media-worker** (ADR-0001). Гейт і selection — авторитетно в api-сервісі при старті; worker зводить multi-candidate→single і перестає читати principal у scene-джобу; SPA прибирає principal-крок (US-07) і показує відмову з named blocking blocks + reference-less scenes (US-02, AC-04b). Успадковує патерн поверхонь предка.
+2. **Reference-done gate читає persisted output-existence, server-side в api-сервісі при старті** (ADR-0002, supersedes предкову ADR-0011). Готовність = «у блока існує ≥1 завершений output», а НЕ сирий `window_status` і НЕ підписка на live completion-event. Саме output-existence закриває manual-block / unstarred-but-complete deadlock (spec §1 ¶4) і AC-07 (ще-генерується = немає persisted output = not-ready, без окремої completion-event-підписки). Dual-scope: full-set для full-draft старту, scene-linked для per-scene регенерації. Зберігає «гейт в api-сервісі» предка, змінює лише *умову готовності*.
+3. **Один selected reference output на лінкований блок: primary star якщо це completed-usable output, інакше latest completed output** (ADR-0003, supersedes предкову ADR-0008). Retire multi-candidate top-up-to-model-capacity. Старіння тепер лише *обирає* який output годує сцену — воно більше не гейтить старт і не передає кілька кандидатів на блок; рівно один output на лінкований блок досягає сцени. Гарантує, що ready+linked блок ніколи не reference-less (fallback на latest completed).
+4. **Retire principal image через ignore-on-read у рантаймі; row-міграцію (drop/backfill) відкласти у `data-model`** (ADR-0004). Scene-шлях більше не генерує, не апрувить і не читає principal image; будь-який legacy-рядок `storyboard_illustration_references` ігнорується на читанні — він не годує сцену й не впливає на гейт (AC-08). Row-level доля рядків — OQ для data-model (§11), не потрібна для цієї поведінки.
+
+**Інлайн-рішення (без ADR):** AC-04b «кожна сцена мусить мати лінк до референса, щойно драфт містить ≥1 reference-блок» — частина правила Reference-done gate (ADR-0002), а не окреме рішення; драфт із **нуль** reference-блоків проходить гейт за no-linked-blocks-правилом (промпт + style description, AC-04).
 
 Each tactical decision in later sections should trace to one of these seeds. Tactical decisions that *contradict* a strategic choice are red flags — surface them in §11.
 
