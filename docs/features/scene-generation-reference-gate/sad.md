@@ -140,39 +140,59 @@ Each tactical decision in later sections should trace to one of these seeds. Tac
      just one surface's container — swap/add per what was declared in §4. → _shared/surfaces.md
      📌 e.g. «web app, content API, media worker, datastore, object store, CDN». -->
 
-<One paragraph: layered / hexagonal / clean / event-driven, and why.>
+Розширення існуючої layered-архітектури — **жодного нового деплой-юніта й жодного нового домену**: гейт, selection і status уже живуть у домені `storyboardIllustration`, тож фіча модифікує наявні файли за конвенцією routes → controllers → services → repositories, а worker змінює два наявні job-модулі. По одному C4-контейнеру на заявлену поверхню (`backend-service` → api, `web-frontend` → web-editor, `worker` → media-worker).
 
 **Internal decomposition:**
 
 ```
-<e.g. modules/<feature>/>
-├── domain/       <entities + sentinel errors>
-├── app/          <use cases / services>
-├── infra/        <repository + integration impl>
-├── ports/        <handlers, DTOs, error mapping>
-└── wiring        <self-wiring entry point>
+apps/api/src/
+├── services/storyboardIllustration.service.ts      ← assertFullSetStarGate / assertSceneStarGate
+│                                                      → reference-done gate (output-existence, ADR-0002);
+│                                                      зняти principal replace/edit зі scene-шляху (ADR-0004)
+├── services/storyboardIllustration.status.ts        ← прибрати getLatestReference (principal) з readiness-read
+├── services/storyboardIllustration.jobs.ts          ← прибрати ensureReadyReference / createReferenceJob зі scene-старту
+├── repositories/storyboardReference*.repository.ts  ← новий read «ready block = ≥1 completed output»
+│                                                      (rolling-window: window_status=done + output; manual: flow має ≥1 result)
+├── lib/errors.ts                                    ← gate-error: StarGateFailedError → ReferenceNotReadyError (код + details)
+└── controllers/storyboardIllustration.controller.ts ← зняти principal-image endpoints зі scene-шляху
+apps/media-worker/src/jobs/
+├── referenceSelection.ts        ← selectSceneReferences: multi-candidate top-up → один output (primary→latest, ADR-0003)
+└── storyboardOpenAIImage.job.ts ← resolveSceneInputs: прибрати principal referenceOutputFileId (ADR-0004)
+apps/web-editor/src/features/storyboard/
+└── ← зняти principal-image модалку/крок (US-07); рендер Reference-done-gate відмови
+   (named blocking blocks + reference-less scenes, US-02 / AC-04b)
 ```
 
-**C4 Container (L2):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. ONE Container per declared target_surface (frontmatter); the web container below is one example surface. -->
+Інлайн-рішення (D5.1, без ADR): уся нова логіка концентрується в наявному домені `storyboardIllustration`; readiness-read — новий метод у наявних reference-репозиторіях; у `shared/` ніщо не мігрує без другого споживача (правило репо). Авторитет гейта — в api; worker-side `checkScopedStarGate` стає рудиментом (захист-у-глибину, не джерело правди).
+
+**C4 Container (L2):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. ONE Container per declared target_surface. -->
 
 ```mermaid
 C4Container
-    title <feature> — Containers
+    title scene-generation-reference-gate — Containers
 
-    Person(actor, "<Actor>")
+    Person(creator, "Creator")
 
-    Container_Boundary(app, "<Our system>") {
-        Container(web, "<Web/UI>", "<technology>", "<purpose>")
-        Container(api, "<API/handler>", "<technology>", "<purpose>")
-        ContainerDb(db, "<Datastore>", "<technology>", "<purpose>")
+    Container_Boundary(cliptale, "ClipTale") {
+        Container(web, "web-editor SPA", "React 18 + Vite + xyflow", "знятий principal-крок; рендер Reference-done-gate відмови (blocking блоки + reference-less сцени)")
+        Container(api, "api", "Express 4 + Zod", "reference-done gate (output-existence); single-output selection; readiness read; зняті principal-endpoints")
+        Container(worker, "media-worker", "BullMQ + OpenAI клієнт", "scene generation: один selected output на лінкований блок; без principal-read")
     }
 
-    System_Ext(ext, "<External>", "<purpose>")
+    ContainerDb(mysql, "MySQL 8", "InnoDB", "reference-блоки / stars / scene-links (read output-existence); legacy storyboard_illustration_references — ігнор")
+    ContainerDb(redis, "Redis 7", "BullMQ + pub/sub", "черга storyboard-openai-image; realtime-події статусу")
+    System_Ext(openai, "OpenAI", "style description; генерація зображень сцен")
+    System_Ext(s3, "S3 / object store", "read reference outputs; write scene previews")
 
-    Rel(actor, web, "<interaction>", "<protocol>")
-    Rel(web, api, "<calls>")
-    Rel(api, db, "<reads/writes>", "<driver>")
-    Rel(api, ext, "<emits>", "<protocol>")
+    Rel(creator, web, "стартує генерацію, читає readiness", "HTTPS / WS")
+    Rel(web, api, "REST + WebSocket", "JSON/HTTPS, WS")
+    Rel(api, mysql, "readiness read; selection; гейт", "mysql2")
+    Rel(api, redis, "enqueue scene-джоб; realtime", "BullMQ / pub-sub")
+    Rel(worker, redis, "споживає scene-джоби; публікує прогрес", "BullMQ / pub-sub")
+    Rel(worker, mysql, "читає лінки + selected output (boundary)", "mysql2")
+    Rel(worker, openai, "style description; генерація сцен", "HTTPS")
+    Rel(worker, s3, "читає референси; зберігає previews", "AWS SDK")
+    Rel(web, s3, "показ зображень", "presigned URL")
 ```
 
 ## 6. Runtime view
