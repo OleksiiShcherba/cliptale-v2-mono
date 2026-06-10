@@ -48,10 +48,11 @@ async function assertFullSetReferenceDoneGate(draftId: string): Promise<void> {
   const { isReady, totalBlocks, blockingBlocks } = await referenceBlocksRepository.getDraftReadiness({ draftId });
 
   if (!isReady) {
+    const single = blockingBlocks.length === 1;
     const names = blockingBlocks.map((b) => b.name).join(', ');
     throw new ReferenceNotReadyError(
-      `${blockingBlocks.length} reference block${blockingBlocks.length === 1 ? '' : 's'} not yet ready: ${names}. ` +
-        'Please wait for generation to finish before starting illustrations.',
+      `${blockingBlocks.length} reference block${single ? ' has' : 's have'} not finished generating: ${names}. ` +
+        `Finish, retry, or remove ${single ? 'it' : 'them'} before starting.`,
       blockingBlocks.map((b) => ({ blockId: b.id, name: b.name })),
     );
   }
@@ -84,10 +85,12 @@ async function assertSceneReferenceDoneGate(sceneBlockId: string, draftId: strin
   const { isReady, blockingBlocks } = await referenceBlocksRepository.getSceneReadiness({ sceneBlockId, draftId });
 
   if (!isReady) {
+    const single = blockingBlocks.length === 1;
     const names = blockingBlocks.map((b) => b.name).join(', ');
     throw new ReferenceNotReadyError(
-      `${blockingBlocks.length} reference block${blockingBlocks.length === 1 ? '' : 's'} not yet ready: ${names}. ` +
-        'Please wait for generation to finish before starting illustrations.',
+      `${blockingBlocks.length} reference block${single ? '' : 's'} linked to this scene ` +
+        `${single ? 'has' : 'have'} not finished generating: ${names}. ` +
+        `Finish, retry, or remove ${single ? 'it' : 'them'} before regenerating.`,
       blockingBlocks.map((b) => ({ blockId: b.id, name: b.name })),
     );
   }

@@ -274,6 +274,8 @@ describe('storyboardIllustration.service — per-scene Reference-done gate T4 (A
 
     expect(error).toBeInstanceOf(ReferenceNotReadyError);
     expect(error.message).toContain('Linked Character A');
+    // AC-02/AC-03b guidance (review F7): per-scene rejection offers the same exits.
+    expect(error.message).toContain('Finish, retry, or remove it before regenerating.');
     // Machine code must be present (openapi contract references.reference_gate_failed).
     expect(error.code).toBe('references.reference_gate_failed');
     // Structured details must carry the scene's blocking block(s).

@@ -287,6 +287,9 @@ describe('storyboardIllustration.service — Reference-done gate T3 (AC-01/02/04
 
     expect(error).toBeInstanceOf(ReferenceNotReadyError);
     expect(error.message).toContain('Test Character B');
+    // AC-02 guidance (review F7): the human-readable error must offer the
+    // finish / retry / remove exits, matching the openapi example.
+    expect(error.message).toContain('Finish, retry, or remove it before starting.');
     // Machine code must be present (openapi contract references.reference_gate_failed).
     expect(error.code).toBe('references.reference_gate_failed');
     // Structured details must carry the blocking block(s).
@@ -312,6 +315,7 @@ describe('storyboardIllustration.service — Reference-done gate T3 (AC-01/02/04
     expect(error.message).toContain('Character A');
     expect(error.message).toContain('Environment B');
     expect(error.message).toContain('Character C');
+    expect(error.message).toContain('Finish, retry, or remove them before starting.');
   });
 
   // ── AC-04 — zero reference blocks ─────────────────────────────────────────
