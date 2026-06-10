@@ -5,9 +5,9 @@ import {
   startStoryboardBlockIllustration,
   startStoryboardIllustrations,
 } from '@/features/storyboard/api';
+import type { GateErrorDetails } from '@/features/storyboard/api';
 import type {
   StoryboardIllustrationLifecyclePhase,
-  StoryboardIllustrationReferenceStatus,
   StoryboardIllustrationLifecycleStatus,
   StoryboardIllustrationStatusItem,
   StoryboardIllustrationStatusResponse,
@@ -26,11 +26,17 @@ type UseStoryboardIllustrationsOptions = {
   onStoryboardUpdated?: () => void | Promise<void>;
 };
 
+export interface StructuredGateError {
+  code: string;
+  details: GateErrorDetails;
+  message: string;
+}
+
 export type UseStoryboardIllustrationsResult = {
   status: StoryboardIllustrationLifecycleStatus;
   phase: StoryboardIllustrationLifecyclePhase;
   error: string | null;
-  reference: StoryboardIllustrationReferenceStatus | null;
+  gateError: StructuredGateError | null;
   items: StoryboardIllustrationStatusItem[];
   byBlockId: Map<string, StoryboardIllustrationStatusItem>;
   isBlocking: boolean;
@@ -56,10 +62,10 @@ export function useStoryboardIllustrations(
   const workflowActiveRef = useRef(false);
 
   const [items, setItems] = useState<StoryboardIllustrationStatusItem[]>([]);
-  const [reference, setReference] = useState<StoryboardIllustrationReferenceStatus | null>(null);
   const [status, setStatus] = useState<StoryboardIllustrationLifecycleStatus>('idle');
   const [phase, setPhase] = useState<StoryboardIllustrationLifecyclePhase>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [gateError, setGateError] = useState<StructuredGateError | null>(null);
 
   useEffect(() => {
     onStoryboardUpdatedRef.current = options.onStoryboardUpdated;
@@ -70,7 +76,6 @@ export function useStoryboardIllustrations(
     const nextPhase = derivePhase(response);
     const shouldContinueSceneStart = hasPendingSceneStart(response);
 
-    setReference(response.reference);
     setItems(response.items);
     setStatus(shouldContinueSceneStart ? 'queued' : nextStatus);
     setPhase(shouldContinueSceneStart ? 'scene' : nextPhase);
@@ -79,10 +84,9 @@ export function useStoryboardIllustrations(
       workflowActiveRef.current = false;
     }
 
-    const readyOutputs = [
-      response.reference.outputFileId,
-      ...response.items.map((item) => item.outputFileId),
-    ].filter((fileId): fileId is string => fileId !== null);
+    const readyOutputs = response.items
+      .map((item) => item.outputFileId)
+      .filter((fileId): fileId is string => fileId !== null);
     const unseenReadyOutput = readyOutputs.find((fileId) => (
       !seenOutputFileIdsRef.current.has(fileId)
     ));
@@ -156,7 +160,7 @@ export function useStoryboardIllustrations(
       workflowActiveRef.current = false;
       setError('Could not start illustration generation.');
       setStatus('failed');
-      setPhase('reference');
+      setPhase('failed');
     }
   }, [applyResponse, continueStoryboardIllustrations]);
 
@@ -189,8 +193,9 @@ export function useStoryboardIllustrations(
     const token = beginRequest(draftId);
     workflowActiveRef.current = true;
     setStatus('queued');
-    setPhase('reference');
+    setPhase('scene');
     setError(null);
+    setGateError(null);
 
     try {
       const response = await startStoryboardIllustrations(draftId);
@@ -199,6 +204,14 @@ export function useStoryboardIllustrations(
     } catch (err) {
       if (!isCurrentRequest(draftId, token)) return;
       workflowActiveRef.current = false;
+      const maybeGate = err as { code?: string; details?: GateErrorDetails; message?: string };
+      if (maybeGate.code && maybeGate.details) {
+        setGateError({
+          code: maybeGate.code,
+          details: maybeGate.details,
+          message: maybeGate.message ?? 'Gate error',
+        });
+      }
       setError('Could not start illustration generation.');
       setStatus('failed');
       setPhase('failed');
@@ -211,6 +224,7 @@ export function useStoryboardIllustrations(
     setStatus('queued');
     setPhase('scene');
     setError(null);
+    setGateError(null);
 
     try {
       const response = await startStoryboardBlockIllustration(draftId, blockId);
@@ -218,6 +232,14 @@ export function useStoryboardIllustrations(
       await handleStatusResponse(response);
     } catch (err) {
       if (!isCurrentRequest(draftId, token)) return;
+      const maybeGate = err as { code?: string; details?: GateErrorDetails; message?: string };
+      if (maybeGate.code && maybeGate.details) {
+        setGateError({
+          code: maybeGate.code,
+          details: maybeGate.details,
+          message: maybeGate.message ?? 'Gate error',
+        });
+      }
       setError('Could not retry the scene illustration.');
       setStatus('failed');
       setPhase('failed');
@@ -231,10 +253,10 @@ export function useStoryboardIllustrations(
     seenOutputFileIdsRef.current = new Set();
     workflowActiveRef.current = false;
     setItems([]);
-    setReference(null);
     setStatus('idle');
     setPhase('idle');
     setError(null);
+    setGateError(null);
     void refresh().catch(() => undefined);
 
     return () => {
@@ -250,7 +272,7 @@ export function useStoryboardIllustrations(
     status,
     phase,
     error,
-    reference,
+    gateError,
     items,
     byBlockId,
     isBlocking: status === 'queued' || status === 'running',

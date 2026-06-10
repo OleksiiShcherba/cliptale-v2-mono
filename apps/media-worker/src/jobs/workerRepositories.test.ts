@@ -16,10 +16,10 @@ import {
   aiGenerationJobRepo,
   castExtractJobRepo,
   filesRepo,
+  sceneReferenceSelectionRepo,
   storyboardAiGenerationJobRepo,
   storyboardIllustrationRepo,
   storyboardImageFileReadRepo,
-  storyboardReferenceRepo,
 } from './workerRepositories.js';
 
 describe('workerRepositories', () => {
@@ -142,28 +142,6 @@ describe('workerRepositories', () => {
     expect(sql).toContain('AND deleted_at IS NULL');
     expect(sql).toContain('file_id IN (?,?)');
     expect(params).toEqual(['user-1', 'file-1', 'file-2']);
-  });
-
-  it('updates storyboard reference ready and failed states', async () => {
-    mockExecute.mockResolvedValue([{ affectedRows: 1 }]);
-
-    await storyboardReferenceRepo.setOutput({
-      aiJobId: 'job-1',
-      outputFileId: 'file-1',
-    });
-    await storyboardReferenceRepo.markFailed('job-2', 'failed safely');
-
-    const [readySql, readyParams] = mockExecute.mock.calls[0] as [string, unknown[]];
-    expect(readySql).toContain("SET status = 'ready'");
-    expect(readySql).toContain("approval_status = 'pending'");
-    expect(readySql).toContain('active_lock = 1');
-    expect(readyParams).toEqual(['file-1', 'job-1']);
-
-    const [failedSql, failedParams] = mockExecute.mock.calls[1] as [string, unknown[]];
-    expect(failedSql).toContain("SET status = 'failed'");
-    expect(failedSql).toContain("approval_status = 'pending'");
-    expect(failedSql).toContain('active_lock = NULL');
-    expect(failedParams).toEqual(['failed safely', 'job-2']);
   });
 
   it('updates storyboard scene mappings and idempotently attaches generated media', async () => {
@@ -303,5 +281,120 @@ describe('workerRepositories', () => {
     mockQuery.mockResolvedValueOnce([[]]);
 
     await expect(castExtractJobRepo.getScriptText('draft-x', 'user-1')).rejects.toThrow();
+  });
+
+  // ── T8 — sceneReferenceSelectionRepo.loadBlocksForDraft (flow_files read) ──────
+
+  describe('T8 / sceneReferenceSelectionRepo.loadBlocksForDraft — outputs from flow_files', () => {
+    beforeEach(() => {
+      // Reset mock queues fully so unconsumed once-values from a previous test
+      // do not bleed into subsequent tests.
+      mockQuery.mockReset();
+    });
+
+    /**
+     * T8 DoD: loadBlocksForDraft must query flow_files for completed (non-deleted)
+     * outputs and expose real createdAt timestamps — NOT derive outputs from
+     * storyboard_reference_stars rows.
+     *
+     * The test seeds two blocks:
+     *   block-A has flow_id "flow-A", two flow_files outputs.
+     *   block-B has no flow_id (NULL) → zero outputs.
+     * Stars are present for block-A (primary + non-primary) but must NOT drive outputs.
+     * Expected result: block-A.outputs = the two flow_files rows with real createdAt;
+     *                  block-B.outputs = [] (no flow_files without a flow_id).
+     */
+    it('queries flow_files for outputs (not star rows) with real createdAt timestamps', async () => {
+      // Query 1: block rows
+      mockQuery.mockResolvedValueOnce([
+        [
+          { id: 'block-A', flow_id: 'flow-A' },
+          { id: 'block-B', flow_id: null },
+        ],
+      ]);
+      // Query 2: scene link rows
+      mockQuery.mockResolvedValueOnce([
+        [
+          { reference_block_id: 'block-A', scene_block_id: 'scene-1' },
+        ],
+      ]);
+      // Query 3: star rows (primary star on block-A for file-star-1)
+      mockQuery.mockResolvedValueOnce([
+        [
+          { reference_block_id: 'block-A', file_id: 'file-star-1', is_primary: 1 },
+        ],
+      ]);
+      // Query 4: flow_files for block-A's flow (flow-A) — two outputs with real timestamps
+      const CREATED_AT_NEWER = new Date('2025-06-02T10:00:00.000Z');
+      const CREATED_AT_OLDER = new Date('2025-06-01T09:00:00.000Z');
+      mockQuery.mockResolvedValueOnce([
+        [
+          { flow_id: 'flow-A', file_id: 'file-output-new', created_at: CREATED_AT_NEWER },
+          { flow_id: 'flow-A', file_id: 'file-output-old', created_at: CREATED_AT_OLDER },
+        ],
+      ]);
+
+      const blocks = await sceneReferenceSelectionRepo.loadBlocksForDraft('draft-1');
+
+      // flow_files query must have been issued and must NOT query stars for outputs
+      const queryCalls = mockQuery.mock.calls as [string, unknown[]][];
+      const flowFilesCall = queryCalls.find(([sql]) =>
+        sql.includes('flow_files') && sql.includes('deleted_at IS NULL'),
+      );
+      expect(flowFilesCall).toBeDefined();
+
+      // outputs must come from flow_files, not from stars
+      const blockA = blocks.find((b) => b.id === 'block-A');
+      expect(blockA).toBeDefined();
+      // Real timestamps must be present (not the T7 placeholder epoch new Date(0))
+      const outputFileIds = blockA!.outputs.map((o) => o.fileId);
+      expect(outputFileIds).toContain('file-output-new');
+      expect(outputFileIds).toContain('file-output-old');
+      // No placeholder-epoch outputs
+      const hasEpochPlaceholder = blockA!.outputs.some(
+        (o) => o.createdAt.getTime() === 0,
+      );
+      expect(hasEpochPlaceholder).toBe(false);
+
+      // primaryStarFileId still populated from star rows
+      expect(blockA!.primaryStarFileId).toBe('file-star-1');
+
+      // block-B (null flow_id) has zero outputs
+      const blockB = blocks.find((b) => b.id === 'block-B');
+      expect(blockB).toBeDefined();
+      expect(blockB!.outputs).toHaveLength(0);
+    });
+
+    /**
+     * T8 DoD: star-only file IDs (files that appear in storyboard_reference_stars
+     * but have no corresponding flow_files row) must NOT appear in outputs.
+     * This ensures outputs reflect completed flow outputs, not curated selections.
+     */
+    it('excludes star-only file IDs from outputs — stars that lack a flow_files row are not outputs', async () => {
+      mockQuery.mockResolvedValueOnce([
+        [{ id: 'block-A', flow_id: 'flow-A' }],
+      ]);
+      // No scene links
+      mockQuery.mockResolvedValueOnce([[]])
+      // Stars: file-star-only has no corresponding flow_files row
+      mockQuery.mockResolvedValueOnce([
+        [{ reference_block_id: 'block-A', file_id: 'file-star-only', is_primary: 1 }],
+      ]);
+      // flow_files returns a DIFFERENT file (file-flow-output), not file-star-only
+      mockQuery.mockResolvedValueOnce([
+        [{ flow_id: 'flow-A', file_id: 'file-flow-output', created_at: new Date('2025-06-01') }],
+      ]);
+
+      const blocks = await sceneReferenceSelectionRepo.loadBlocksForDraft('draft-1');
+
+      const blockA = blocks.find((b) => b.id === 'block-A')!;
+      const outputFileIds = blockA.outputs.map((o) => o.fileId);
+      // flow_files output present
+      expect(outputFileIds).toContain('file-flow-output');
+      // star-only file NOT in outputs
+      expect(outputFileIds).not.toContain('file-star-only');
+      // primaryStarFileId still set (selection rule checks usability separately)
+      expect(blockA.primaryStarFileId).toBe('file-star-only');
+    });
   });
 });

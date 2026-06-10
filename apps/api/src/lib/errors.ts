@@ -136,18 +136,33 @@ export class SceneNotInDraftError extends GateError {
 }
 
 /**
- * Star gate failed — one or more reference blocks lack a starred result.
+ * One or more reference blocks have not finished generating (AC-02 / AC-03b).
  *
- * Raised by storyboardIllustration.service assertFullSetStarGate (AC-08) and
- * assertSceneStarGate (AC-08b). The `details.blocks` array names every offending
- * block with its id and name so the client can surface actionable information
- * (AC-04 / openapi.yaml 422 bodies for startStoryboardIllustrations and
- * startStoryboardBlockIllustration).
+ * Raised by the scene-generation-reference-gate service when a full-draft or
+ * per-scene generate is requested but ≥1 linked reference block is not ready.
+ * Maps to HTTP 422 with the contract code `references.reference_gate_failed`;
+ * `details.blocks` names every offending block so the client can surface
+ * actionable information.
  */
-export class StarGateFailedError extends GateError {
+export class ReferenceNotReadyError extends GateError {
   constructor(message: string, blocks: Array<{ blockId: string; name: string }>) {
-    super(message, 'references.star_gate_failed', { blocks });
-    this.name = 'StarGateFailedError';
+    super(message, 'references.reference_gate_failed', { blocks });
+    this.name = 'ReferenceNotReadyError';
+  }
+}
+
+/**
+ * One or more scenes have no linked reference block (AC-04b).
+ *
+ * Raised when the every-scene-must-be-linked rule is broken. Maps to HTTP 422
+ * with the contract code `references.unlinked_scenes`; `details.scenes` names
+ * every scene that lacks a reference link (name may be null if the scene has no
+ * display name yet).
+ */
+export class UnlinkedScenesError extends GateError {
+  constructor(message: string, scenes: Array<{ blockId: string; name: string | null }>) {
+    super(message, 'references.unlinked_scenes', { scenes });
+    this.name = 'UnlinkedScenesError';
   }
 }
 

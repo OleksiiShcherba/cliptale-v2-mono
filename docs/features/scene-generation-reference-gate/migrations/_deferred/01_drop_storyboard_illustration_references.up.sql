@@ -1,0 +1,25 @@
+-- Migration (STAGED, DEFERRED): 01_drop_storyboard_illustration_references
+--
+-- ⛔ NOT promoted by `implement` together with the feature. This is the deliberately
+--    DEFERRED contract step of retiring the legacy principal image (ADR-0004; spec §8
+--    OQ-1 resolved 2026-06-09: deferred DROP).
+--
+-- Promote conditions (ALL must hold):
+--   1. scene-generation-reference-gate is fully rolled out (the principal-image code
+--      paths are removed from api / media-worker / web-editor).
+--   2. KPI `principal_image_generations` = 0 has held for 7 days post-rollout (spec §7).
+--   3. No rollback of the feature is planned — after this DROP the pre-feature code
+--      (which reads this table) can no longer be redeployed safely.
+--
+-- At promote time: copy into apps/api/src/db/migrations/ as the NEXT free number
+-- (would be 057 as of 2026-06-09 — re-check, another feature may promote first),
+-- single-file repo convention; the .down.sql content becomes the "Manual rollback"
+-- comment block.
+--
+-- Drops the legacy principal-image table (created in 040, extended in 041). Runtime
+-- has ignored it on read since the feature shipped (AC-08), so the rows are inert.
+-- DROP TABLE is lossy: the paired .down.sql restores the SCHEMA only, not the rows.
+--
+-- Idempotent: DROP TABLE IF EXISTS.
+
+DROP TABLE IF EXISTS storyboard_illustration_references;

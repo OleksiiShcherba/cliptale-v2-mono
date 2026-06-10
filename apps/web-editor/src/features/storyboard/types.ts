@@ -102,23 +102,21 @@ export type StoryboardIllustrationStatusItem = {
   errorMessage: string | null;
 };
 
-export type StoryboardIllustrationReferenceStatus = {
-  status: StoryboardIllustrationStatus;
-  jobId: string | null;
-  outputFileId: string | null;
-  sourceReferenceFileIds: string[];
-  approvalStatus: 'pending' | 'approved';
-  errorMessage: string | null;
-};
-
 export type StoryboardAutomationPhase =
   | 'idle'
   | 'planning'
-  | 'creating_principal_image'
-  | 'awaiting_principal_approval'
   | 'generating_scene_illustrations'
   | 'ready'
   | 'failed';
+
+/** Runtime guard array — mirrors the revised StoryboardAutomationPhase union (AC-08). */
+export const VALID_AUTOMATION_PHASES = [
+  'idle',
+  'planning',
+  'generating_scene_illustrations',
+  'ready',
+  'failed',
+] as const;
 
 export type StoryboardAutomationStatus = {
   phase: StoryboardAutomationPhase;
@@ -128,7 +126,6 @@ export type StoryboardAutomationStatus = {
 
 export type StoryboardIllustrationStatusResponse = {
   automation: StoryboardAutomationStatus;
-  reference: StoryboardIllustrationReferenceStatus;
   items: StoryboardIllustrationStatusItem[];
 };
 
@@ -164,7 +161,6 @@ export type StoryboardIllustrationLifecycleStatus =
 
 export type StoryboardIllustrationLifecyclePhase =
   | 'idle'
-  | 'reference'
   | 'scene'
   | 'completed'
   | 'failed';

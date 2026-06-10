@@ -245,7 +245,8 @@ describe('StoryboardPage / storyboard plan generation', () => {
     expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
-  it('bulk-resolves visible storyboard image files for canvas and principal previews', async () => {
+  it('bulk-resolves visible storyboard image files for canvas and scene illustrations', async () => {
+    // AC-08 (T9): principal/reference file IDs are no longer collected (reference field removed).
     setCanvasMock({
       nodes: [
         sentinelNodes[0],
@@ -267,14 +268,6 @@ describe('StoryboardPage / storyboard plan generation', () => {
       ],
     });
     setIllustrationMock({
-      reference: {
-        status: 'ready',
-        jobId: 'ref-job-1',
-        outputFileId: 'principal-file-bulk-1',
-        sourceReferenceFileIds: ['reference-file-bulk-1', 'reference-file-bulk-2'],
-        approvalStatus: 'pending',
-        errorMessage: null,
-      },
       items: [
         {
           blockId: 'scene-1',
@@ -292,45 +285,14 @@ describe('StoryboardPage / storyboard plan generation', () => {
       expect(mockApiClientPost).toHaveBeenCalledWith('/files/stream-urls', {
         fileIds: [
           'canvas-image-file-1',
-          'principal-file-bulk-1',
-          'reference-file-bulk-1',
-          'reference-file-bulk-2',
           'scene-output-file-bulk-1',
         ],
       });
     });
   });
 
-  it('passes missing bulk file IDs through so principal previews stop loading', async () => {
-    mockApiClientPost.mockImplementation((_path: string, body: { fileIds?: string[] }) => Promise.resolve({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        urls: {},
-        missingFileIds: body.fileIds ?? [],
-      }),
-    }));
-    setIllustrationMock({
-      reference: {
-        status: 'ready',
-        jobId: 'ref-job-1',
-        outputFileId: 'principal-file-missing-bulk-1',
-        sourceReferenceFileIds: ['reference-file-missing-bulk-1'],
-        approvalStatus: 'pending',
-        errorMessage: null,
-      },
-    });
-
-    renderPage();
-
-    await waitFor(() => {
-      expect(screen.getByTestId('principal-image-preview-fallback').textContent).toBe('Preview unavailable');
-    });
-    expect(screen.queryByTestId('principal-image-preview-loader')).toBeNull();
-    expect(screen.getByLabelText('Reference preview unavailable')).toBeTruthy();
-    expect(mockApiClientGet).not.toHaveBeenCalledWith('/files/principal-file-missing-bulk-1/stream');
-    expect(mockApiClientGet).not.toHaveBeenCalledWith('/files/reference-file-missing-bulk-1/stream');
-  });
+  // AC-08 (T9): "passes missing bulk file IDs through so principal previews stop loading"
+  // retired — PrincipalImagePreview and the reference field are removed.
 
   it('does not auto-start plan generation for an existing custom storyboard', () => {
     setCanvasMock({ nodes: customStoryboardNodes });
@@ -365,95 +327,24 @@ describe('StoryboardPage / storyboard plan generation', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/');
   });
 
-  it('shows visual style reference progress while reference generation is active', () => {
-    setIllustrationMock({
-      status: 'running',
-      phase: 'reference',
-      isBlocking: true,
-      reference: {
-        status: 'running',
-        jobId: 'ref-job-1',
-        outputFileId: null,
-        sourceReferenceFileIds: [],
-        approvalStatus: 'pending',
-        errorMessage: null,
-      },
-    });
+  // AC-08 (T9): "shows visual style reference progress", "shows a queued fallback",
+  // "shows the ready canonical reference preview thumbnail", "shows a loader-only preview"
+  // retired — StoryboardReferencePreview and the reference field are removed.
 
-    renderPage();
+  // Review F6 (2026-06-10): "shows 'Creating visual style reference' during reference phase"
+  // retired — the 'reference' lifecycle phase no longer exists after AC-08.
 
-    expect(screen.getByText('Creating visual style reference')).toBeTruthy();
-    expect(screen.getByTestId('storyboard-reference-preview-fallback').textContent).toBe('Wait');
-    expect(screen.getByTestId('storyboard-reference-loader')).toBeTruthy();
-    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('shows a queued fallback in the canonical reference preview before the thumbnail is ready', () => {
-    setIllustrationMock({
-      status: 'queued',
-      phase: 'reference',
-      isBlocking: true,
-      reference: {
-        status: 'queued',
-        jobId: 'ref-job-1',
-        outputFileId: null,
-        sourceReferenceFileIds: [],
-        approvalStatus: 'pending',
-        errorMessage: null,
-      },
-    });
-
-    renderPage();
-
-    expect(screen.getByTestId('storyboard-reference-preview')).toBeTruthy();
-    expect(screen.getByTestId('storyboard-reference-preview-fallback').textContent).toBe('Wait');
-    expect(screen.getByTestId('storyboard-reference-loader')).toBeTruthy();
-    expect(screen.queryByTestId('storyboard-reference-preview-image')).toBeNull();
-  });
-
-  it('shows the ready canonical reference preview thumbnail', () => {
+  it('shows "Generating scene illustrations" text during scene phase (AC-08)', () => {
     setIllustrationMock({
       status: 'running',
       phase: 'scene',
       isBlocking: true,
-      reference: {
-        status: 'ready',
-        jobId: 'ref-job-1',
-        outputFileId: 'ref-file-1',
-        sourceReferenceFileIds: [],
-        approvalStatus: 'pending',
-        errorMessage: null,
-      },
-    });
-
-    renderPage();
-
-    const image = screen.getByTestId('storyboard-reference-preview-image') as HTMLImageElement;
-    expect(image.alt).toBe('Canonical visual style reference');
-    expect(image.src).toContain('http://api.test/assets/ref-file-1/thumbnail?token=test');
-  });
-
-  it('shows a loader-only preview while scene illustrations are active', () => {
-    setIllustrationMock({
-      status: 'running',
-      phase: 'scene',
-      isBlocking: true,
-      reference: {
-        status: 'ready',
-        jobId: 'ref-job-1',
-        outputFileId: null,
-        sourceReferenceFileIds: [],
-        approvalStatus: 'approved',
-        errorMessage: null,
-      },
     });
 
     renderPage();
 
     expect(screen.getByText('Generating scene illustrations')).toBeTruthy();
-    expect(screen.getByTestId('storyboard-reference-loader')).toBeTruthy();
-    expect(screen.getByTestId('storyboard-reference-preview-fallback').textContent).toBe('');
-    expect(screen.getByLabelText('Scene illustration generation in progress')).toBeTruthy();
+    expect(screen.queryByTestId('storyboard-reference-preview')).toBeNull();
   });
 
   it('labels completed scene illustrations as done', () => {
@@ -475,52 +366,12 @@ describe('StoryboardPage / storyboard plan generation', () => {
     expect(screen.getByLabelText('Illustrations complete').textContent).toBe('Done');
   });
 
-  it('falls back gracefully when the canonical reference thumbnail fails', () => {
-    setIllustrationMock({
-      status: 'running',
-      phase: 'scene',
-      isBlocking: true,
-      reference: {
-        status: 'ready',
-        jobId: 'ref-job-1',
-        outputFileId: 'ref-file-1',
-        sourceReferenceFileIds: [],
-        approvalStatus: 'pending',
-        errorMessage: null,
-      },
-    });
+  // AC-08 (T9): "falls back gracefully when the canonical reference thumbnail fails"
+  // retired — StoryboardReferencePreview is removed.
 
-    renderPage();
-
-    fireEvent.error(screen.getByTestId('storyboard-reference-preview-image'));
-    expect(screen.getByTestId('storyboard-reference-preview-fallback').textContent).toBe('Ref');
-  });
-
-  it('allows retry from main illustration control when the style reference failed', () => {
-    setIllustrationMock({
-      status: 'failed',
-      phase: 'reference',
-      isBlocking: false,
-      error: 'Reference failed',
-      reference: {
-        status: 'failed',
-        jobId: 'ref-job-1',
-        outputFileId: null,
-        sourceReferenceFileIds: [],
-        approvalStatus: 'pending',
-        errorMessage: 'Reference failed',
-      },
-    });
-
-    renderPage();
-
-    expect(screen.getByText('Visual style reference failed')).toBeTruthy();
-    expect(screen.getByTestId('storyboard-reference-preview-fallback').textContent).toBe('Failed');
-    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId('storyboard-illustration-retry-button').textContent).toBe('Retry');
-    fireEvent.click(screen.getByTestId('storyboard-illustration-retry-button'));
-    expect(mockStartIllustrations).toHaveBeenCalledTimes(1);
-  });
+  // Review F6 (2026-06-10): "allows retry from main illustration control when the style
+  // reference failed" retired — the reference phase and its main-control Retry button are
+  // gone; scene failures are retried from their scene block (covered below).
 
   it('keeps scene failure retry scoped to the scene block', () => {
     setIllustrationMock({
@@ -533,7 +384,9 @@ describe('StoryboardPage / storyboard plan generation', () => {
     renderPage();
 
     expect(screen.getByText('Illustration failed')).toBeTruthy();
-    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
+    // After AC-08: isStep3Disabled = isGenerationBlocking (false when failed, not blocking).
+    // Step 3 is now enabled after failure — user can retry via block-level controls.
+    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(false);
     expect(screen.queryByTestId('storyboard-illustration-retry-button')).toBeNull();
   });
 
@@ -638,7 +491,10 @@ describe('StoryboardPage / storyboard plan generation', () => {
     expect(screen.queryByTestId('storyboard-illustration-generate-button')).toBeNull();
   });
 
-  it('keeps Step 3 disabled until all scene illustrations are completed', () => {
+  // AC-08 (T9): Step 3 is disabled only while generation is actively blocking.
+  // In idle state (no plan/illustration work running), Step 3 is enabled.
+  it('keeps Step 3 disabled while scene illustrations are blocking', () => {
+    setIllustrationMock({ status: 'running', phase: 'scene', isBlocking: true });
     renderPage();
 
     expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
@@ -677,124 +533,10 @@ describe('StoryboardPage / storyboard plan generation', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/generate/road-map?draftId=test-draft-abc&mode=images');
   });
 
-  it('opens the principal image approval modal and continues after approval', async () => {
-    const refresh = vi.fn().mockResolvedValue([
-      {
-        blockId: 'scene-1',
-        status: 'queued',
-        jobId: 'scene-job-1',
-        outputFileId: null,
-        errorMessage: null,
-      },
-    ]);
-    setIllustrationMock({
-      reference: {
-        status: 'ready',
-        jobId: 'ref-job-1',
-        outputFileId: 'principal-file-1',
-        sourceReferenceFileIds: [],
-        approvalStatus: 'pending',
-        errorMessage: null,
-      },
-      refresh,
-    });
-
-    renderPage();
-
-    expect(screen.getByTestId('principal-image-modal')).toBeTruthy();
-    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
-
-    fireEvent.click(screen.getByTestId('principal-image-approve-button'));
-
-    await waitFor(() => {
-      expect(mockApprovePrincipalImage).toHaveBeenCalledWith('test-draft-abc');
-      expect(mockStartIllustrations).toHaveBeenCalledTimes(1);
-      expect(refresh).toHaveBeenCalled();
-    });
-  });
-
-  it('keeps Step 3 blocked when scene start fails after principal approval', async () => {
-    const refresh = vi.fn().mockResolvedValue([]);
-    const approvedReference = {
-      status: 'ready',
-      jobId: 'ref-job-1',
-      outputFileId: 'principal-file-1',
-      sourceReferenceFileIds: [],
-      approvalStatus: 'approved',
-      errorMessage: null,
-    };
-    setIllustrationMock({
-      reference: {
-        status: 'ready',
-        jobId: 'ref-job-1',
-        outputFileId: 'principal-file-1',
-        sourceReferenceFileIds: [],
-        approvalStatus: 'pending',
-        errorMessage: null,
-      },
-      refresh,
-    });
-
-    const { rerender } = renderPage();
-    await waitFor(() => {
-      expect(screen.getByTestId('principal-image-approve-button')).toBeTruthy();
-    });
-
-    fireEvent.click(screen.getByTestId('principal-image-approve-button'));
-
-    await waitFor(() => {
-      expect(mockApprovePrincipalImage).toHaveBeenCalledWith('test-draft-abc');
-      expect(mockStartIllustrations).toHaveBeenCalledTimes(1);
-    });
-
-    setIllustrationMock({
-      reference: approvedReference,
-      refresh,
-    });
-
-    rerender(
-      <QueryClientProvider client={new QueryClient({
-        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-      })}
-      >
-        <MemoryRouter initialEntries={['/storyboard/test-draft-abc']}>
-          <Routes>
-            <Route path="/storyboard/:draftId" element={<StoryboardPage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
-
-    expect(screen.getByTestId('principal-image-modal')).toBeTruthy();
-    expect(screen.getByRole('alert').textContent).toContain('Could not start illustration generation.');
-    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('keeps Step 3 blocked when scene start fails before approved state refreshes', async () => {
-    const refresh = vi.fn().mockResolvedValue([]);
-    setIllustrationMock({
-      reference: {
-        status: 'ready',
-        jobId: 'ref-job-1',
-        outputFileId: 'principal-file-1',
-        sourceReferenceFileIds: [],
-        approvalStatus: 'pending',
-        errorMessage: null,
-      },
-      refresh,
-    });
-
-    renderPage();
-
-    fireEvent.click(screen.getByTestId('principal-image-approve-button'));
-
-    await waitFor(() => {
-      expect(mockApprovePrincipalImage).toHaveBeenCalledWith('test-draft-abc');
-      expect(mockStartIllustrations).toHaveBeenCalledTimes(1);
-      expect(screen.getByRole('alert').textContent).toContain('Could not start illustration generation.');
-    });
-    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
-  });
+  // AC-08 (T9): "opens the principal image approval modal and continues after approval",
+  // "keeps Step 3 blocked when scene start fails after principal approval", and
+  // "keeps Step 3 blocked when scene start fails before approved state refreshes"
+  // are retired — PrincipalImageApprovalModal and the principal-approval step are removed.
 
   it('does not auto-start a START and END storyboard twice across rerenders', () => {
     setCanvasMock({ nodes: sentinelNodes });

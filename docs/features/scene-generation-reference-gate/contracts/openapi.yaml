@@ -1,0 +1,433 @@
+# DERIVED contract for scene-generation-reference-gate — do not hand-edit field-by-field.
+#   fields + constraints  ← data-model.md (storyboard_reference_blocks, storyboard_blocks,
+#                           storyboard_reference_scene_links, storyboard_reference_stars, flow_files —
+#                           all existing, zero DDL) + existing wire types
+#                           (apps/api/src/services/storyboardIllustration.types.ts)
+#   error responses       ← sad.md §6 sequence alt-branches (Flows 1–6)
+#   endpoint list + shape ← spec.md §4 user stories / §5 acceptance criteria
+#
+# Brownfield deviations from the SDD defaults — inherited verbatim from the predecessor contract
+# (storyboard-reference-flows/contracts/openapi.yaml, team decision 2026-06-03/2026-06-07):
+#   • Error body  = repo's `{ error }` PLUS additive optional `{ code, details }`,
+#                   NOT the bare `{ code, message, details? }` SDD envelope.
+#   • JSON keys   = camelCase (draftId, blockId, outputFileId…) — the repo's wire convention.
+#   • URL prefix  = none; paths are rooted (the repo mounts routes at `/`), NOT `/api/v1`.
+#   • Idempotency-Key NOT added to the existing start endpoints — they keep the repo's natural
+#     dedupe (an active scene job is never duplicated: `isActiveIllustrationStatus` filter),
+#     same as the predecessor's "extensions documented only where extended" rule.
+#
+# This feature adds ZERO new endpoints. The contract is a DELTA over four existing surfaces:
+#   1. POST /storyboards/{draftId}/illustrations          — gate REPLACED (star → Reference-done)
+#   2. POST /storyboards/{draftId}/blocks/{blockId}/illustration — scoped gate REPLACED
+#   3. GET  /storyboards/{draftId}/illustrations          — principal fields REMOVED (breaking)
+#   4. four principal-image routes                        — REMOVED (AC-08 / ADR-0004)
+# The predecessor's `references.star_gate_failed` (422) is RETIRED with the star gate; its two
+# replacement branches are `references.reference_gate_failed` and `references.unlinked_scenes`.
+# Worker-side selection + reference boundary (AC-05/AC-06/AC-06b) are DB reads, not HTTP — see
+# events.md and the api-sync-report coverage table.
+openapi: 3.1.0
+
+info:
+  title: scene-generation-reference-gate API (delta)
+  version: 0.1.0
+  description: |
+    Replaces the storyboard's two-track readiness model — a star gate on every reference block
+    PLUS an up-front principal image — with a single Reference-done gate: full-draft scene
+    generation may start only when every character and environment reference block is a READY
+    reference block (has ≥1 persisted completed output — output-existence, never the raw
+    window_status and never starring, ADR-0002), and, in a draft holding ≥1 reference block,
+    every scene is linked to a reference. Per-scene regeneration is gated only on the blocks
+    linked to that scene. Scenes consume exactly ONE selected reference output per linked block
+    (primary star if completed-usable, else latest completed — ADR-0003), and the legacy
+    principal image is retired from the scene path entirely (ignore-on-read, ADR-0004).
+
+    Gate evaluation is pure persisted reads (data-model Q1–Q3) — no provider call, no charge
+    (spec §6). The gate is enforced server-side at the start operation; its rejection is
+    authoritative (CONTEXT "Reference-done gate").
+
+servers:
+  - url: https://api.cliptale.com
+    description: Production
+  - url: http://localhost
+    description: Local
+
+# Global default — every operation requires a bearer JWT unless it overrides with `security: []`.
+security:
+  - BearerAuth: []
+
+paths:
+  # ─────────────── Full-draft start — Reference-done gate (US-01/02/04/05/07 — Flows 1/4/5/6) ───────────────
+
+  /storyboards/{draftId}/illustrations:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    get:
+      summary: "EXISTING endpoint — revision: principal-image fields removed from the status read"
+      description: |
+        AC-08 / ADR-0004 / spec §6 (readiness/status read p95 ≤ 300 ms). The EXISTING scene
+        illustration status read loses the legacy principal-image surface: the top-level
+        `reference` object (with its `approvalStatus`) is REMOVED, and `automation.phase` loses
+        the `creating_principal_image` and `awaiting_principal_approval` values. Readiness is
+        decided solely by the Reference-done gate at the start operations; per-block reference
+        state stays on the existing `GET /storyboards/{draftId}/references/blocks` read.
+        BREAKING for any client still rendering the principal approval step — the web-editor
+        drops that step in this same feature (US-07). The read is a pure persisted query
+        (no provider call — spec §6 gate-evaluation cost).
+      operationId: listStoryboardIllustrations
+      tags: [scene-generation]
+      responses:
+        "200":
+          description: OK — revised status shape (no principal-image fields).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoryboardIllustrationStatus" }
+              example:
+                automation:
+                  phase: "generating_scene_illustrations"
+                  planningJobId: null
+                  errorMessage: null
+                items:
+                  - blockId: "33333333-3333-4333-8333-333333333333"
+                    status: "running"
+                    jobId: "44444444-4444-4444-8444-444444444444"
+                    outputFileId: null
+                    errorMessage: null
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/DraftNotFound" }
+
+    post:
+      summary: "EXISTING endpoint — revision: Reference-done gate replaces the star gate"
+      description: |
+        Flow 1 (+ Flow 4 cross-context, Flow 5 principal retired, Flow 6 authz) / AC-01, AC-02,
+        AC-04, AC-04b, AC-07, AC-08, AC-09. The EXISTING full-draft start drops the star gate
+        and the principal-image precondition and enforces the Reference-done gate BEFORE any
+        job/charge, evaluated as persisted reads only (data-model Q1–Q3, no provider call):
+
+        1. owner-scoped draft resolve FIRST — a non-owner gets 404 with no reference/scene
+           state disclosed (AC-09, Flow 6);
+        2. every character/environment reference block must be READY — `flow_id` set AND ≥1
+           live `flow_files` row (output-existence, ADR-0002). A block still generating in the
+           media-worker rolling window simply has no persisted output yet and blocks the start
+           (AC-07 — persisted read, never a completion-event subscription). Manual blocks and
+           finished-but-unstarred blocks gate identically (no starring precondition);
+        3. in a draft with ≥1 reference block, every scene block must have ≥1 linked reference
+           (AC-04b); a draft with ZERO reference blocks passes and scenes generate from prompt +
+           derived style (AC-04);
+        4. any legacy principal-image record is ignored on read — it never feeds a scene and
+           never affects the gate (AC-08, ADR-0004).
+
+        Gate pass = snapshot at start (one-shot check, spec §8 OQ — accepted limitation).
+        On pass the scene jobs are enqueued on the existing `storyboard-openai-image` queue
+        (events.md) and the call returns 202 with the revised status body. Re-POST while jobs
+        are active never duplicates them (existing active-job dedupe — natural idempotency,
+        no Idempotency-Key header). p95 ≤ 500 ms incl. gate evaluation (spec §6).
+      operationId: startStoryboardIllustrations
+      tags: [scene-generation]
+      responses:
+        "202":
+          description: Accepted — gate passed, scene generation started (AC-01; zero-reference drafts per AC-04).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoryboardIllustrationStatus" }
+              example:
+                automation:
+                  phase: "generating_scene_illustrations"
+                  planningJobId: null
+                  errorMessage: null
+                items:
+                  - blockId: "33333333-3333-4333-8333-333333333333"
+                    status: "queued"
+                    jobId: "44444444-4444-4444-8444-444444444444"
+                    outputFileId: null
+                    errorMessage: null
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/DraftNotFound" }
+        "422":
+          description: |
+            Reference-done gate failed — two distinct branches (Flow 1 alt):
+            `references.reference_gate_failed` — ≥1 reference block is not ready (still
+            generating, failed with no usable result, or empty); every blocking block is named
+            and the Creator finishes, retries, or removes it via the EXISTING reference-flow
+            controls (AC-02 — no new retry/force-fail affordance).
+            `references.unlinked_scenes` — every block is ready but ≥1 scene has no linked
+            reference in a draft that holds ≥1 reference block; the scenes are named and the
+            Creator links a reference before starting (AC-04b).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                referenceGateFailed:
+                  summary: AC-02 / AC-07 — blocking blocks named (state read from persisted output-existence)
+                  value:
+                    error: "2 reference blocks have not finished generating: Test Character, Test Environment. Finish, retry, or remove them before starting."
+                    code: "references.reference_gate_failed"
+                    details:
+                      blocks:
+                        - { blockId: "55555555-5555-4555-8555-555555555555", name: "Test Character" }
+                        - { blockId: "88888888-8888-4888-8888-888888888888", name: "Test Environment" }
+                unlinkedScenes:
+                  summary: AC-04b — reference-less scenes named in a referenced draft
+                  value:
+                    error: "1 scene has no linked reference: Test Scene. Link a reference before starting."
+                    code: "references.unlinked_scenes"
+                    details:
+                      scenes:
+                        - { blockId: "99999999-9999-4999-8999-999999999999", name: "Test Scene" }
+
+  # ─────────────── Per-scene regeneration — scene-scoped gate (US-03 — Flow 2) ───────────────
+
+  /storyboards/{draftId}/blocks/{blockId}/illustration:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+      - $ref: "#/components/parameters/SceneBlockId"
+    post:
+      summary: "EXISTING endpoint — revision: scene-scoped Reference-done gate"
+      description: |
+        Flow 2 / AC-03, AC-03b. The EXISTING single-scene regeneration drops the scoped star
+        gate and enforces the scene-scoped Reference-done gate: only the reference blocks
+        LINKED to scene S (data-model Q2 via `idx_storyboard_reference_scene_links_scene`) must
+        be ready; an unfinished block not linked to S never blocks (AC-03), and zero linked
+        blocks passes (the scene generates from its prompt + derived style). On pass the worker
+        feeds S exactly one selected output per linked block — primary star if completed-usable,
+        else latest completed (AC-06/AC-06b, ADR-0003, worker-side: events.md). Owner-scoped
+        resolve precedes any gate evaluation (AC-09 applies identically).
+      operationId: startStoryboardBlockIllustration
+      tags: [scene-generation]
+      responses:
+        "202":
+          description: Accepted — all blocks linked to this scene are ready; regeneration started (AC-03).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoryboardIllustrationStatus" }
+              example:
+                automation:
+                  phase: "ready"
+                  planningJobId: null
+                  errorMessage: null
+                items:
+                  - blockId: "99999999-9999-4999-8999-999999999999"
+                    status: "queued"
+                    jobId: "44444444-4444-4444-8444-444444444444"
+                    outputFileId: null
+                    errorMessage: null
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Draft not found / not owned (AC-09), or blockId is not a scene block of this draft.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                draftNotFound:
+                  value: { error: "Draft not found.", code: "references.draft_not_found" }
+                sceneNotInDraft:
+                  value: { error: "Scene block not found.", code: "references.scene_not_in_draft" }
+        "422":
+          description: Scene-scoped gate failed — ONLY blocks linked to this scene are named (AC-03b, Flow 2 alt).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "1 reference block linked to this scene has not finished generating: Test Character. Finish, retry, or remove it before regenerating."
+                code: "references.reference_gate_failed"
+                details:
+                  blocks:
+                    - { blockId: "55555555-5555-4555-8555-555555555555", name: "Test Character" }
+
+  # ─────────────── Principal image — routes REMOVED (US-07 / AC-08 — Flow 5, ADR-0004) ───────────────
+  # The four legacy routes below are DELETED from the router in this feature (not stubbed, not
+  # 410-ed — removed; Express then answers 404). Documented here deprecated-only so consumers
+  # see the removal in the diff. The backing table gets a DEFERRED drop (migrations/_deferred/,
+  # promoted separately after the KPI window — data-model.md).
+
+  /storyboards/{draftId}/illustrations/principal-image/approve:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    post:
+      summary: "REMOVED — principal-image approval retired (AC-08)"
+      deprecated: true
+      description: Route deleted; readiness is decided solely by the Reference-done gate. Calls return 404.
+      operationId: approveStoryboardPrincipalImage
+      tags: [removals]
+      responses:
+        "404": { $ref: "#/components/responses/RouteRemoved" }
+
+  /storyboards/{draftId}/illustrations/principal-image/edit:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    post:
+      summary: "REMOVED — principal-image edit retired (AC-08)"
+      deprecated: true
+      description: Route deleted with the principal-image track. Calls return 404.
+      operationId: editStoryboardPrincipalImage
+      tags: [removals]
+      responses:
+        "404": { $ref: "#/components/responses/RouteRemoved" }
+
+  /storyboards/{draftId}/illustrations/principal-image/replace:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    post:
+      summary: "REMOVED — principal-image replace retired (AC-08)"
+      deprecated: true
+      description: Route deleted with the principal-image track. Calls return 404.
+      operationId: replaceStoryboardPrincipalImage
+      tags: [removals]
+      responses:
+        "404": { $ref: "#/components/responses/RouteRemoved" }
+
+  /storyboards/{draftId}/illustrations/principal-image/references:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    put:
+      summary: "REMOVED — principal-image reference set retired (AC-08)"
+      deprecated: true
+      description: Route deleted with the principal-image track. Calls return 404.
+      operationId: setStoryboardPrincipalImageReferences
+      tags: [removals]
+      responses:
+        "404": { $ref: "#/components/responses/RouteRemoved" }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    DraftId:
+      in: path
+      name: draftId
+      required: true
+      description: generation_drafts.id — resolved owner-scoped BEFORE any gate evaluation (AC-09).
+      schema: { type: string, format: uuid }
+    SceneBlockId:
+      in: path
+      name: blockId
+      required: true
+      description: storyboard SCENE block id (storyboard_blocks.id, block_type = 'scene' — not a reference block).
+      schema: { type: string, format: uuid }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer JWT.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Unauthorized." }
+    DraftNotFound:
+      description: Draft not found — also the non-owner answer; no reference/scene state is disclosed (AC-09, Flow 6).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Draft not found.", code: "references.draft_not_found" }
+    RouteRemoved:
+      description: Route removed by scene-generation-reference-gate (AC-08); Express answers 404.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Not found." }
+
+  schemas:
+    # Repo error envelope (brownfield deviation, predecessor precedent): `error` is the
+    # authoritative human-readable message; `code` (neutral module.error_name) + `details`
+    # are additive optional.
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          pattern: "^[a-z_]+\\.[a-z_]+$"
+          examples: ["references.reference_gate_failed"]
+        details:
+          type: object
+          description: structured context — `blocks` (blocking reference blocks) or `scenes` (unlinked scenes)
+          properties:
+            blocks:
+              type: array
+              description: AC-02/AC-03b — every blocking (not-ready) reference block, named
+              items: { $ref: "#/components/schemas/BlockingBlock" }
+            scenes:
+              type: array
+              description: AC-04b — every scene with no linked reference block, named
+              items: { $ref: "#/components/schemas/UnlinkedScene" }
+
+    # CONTEXT "Blocking block" — a non-ready character/environment reference block named in the
+    # gate's rejection. Fields ← storyboard_reference_blocks (053, data-model.md).
+    BlockingBlock:
+      type: object
+      required: [blockId, name]
+      additionalProperties: false
+      properties:
+        blockId:
+          type: string
+          format: uuid
+          description: storyboard_reference_blocks.id
+        name:
+          type: string
+          maxLength: 255
+          description: storyboard_reference_blocks.name (VARCHAR(255) NOT NULL)
+
+    # AC-04b — a scene block with no row in storyboard_reference_scene_links (data-model Q3).
+    UnlinkedScene:
+      type: object
+      required: [blockId, name]
+      additionalProperties: false
+      properties:
+        blockId:
+          type: string
+          format: uuid
+          description: storyboard_blocks.id (block_type = 'scene')
+        name:
+          type: [string, "null"]
+          maxLength: 255
+          description: storyboard_blocks.name (VARCHAR(255) NULL)
+
+    # Revised status response (GET + both 202 bodies). DELTA vs the pre-feature wire type
+    # (storyboardIllustration.types.ts): top-level `reference` REMOVED; `automation.phase`
+    # loses `creating_principal_image` / `awaiting_principal_approval` (AC-08).
+    # `additionalProperties: false` makes the removal contractual.
+    StoryboardIllustrationStatus:
+      type: object
+      required: [automation, items]
+      additionalProperties: false
+      properties:
+        automation: { $ref: "#/components/schemas/StoryboardAutomationStatus" }
+        items:
+          type: array
+          description: one entry per scene block in storyboard order
+          items: { $ref: "#/components/schemas/SceneIllustrationStatusItem" }
+
+    StoryboardAutomationStatus:
+      type: object
+      required: [phase, planningJobId, errorMessage]
+      additionalProperties: false
+      properties:
+        phase:
+          type: string
+          description: principal-image phases removed by this feature (AC-08)
+          enum: [idle, planning, generating_scene_illustrations, ready, failed]
+        planningJobId: { type: [string, "null"], format: uuid }
+        errorMessage: { type: [string, "null"] }
+
+    # Existing per-scene job projection, unchanged (storyboardSceneIllustration.repository.ts).
+    SceneIllustrationStatusItem:
+      type: object
+      required: [blockId, status, jobId, outputFileId, errorMessage]
+      additionalProperties: false
+      properties:
+        blockId:
+          type: string
+          format: uuid
+          description: storyboard_blocks.id (block_type = 'scene')
+        status:
+          type: string
+          enum: [queued, running, ready, failed]
+        jobId: { type: [string, "null"], format: uuid }
+        outputFileId:
+          type: [string, "null"]
+          format: uuid
+          description: files.file_id of the generated scene preview
+        errorMessage: { type: [string, "null"] }

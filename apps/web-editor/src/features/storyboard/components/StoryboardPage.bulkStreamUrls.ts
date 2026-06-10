@@ -14,7 +14,7 @@ interface StoryboardBulkStreamUrlState {
 
 export function useStoryboardPageBulkStreamUrls(
   nodes: Node[],
-  illustrationGeneration: Pick<UseStoryboardIllustrationsResult, 'items' | 'reference'>,
+  illustrationGeneration: Pick<UseStoryboardIllustrationsResult, 'items'>,
 ): StoryboardBulkStreamUrlState {
   const fileIds = useMemo(() => {
     const ids = new Set<string>();
@@ -29,12 +29,8 @@ export function useStoryboardPageBulkStreamUrls(
     illustrationGeneration.items.forEach((item) => {
       if (item.outputFileId) ids.add(item.outputFileId);
     });
-    if (illustrationGeneration.reference?.outputFileId) {
-      ids.add(illustrationGeneration.reference.outputFileId);
-    }
-    illustrationGeneration.reference?.sourceReferenceFileIds.forEach((fileId) => ids.add(fileId));
     return [...ids];
-  }, [illustrationGeneration.items, illustrationGeneration.reference, nodes]);
+  }, [illustrationGeneration.items, nodes]);
 
   const { urls, error, missingFileIds } = useBulkFileStreamUrls(fileIds);
   return { fileIds, urls, error, missingFileIds };

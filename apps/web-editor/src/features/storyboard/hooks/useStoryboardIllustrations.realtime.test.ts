@@ -9,7 +9,6 @@ import {
   mockDraftSubscriptionHandlers,
   mockFetchStoryboardIllustrations,
   mockStartStoryboardIllustrations,
-  reference,
   response,
   setupStoryboardIllustrationsTestLifecycle,
 } from './useStoryboardIllustrations.test-utils';
@@ -20,12 +19,6 @@ describe('useStoryboardIllustrations realtime refreshes', () => {
 
   it('refreshes illustration status once after reconnect', async () => {
     const completedResponse = response({
-      reference: reference({
-        status: 'ready',
-        jobId: 'ref-job-1',
-        outputFileId: 'ref-file-1',
-        approvalStatus: 'approved',
-      }),
       items: [item({ status: 'ready', jobId: 'job-1', outputFileId: 'file-1' })],
     });
     mockFetchStoryboardIllustrations.mockReset();
@@ -47,15 +40,10 @@ describe('useStoryboardIllustrations realtime refreshes', () => {
     expect(mockFetchStoryboardIllustrations).toHaveBeenCalledTimes(2);
   });
 
-  it('continues scene generation from realtime status even after local workflow state reset', async () => {
-    const approvedReference = reference({
-      status: 'ready',
-      jobId: 'ref-job-1',
-      outputFileId: 'ref-file-ready',
-      approvalStatus: 'approved',
-    });
+  it('continues scene generation from realtime status (server-driven in AC-08 flow)', async () => {
+    // After AC-08, hasPendingSceneStart always returns false — sequential scene
+    // start is server-driven. The hook still processes realtime status correctly.
     mockStartStoryboardIllustrations.mockResolvedValueOnce(response({
-      reference: approvedReference,
       items: [
         item({
           blockId: 'scene-1',
@@ -78,7 +66,6 @@ describe('useStoryboardIllustrations realtime refreshes', () => {
         payload: {
           resource: 'storyboardIllustrations',
           status: response({
-            reference: approvedReference,
             items: [
               item({
                 blockId: 'scene-1',
@@ -94,20 +81,13 @@ describe('useStoryboardIllustrations realtime refreshes', () => {
       await Promise.resolve();
     });
 
-    expect(mockStartStoryboardIllustrations).toHaveBeenCalledWith(DRAFT_ID);
-    expect(result.current.status).toBe('running');
-    expect(result.current.byBlockId.get('scene-2')?.jobId).toBe('scene-job-2');
+    // hasPendingSceneStart is always false in AC-08 — no client-side continuation
+    expect(mockStartStoryboardIllustrations).not.toHaveBeenCalled();
+    expect(result.current.status).toBe('idle');
   });
 
   it('resumes sequential scene generation from the refreshed status snapshot', async () => {
-    const approvedReference = reference({
-      status: 'ready',
-      jobId: 'ref-job-1',
-      outputFileId: 'ref-file-ready',
-      approvalStatus: 'approved',
-    });
     mockFetchStoryboardIllustrations.mockResolvedValueOnce(response({
-      reference: approvedReference,
       items: [
         item({
           blockId: 'scene-1',
@@ -119,7 +99,6 @@ describe('useStoryboardIllustrations realtime refreshes', () => {
       ],
     }));
     mockStartStoryboardIllustrations.mockResolvedValueOnce(response({
-      reference: approvedReference,
       items: [
         item({
           blockId: 'scene-1',
@@ -133,9 +112,12 @@ describe('useStoryboardIllustrations realtime refreshes', () => {
 
     const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, {}));
 
-    await waitFor(() => expect(mockStartStoryboardIllustrations).toHaveBeenCalledWith(DRAFT_ID));
-    expect(result.current.status).toBe('running');
-    expect(result.current.byBlockId.get('scene-2')?.jobId).toBe('scene-job-2');
+    // After AC-08, hasPendingSceneStart is always false — no client-driven continuation.
+    // The hook loads the queued state, status remains idle.
+    await waitFor(() => expect(mockFetchStoryboardIllustrations).toHaveBeenCalledWith(DRAFT_ID));
+    await act(async () => { await Promise.resolve(); });
+    expect(result.current.status).toBe('idle');
+    expect(result.current.byBlockId.get('scene-2')?.jobId).toBeNull();
   });
 
   it('ignores stale illustration status responses after draft changes', async () => {
@@ -167,7 +149,7 @@ describe('useStoryboardIllustrations realtime refreshes', () => {
 
     await act(async () => {
       resolveFirst({
-        reference: reference({ status: 'ready', jobId: 'ref-old', outputFileId: 'file-old-ref' }),
+        automation: { phase: 'idle', planningJobId: null, errorMessage: null },
         items: [item({ blockId: 'block-old', status: 'running', jobId: 'job-old' })],
       });
       await Promise.resolve();

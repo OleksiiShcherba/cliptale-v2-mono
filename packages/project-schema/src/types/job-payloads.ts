@@ -108,7 +108,12 @@ export type StoryboardPlanJobPayload = {
   userId: string;
 };
 
-export type StoryboardOpenAIImageJobKind = 'style_reference' | 'scene';
+/**
+ * Scene illustrations are the only storyboard-openai-image jobs: the legacy
+ * draft-level 'style_reference' (principal image) kind was retired by
+ * scene-generation-reference-gate (ADR-0004) — no producer enqueues it.
+ */
+export type StoryboardOpenAIImageJobKind = 'scene';
 
 export type StoryboardOpenAIImageSize =
   | '1024x1024'
@@ -170,9 +175,9 @@ export type StoryboardOpenAIImageJobPayload = {
   userId: string;
   /** Generation draft owning the output file link. */
   draftId: string;
-  /** Draft-level canonical reference or a scene illustration. */
+  /** Scene illustration (the retired principal-image kind no longer exists). */
   kind: StoryboardOpenAIImageJobKind;
-  /** Scene block for kind='scene'. Omitted for draft-level style references. */
+  /** Scene block being illustrated. */
   blockId?: string;
   /** Prompt sent to the OpenAI Images API. */
   prompt: string;

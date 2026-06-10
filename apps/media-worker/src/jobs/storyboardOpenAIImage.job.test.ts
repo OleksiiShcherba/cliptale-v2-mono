@@ -23,7 +23,7 @@ function makeJob(overrides: Partial<StoryboardOpenAIImageJobPayload> = {}): Job<
       jobId: 'job-1',
       userId: 'user-1',
       draftId: 'draft-1',
-      kind: 'style_reference',
+      kind: 'scene',
       prompt: 'Create the canonical visual style.',
       referenceFileIds: [],
       ...overrides,
@@ -43,8 +43,6 @@ function makeDeps(): StoryboardOpenAIImageJobDeps & {
   setOutputFile: ReturnType<typeof vi.fn>;
   markFailed: ReturnType<typeof vi.fn>;
   findFilesByIds: ReturnType<typeof vi.fn>;
-  referenceSetOutput: ReturnType<typeof vi.fn>;
-  referenceMarkFailed: ReturnType<typeof vi.fn>;
   sceneAttachOutputToBlock: ReturnType<typeof vi.fn>;
   sceneMarkFailed: ReturnType<typeof vi.fn>;
 } {
@@ -73,8 +71,6 @@ function makeDeps(): StoryboardOpenAIImageJobDeps & {
       displayName: 'source.png',
     },
   ]);
-  const referenceSetOutput = vi.fn().mockResolvedValue(undefined);
-  const referenceMarkFailed = vi.fn().mockResolvedValue(undefined);
   const sceneAttachOutputToBlock = vi.fn().mockResolvedValue(undefined);
   const sceneMarkFailed = vi.fn().mockResolvedValue(undefined);
 
@@ -86,10 +82,6 @@ function makeDeps(): StoryboardOpenAIImageJobDeps & {
     filesRepo: { createFile: filesCreate, markReady: filesMarkReady },
     fileReadRepo: { findFilesByIds },
     aiGenerationJobRepo: { setOutputFile, markFailed },
-    storyboardReferenceRepo: {
-      setOutput: referenceSetOutput,
-      markFailed: referenceMarkFailed,
-    },
     storyboardSceneRepo: {
       attachOutputToBlock: sceneAttachOutputToBlock,
       markFailed: sceneMarkFailed,
@@ -103,8 +95,6 @@ function makeDeps(): StoryboardOpenAIImageJobDeps & {
     setOutputFile,
     markFailed,
     findFilesByIds,
-    referenceSetOutput,
-    referenceMarkFailed,
     sceneAttachOutputToBlock,
     sceneMarkFailed,
   };
@@ -122,7 +112,7 @@ describe('processStoryboardOpenAIImageJob', () => {
     vi.clearAllMocks();
   });
 
-  it('uses OpenAI image generation for text-only style references and stores output', async () => {
+  it('uses OpenAI image generation for text-only scene jobs and stores output', async () => {
     const deps = makeDeps();
 
     await processStoryboardOpenAIImageJob(makeJob(), deps);
@@ -146,7 +136,8 @@ describe('processStoryboardOpenAIImageJob', () => {
     const fileId = (deps.filesCreate.mock.calls[0]![0] as { fileId: string }).fileId;
     expect(deps.setOutputFile).toHaveBeenCalledWith('job-1', fileId);
     expect(deps.filesMarkReady).toHaveBeenCalledWith(fileId);
-    expect(deps.referenceSetOutput).toHaveBeenCalledWith({
+    expect(deps.sceneAttachOutputToBlock).toHaveBeenCalledWith({
+      id: expect.stringMatching(/^[0-9a-f-]+$/),
       aiJobId: 'job-1',
       outputFileId: fileId,
     });
@@ -185,7 +176,6 @@ describe('processStoryboardOpenAIImageJob', () => {
       aiJobId: 'job-1',
       outputFileId: fileId,
     });
-    expect(deps.referenceSetOutput).not.toHaveBeenCalled();
   });
 
   it('downloads URL outputs when OpenAI returns a temporary URL', async () => {
@@ -203,7 +193,7 @@ describe('processStoryboardOpenAIImageJob', () => {
     expect(deps.filesCreate).toHaveBeenCalledWith(expect.objectContaining({ bytes: 3 }));
   });
 
-  it('marks the job and reference failed with a sanitized error', async () => {
+  it('marks the job and scene mapping failed with a sanitized error', async () => {
     const deps = makeDeps();
     deps.imagesGenerate.mockRejectedValueOnce(
       new Error('OpenAI failed sk_live_abcdefghijkl at https://signed.example.com/out.png\nstack line'),
@@ -215,7 +205,7 @@ describe('processStoryboardOpenAIImageJob', () => {
       'job-1',
       'OpenAI failed [redacted] at [redacted-url]',
     );
-    expect(deps.referenceMarkFailed).toHaveBeenCalledWith(
+    expect(deps.sceneMarkFailed).toHaveBeenCalledWith(
       'job-1',
       'OpenAI failed [redacted] at [redacted-url]',
     );
@@ -233,7 +223,6 @@ describe('processStoryboardOpenAIImageJob', () => {
     ).rejects.toThrow('OpenAI scene failed');
 
     expect(deps.sceneMarkFailed).toHaveBeenCalledWith('job-1', 'OpenAI scene failed');
-    expect(deps.referenceMarkFailed).not.toHaveBeenCalled();
   });
 
   it('does not mark failed on non-final retryable attempts', async () => {
@@ -252,7 +241,7 @@ describe('processStoryboardOpenAIImageJob', () => {
     ).rejects.toThrow('OpenAI 503 Service Unavailable');
 
     expect(deps.markFailed).not.toHaveBeenCalled();
-    expect(deps.referenceMarkFailed).not.toHaveBeenCalled();
+    expect(deps.sceneMarkFailed).not.toHaveBeenCalled();
   });
 
   it('fails before calling OpenAI when a reference file is unavailable', async () => {
@@ -270,12 +259,12 @@ describe('processStoryboardOpenAIImageJob', () => {
     expect(deps.imagesGenerate).not.toHaveBeenCalled();
     expect(deps.filesCreate).not.toHaveBeenCalled();
     expect(deps.setOutputFile).not.toHaveBeenCalled();
-    expect(deps.referenceSetOutput).not.toHaveBeenCalled();
+    expect(deps.sceneAttachOutputToBlock).not.toHaveBeenCalled();
     expect(deps.markFailed).toHaveBeenCalledWith(
       'job-1',
       'Reference image file is unavailable: missing-file',
     );
-    expect(deps.referenceMarkFailed).toHaveBeenCalledWith(
+    expect(deps.sceneMarkFailed).toHaveBeenCalledWith(
       'job-1',
       'Reference image file is unavailable: missing-file',
     );
@@ -295,7 +284,7 @@ describe('processStoryboardOpenAIImageJob', () => {
     expect(deps.imagesEdit).not.toHaveBeenCalled();
     expect(deps.filesCreate).not.toHaveBeenCalled();
     expect(deps.setOutputFile).not.toHaveBeenCalled();
-    expect(deps.referenceSetOutput).not.toHaveBeenCalled();
+    expect(deps.sceneAttachOutputToBlock).not.toHaveBeenCalled();
   });
 
   it('fails without creating files when OpenAI returns no image data', async () => {
@@ -308,7 +297,7 @@ describe('processStoryboardOpenAIImageJob', () => {
 
     expect(deps.filesCreate).not.toHaveBeenCalled();
     expect(deps.setOutputFile).not.toHaveBeenCalled();
-    expect(deps.referenceSetOutput).not.toHaveBeenCalled();
+    expect(deps.sceneAttachOutputToBlock).not.toHaveBeenCalled();
     expect(deps.markFailed).toHaveBeenCalledWith(
       'job-1',
       'OpenAI Images response did not include image data',
@@ -329,10 +318,158 @@ describe('processStoryboardOpenAIImageJob', () => {
 
     expect(deps.filesCreate).not.toHaveBeenCalled();
     expect(deps.setOutputFile).not.toHaveBeenCalled();
-    expect(deps.referenceSetOutput).not.toHaveBeenCalled();
+    expect(deps.sceneAttachOutputToBlock).not.toHaveBeenCalled();
     expect(deps.markFailed).toHaveBeenCalledWith(
       'job-1',
       'Failed to download OpenAI image output: HTTP 503',
     );
+  });
+
+  // ── T8 — Drop the principal-image read from the scene job inputs ──────────────
+
+  describe('T8 / resolveSceneInputs — reference boundary via sceneReferenceSelectionRepo', () => {
+    /**
+     * AC-04 (US-04): a scene job for a draft with zero reference blocks proceeds with
+     * prompt + no reference images (images.generate, not images.edit).
+     */
+    it('AC-04: zero reference blocks — proceeds with prompt only, calls images.generate', async () => {
+      const deps = makeDeps();
+      // Wire the repo so resolveSceneInputs is active
+      const loadBlocksForDraft = vi.fn().mockResolvedValue([]);
+      deps.sceneReferenceSelectionRepo = { loadBlocksForDraft };
+
+      await processStoryboardOpenAIImageJob(
+        makeJob({
+          kind: 'scene',
+          blockId: 'scene-1',
+          prompt: 'A wide shot of an empty meadow.',
+          referenceFileIds: [],
+        }),
+        deps,
+      );
+
+      // Repo was consulted
+      expect(loadBlocksForDraft).toHaveBeenCalledWith('draft-1');
+      // No reference images → text-to-image path
+      expect(deps.imagesGenerate).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: 'A wide shot of an empty meadow.' }),
+      );
+      expect(deps.imagesEdit).not.toHaveBeenCalled();
+      // findFilesByIds not called (no file IDs to resolve)
+      expect(deps.findFilesByIds).not.toHaveBeenCalled();
+    });
+
+    /**
+     * AC-05 (US-05) / Reference-boundary invariant: only the selected outputs of
+     * blocks LINKED to scene-S feed scene-S.  An unlinked block's output must be
+     * absent from the resolved file IDs passed to findFilesByIds / images.edit.
+     */
+    it('AC-05: only linked-block outputs feed the scene — unlinked block output absent', async () => {
+      const deps = makeDeps();
+
+      const LINKED_FILE = 'file-linked-block';
+      const UNLINKED_FILE = 'file-unlinked-block';
+
+      // Block-A is linked to scene-S; block-B is NOT linked to scene-S
+      const loadBlocksForDraft = vi.fn().mockResolvedValue([
+        {
+          id: 'block-A',
+          linkedSceneIds: ['scene-S'],
+          outputs: [{ fileId: LINKED_FILE, createdAt: new Date('2025-01-02T00:00:00Z') }],
+          primaryStarFileId: undefined,
+        },
+        {
+          id: 'block-B',
+          linkedSceneIds: ['scene-other'],
+          outputs: [{ fileId: UNLINKED_FILE, createdAt: new Date('2025-01-01T00:00:00Z') }],
+          primaryStarFileId: undefined,
+        },
+      ]);
+      deps.sceneReferenceSelectionRepo = { loadBlocksForDraft };
+
+      // Make findFilesByIds return the linked file so images.edit can proceed
+      deps.findFilesByIds.mockResolvedValue([
+        {
+          fileId: LINKED_FILE,
+          storageUri: 's3://test-bucket/refs/source.png',
+          mimeType: 'image/png',
+          displayName: 'linked.png',
+        },
+      ]);
+
+      await processStoryboardOpenAIImageJob(
+        makeJob({
+          kind: 'scene',
+          blockId: 'scene-S',
+          prompt: 'Scene with hero only.',
+          referenceFileIds: [UNLINKED_FILE], // payload carries the old/wrong value — must be ignored
+        }),
+        deps,
+      );
+
+      // Only the linked block's output must reach findFilesByIds
+      expect(deps.findFilesByIds).toHaveBeenCalledWith(
+        expect.objectContaining({ fileIds: expect.not.arrayContaining([UNLINKED_FILE]) }),
+      );
+      expect(deps.findFilesByIds).toHaveBeenCalledWith(
+        expect.objectContaining({ fileIds: expect.arrayContaining([LINKED_FILE]) }),
+      );
+      // images.edit called (reference file present)
+      expect(deps.imagesEdit).toHaveBeenCalled();
+      expect(deps.imagesGenerate).not.toHaveBeenCalled();
+    });
+
+    /**
+     * AC-08 (US-07): the legacy principal-image record is ignored on read at
+     * runtime.  Even when a legacy principal fileId appears in the job payload's
+     * referenceFileIds (the T5 stopgap) and a fake sceneReferenceSelectionRepo
+     * returns linked-block outputs, the resolved inputs must contain only the
+     * linked-block selected output — never the legacy principal fileId.
+     */
+    it('AC-08: legacy principal fileId in payload.referenceFileIds is ignored when sceneReferenceSelectionRepo is wired', async () => {
+      const deps = makeDeps();
+
+      const LEGACY_PRINCIPAL_FILE = 'file-legacy-principal';
+      const LINKED_BLOCK_FILE = 'file-linked-block-output';
+
+      const loadBlocksForDraft = vi.fn().mockResolvedValue([
+        {
+          id: 'ref-block-1',
+          linkedSceneIds: ['scene-1'],
+          outputs: [{ fileId: LINKED_BLOCK_FILE, createdAt: new Date('2025-06-01T00:00:00Z') }],
+          primaryStarFileId: undefined,
+        },
+      ]);
+      deps.sceneReferenceSelectionRepo = { loadBlocksForDraft };
+
+      deps.findFilesByIds.mockResolvedValue([
+        {
+          fileId: LINKED_BLOCK_FILE,
+          storageUri: 's3://test-bucket/refs/source.png',
+          mimeType: 'image/png',
+          displayName: 'linked.png',
+        },
+      ]);
+
+      await processStoryboardOpenAIImageJob(
+        makeJob({
+          kind: 'scene',
+          blockId: 'scene-1',
+          prompt: 'Scene with character.',
+          // Simulate the T5 stopgap: legacy principal fileId was enqueued on the payload
+          referenceFileIds: [LEGACY_PRINCIPAL_FILE],
+        }),
+        deps,
+      );
+
+      // The legacy principal must NOT appear in resolved inputs
+      expect(deps.findFilesByIds).not.toHaveBeenCalledWith(
+        expect.objectContaining({ fileIds: expect.arrayContaining([LEGACY_PRINCIPAL_FILE]) }),
+      );
+      // The linked-block output must appear instead
+      expect(deps.findFilesByIds).toHaveBeenCalledWith(
+        expect.objectContaining({ fileIds: expect.arrayContaining([LINKED_BLOCK_FILE]) }),
+      );
+    });
   });
 });

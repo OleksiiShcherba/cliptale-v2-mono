@@ -1,16 +1,69 @@
 /**
- * T10 — Star gate in storyboardIllustration.service (unit tests)
+ * T3 — Reference-done gate in storyboardIllustration.service (unit tests)
  *
- * ACs under test:
- *   AC-04  — failed block with no results counts as missing a star; gate message
- *            names it together with exit actions (retry / delete).
- *   AC-08  — full-set generation is blocked while any reference block lacks a star;
- *            the message names exactly which blocks are missing (ADR-0011).
- *   AC-08b — regenerating scene X needs stars only from blocks linked to X; an
- *            unstarred block not linked to X does NOT block it; zero reference
- *            blocks → gate passes.
+ * Replaces the old star-gate tests (T10) entirely. The old gate
+ * (assertFullSetStarGate / assertSceneStarGate using listStarsForBlock) is
+ * being removed by design; every old test in this file previously asserted the
+ * starring precondition, which is superseded by the Reference-done gate
+ * (ADR-0002). See "Old tests removed / replaced" at the bottom of this block.
  *
- * Level: unit (vi.mock — no I/O, per test-plan.md).
+ * ACs under test (full-draft start scope — T3):
+ *   AC-01  — all blocks ready + all scenes linked → start proceeds (no gate error).
+ *   AC-02  — ≥1 not-ready block → ReferenceNotReadyError naming exactly the
+ *            blocking blocks.
+ *   AC-04  — zero reference blocks → start proceeds (no error).
+ *   AC-04b — all ready but ≥1 unlinked scene → UnlinkedScenesError naming the
+ *            scenes.
+ *   AC-07  — readiness comes from getDraftReadiness (persisted output-existence
+ *            read), not from starring / live event / window_status subscription.
+ *   AC-09  — non-owner resolve rejects BEFORE any readiness read (getDraftReadiness
+ *            must NOT be called when ownership check fails).
+ *
+ * Gate evaluation order (sad §6 Flow 1):
+ *   ownership → readiness → unlinked-scenes → start
+ * Encoded as a precedence test: blocking blocks are reported BEFORE unlinked
+ * scenes.
+ *
+ * Level: unit (vi.mock — no I/O, matches repo convention).
+ *
+ * ## Old star-gate tests removed / replaced
+ *
+ * The following tests previously lived in this file and are intentionally
+ * retired because they asserted the OLD gate behaviour (starring precondition):
+ *
+ *   1. "AC-08: blocks full-set start when 1 of 3 reference blocks lacks a starred
+ *      result, and names exactly that block"
+ *      → Replaced by: "AC-02: not-ready blocks → ReferenceNotReadyError naming
+ *        exactly the blocking blocks"
+ *      Reason: gate condition changed from "≥1 star" to "≥1 completed output"
+ *      (ADR-0002); StarGateFailedError removed in favour of ReferenceNotReadyError.
+ *
+ *   2. "AC-08: allows full-set start when all reference blocks have at least one star"
+ *      → Replaced by: "AC-01: all blocks ready + all scenes linked → start proceeds"
+ *      Reason: happy-path gate is now output-existence, not starring.
+ *
+ *   3. "AC-08b (zero blocks): a draft with no reference blocks passes the star gate"
+ *      → Replaced by: "AC-04: zero reference blocks → start proceeds (no error)"
+ *      Reason: same business rule, now exercised via getDraftReadiness mock.
+ *
+ *   4. "AC-08b: regenerating scene X is blocked only by unstarred blocks linked to X,
+ *      not unlinked ones"
+ *      → Out-of-scope for T3 (per-scene gate is T4); removed from this file.
+ *
+ *   5. "AC-08b: regenerating scene X passes the gate when all blocks linked to X have
+ *      stars"
+ *      → Out-of-scope for T3 (per-scene gate is T4); removed from this file.
+ *
+ *   6. "AC-08b: regenerating scene X with zero linked blocks passes the gate"
+ *      → Out-of-scope for T3 (per-scene gate is T4); removed from this file.
+ *
+ *   7. "AC-04: a failed block with no results counts as missing a star; gate message
+ *      names it with exit actions"
+ *      → Replaced by: "AC-02: still-generating block (no persisted output) →
+ *        ReferenceNotReadyError (AC-07 variant)"
+ *      Reason: readiness is now output-existence (Q1 / getDraftReadiness), not
+ *      listStarsForBlock; failed/empty/still-generating all manifest as "not ready"
+ *      via the same getDraftReadiness call.
  *
  * Run:
  *   cd apps/api && APP_DB_PASSWORD=cliptale APP_REDIS_URL=redis://localhost:6380 \
@@ -19,7 +72,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────────
-// All mocks must be declared before any app imports (Vitest hoisting rule).
 
 const {
   mockDraftRepo,
@@ -48,7 +100,7 @@ const {
     }),
     updateIllustrationJobStatus: vi.fn(),
   },
-  // Existing principal-image repo (storyboardIllustrationReference.repository.js)
+  // Legacy principal-image repo — ignored on read in the new gate (ADR-0004).
   mockPrincipalReferenceRepo: {
     approveReference: vi.fn(),
     createReferenceMapping: vi.fn(),
@@ -63,11 +115,13 @@ const {
     updateSourceReferenceFileIds: vi.fn(),
     updateReferenceStatus: vi.fn(),
   },
-  // New reference-blocks repo (storyboardReference.repository.js — T2/T3)
+  // Reference-blocks repo — Q1 (getDraftReadiness) and Q3 (getReferencelessScenes).
   mockReferenceBlocksRepo: {
     listReferenceBlocksByDraftId: vi.fn(),
+    getDraftReadiness: vi.fn(),
+    getReferencelessScenes: vi.fn(),
   },
-  // New curation repo — star gate reads (storyboardReferenceCuration.repository.js — T3)
+  // Curation repo — no longer used by the full-draft gate (starring does not gate).
   mockReferenceStarGateRepo: {
     listStarsForBlock: vi.fn(),
     listReferenceBlocksLinkedToScene: vi.fn(),
@@ -95,17 +149,14 @@ vi.mock('@/repositories/aiGenerationJob.repository.js', () => mockAiJobRepo);
 vi.mock('@/repositories/fileLinks.repository.js', () => mockFileLinksRepo);
 
 // ── App imports (after mocks) ──────────────────────────────────────────────────
-import { UnprocessableEntityError } from '@/lib/errors.js';
+import { ForbiddenError, ReferenceNotReadyError, UnlinkedScenesError } from '@/lib/errors.js';
 import type { StoryboardBlock, StoryboardEdge } from '@/repositories/storyboard.repository.js';
-import {
-  startStoryboardIllustrations,
-  startStoryboardBlockIllustration,
-} from './storyboardIllustration.service.js';
+import { startStoryboardIllustrations } from './storyboardIllustration.service.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-const USER_ID = 'user-gate-1';
-const DRAFT_ID = 'draft-gate-1';
+const USER_ID = 'user-gate-t3';
+const DRAFT_ID = 'draft-gate-t3';
 
 function makeDraft(overrides: Record<string, unknown> = {}) {
   return {
@@ -156,58 +207,19 @@ function makeEdge(sourceBlockId: string, targetBlockId: string): StoryboardEdge 
   };
 }
 
-/** A reference block record as returned by listReferenceBlocksByDraftId */
-function makeReferenceBlock(id: string, name: string, sortOrder = 0) {
-  return {
-    id,
-    draftId: DRAFT_ID,
-    flowId: `flow-${id}`,
-    castType: 'character' as const,
-    name,
-    description: null,
-    sortOrder,
-    positionX: 0,
-    positionY: 0,
-    windowStatus: 'done' as const,
-    firstJobId: null,
-    errorMessage: null,
-    version: 1,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
+/** Simulate getDraftReadiness returning "all ready" (no blocking blocks). */
+function draftReadyResult() {
+  return { isReady: true, blockingBlocks: [] };
 }
 
-/** A minimal star record as returned by listStarsForBlock */
-function makeStar(referenceBlockId: string, fileId: string, isPrimary = true) {
-  return {
-    id: `star-${fileId}`,
-    referenceBlockId,
-    fileId,
-    isPrimary,
-  };
-}
-
-/** A ready principal reference (principal-image, the old mechanism, now satisfied) */
-function makePrincipalReference(overrides: Record<string, unknown> = {}) {
-  return {
-    id: 'principal-ref-1',
-    draftId: DRAFT_ID,
-    aiJobId: 'principal-job-1',
-    status: 'ready',
-    outputFileId: 'principal-file-1',
-    sourceReferenceFileIds: [],
-    approvalStatus: 'approved',
-    approvedAt: new Date(),
-    errorMessage: null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    ...overrides,
-  };
+/** Simulate getDraftReadiness returning "not ready" with blocking block(s). */
+function draftNotReadyResult(blocks: Array<{ id: string; name: string; castType: 'character' | 'environment' }>) {
+  return { isReady: false, blockingBlocks: blocks };
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
-describe('storyboardIllustration.service — star gate (AC-08, AC-08b, AC-04)', () => {
+describe('storyboardIllustration.service — Reference-done gate T3 (AC-01/02/04/04b/07/09)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
@@ -228,8 +240,10 @@ describe('storyboardIllustration.service — star gate (AC-08, AC-08b, AC-04)', 
     mockIllustrationRepo.setIllustrationJobOutput.mockResolvedValue(undefined);
     mockIllustrationRepo.updateIllustrationJobStatus.mockResolvedValue(undefined);
 
-    // Principal reference is ready and approved by default
-    mockPrincipalReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makePrincipalReference());
+    // Principal reference — set to null so the service does not try to use it
+    // (ADR-0004: principal image retired from scene path; scenes go straight through
+    // the reference-done gate, which does not consult the principal reference table).
+    mockPrincipalReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(null);
     mockPrincipalReferenceRepo.approveReference.mockResolvedValue(true);
     mockPrincipalReferenceRepo.createReferenceMapping.mockResolvedValue(true);
     mockPrincipalReferenceRepo.deactivateActiveReference.mockResolvedValue(undefined);
@@ -238,178 +252,217 @@ describe('storyboardIllustration.service — star gate (AC-08, AC-08b, AC-04)', 
     mockPrincipalReferenceRepo.updateReferenceStatus.mockResolvedValue(undefined);
     mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage.mockResolvedValue(undefined);
 
-    // Default: no reference blocks (zero-block case passes the gate)
+    // Default Reference-done gate: all ready, no unlinked scenes (zero blocks → pass).
+    mockReferenceBlocksRepo.getDraftReadiness.mockResolvedValue(draftReadyResult());
+    mockReferenceBlocksRepo.getReferencelessScenes.mockResolvedValue([]);
     mockReferenceBlocksRepo.listReferenceBlocksByDraftId.mockResolvedValue([]);
-    mockReferenceStarGateRepo.listStarsForBlock.mockResolvedValue([]);
-    mockReferenceStarGateRepo.listReferenceBlocksLinkedToScene.mockResolvedValue([]);
   });
 
-  // ── AC-08 — full-set gate ──────────────────────────────────────────────────
+  // ── AC-01 — happy path ─────────────────────────────────────────────────────
 
-  it('AC-08: blocks full-set start when 1 of 3 reference blocks lacks a starred result, and names exactly that block', async () => {
-    const blocksA = makeReferenceBlock('ref-block-A', 'Test Character A', 0);
-    const blocksB = makeReferenceBlock('ref-block-B', 'Test Character B', 1);
-    const blocksC = makeReferenceBlock('ref-block-C', 'Test Character C', 2);
+  it('AC-01: all reference blocks ready + all scenes linked → start proceeds (no gate error)', async () => {
+    // Simulate a draft that has reference blocks, all ready, and no unlinked scenes.
+    mockReferenceBlocksRepo.getDraftReadiness.mockResolvedValue(draftReadyResult());
+    mockReferenceBlocksRepo.getReferencelessScenes.mockResolvedValue([]);
 
-    mockReferenceBlocksRepo.listReferenceBlocksByDraftId.mockResolvedValue([
-      blocksA,
-      blocksB,
-      blocksC,
-    ]);
-
-    // A and C have stars; B does not
-    mockReferenceStarGateRepo.listStarsForBlock.mockImplementation(async (blockId: string) => {
-      if (blockId === 'ref-block-A') return [makeStar('ref-block-A', 'file-A')];
-      if (blockId === 'ref-block-C') return [makeStar('ref-block-C', 'file-C')];
-      return []; // B has no stars
-    });
-
-    await expect(startStoryboardIllustrations(USER_ID, DRAFT_ID)).rejects.toThrow(
-      UnprocessableEntityError,
-    );
-
-    const error = await startStoryboardIllustrations(USER_ID, DRAFT_ID).catch((e) => e);
-    expect(error).toBeInstanceOf(UnprocessableEntityError);
-    // The message must name the exact block without a star (AC-08 "names exactly which blocks")
-    expect(error.message).toContain('Test Character B');
-    // Must NOT mention the blocks that are fine
-    expect(error.message).not.toContain('Test Character A');
-    expect(error.message).not.toContain('Test Character C');
-  });
-
-  it('AC-08: allows full-set start when all reference blocks have at least one star', async () => {
-    const blockA = makeReferenceBlock('ref-block-A', 'Test Character A', 0);
-    const blockB = makeReferenceBlock('ref-block-B', 'Test Environment B', 1);
-
-    mockReferenceBlocksRepo.listReferenceBlocksByDraftId.mockResolvedValue([blockA, blockB]);
-    mockReferenceStarGateRepo.listStarsForBlock.mockImplementation(async (blockId: string) => {
-      return [makeStar(blockId, `file-${blockId}`)];
-    });
-
-    // Should not throw — star gate passes, generation proceeds
+    // Should not throw
     await expect(startStoryboardIllustrations(USER_ID, DRAFT_ID)).resolves.toBeDefined();
-    // Verify the gate checked stars for all blocks
-    expect(mockReferenceStarGateRepo.listStarsForBlock).toHaveBeenCalledWith('ref-block-A');
-    expect(mockReferenceStarGateRepo.listStarsForBlock).toHaveBeenCalledWith('ref-block-B');
-  });
 
-  it('AC-08b (zero blocks): a draft with no reference blocks passes the star gate', async () => {
-    // Default mock already returns [] for listReferenceBlocksByDraftId
-    mockReferenceBlocksRepo.listReferenceBlocksByDraftId.mockResolvedValue([]);
-
-    // Should not throw — zero-block case passes (AC-08b, AC-09 no-linked-blocks rule)
-    await expect(startStoryboardIllustrations(USER_ID, DRAFT_ID)).resolves.toBeDefined();
-    // The gate MUST consult the reference blocks list (it reads zero and passes)
-    expect(mockReferenceBlocksRepo.listReferenceBlocksByDraftId).toHaveBeenCalledWith(
+    // The gate MUST call getDraftReadiness (persisted output-existence read — AC-07).
+    expect(mockReferenceBlocksRepo.getDraftReadiness).toHaveBeenCalledWith(
       expect.objectContaining({ draftId: DRAFT_ID }),
     );
-    // With zero blocks there are no stars to check
-    expect(mockReferenceStarGateRepo.listStarsForBlock).not.toHaveBeenCalled();
   });
 
-  // ── AC-08b — scoped gate (per-scene) ──────────────────────────────────────
+  // ── AC-02 — not-ready blocks ───────────────────────────────────────────────
 
-  it('AC-08b: regenerating scene X is blocked only by unstarred blocks linked to X, not unlinked ones', async () => {
-    const linkedBlock = makeReferenceBlock('ref-linked', 'Linked Character', 0);
-    const unlinkedBlock = makeReferenceBlock('ref-unlinked', 'Unlinked Character', 1);
-
-    // Two reference blocks exist; only 'ref-linked' is linked to scene-1
-    mockReferenceBlocksRepo.listReferenceBlocksByDraftId.mockResolvedValue([
-      linkedBlock,
-      unlinkedBlock,
-    ]);
-
-    // Scene-scoped query: only 'ref-linked' is linked to 'scene-1'
-    mockReferenceStarGateRepo.listReferenceBlocksLinkedToScene.mockResolvedValue([linkedBlock]);
-
-    // linked block has NO star; unlinked block has a star (but is irrelevant)
-    mockReferenceStarGateRepo.listStarsForBlock.mockImplementation(async (blockId: string) => {
-      if (blockId === 'ref-unlinked') return [makeStar('ref-unlinked', 'file-unlinked')];
-      return []; // linked block has no star
-    });
-
-    // Should throw because the linked block lacks a star
-    const error = await startStoryboardBlockIllustration(USER_ID, DRAFT_ID, 'scene-1').catch((e) => e);
-    expect(error).toBeInstanceOf(UnprocessableEntityError);
-    // Must name the linked unstarred block
-    expect(error.message).toContain('Linked Character');
-    // Must NOT mention the unlinked block (even though it's in the draft)
-    expect(error.message).not.toContain('Unlinked Character');
-  });
-
-  it('AC-08b: regenerating scene X passes the gate when all blocks linked to X have stars', async () => {
-    const linkedBlock = makeReferenceBlock('ref-linked', 'Linked Character', 0);
-    const unlinkedUnstarred = makeReferenceBlock('ref-unlinked', 'Unlinked Unstarred', 1);
-
-    mockReferenceBlocksRepo.listReferenceBlocksByDraftId.mockResolvedValue([
-      linkedBlock,
-      unlinkedUnstarred,
-    ]);
-
-    // Only 'ref-linked' is linked to 'scene-1'
-    mockReferenceStarGateRepo.listReferenceBlocksLinkedToScene.mockResolvedValue([linkedBlock]);
-
-    // linked block HAS a star; unlinked is unstarred but should not block
-    mockReferenceStarGateRepo.listStarsForBlock.mockImplementation(async (blockId: string) => {
-      if (blockId === 'ref-linked') return [makeStar('ref-linked', 'file-linked')];
-      return [];
-    });
-
-    // Should not throw — linked block is starred, unlinked block is irrelevant
-    await expect(startStoryboardBlockIllustration(USER_ID, DRAFT_ID, 'scene-1')).resolves.toBeDefined();
-    // Gate MUST have consulted the scoped link query for scene-1
-    expect(mockReferenceStarGateRepo.listReferenceBlocksLinkedToScene).toHaveBeenCalledWith(
-      expect.objectContaining({ sceneBlockId: 'scene-1' }),
+  it('AC-02: ≥1 not-ready block → throws ReferenceNotReadyError naming exactly the blocking blocks', async () => {
+    mockReferenceBlocksRepo.getDraftReadiness.mockResolvedValue(
+      draftNotReadyResult([
+        { id: 'ref-block-B', name: 'Test Character B', castType: 'character' },
+      ]),
     );
-    // Gate MUST have checked stars only for the linked block
-    expect(mockReferenceStarGateRepo.listStarsForBlock).toHaveBeenCalledWith('ref-linked');
-    // Must NOT check the unlinked block
-    expect(mockReferenceStarGateRepo.listStarsForBlock).not.toHaveBeenCalledWith('ref-unlinked');
-  });
-
-  it('AC-08b: regenerating scene X with zero linked blocks passes the gate', async () => {
-    const unlinkedBlock = makeReferenceBlock('ref-unlinked', 'Unlinked Character', 0);
-
-    mockReferenceBlocksRepo.listReferenceBlocksByDraftId.mockResolvedValue([unlinkedBlock]);
-
-    // No blocks are linked to 'scene-1'
-    mockReferenceStarGateRepo.listReferenceBlocksLinkedToScene.mockResolvedValue([]);
-
-    // Should not throw — zero linked blocks passes the scoped gate
-    await expect(startStoryboardBlockIllustration(USER_ID, DRAFT_ID, 'scene-1')).resolves.toBeDefined();
-    // Gate MUST have consulted the scoped query (even if result is empty)
-    expect(mockReferenceStarGateRepo.listReferenceBlocksLinkedToScene).toHaveBeenCalledWith(
-      expect.objectContaining({ sceneBlockId: 'scene-1' }),
-    );
-    // With zero linked blocks there are no stars to check
-    expect(mockReferenceStarGateRepo.listStarsForBlock).not.toHaveBeenCalled();
-  });
-
-  // ── AC-04 — failed block treated as missing a star ─────────────────────────
-
-  it('AC-04: a failed block with no results counts as missing a star; gate message names it with exit actions', async () => {
-    const failedBlock = makeReferenceBlock('ref-failed', 'Failed Character', 0);
-    // Simulate failed/empty block: window_status = 'failed', no results means no stars
-    failedBlock.windowStatus = 'failed';
-    failedBlock.errorMessage = 'Provider error';
-
-    const okBlock = makeReferenceBlock('ref-ok', 'OK Character', 1);
-
-    mockReferenceBlocksRepo.listReferenceBlocksByDraftId.mockResolvedValue([failedBlock, okBlock]);
-
-    // ok block has a star; failed block has no results → no stars
-    mockReferenceStarGateRepo.listStarsForBlock.mockImplementation(async (blockId: string) => {
-      if (blockId === 'ref-ok') return [makeStar('ref-ok', 'file-ok')];
-      return [];
-    });
 
     const error = await startStoryboardIllustrations(USER_ID, DRAFT_ID).catch((e) => e);
-    expect(error).toBeInstanceOf(UnprocessableEntityError);
-    // Must name the failed block (AC-04: gate message names it)
-    expect(error.message).toContain('Failed Character');
-    // Must mention exit actions: retry or delete (AC-04: "exit actions retry/delete")
-    const msg: string = error.message;
-    const hasExitActions = msg.includes('retry') || msg.includes('delete') || msg.includes('Retry') || msg.includes('Delete');
-    expect(hasExitActions).toBe(true);
+
+    expect(error).toBeInstanceOf(ReferenceNotReadyError);
+    expect(error.message).toContain('Test Character B');
+    // AC-02 guidance (review F7): the human-readable error must offer the
+    // finish / retry / remove exits, matching the openapi example.
+    expect(error.message).toContain('Finish, retry, or remove it before starting.');
+    // Machine code must be present (openapi contract references.reference_gate_failed).
+    expect(error.code).toBe('references.reference_gate_failed');
+    // Structured details must carry the blocking block(s).
+    expect(error.details.blocks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ blockId: 'ref-block-B' }),
+      ]),
+    );
+  });
+
+  it('AC-02: all 3 blocking blocks named, none of the ready blocks included', async () => {
+    mockReferenceBlocksRepo.getDraftReadiness.mockResolvedValue(
+      draftNotReadyResult([
+        { id: 'ref-block-A', name: 'Character A', castType: 'character' },
+        { id: 'ref-block-B', name: 'Environment B', castType: 'environment' },
+        { id: 'ref-block-C', name: 'Character C', castType: 'character' },
+      ]),
+    );
+
+    const error = await startStoryboardIllustrations(USER_ID, DRAFT_ID).catch((e) => e);
+
+    expect(error).toBeInstanceOf(ReferenceNotReadyError);
+    expect(error.message).toContain('Character A');
+    expect(error.message).toContain('Environment B');
+    expect(error.message).toContain('Character C');
+    expect(error.message).toContain('Finish, retry, or remove them before starting.');
+  });
+
+  // ── AC-04 — zero reference blocks ─────────────────────────────────────────
+
+  it('AC-04: zero reference blocks → start proceeds (prompt-and-style path, no gate error)', async () => {
+    // getDraftReadiness with no blocks returns isReady=true, blockingBlocks=[].
+    mockReferenceBlocksRepo.getDraftReadiness.mockResolvedValue(draftReadyResult());
+    // Zero blocks → getReferencelessScenes is not called (no blocks means the
+    // "every scene must be linked" rule does not apply — AC-04b).
+    mockReferenceBlocksRepo.getReferencelessScenes.mockResolvedValue([]);
+
+    await expect(startStoryboardIllustrations(USER_ID, DRAFT_ID)).resolves.toBeDefined();
+
+    // Gate must call getDraftReadiness even for the zero-block case (AC-07).
+    expect(mockReferenceBlocksRepo.getDraftReadiness).toHaveBeenCalledWith(
+      expect.objectContaining({ draftId: DRAFT_ID }),
+    );
+  });
+
+  // ── AC-04b — unlinked scenes ───────────────────────────────────────────────
+
+  it('AC-04b: all blocks ready but ≥1 unlinked scene → throws UnlinkedScenesError naming the scenes', async () => {
+    mockReferenceBlocksRepo.getDraftReadiness.mockResolvedValue(draftReadyResult());
+    // Simulate one scene that has no linked reference block.
+    mockReferenceBlocksRepo.getReferencelessScenes.mockResolvedValue([
+      { id: 'scene-orphan', name: 'Orphan Scene' },
+    ]);
+
+    const error = await startStoryboardIllustrations(USER_ID, DRAFT_ID).catch((e) => e);
+
+    expect(error).toBeInstanceOf(UnlinkedScenesError);
+    expect(error.message).toContain('Orphan Scene');
+    // AC-04b guidance (review F8): the message must offer the link-a-reference exit,
+    // matching the openapi unlinkedScenes example.
+    expect(error.message).toContain('Link a reference before starting.');
+    // Machine code must match openapi contract references.unlinked_scenes.
+    expect(error.code).toBe('references.unlinked_scenes');
+    // Structured details must carry the unlinked scene(s).
+    expect(error.details.scenes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ blockId: 'scene-orphan' }),
+      ]),
+    );
+  });
+
+  it('AC-04b: multiple unlinked scenes → all named in UnlinkedScenesError', async () => {
+    mockReferenceBlocksRepo.getDraftReadiness.mockResolvedValue(draftReadyResult());
+    mockReferenceBlocksRepo.getReferencelessScenes.mockResolvedValue([
+      { id: 'scene-1', name: 'Scene One' },
+      { id: 'scene-2', name: null },
+    ]);
+
+    const error = await startStoryboardIllustrations(USER_ID, DRAFT_ID).catch((e) => e);
+
+    expect(error).toBeInstanceOf(UnlinkedScenesError);
+    const scenes: Array<{ blockId: string; name: string | null }> = error.details.scenes as Array<{ blockId: string; name: string | null }>;
+    expect(scenes).toHaveLength(2);
+    expect(scenes.map((s) => s.blockId)).toContain('scene-1');
+    expect(scenes.map((s) => s.blockId)).toContain('scene-2');
+  });
+
+  // ── AC-07 — persisted output-existence read (not a live event / subscription) ──
+
+  it('AC-07: readiness comes from getDraftReadiness (persisted read), not from listStarsForBlock or a live subscription', async () => {
+    // Gate reads from getDraftReadiness (Q1).
+    mockReferenceBlocksRepo.getDraftReadiness.mockResolvedValue(draftReadyResult());
+    mockReferenceBlocksRepo.getReferencelessScenes.mockResolvedValue([]);
+
+    await startStoryboardIllustrations(USER_ID, DRAFT_ID);
+
+    // getDraftReadiness MUST be called.
+    expect(mockReferenceBlocksRepo.getDraftReadiness).toHaveBeenCalledWith(
+      expect.objectContaining({ draftId: DRAFT_ID }),
+    );
+    // The old star-based read must NOT be called (starring no longer gates — ADR-0002).
+    expect(mockReferenceStarGateRepo.listStarsForBlock).not.toHaveBeenCalled();
+  });
+
+  it('AC-07 (still-generating instance): block with no persisted output → reported as blocking (AC-02)', async () => {
+    // A block whose rolling-window generation is still in progress has no completed
+    // output yet; getDraftReadiness returns it as blocking.
+    mockReferenceBlocksRepo.getDraftReadiness.mockResolvedValue(
+      draftNotReadyResult([
+        { id: 'ref-still-gen', name: 'Still-Generating Character', castType: 'character' },
+      ]),
+    );
+
+    const error = await startStoryboardIllustrations(USER_ID, DRAFT_ID).catch((e) => e);
+
+    expect(error).toBeInstanceOf(ReferenceNotReadyError);
+    expect(error.message).toContain('Still-Generating Character');
+    // The gate must not have called listStarsForBlock at any point.
+    expect(mockReferenceStarGateRepo.listStarsForBlock).not.toHaveBeenCalled();
+  });
+
+  // ── AC-09 — non-owner: ownership resolve before any readiness read ─────────
+
+  it('AC-09: non-owner request rejects before getDraftReadiness is called (no state disclosure)', async () => {
+    // Ownership resolution returns a draft owned by a different user.
+    mockDraftRepo.findDraftById.mockResolvedValue(makeDraft({ userId: 'other-user' }));
+
+    const error = await startStoryboardIllustrations(USER_ID, DRAFT_ID).catch((e) => e);
+
+    // The service must deny (ForbiddenError or NotFoundError — the implementation
+    // chooses; what matters is it does NOT reach the readiness read).
+    expect(error).toBeInstanceOf(ForbiddenError);
+
+    // getDraftReadiness must NOT have been called — no reference state disclosed.
+    expect(mockReferenceBlocksRepo.getDraftReadiness).not.toHaveBeenCalled();
+    // getReferencelessScenes must also be untouched.
+    expect(mockReferenceBlocksRepo.getReferencelessScenes).not.toHaveBeenCalled();
+  });
+
+  // ── Gate precedence: blocking blocks BEFORE unlinked scenes (sad §6 Flow 1) ──
+
+  it('gate precedence: blocking blocks are reported over unlinked scenes when both conditions exist', async () => {
+    // Both conditions hold simultaneously:
+    mockReferenceBlocksRepo.getDraftReadiness.mockResolvedValue(
+      draftNotReadyResult([
+        { id: 'ref-block-X', name: 'Unfinished Character X', castType: 'character' },
+      ]),
+    );
+    mockReferenceBlocksRepo.getReferencelessScenes.mockResolvedValue([
+      { id: 'scene-orphan', name: 'Orphan Scene' },
+    ]);
+
+    const error = await startStoryboardIllustrations(USER_ID, DRAFT_ID).catch((e) => e);
+
+    // The service MUST throw ReferenceNotReadyError (step 2 in the sad §6 order),
+    // NOT UnlinkedScenesError (step 3) — blocking blocks take precedence.
+    expect(error).toBeInstanceOf(ReferenceNotReadyError);
+    expect(error.message).toContain('Unfinished Character X');
+    // The message must NOT surface the unlinked scene in this error type.
+    expect(error).not.toBeInstanceOf(UnlinkedScenesError);
+  });
+
+  it('gate precedence: getReferencelessScenes is NOT called when blocks are not ready', async () => {
+    // When readiness check already fails, there is no need to evaluate unlinked scenes.
+    mockReferenceBlocksRepo.getDraftReadiness.mockResolvedValue(
+      draftNotReadyResult([
+        { id: 'ref-block-Y', name: 'Blocking Block Y', castType: 'environment' },
+      ]),
+    );
+
+    await startStoryboardIllustrations(USER_ID, DRAFT_ID).catch(() => undefined);
+
+    // Short-circuit: unlinked-scene check must not run when readiness already fails.
+    expect(mockReferenceBlocksRepo.getReferencelessScenes).not.toHaveBeenCalled();
   });
 });

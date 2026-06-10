@@ -151,12 +151,13 @@ describe('StoryboardPage / navigation', () => {
     expect(nextBtn.getAttribute('aria-label')).toBe('Next: Step 3');
   });
 
-  it('"Next: Step 3 →" button does not navigate before illustrations complete', () => {
+  // AC-08 (T9): with the principal-image step removed, isStep3Disabled depends only
+  // on isGenerationBlocking. In idle state (no plan/illustration work running),
+  // the Next button is ENABLED so the user can proceed to Step 3.
+  it('"Next: Step 3 →" button is enabled in idle state (AC-08)', () => {
     renderPage();
     const nextBtn = screen.getByTestId('next-step3-button');
-    expect((nextBtn as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(nextBtn);
-    expect(mockNavigate).not.toHaveBeenCalledWith('/generate/road-map?draftId=my-draft-id');
+    expect((nextBtn as HTMLButtonElement).disabled).toBe(false);
   });
 
   // ── Home button ────────────────────────────────────────────────────────────

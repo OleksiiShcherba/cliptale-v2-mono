@@ -69,10 +69,6 @@ import {
   listStoryboardIllustrations,
   startStoryboardBlockIllustration,
   startStoryboardIllustrations,
-  approveStoryboardPrincipalImage,
-  editStoryboardPrincipalImage,
-  replaceStoryboardPrincipalImage,
-  setStoryboardPrincipalImageReferences,
 } from './storyboardIllustration.service.js';
 
 const USER_ID = 'user-1';
@@ -240,14 +236,6 @@ describe('storyboardIllustration.service', () => {
 
     const result = await startStoryboardIllustrations(USER_ID, DRAFT_ID);
 
-    expect(result.reference).toEqual({
-      status: 'ready',
-      jobId: 'ref-job-1',
-      outputFileId: 'ref-file-1',
-      sourceReferenceFileIds: [],
-      approvalStatus: 'approved',
-      errorMessage: null,
-    });
     expect(result.items).toEqual([
       {
         blockId: 'block-1',
@@ -265,7 +253,6 @@ describe('storyboardIllustration.service', () => {
       options: expect.objectContaining({
         kind: 'scene',
         blockId: 'block-1',
-        referenceFileIds: ['ref-file-1'],
         previousSceneFileId: null,
         size: '1536x1024',
       }),
@@ -285,7 +272,6 @@ describe('storyboardIllustration.service', () => {
         draftId: DRAFT_ID,
         kind: 'scene',
         blockId: 'block-1',
-        referenceFileIds: ['ref-file-1'],
         previousSceneFileId: undefined,
         size: '1536x1024',
       }),
@@ -308,9 +294,8 @@ describe('storyboardIllustration.service', () => {
     });
   });
 
-  it('reports idle automation when no planning, reference, or scene blocks exist', async () => {
+  it('reports idle automation when no planning or scene blocks exist', async () => {
     mockStoryboardRepo.findBlocksByDraftId.mockResolvedValue([]);
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(null);
 
     const result = await listStoryboardIllustrations(USER_ID, DRAFT_ID);
 
@@ -319,18 +304,6 @@ describe('storyboardIllustration.service', () => {
       planningJobId: null,
       errorMessage: null,
     });
-  });
-
-  it('reports principal image creation while the reference job is active', async () => {
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
-      status: 'running',
-      outputFileId: null,
-    }));
-
-    const result = await listStoryboardIllustrations(USER_ID, DRAFT_ID);
-
-    expect(result.automation.phase).toBe('creating_principal_image');
-    expect(result.automation.errorMessage).toBeNull();
   });
 
   it('reports scene illustration generation only for queued or running scene jobs with job ids', async () => {
@@ -356,26 +329,8 @@ describe('storyboardIllustration.service', () => {
     });
   });
 
-  it('reports awaiting approval instead of ready when all scenes are ready but principal approval is pending', async () => {
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
-      approvalStatus: 'pending',
-      approvedAt: null,
-    }));
-    mockIllustrationRepo.findLatestIllustrationJobsByDraftId.mockResolvedValue([
-      makeMapping({ status: 'ready', outputFileId: 'scene-file-1' }),
-    ]);
-
-    const result = await listStoryboardIllustrations(USER_ID, DRAFT_ID);
-
-    expect(result.automation).toMatchObject({
-      phase: 'awaiting_principal_approval',
-      errorMessage: null,
-    });
-  });
-
-  it('reports failed automation with planning, reference, then scene error precedence', async () => {
+  it('reports failed automation with planning then scene error precedence', async () => {
     mockStoryboardRepo.findBlocksByDraftId.mockResolvedValueOnce([]);
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValueOnce(null);
     mockStoryboardPlanJobRepo.findLatestByDraftId.mockResolvedValueOnce(makePlanJob({
       status: 'failed',
       errorMessage: 'planner rejected input',
@@ -389,20 +344,6 @@ describe('storyboardIllustration.service', () => {
       },
     });
 
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValueOnce(makeReference({
-      status: 'failed',
-      errorMessage: 'reference failed',
-      outputFileId: null,
-    }));
-    mockStoryboardPlanJobRepo.findLatestByDraftId.mockResolvedValueOnce(null);
-    await expect(listStoryboardIllustrations(USER_ID, DRAFT_ID)).resolves.toMatchObject({
-      automation: {
-        phase: 'failed',
-        errorMessage: 'reference failed',
-      },
-    });
-
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValueOnce(makeReference());
     mockIllustrationRepo.findLatestIllustrationJobsByDraftId.mockResolvedValueOnce([
       makeMapping({ status: 'failed', errorMessage: 'scene failed' }),
     ]);
@@ -415,203 +356,12 @@ describe('storyboardIllustration.service', () => {
     });
   });
 
-  it('creates a text-only canonical reference before scene jobs and returns without scene enqueue', async () => {
-    mockReferenceRepo.findLatestReferenceByDraftId
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(makeReference({
-        status: 'queued',
-        outputFileId: null,
-        approvalStatus: 'pending',
-        approvedAt: null,
-      }));
-
-    const result = await startStoryboardIllustrations(USER_ID, DRAFT_ID);
-
-    expect(result.reference).toEqual({
-      status: 'queued',
-      jobId: expect.any(String),
-      outputFileId: null,
-      sourceReferenceFileIds: [],
-      approvalStatus: 'pending',
-      errorMessage: null,
-    });
-    expect(result.items).toEqual([
-      {
-        blockId: 'block-1',
-        status: 'queued',
-        jobId: null,
-        outputFileId: null,
-        errorMessage: null,
-      },
-    ]);
-    expect(mockAiJobRepo.createJob).toHaveBeenCalledWith(expect.objectContaining({
-      userId: USER_ID,
-      modelId: 'gpt-image-2',
-      capability: 'text_to_image',
-      prompt: expect.stringContaining('canonical visual style reference'),
-    }));
-    expect(mockReferenceRepo.createReferenceMapping).toHaveBeenCalledWith(expect.objectContaining({
-      draftId: DRAFT_ID,
-      sourceReferenceFileIds: [],
-      status: 'queued',
-    }));
-    expect(mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId: USER_ID,
-        draftId: DRAFT_ID,
-        kind: 'style_reference',
-        referenceFileIds: [],
-        size: '1536x1024',
-      }),
-    );
-    expect(mockAiGenerationService.submitGeneration).not.toHaveBeenCalled();
-  });
-
-  it('does not enqueue scene jobs from explicit block start until the reference is ready', async () => {
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(null);
-
-    const result = await startStoryboardBlockIllustration(USER_ID, DRAFT_ID, 'block-1');
-
-    expect(result.items).toEqual([
-      {
-        blockId: 'block-1',
-        status: 'queued',
-        jobId: null,
-        outputFileId: null,
-        errorMessage: null,
-      },
-    ]);
-    expect(mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage).toHaveBeenCalledOnce();
-    expect(mockAiGenerationService.submitGeneration).not.toHaveBeenCalled();
-  });
-
-  it('does not create a canonical reference for an explicit empty-prompt scene request', async () => {
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(null);
+  it('rejects an explicit empty-prompt scene request', async () => {
     mockStoryboardRepo.findBlocksByDraftId.mockResolvedValue([
       makeBlock({ prompt: '   ' }),
     ]);
 
     await expect(startStoryboardBlockIllustration(USER_ID, DRAFT_ID, 'block-1')).rejects.toThrow(
-      UnprocessableEntityError,
-    );
-    expect(mockAiJobRepo.createJob).not.toHaveBeenCalled();
-    expect(mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage).not.toHaveBeenCalled();
-  });
-
-  it('marks duplicate active canonical reference races failed without enqueueing worker work', async () => {
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(null);
-    mockReferenceRepo.createReferenceMapping.mockResolvedValue(false);
-
-    await startStoryboardIllustrations(USER_ID, DRAFT_ID);
-
-    expect(mockAiJobRepo.createJob).toHaveBeenCalledOnce();
-    expect(mockAiJobRepo.updateJobStatus).toHaveBeenCalledWith(
-      expect.any(String),
-      'failed',
-      'Active storyboard reference already exists',
-    );
-    expect(mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage).not.toHaveBeenCalled();
-    expect(mockAiGenerationService.submitGeneration).not.toHaveBeenCalled();
-  });
-
-  it('creates an image-edit canonical reference from linked ready image media refs', async () => {
-    const imageFileId = '00000000-0000-4000-8000-000000000123';
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(null);
-    mockDraftRepo.findDraftById.mockResolvedValue(makeDraft({
-      promptDoc: {
-        schemaVersion: 1,
-        blocks: [
-          { type: 'text', value: 'Prompt' },
-          { type: 'media-ref', mediaType: 'image', fileId: imageFileId, label: 'Image' },
-          { type: 'media-ref', mediaType: 'video', fileId: '00000000-0000-4000-8000-000000000124', label: 'Video' },
-        ],
-        settings: {
-          videoLengthSeconds: 30,
-          aspectRatio: '1:1',
-          styleKey: 'product',
-          modelPreference: null,
-        },
-      },
-    }));
-    mockFileLinksRepo.findFilesByDraftId.mockResolvedValue([
-      {
-        fileId: imageFileId,
-        userId: USER_ID,
-        kind: 'image',
-        status: 'ready',
-      },
-    ]);
-
-    await startStoryboardIllustrations(USER_ID, DRAFT_ID);
-
-    expect(mockAiJobRepo.createJob).toHaveBeenCalledWith(expect.objectContaining({
-      capability: 'image_edit',
-      options: expect.objectContaining({
-        sourceReferenceFileIds: [imageFileId],
-        size: '1024x1024',
-      }),
-    }));
-    expect(mockReferenceRepo.createReferenceMapping).toHaveBeenCalledWith(expect.objectContaining({
-      sourceReferenceFileIds: [imageFileId],
-    }));
-    expect(mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        referenceFileIds: [imageFileId],
-        size: '1024x1024',
-      }),
-    );
-  });
-
-  it('rejects unavailable prompt image references before creating a reference job', async () => {
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(null);
-    mockDraftRepo.findDraftById.mockResolvedValue(makeDraft({
-      promptDoc: {
-        schemaVersion: 1,
-        blocks: [
-          {
-            type: 'media-ref',
-            mediaType: 'image',
-            fileId: '00000000-0000-4000-8000-000000000125',
-            label: 'Missing image',
-          },
-        ],
-      },
-    }));
-    mockFileLinksRepo.findFilesByDraftId.mockResolvedValue([]);
-
-    await expect(startStoryboardIllustrations(USER_ID, DRAFT_ID)).rejects.toThrow(
-      UnprocessableEntityError,
-    );
-    expect(mockAiJobRepo.createJob).not.toHaveBeenCalled();
-    expect(mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage).not.toHaveBeenCalled();
-  });
-
-  it('rejects linked but not-ready image references before creating a reference job', async () => {
-    const imageFileId = '00000000-0000-4000-8000-000000000126';
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(null);
-    mockDraftRepo.findDraftById.mockResolvedValue(makeDraft({
-      promptDoc: {
-        schemaVersion: 1,
-        blocks: [
-          {
-            type: 'media-ref',
-            mediaType: 'image',
-            fileId: imageFileId,
-            label: 'Processing image',
-          },
-        ],
-      },
-    }));
-    mockFileLinksRepo.findFilesByDraftId.mockResolvedValue([
-      {
-        fileId: imageFileId,
-        userId: USER_ID,
-        kind: 'image',
-        status: 'processing',
-      },
-    ]);
-
-    await expect(startStoryboardIllustrations(USER_ID, DRAFT_ID)).rejects.toThrow(
       UnprocessableEntityError,
     );
     expect(mockAiJobRepo.createJob).not.toHaveBeenCalled();
@@ -644,7 +394,6 @@ describe('storyboardIllustration.service', () => {
       expect.objectContaining({
         kind: 'scene',
         blockId: 'block-1',
-        referenceFileIds: ['ref-file-1'],
       }),
     );
     expect(mockAiGenerationService.submitGeneration).not.toHaveBeenCalled();
@@ -671,7 +420,6 @@ describe('storyboardIllustration.service', () => {
       expect.objectContaining({
         kind: 'scene',
         blockId: 'block-1',
-        referenceFileIds: ['ref-file-1'],
         previousSceneFileId: undefined,
       }),
     );
@@ -697,7 +445,6 @@ describe('storyboardIllustration.service', () => {
       expect.objectContaining({
         kind: 'scene',
         blockId: 'block-2',
-        referenceFileIds: ['ref-file-1'],
         previousSceneFileId: 'scene-1-file',
       }),
     );
@@ -762,11 +509,6 @@ describe('storyboardIllustration.service', () => {
 
     const result = await startStoryboardBlockIllustration(USER_ID, DRAFT_ID, 'block-1');
 
-    expect(result.reference).toMatchObject({
-      status: 'ready',
-      jobId: 'ref-job-1',
-      outputFileId: 'ref-file-1',
-    });
     expect(result.items).toEqual([
       {
         blockId: 'block-1',
@@ -832,215 +574,6 @@ describe('storyboardIllustration.service', () => {
     });
   });
 
-  it('does not enqueue scene jobs while the principal image is pending approval', async () => {
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
-      approvalStatus: 'pending',
-      approvedAt: null,
-    }));
-
-    const result = await startStoryboardIllustrations(USER_ID, DRAFT_ID);
-
-    expect(result.automation.phase).toBe('awaiting_principal_approval');
-    expect(result.reference.approvalStatus).toBe('pending');
-    expect(mockAiJobRepo.createJob).not.toHaveBeenCalled();
-    expect(mockIllustrationRepo.createIllustrationJobMapping).not.toHaveBeenCalled();
-    expect(mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage).not.toHaveBeenCalled();
-  });
-
-  it('does not enqueue explicit block scene jobs while the principal image is pending approval', async () => {
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
-      approvalStatus: 'pending',
-      approvedAt: null,
-    }));
-
-    const result = await startStoryboardBlockIllustration(USER_ID, DRAFT_ID, 'block-1');
-
-    expect(result.automation.phase).toBe('awaiting_principal_approval');
-    expect(result.reference.approvalStatus).toBe('pending');
-    expect(mockAiJobRepo.createJob).not.toHaveBeenCalled();
-    expect(mockIllustrationRepo.createIllustrationJobMapping).not.toHaveBeenCalled();
-    expect(mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage).not.toHaveBeenCalled();
-  });
-
-  it('approves a ready principal image for scene generation', async () => {
-    mockReferenceRepo.findLatestReferenceByDraftId
-      .mockResolvedValueOnce(makeReference({ approvalStatus: 'pending', approvedAt: null }))
-      .mockResolvedValueOnce(makeReference({ approvalStatus: 'approved' }));
-    mockReferenceRepo.approveReference.mockResolvedValue(true);
-
-    const result = await approveStoryboardPrincipalImage(USER_ID, DRAFT_ID);
-
-    expect(mockReferenceRepo.approveReference).toHaveBeenCalledWith({
-      draftId: DRAFT_ID,
-      referenceId: 'ref-1',
-    });
-    expect(result.reference.approvalStatus).toBe('approved');
-  });
-
-  it('rejects approving when no ready principal image exists', async () => {
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
-      status: 'queued',
-      outputFileId: null,
-      approvalStatus: 'pending',
-      approvedAt: null,
-    }));
-
-    await expect(approveStoryboardPrincipalImage(USER_ID, DRAFT_ID)).rejects.toThrow(
-      UnprocessableEntityError,
-    );
-    expect(mockReferenceRepo.approveReference).not.toHaveBeenCalled();
-  });
-
-  it('updates extra principal references and clears approval', async () => {
-    const imageFileId = '00000000-0000-4000-8000-000000000090';
-    mockFileLinksRepo.findFilesByDraftId.mockResolvedValue([
-      {
-        fileId: imageFileId,
-        userId: USER_ID,
-        kind: 'image',
-        storageUri: 's3://bucket/ref.png',
-        mimeType: 'image/png',
-        bytes: 1,
-        width: 100,
-        height: 100,
-        durationMs: null,
-        displayName: 'ref.png',
-        status: 'ready',
-        errorMessage: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        deletedAt: null,
-        thumbnailUri: null,
-      },
-    ]);
-    mockReferenceRepo.findLatestReferenceByDraftId
-      .mockResolvedValueOnce(makeReference())
-      .mockResolvedValueOnce(makeReference({ sourceReferenceFileIds: [imageFileId], approvalStatus: 'pending' }));
-
-    const result = await setStoryboardPrincipalImageReferences(USER_ID, DRAFT_ID, [imageFileId]);
-
-    expect(mockReferenceRepo.updateSourceReferenceFileIds).toHaveBeenCalledWith({
-      draftId: DRAFT_ID,
-      referenceId: 'ref-1',
-      sourceReferenceFileIds: [imageFileId],
-    });
-    expect(result.reference.sourceReferenceFileIds).toEqual([imageFileId]);
-    expect(result.reference.approvalStatus).toBe('pending');
-  });
-
-  it('replaces the principal image with a ready draft-linked image', async () => {
-    const fileId = '00000000-0000-4000-8000-000000000091';
-    mockFileLinksRepo.findFilesByDraftId.mockResolvedValue([
-      {
-        fileId,
-        userId: USER_ID,
-        kind: 'image',
-        storageUri: 's3://bucket/replacement.png',
-        mimeType: 'image/png',
-        bytes: 1,
-        width: 100,
-        height: 100,
-        durationMs: null,
-        displayName: 'replacement.png',
-        status: 'ready',
-        errorMessage: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        deletedAt: null,
-        thumbnailUri: null,
-      },
-    ]);
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
-      outputFileId: fileId,
-      sourceReferenceFileIds: [fileId],
-      approvalStatus: 'pending',
-    }));
-
-    const result = await replaceStoryboardPrincipalImage(USER_ID, DRAFT_ID, fileId);
-
-    expect(mockAiJobRepo.createJob).toHaveBeenCalledWith(expect.objectContaining({
-      capability: 'image_edit',
-      options: expect.objectContaining({ kind: 'style_reference_replacement' }),
-    }));
-    expect(mockAiJobRepo.setDraftId).toHaveBeenCalledWith(expect.any(String), DRAFT_ID);
-    expect(mockAiJobRepo.setOutputFile).toHaveBeenCalledWith(expect.any(String), fileId);
-    expect(mockReferenceRepo.deactivateActiveReference).toHaveBeenCalledWith(DRAFT_ID);
-    expect(mockReferenceRepo.setReferenceOutput).toHaveBeenCalledWith(expect.objectContaining({ outputFileId: fileId }));
-    expect(result.reference.outputFileId).toBe(fileId);
-  });
-
-  it('queues a principal image edit using the active image and extra references', async () => {
-    const extraFileId = '00000000-0000-4000-8000-000000000092';
-    mockFileLinksRepo.findFilesByDraftId.mockResolvedValue([
-      {
-        fileId: extraFileId,
-        userId: USER_ID,
-        kind: 'image',
-        storageUri: 's3://bucket/extra.png',
-        mimeType: 'image/png',
-        bytes: 1,
-        width: 100,
-        height: 100,
-        durationMs: null,
-        displayName: 'extra.png',
-        status: 'ready',
-        errorMessage: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        deletedAt: null,
-        thumbnailUri: null,
-      },
-    ]);
-    mockReferenceRepo.findLatestReferenceByDraftId
-      .mockResolvedValueOnce(makeReference())
-      .mockResolvedValueOnce(makeReference({
-        status: 'queued',
-        outputFileId: null,
-        sourceReferenceFileIds: [extraFileId],
-        approvalStatus: 'pending',
-      }));
-
-    const result = await editStoryboardPrincipalImage({
-      userId: USER_ID,
-      draftId: DRAFT_ID,
-      prompt: 'Make the principal image warmer',
-      extraReferenceFileIds: [extraFileId],
-    });
-
-    expect(mockReferenceRepo.deactivateActiveReference).toHaveBeenCalledWith(DRAFT_ID);
-    expect(mockReferenceRepo.createReferenceMapping).toHaveBeenCalledWith(expect.objectContaining({
-      draftId: DRAFT_ID,
-      sourceReferenceFileIds: [extraFileId],
-      status: 'queued',
-    }));
-    expect(mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage).toHaveBeenCalledWith(expect.objectContaining({
-      kind: 'style_reference',
-      referenceFileIds: ['ref-file-1', extraFileId],
-    }));
-    expect(result.reference.status).toBe('queued');
-  });
-
-  it('does not deactivate the active principal image when edit enqueueing fails', async () => {
-    const error = new Error('queue unavailable');
-    mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage.mockRejectedValueOnce(error);
-
-    await expect(editStoryboardPrincipalImage({
-      userId: USER_ID,
-      draftId: DRAFT_ID,
-      prompt: 'Make the principal image warmer',
-      extraReferenceFileIds: [],
-    })).rejects.toThrow(error);
-
-    expect(mockAiJobRepo.setDraftId).toHaveBeenCalledWith(expect.any(String), DRAFT_ID);
-    expect(mockAiJobRepo.updateJobStatus).toHaveBeenCalledWith(
-      expect.any(String),
-      'failed',
-      'queue unavailable',
-    );
-    expect(mockReferenceRepo.deactivateActiveReference).not.toHaveBeenCalled();
-    expect(mockReferenceRepo.createReferenceMapping).not.toHaveBeenCalled();
-  });
-
   it('self-heals stale scene mappings that already have an output file', async () => {
     mockStoryboardRepo.findBlocksByDraftId.mockResolvedValue([
       makeBlock({ id: 'block-1', sortOrder: 1 }),
@@ -1068,81 +601,6 @@ describe('storyboardIllustration.service', () => {
       outputFileId: 'file-1',
     });
     expect(mockAiJobRepo.getJobById).not.toHaveBeenCalledWith('job-1');
-  });
-
-  it('refreshes completed canonical reference jobs during status polling', async () => {
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
-      aiJobId: 'ref-job-1',
-      status: 'running',
-      outputFileId: null,
-    }));
-    mockAiJobRepo.getJobById.mockImplementation(async (jobId: string) => {
-      if (jobId === 'ref-job-1') {
-        return {
-          jobId,
-          status: 'completed',
-          outputFileId: 'ref-file-ready',
-          errorMessage: null,
-        };
-      }
-      return null;
-    });
-
-    await listStoryboardIllustrations(USER_ID, DRAFT_ID);
-
-    expect(mockReferenceRepo.setReferenceOutput).toHaveBeenCalledWith({
-      aiJobId: 'ref-job-1',
-      outputFileId: 'ref-file-ready',
-    });
-  });
-
-  it('self-heals stale canonical references that already have an output file', async () => {
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
-      aiJobId: 'ref-job-1',
-      status: 'running',
-      outputFileId: 'ref-file-ready',
-    }));
-
-    const result = await listStoryboardIllustrations(USER_ID, DRAFT_ID);
-
-    expect(result.reference).toMatchObject({
-      status: 'ready',
-      jobId: 'ref-job-1',
-      outputFileId: 'ref-file-ready',
-      errorMessage: null,
-    });
-    expect(mockReferenceRepo.setReferenceOutput).toHaveBeenCalledWith({
-      aiJobId: 'ref-job-1',
-      outputFileId: 'ref-file-ready',
-    });
-    expect(mockAiJobRepo.getJobById).not.toHaveBeenCalledWith('ref-job-1');
-  });
-
-  it('refreshes failed canonical reference jobs during status polling so they are retryable', async () => {
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
-      aiJobId: 'ref-job-1',
-      status: 'running',
-      outputFileId: null,
-    }));
-    mockAiJobRepo.getJobById.mockImplementation(async (jobId: string) => {
-      if (jobId === 'ref-job-1') {
-        return {
-          jobId,
-          status: 'failed',
-          outputFileId: null,
-          errorMessage: 'Safe provider failure',
-        };
-      }
-      return null;
-    });
-
-    await listStoryboardIllustrations(USER_ID, DRAFT_ID);
-
-    expect(mockReferenceRepo.updateReferenceStatus).toHaveBeenCalledWith({
-      aiJobId: 'ref-job-1',
-      status: 'failed',
-      errorMessage: 'Safe provider failure',
-    });
   });
 
   it('preserves missing draft, wrong owner, missing block, and empty prompt errors', async () => {

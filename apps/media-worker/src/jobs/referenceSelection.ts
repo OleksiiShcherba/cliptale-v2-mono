@@ -1,6 +1,6 @@
 /**
  * referenceSelection.ts — Pure reference-boundary + style-description logic
- * for the scene generation master (AC-08b, AC-09; ADR-0007, ADR-0008).
+ * for the scene generation master (AC-05, AC-06, AC-06b; ADR-0002, ADR-0003).
  *
  * No I/O — all inputs are pre-loaded caller-side; this module is a set of
  * pure functions easily unit-tested.
@@ -10,11 +10,11 @@
 // Types
 // ---------------------------------------------------------------------------
 
-/** A starred result for a reference block. */
-export type ReferenceStar = {
+/** A completed usable output for a reference block (flow_files row). */
+export type ReferenceOutput = {
   fileId: string;
-  /** true = primary star (block preview / first-priority candidate). */
-  isPrimary: boolean;
+  /** created_at of the flow_files row — used for tie-break ordering. */
+  createdAt: Date;
 };
 
 /** A reference block as consumed by the scene generation master. */
@@ -22,66 +22,70 @@ export type ReferenceBlock = {
   id: string;
   /** Scene IDs this block is linked to. */
   linkedSceneIds: string[];
-  stars: ReferenceStar[];
+  /** Completed usable outputs for this block (flow_files, deleted_at IS NULL). */
+  outputs: ReferenceOutput[];
+  /**
+   * File ID of the primary-starred output, if one is set (storyboard_reference_stars
+   * with is_primary = 1).  May point at a deleted file — callers must verify
+   * usability against outputs before honouring it.
+   */
+  primaryStarFileId?: string;
 };
 
 // ---------------------------------------------------------------------------
-// selectSceneReferences (AC-09, ADR-0008)
+// selectSceneReferences (AC-05, AC-06, AC-06b; ADR-0003)
 // ---------------------------------------------------------------------------
 
 export type SelectSceneReferencesParams = {
   sceneId: string;
   allBlocks: ReferenceBlock[];
-  modelCapacity: number;
 };
 
 /**
- * Returns the ordered list of file IDs to use as reference candidates for
- * scene X, respecting the reference boundary (AC-09) and ADR-0008 selection rule:
- *   1. Primary star of each linked block (one per block, in block order).
- *   2. Top-up with additional starred files from linked blocks, in order, until
- *      `modelCapacity` is reached.
+ * Returns exactly one file ID per reference block linked to sceneId
+ * (AC-05 reference boundary).
  *
- * Files from blocks NOT linked to sceneId are NEVER included.
+ * Selection rule per block (ADR-0003):
+ *   1. primaryStarFileId is set AND present in block.outputs → that file.
+ *   2. Otherwise: latest completed output (createdAt DESC, fileId DESC tie-break).
+ *
+ * Blocks NOT linked to sceneId are NEVER included.
  */
 export function selectSceneReferences(
   params: SelectSceneReferencesParams,
 ): string[] {
-  const { sceneId, allBlocks, modelCapacity } = params;
+  const { sceneId, allBlocks } = params;
 
-  // Filter to blocks linked to this scene
   const linkedBlocks = allBlocks.filter((b) =>
     b.linkedSceneIds.includes(sceneId),
   );
 
-  const result: string[] = [];
-
-  // Phase 1: collect primary star from each linked block (in block order)
-  const primaryFileIds = new Set<string>();
-  for (const block of linkedBlocks) {
-    const primary = block.stars.find((s) => s.isPrimary);
-    if (primary && result.length < modelCapacity) {
-      result.push(primary.fileId);
-      primaryFileIds.add(primary.fileId);
+  return linkedBlocks.flatMap((block): string[] => {
+    if (block.outputs.length === 0) {
+      return [];
     }
-  }
 
-  // Phase 2: top-up with non-primary stars from linked blocks, in block/star order
-  for (const block of linkedBlocks) {
-    for (const star of block.stars) {
-      if (result.length >= modelCapacity) break;
-      if (!primaryFileIds.has(star.fileId) && !result.includes(star.fileId)) {
-        result.push(star.fileId);
-      }
+    // AC-06b: honour primary star when it is a usable (present) output
+    if (
+      block.primaryStarFileId !== undefined &&
+      block.outputs.some((o) => o.fileId === block.primaryStarFileId)
+    ) {
+      return [block.primaryStarFileId];
     }
-    if (result.length >= modelCapacity) break;
-  }
 
-  return result;
+    // AC-06: latest completed output (createdAt DESC, fileId DESC tie-break)
+    const sorted = [...block.outputs].sort((a, b) => {
+      const timeDiff = b.createdAt.getTime() - a.createdAt.getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return b.fileId > a.fileId ? 1 : b.fileId < a.fileId ? -1 : 0;
+    });
+
+    return [sorted[0]!.fileId];
+  });
 }
 
 // ---------------------------------------------------------------------------
-// checkScopedStarGate (AC-08b)
+// checkScopedStarGate (AC-03b — output-existence gate)
 // ---------------------------------------------------------------------------
 
 export type ScopedStarGateParams = {
@@ -92,14 +96,14 @@ export type ScopedStarGateParams = {
 export type ScopedStarGateResult = {
   /** true = scene X may be generated. */
   passes: boolean;
-  /** IDs of blocks linked to sceneId that have no starred result. */
+  /** IDs of blocks linked to sceneId that have no completed output. */
   blockingBlockIds: string[];
 };
 
 /**
- * Scoped star gate for a single scene regeneration (AC-08b):
+ * Scoped reference-done gate for a single scene (AC-03b):
  *   - No blocks linked to sceneId → passes unconditionally (zero-block case).
- *   - Otherwise fails if any block LINKED to sceneId has zero starred results;
+ *   - Otherwise fails if any block LINKED to sceneId has zero completed outputs;
  *     blocks NOT linked to sceneId are irrelevant.
  */
 export function checkScopedStarGate(
@@ -111,13 +115,12 @@ export function checkScopedStarGate(
     b.linkedSceneIds.includes(sceneId),
   );
 
-  // Zero-block case: passes unconditionally
   if (linkedBlocks.length === 0) {
     return { passes: true, blockingBlockIds: [] };
   }
 
   const blockingBlockIds = linkedBlocks
-    .filter((b) => b.stars.length === 0)
+    .filter((b) => b.outputs.length === 0)
     .map((b) => b.id);
 
   return {
@@ -157,9 +160,6 @@ export function buildDraftStyleDescription(
   }
 
   // Deterministic derived style description from the curated starred image set.
-  // The description references the file IDs so callers can identify the source
-  // images. In production the worker passes these IDs to the LLM for analysis;
-  // this pure function produces the deterministic prompt/descriptor portion.
   const fileList = starredFileIds.join(', ');
   return `Visual style derived from curated reference images [${fileList}].`;
 }

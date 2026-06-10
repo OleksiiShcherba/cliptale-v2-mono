@@ -25,11 +25,6 @@ const OPENAI_STORYBOARD_IMAGE_MODEL = 'gpt-image-2';
 const OUTPUT_CONTENT_TYPE = 'image/png';
 const OUTPUT_EXTENSION = 'png';
 const PROGRESS_OPENAI_DONE = 80;
-/**
- * Maximum number of reference images supported by gpt-image-2 in a single
- * images.edit call (ADR-0008: primary star + top-up to model capacity).
- */
-const GPT_IMAGE_2_MODEL_CAPACITY = 16;
 
 type ReferenceFile = {
   fileId: string;
@@ -43,11 +38,6 @@ export type StoryboardImageFileReadRepo = {
     userId: string;
     fileIds: string[];
   }) => Promise<ReferenceFile[]>;
-};
-
-export type StoryboardReferenceRepo = {
-  setOutput: (params: { aiJobId: string; outputFileId: string }) => Promise<void>;
-  markFailed: (aiJobId: string, errorMessage: string) => Promise<void>;
 };
 
 export type StoryboardSceneRepo = {
@@ -78,7 +68,6 @@ export type StoryboardOpenAIImageJobDeps = {
   aiGenerationJobRepo: AiGenerationJobRepo & {
     markFailed?: (jobId: string, errorMessage: string) => Promise<void>;
   };
-  storyboardReferenceRepo?: StoryboardReferenceRepo;
   storyboardSceneRepo?: StoryboardSceneRepo;
   /** Optional: when present, enforces the reference boundary (AC-09) for scene jobs. */
   sceneReferenceSelectionRepo?: SceneReferenceSelectionRepo;
@@ -202,7 +191,7 @@ async function resolveSceneInputs(
   payload: StoryboardOpenAIImageJobPayload,
   deps: StoryboardOpenAIImageJobDeps,
 ): Promise<{ referenceFileIds: string[]; prompt: string }> {
-  if (payload.kind !== 'scene' || !payload.blockId || !deps.sceneReferenceSelectionRepo) {
+  if (!payload.blockId || !deps.sceneReferenceSelectionRepo) {
     return { referenceFileIds: payload.referenceFileIds, prompt: payload.prompt };
   }
 
@@ -217,11 +206,10 @@ async function resolveSceneInputs(
     // The prompt will still be sent with whatever references are available.
   }
 
-  // AC-09, ADR-0008: select only starred images of blocks linked to this scene
+  // AC-05/AC-06/AC-06b: select exactly one output per linked block
   const selectedFileIds = selectSceneReferences({
     sceneId: payload.blockId,
     allBlocks,
-    modelCapacity: GPT_IMAGE_2_MODEL_CAPACITY,
   });
 
   // AC-09, ADR-0007: scenes with no linked blocks get a draft-global derived
@@ -230,7 +218,9 @@ async function resolveSceneInputs(
   const hasLinkedBlocks = allBlocks.some((b) => b.linkedSceneIds.includes(payload.blockId!));
   let effectivePrompt = payload.prompt;
   if (!hasLinkedBlocks) {
-    const allStarredFileIds = allBlocks.flatMap((b) => b.stars.map((s) => s.fileId));
+    const allStarredFileIds = allBlocks.flatMap((b) =>
+      b.primaryStarFileId !== undefined ? [b.primaryStarFileId] : b.outputs.map((o) => o.fileId),
+    );
     const styleDescription = buildDraftStyleDescription({
       starredFileIds: allStarredFileIds,
       scriptFallback: payload.prompt,
@@ -312,18 +302,11 @@ export async function processStoryboardOpenAIImageJob(
     await deps.filesRepo.createFile(fileParams);
     await deps.filesRepo.markReady?.(fileId);
     await deps.aiGenerationJobRepo.setOutputFile(payload.jobId, fileId);
-    if (payload.kind === 'style_reference') {
-      await deps.storyboardReferenceRepo?.setOutput({
-        aiJobId: payload.jobId,
-        outputFileId: fileId,
-      });
-    } else {
-      await deps.storyboardSceneRepo?.attachOutputToBlock({
-        id: randomUUID(),
-        aiJobId: payload.jobId,
-        outputFileId: fileId,
-      });
-    }
+    await deps.storyboardSceneRepo?.attachOutputToBlock({
+      id: randomUUID(),
+      aiJobId: payload.jobId,
+      outputFileId: fileId,
+    });
     await publishAiGenerationJobStatus({ pool: deps.pool, jobId: payload.jobId });
   } catch (error) {
     const message = sanitizeStoryboardImageError(error);
@@ -333,11 +316,7 @@ export async function processStoryboardOpenAIImageJob(
       } else {
         await setJobStatus(deps.pool, payload.jobId, 'failed', message);
       }
-      if (payload.kind === 'style_reference') {
-        await deps.storyboardReferenceRepo?.markFailed(payload.jobId, message);
-      } else {
-        await deps.storyboardSceneRepo?.markFailed(payload.jobId, message);
-      }
+      await deps.storyboardSceneRepo?.markFailed(payload.jobId, message);
       await publishAiGenerationJobStatus({ pool: deps.pool, jobId: payload.jobId });
     }
     throw error;

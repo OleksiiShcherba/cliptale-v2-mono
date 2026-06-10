@@ -7,6 +7,11 @@
  *   AC-04 — Atomic window claim: two concurrent claims on same draft → exactly
  *             one winner; CAS version increment (stale → 0 affected rows)
  *
+ * Covers T1 acceptance criteria (readiness reads Q1–Q3):
+ *   AC-01/02/07 — getDraftReadiness: full-set blocking-block list (Q1)
+ *   AC-03/03b   — getSceneReadiness: scene-scoped blocking-block list (Q2)
+ *   AC-04b      — getReferencelessScenes: scenes with no linked reference (Q3)
+ *
  * Prerequisites: Docker Compose `db` service must be running.
  * Run:
  *   cd apps/api && APP_DB_PASSWORD=cliptale APP_REDIS_URL=redis://localhost:6380 \
@@ -41,6 +46,9 @@ import {
   updateReferenceBlockWindowStatus,
   claimNextPendingBlock,
   casIncrementBlockVersion,
+  getDraftReadiness,
+  getSceneReadiness,
+  getReferencelessScenes,
 } from './storyboardReference.repository.js';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -108,11 +116,38 @@ beforeAll(async () => {
 
 afterAll(async () => {
   // FK-safe order: blocks cascade to scene_links and stars; drafts cascade to blocks and jobs.
+  // T1-specific: scene blocks, flow_files, flows, files cleaned before their parents.
+  if (t1SceneBlockIds.length) {
+    const ph = t1SceneBlockIds.map(() => '?').join(',');
+    await conn.query(
+      `DELETE FROM storyboard_reference_scene_links WHERE scene_block_id IN (${ph})`,
+      t1SceneBlockIds,
+    );
+    await conn.query(
+      `DELETE FROM storyboard_blocks WHERE id IN (${ph})`,
+      t1SceneBlockIds,
+    );
+  }
   if (trackedBlockIds.length) {
     const ph = trackedBlockIds.map(() => '?').join(',');
     await conn.query(
       `DELETE FROM storyboard_reference_blocks WHERE id IN (${ph})`,
       trackedBlockIds,
+    );
+  }
+  if (t1FlowIds.length) {
+    const ph = t1FlowIds.map(() => '?').join(',');
+    // flow_files CASCADE from generation_flows FK
+    await conn.query(
+      `DELETE FROM generation_flows WHERE flow_id IN (${ph})`,
+      t1FlowIds,
+    );
+  }
+  if (t1FileIds.length) {
+    const ph = t1FileIds.map(() => '?').join(',');
+    await conn.query(
+      `DELETE FROM files WHERE file_id IN (${ph})`,
+      t1FileIds,
     );
   }
   if (trackedJobIds.length) {
@@ -578,5 +613,405 @@ describe('storyboardReference.repository — updateReferenceBlockWindowStatus (A
     );
     expect(rows[0]!['window_status']).toBe('failed');
     expect(rows[0]!['error_message']).toBe('Image generation timed out');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T1: Readiness reads — Q1 getDraftReadiness, Q2 getSceneReadiness, Q3 getReferencelessScenes
+//
+// data-model.md §Readiness-predicate:
+//   ready ⟺ flow_id IS NOT NULL  AND  ≥1 flow_files row (deleted_at IS NULL)
+//
+// Block state matrix (DoD):
+//   A: manual / no-flow state          → flow_id = NULL             → NOT ready
+//   B: running / no output yet         → flow_id set, 0 flow_files  → NOT ready (AC-07)
+//   C: done / has completed output     → flow_id set, flow_files ✓  → ready
+//   D: output exists but file deleted  → flow_id set, flow_files all deleted_at → NOT ready
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * T1 seed helpers — scoped to this suite via the shared PREFIX/trackedDraftIds registries
+ * and their own tracked-ID registries for FK-safe cleanup in afterAll.
+ */
+const T1_PREFIX = 'srb-t1';
+
+/** Tracked IDs for T1-specific rows (cleaned up after the suite in afterAll via CASCADE) */
+const t1FlowIds: string[]        = [];
+const t1FileIds: string[]        = [];
+const t1SceneBlockIds: string[]  = [];
+
+function t1Id(tag: string): string {
+  return `${T1_PREFIX}-${tag}-${randomUUID().slice(0, 12)}`;
+}
+
+/**
+ * Seed a minimal generation_flows row so a reference block can point its flow_id at it.
+ * Returns the flow_id.
+ */
+async function seedFlow(userId: string): Promise<string> {
+  const flowId = t1Id('flow');
+  t1FlowIds.push(flowId);
+  await conn.execute(
+    `INSERT INTO generation_flows (flow_id, user_id, title, canvas)
+     VALUES (?, ?, 'Test Reference Flow', '{}')`,
+    [flowId, userId],
+  );
+  return flowId;
+}
+
+/**
+ * Seed a minimal files row (status='ready', kind='image').
+ * Returns the file_id.
+ */
+async function seedFileT1(userId: string): Promise<string> {
+  const fileId = t1Id('file');
+  t1FileIds.push(fileId);
+  await conn.execute(
+    `INSERT INTO files
+       (file_id, user_id, kind, storage_uri, mime_type, display_name, status)
+     VALUES (?, ?, 'image', ?, 'image/png', 'ref-output.png', 'ready')`,
+    [fileId, userId, `s3://test-bucket/${fileId}.png`],
+  );
+  return fileId;
+}
+
+/**
+ * Link a file to a flow via flow_files (= "completed output exists").
+ * Pass deleted: true to simulate a soft-deleted (unusable) output.
+ */
+async function seedFlowFile(flowId: string, fileId: string, deleted = false): Promise<void> {
+  if (deleted) {
+    await conn.execute(
+      `INSERT INTO flow_files (flow_id, file_id, deleted_at) VALUES (?, ?, NOW(3))`,
+      [flowId, fileId],
+    );
+  } else {
+    await conn.execute(
+      `INSERT INTO flow_files (flow_id, file_id) VALUES (?, ?)`,
+      [flowId, fileId],
+    );
+  }
+}
+
+/**
+ * Seed a storyboard_blocks scene row for a draft.
+ * Returns the scene block id.
+ */
+async function seedSceneBlockT1(draftId: string): Promise<string> {
+  const id = t1Id('scene');
+  t1SceneBlockIds.push(id);
+  await conn.execute(
+    `INSERT INTO storyboard_blocks
+       (id, draft_id, block_type, name, prompt, duration_s,
+        position_x, position_y, sort_order, style)
+     VALUES (?, ?, 'scene', 'T1 Test Scene', 'A scene.', 5, 0, 0, 0, NULL)`,
+    [id, draftId],
+  );
+  return id;
+}
+
+/**
+ * Link a reference block to a scene block.
+ */
+async function seedSceneLinkT1(referenceBlockId: string, sceneBlockId: string): Promise<void> {
+  await conn.execute(
+    `INSERT INTO storyboard_reference_scene_links
+       (reference_block_id, scene_block_id)
+     VALUES (?, ?)`,
+    [referenceBlockId, sceneBlockId],
+  );
+}
+
+// ─── Q1: getDraftReadiness ────────────────────────────────────────────────────
+
+describe('storyboardReference.repository — getDraftReadiness / Q1 (T1: AC-01/02/07)', () => {
+  it('Q1/A — manual block (flow_id=NULL) is not ready and appears in blocking list', async () => {
+    // Block state A: no-flow state — cannot be ready regardless of window_status
+    const draftId = await seedDraft(USER_A);
+    const blockId = newId('blk');
+    trackedBlockIds.push(blockId);
+
+    // Manual block: flow_id stays NULL (default); window_status stays NULL
+    await createReferenceBlock({
+      id: blockId,
+      draftId,
+      castType: 'character',
+      name: 'Manual No-Flow Block',
+      sortOrder: 0,
+    });
+
+    const result = await getDraftReadiness({ draftId });
+
+    expect(result.isReady).toBe(false);
+    const blockingIds = result.blockingBlocks.map((b: { id: string }) => b.id);
+    expect(blockingIds).toContain(blockId);
+  });
+
+  it('Q1/B — running block with no persisted output is not ready (AC-07)', async () => {
+    // Block state B: flow linked, rolling window running, but no flow_files row yet
+    const draftId = await seedDraft(USER_A);
+    const flowId  = await seedFlow(USER_A);
+    const blockId = newId('blk');
+    trackedBlockIds.push(blockId);
+
+    await createReferenceBlock({
+      id: blockId,
+      draftId,
+      castType: 'environment',
+      name: 'Running No-Output Block',
+      sortOrder: 0,
+      windowStatus: 'running',
+    });
+    // Wire the flow_id after insert (createReferenceBlock doesn't accept flowId directly)
+    await conn.execute(
+      `UPDATE storyboard_reference_blocks SET flow_id = ? WHERE id = ?`,
+      [flowId, blockId],
+    );
+
+    const result = await getDraftReadiness({ draftId });
+
+    expect(result.isReady).toBe(false);
+    const blockingIds = result.blockingBlocks.map((b: { id: string }) => b.id);
+    expect(blockingIds).toContain(blockId);
+  });
+
+  it('Q1/C — done block with completed output is ready; returns empty blocking list', async () => {
+    // Block state C: flow linked, flow_files row present (deleted_at=NULL) → ready
+    const draftId = await seedDraft(USER_A);
+    const flowId  = await seedFlow(USER_A);
+    const fileId  = await seedFileT1(USER_A);
+    const blockId = newId('blk');
+    trackedBlockIds.push(blockId);
+
+    await createReferenceBlock({
+      id: blockId,
+      draftId,
+      castType: 'character',
+      name: 'Done With Output',
+      sortOrder: 0,
+      windowStatus: 'done',
+    });
+    await conn.execute(
+      `UPDATE storyboard_reference_blocks SET flow_id = ? WHERE id = ?`,
+      [flowId, blockId],
+    );
+    await seedFlowFile(flowId, fileId, false /* not deleted */);
+
+    const result = await getDraftReadiness({ draftId });
+
+    expect(result.isReady).toBe(true);
+    expect(result.blockingBlocks).toHaveLength(0);
+  });
+
+  it('Q1/D — block with only a soft-deleted output is not ready', async () => {
+    // Block state D: flow linked, but all flow_files rows have deleted_at set → not ready
+    const draftId = await seedDraft(USER_A);
+    const flowId  = await seedFlow(USER_A);
+    const fileId  = await seedFileT1(USER_A);
+    const blockId = newId('blk');
+    trackedBlockIds.push(blockId);
+
+    await createReferenceBlock({
+      id: blockId,
+      draftId,
+      castType: 'character',
+      name: 'Deleted Output Block',
+      sortOrder: 0,
+      windowStatus: 'done',
+    });
+    await conn.execute(
+      `UPDATE storyboard_reference_blocks SET flow_id = ? WHERE id = ?`,
+      [flowId, blockId],
+    );
+    await seedFlowFile(flowId, fileId, true /* soft-deleted */);
+
+    const result = await getDraftReadiness({ draftId });
+
+    expect(result.isReady).toBe(false);
+    const blockingIds = result.blockingBlocks.map((b: { id: string }) => b.id);
+    expect(blockingIds).toContain(blockId);
+  });
+
+  it('Q1 — mixed draft: ready block + not-ready block → not ready, only not-ready in list', async () => {
+    // One ready block (C) + one manual not-ready block (A): draft is not ready;
+    // only the manual block should appear in the blocking list.
+    const draftId  = await seedDraft(USER_A);
+    const flowId   = await seedFlow(USER_A);
+    const fileId   = await seedFileT1(USER_A);
+    const readyId  = newId('blk');
+    const blockedId = newId('blk');
+    trackedBlockIds.push(readyId, blockedId);
+
+    // Ready block (state C)
+    await createReferenceBlock({ id: readyId, draftId, castType: 'character', name: 'Ready Block', sortOrder: 0, windowStatus: 'done' });
+    await conn.execute(`UPDATE storyboard_reference_blocks SET flow_id = ? WHERE id = ?`, [flowId, readyId]);
+    await seedFlowFile(flowId, fileId, false);
+
+    // Not-ready block (state A)
+    await createReferenceBlock({ id: blockedId, draftId, castType: 'environment', name: 'Manual Block', sortOrder: 1 });
+
+    const result = await getDraftReadiness({ draftId });
+
+    expect(result.isReady).toBe(false);
+    const blockingIds = result.blockingBlocks.map((b: { id: string }) => b.id);
+    expect(blockingIds).toContain(blockedId);
+    expect(blockingIds).not.toContain(readyId);
+  });
+
+  it('Q1 — draft with zero reference blocks is considered ready (AC-04)', async () => {
+    const draftId = await seedDraft(USER_A);
+
+    const result = await getDraftReadiness({ draftId });
+
+    expect(result.isReady).toBe(true);
+    expect(result.blockingBlocks).toHaveLength(0);
+  });
+});
+
+// ─── Q2: getSceneReadiness ────────────────────────────────────────────────────
+
+describe('storyboardReference.repository — getSceneReadiness / Q2 (T1: AC-03/03b)', () => {
+  it('Q2 — returns not-ready only for blocks linked to the queried scene (AC-03b)', async () => {
+    // Unlinked not-ready block must NOT appear; only the linked not-ready block should.
+    const draftId       = await seedDraft(USER_A);
+    const sceneId       = await seedSceneBlockT1(draftId);
+    const linkedBlockId = newId('blk');
+    const otherBlockId  = newId('blk');
+    trackedBlockIds.push(linkedBlockId, otherBlockId);
+
+    // linked block — state A (not ready)
+    await createReferenceBlock({ id: linkedBlockId, draftId, castType: 'character', name: 'Linked Manual', sortOrder: 0 });
+    await seedSceneLinkT1(linkedBlockId, sceneId);
+
+    // unlinked block — also not ready, but unlinked to sceneId
+    await createReferenceBlock({ id: otherBlockId, draftId, castType: 'environment', name: 'Unlinked Manual', sortOrder: 1 });
+
+    const result = await getSceneReadiness({ sceneBlockId: sceneId, draftId });
+
+    expect(result.isReady).toBe(false);
+    const blockingIds = result.blockingBlocks.map((b: { id: string }) => b.id);
+    expect(blockingIds).toContain(linkedBlockId);
+    expect(blockingIds).not.toContain(otherBlockId);
+  });
+
+  it('Q2 — scene with all linked blocks ready returns isReady=true (AC-03)', async () => {
+    const draftId = await seedDraft(USER_A);
+    const sceneId = await seedSceneBlockT1(draftId);
+    const flowId  = await seedFlow(USER_A);
+    const fileId  = await seedFileT1(USER_A);
+    const blockId = newId('blk');
+    trackedBlockIds.push(blockId);
+
+    await createReferenceBlock({ id: blockId, draftId, castType: 'character', name: 'Ready Linked', sortOrder: 0, windowStatus: 'done' });
+    await conn.execute(`UPDATE storyboard_reference_blocks SET flow_id = ? WHERE id = ?`, [flowId, blockId]);
+    await seedFlowFile(flowId, fileId, false);
+    await seedSceneLinkT1(blockId, sceneId);
+
+    const result = await getSceneReadiness({ sceneBlockId: sceneId, draftId });
+
+    expect(result.isReady).toBe(true);
+    expect(result.blockingBlocks).toHaveLength(0);
+  });
+
+  it('Q2 — scene with no linked blocks is ready (no links = no gate, AC-04)', async () => {
+    const draftId = await seedDraft(USER_A);
+    const sceneId = await seedSceneBlockT1(draftId);
+
+    const result = await getSceneReadiness({ sceneBlockId: sceneId, draftId });
+
+    expect(result.isReady).toBe(true);
+    expect(result.blockingBlocks).toHaveLength(0);
+  });
+
+  it('Q2/B — running-no-output block linked to scene is not ready (AC-07 per-scene scope)', async () => {
+    const draftId = await seedDraft(USER_A);
+    const sceneId = await seedSceneBlockT1(draftId);
+    const flowId  = await seedFlow(USER_A);
+    const blockId = newId('blk');
+    trackedBlockIds.push(blockId);
+
+    await createReferenceBlock({ id: blockId, draftId, castType: 'character', name: 'Running Linked', sortOrder: 0, windowStatus: 'running' });
+    await conn.execute(`UPDATE storyboard_reference_blocks SET flow_id = ? WHERE id = ?`, [flowId, blockId]);
+    // No flow_files row → output-existence predicate fails
+    await seedSceneLinkT1(blockId, sceneId);
+
+    const result = await getSceneReadiness({ sceneBlockId: sceneId, draftId });
+
+    expect(result.isReady).toBe(false);
+    const blockingIds = result.blockingBlocks.map((b: { id: string }) => b.id);
+    expect(blockingIds).toContain(blockId);
+  });
+});
+
+// ─── Q3: getReferencelessScenes ──────────────────────────────────────────────
+
+describe('storyboardReference.repository — getReferencelessScenes / Q3 (T1: AC-04b)', () => {
+  it('Q3 — scene with no linked reference block is returned', async () => {
+    const draftId       = await seedDraft(USER_A);
+    const linkedSceneId = await seedSceneBlockT1(draftId);
+    const freeSceneId   = await seedSceneBlockT1(draftId);
+    const blockId       = newId('blk');
+    trackedBlockIds.push(blockId);
+
+    // Block linked to linkedSceneId; freeSceneId has no link
+    await createReferenceBlock({ id: blockId, draftId, castType: 'character', name: 'Linked Block', sortOrder: 0 });
+    await seedSceneLinkT1(blockId, linkedSceneId);
+
+    const result = await getReferencelessScenes({ draftId });
+
+    const ids = result.map((s: { id: string }) => s.id);
+    expect(ids).toContain(freeSceneId);
+    expect(ids).not.toContain(linkedSceneId);
+  });
+
+  it('Q3 — draft where every scene has a linked reference block returns empty list', async () => {
+    const draftId = await seedDraft(USER_A);
+    const sceneId = await seedSceneBlockT1(draftId);
+    const blockId = newId('blk');
+    trackedBlockIds.push(blockId);
+
+    await createReferenceBlock({ id: blockId, draftId, castType: 'character', name: 'Linked Block', sortOrder: 0 });
+    await seedSceneLinkT1(blockId, sceneId);
+
+    const result = await getReferencelessScenes({ draftId });
+
+    expect(result).toHaveLength(0);
+  });
+
+  it('Q3 — draft with zero reference blocks returns all scenes as reference-less (AC-04b pre-condition)', async () => {
+    // When a draft has zero reference blocks, technically every scene is "reference-less",
+    // but AC-04b applies only when the draft has ≥1 reference block.
+    // The query itself returns the scene ids regardless — caller decides what to do with them.
+    const draftId = await seedDraft(USER_A);
+    const s1      = await seedSceneBlockT1(draftId);
+    const s2      = await seedSceneBlockT1(draftId);
+
+    const result = await getReferencelessScenes({ draftId });
+
+    const ids = result.map((s: { id: string }) => s.id);
+    expect(ids).toContain(s1);
+    expect(ids).toContain(s2);
+  });
+
+  it('Q3 — only scene-type blocks are considered (start/end sentinels excluded)', async () => {
+    // The query must filter block_type = 'scene' — start/end rows must not appear.
+    const draftId = await seedDraft(USER_A);
+    // seed a real scene block (no link)
+    const sceneId = await seedSceneBlockT1(draftId);
+    // seed a start sentinel directly via SQL (not using the scene helper)
+    const startId = t1Id('start');
+    t1SceneBlockIds.push(startId);
+    await conn.execute(
+      `INSERT INTO storyboard_blocks
+         (id, draft_id, block_type, name, prompt, duration_s, position_x, position_y, sort_order)
+       VALUES (?, ?, 'start', 'START', NULL, 5, 0, 0, -1)`,
+      [startId, draftId],
+    );
+
+    const result = await getReferencelessScenes({ draftId });
+
+    const ids = result.map((s: { id: string }) => s.id);
+    expect(ids).toContain(sceneId);
+    expect(ids).not.toContain(startId);
   });
 });

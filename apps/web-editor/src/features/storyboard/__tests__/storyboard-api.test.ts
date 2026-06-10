@@ -40,10 +40,6 @@ import {
   startStoryboardPlan,
   getStoryboardPlanStatus,
   applyLatestStoryboardPlan,
-  approveStoryboardPrincipalImage,
-  editStoryboardPrincipalImage,
-  replaceStoryboardPrincipalImage,
-  setStoryboardPrincipalImageReferences,
   createProjectFromStoryboard,
   startStoryboardVideos,
   fetchStoryboardVideos,
@@ -475,95 +471,6 @@ describe('storyboard save API helper', () => {
     expect(sentMusicBlock).not.toHaveProperty('errorMessage');
     expect(sentMusicBlock).not.toHaveProperty('createdAt');
     expect(sentMusicBlock).not.toHaveProperty('updatedAt');
-  });
-});
-
-describe('principal image API helpers', () => {
-  it('approves the principal image for a draft', async () => {
-    const response = { reference: { approvalStatus: 'approved' }, items: [] };
-    mockApiClient.post.mockResolvedValue(mockOkResponse(response));
-
-    const result = await approveStoryboardPrincipalImage('draft-abc');
-
-    expect(mockApiClient.post).toHaveBeenCalledWith(
-      '/storyboards/draft-abc/illustrations/principal-image/approve',
-      {},
-    );
-    expect(result).toEqual(response);
-  });
-
-  it('throws when approving the principal image fails', async () => {
-    mockApiClient.post.mockResolvedValue(mockErrorResponse(422));
-
-    await expect(approveStoryboardPrincipalImage('draft-abc')).rejects.toThrow(
-      'POST /storyboards/draft-abc/illustrations/principal-image/approve failed: 422',
-    );
-  });
-
-  it('edits the principal image with prompt and extra references', async () => {
-    const response = { reference: { status: 'queued' }, items: [] };
-    const payload = { prompt: 'Make it brighter', extraReferenceFileIds: ['file-1'] };
-    mockApiClient.post.mockResolvedValue(mockOkResponse(response));
-
-    const result = await editStoryboardPrincipalImage('draft-abc', payload);
-
-    expect(mockApiClient.post).toHaveBeenCalledWith(
-      '/storyboards/draft-abc/illustrations/principal-image/edit',
-      payload,
-    );
-    expect(result).toEqual(response);
-  });
-
-  it('throws when editing the principal image fails', async () => {
-    mockApiClient.post.mockResolvedValue(mockErrorResponse(400));
-
-    await expect(
-      editStoryboardPrincipalImage('draft-abc', { prompt: 'x' }),
-    ).rejects.toThrow(
-      'POST /storyboards/draft-abc/illustrations/principal-image/edit failed: 400',
-    );
-  });
-
-  it('replaces the principal image with a selected file', async () => {
-    const response = { reference: { outputFileId: 'file-1' }, items: [] };
-    mockApiClient.post.mockResolvedValue(mockOkResponse(response));
-
-    const result = await replaceStoryboardPrincipalImage('draft-abc', 'file-1');
-
-    expect(mockApiClient.post).toHaveBeenCalledWith(
-      '/storyboards/draft-abc/illustrations/principal-image/replace',
-      { fileId: 'file-1' },
-    );
-    expect(result).toEqual(response);
-  });
-
-  it('throws when replacing the principal image fails', async () => {
-    mockApiClient.post.mockResolvedValue(mockErrorResponse(422));
-
-    await expect(replaceStoryboardPrincipalImage('draft-abc', 'file-1')).rejects.toThrow(
-      'POST /storyboards/draft-abc/illustrations/principal-image/replace failed: 422',
-    );
-  });
-
-  it('sets principal image reference files', async () => {
-    const response = { reference: { sourceReferenceFileIds: ['file-1'] }, items: [] };
-    mockApiClient.put.mockResolvedValue(mockOkResponse(response));
-
-    const result = await setStoryboardPrincipalImageReferences('draft-abc', ['file-1']);
-
-    expect(mockApiClient.put).toHaveBeenCalledWith(
-      '/storyboards/draft-abc/illustrations/principal-image/references',
-      { fileIds: ['file-1'] },
-    );
-    expect(result).toEqual(response);
-  });
-
-  it('throws when setting principal image references fails', async () => {
-    mockApiClient.put.mockResolvedValue(mockErrorResponse(400));
-
-    await expect(setStoryboardPrincipalImageReferences('draft-abc', [])).rejects.toThrow(
-      'PUT /storyboards/draft-abc/illustrations/principal-image/references failed: 400',
-    );
   });
 });
 

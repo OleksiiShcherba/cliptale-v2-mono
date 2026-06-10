@@ -23,8 +23,6 @@ export type StoryboardIllustrationReferenceStatusItem = {
 export type StoryboardAutomationPhase =
   | 'idle'
   | 'planning'
-  | 'creating_principal_image'
-  | 'awaiting_principal_approval'
   | 'generating_scene_illustrations'
   | 'ready'
   | 'failed';
@@ -37,6 +35,5 @@ export type StoryboardAutomationStatus = {
 
 export type StoryboardIllustrationStatusResponse = {
   automation: StoryboardAutomationStatus;
-  reference: StoryboardIllustrationReferenceStatusItem;
   items: StoryboardIllustrationStatusItem[];
 };

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
 import mysql, { type Connection } from 'mysql2/promise';
@@ -28,6 +28,27 @@ const MIGRATION_041_PATH = resolve(
   __dirname,
   '../../db/migrations/041_storyboard_illustration_reference_approval.sql',
 );
+// T11 gate migrations (053–055 + 046–047)
+const MIGRATION_046_PATH = resolve(
+  __dirname,
+  '../../db/migrations/046_create_generation_flows.sql',
+);
+const MIGRATION_047_PATH = resolve(
+  __dirname,
+  '../../db/migrations/047_create_flow_files.sql',
+);
+const MIGRATION_053_PATH = resolve(
+  __dirname,
+  '../../db/migrations/053_create_storyboard_reference_blocks.sql',
+);
+const MIGRATION_054_PATH = resolve(
+  __dirname,
+  '../../db/migrations/054_create_storyboard_reference_scene_links.sql',
+);
+const MIGRATION_055_PATH = resolve(
+  __dirname,
+  '../../db/migrations/055_create_storyboard_reference_stars.sql',
+);
 
 Object.assign(process.env, {
   APP_DB_HOST: process.env['APP_DB_HOST'] ?? 'localhost',
@@ -44,12 +65,19 @@ Object.assign(process.env, {
   APP_DEV_AUTH_BYPASS: 'false',
 });
 
+// Shared spy array: every Queue.add call from any queue instance is appended here.
+// Used by the no-provider-call assertion (spec §6 gate-evaluation cost).
+const allQueueAddCalls: Array<{ queueName: string; jobName: string }> = [];
+
 vi.mock('bullmq', async (importOriginal) => {
   const actual = await importOriginal<typeof import('bullmq')>();
   return {
     ...actual,
-    Queue: vi.fn().mockImplementation(() => ({
-      add: vi.fn().mockResolvedValue({ id: randomUUID() }),
+    Queue: vi.fn().mockImplementation((queueName: string) => ({
+      add: vi.fn().mockImplementation((jobName: string) => {
+        allQueueAddCalls.push({ queueName, jobName });
+        return Promise.resolve({ id: randomUUID() });
+      }),
       getJob: vi.fn(),
       on: vi.fn(),
     })),
@@ -180,6 +208,118 @@ async function seedReadyDraftImage(draftId: string, userId: string, name: string
   return seedDraftFile({ draftId, userId, name });
 }
 
+// ── T11 gate seed helpers ────────────────────────────────────────────────────
+// These follow data-model.md §Test fixtures: reference blocks with/without
+// completed flow_files outputs, scene links, legacy principal rows.
+
+/**
+ * Seed a generation_flows row owned by userId (FK requirement for storyboard_reference_blocks.flow_id).
+ * Returns flow_id.
+ */
+async function seedFlow(userId: string): Promise<string> {
+  const flowId = randomUUID();
+  await conn.execute(
+    `INSERT INTO generation_flows (flow_id, user_id, title, canvas)
+     VALUES (?, ?, 'test-reference-flow', JSON_OBJECT())`,
+    [flowId, userId],
+  );
+  return flowId;
+}
+
+/**
+ * Seed a flow_files row (= one completed output for the flow).
+ * Returns file_id inserted.
+ * If deleted=true, sets deleted_at so the output is NOT usable (block remains not-ready).
+ */
+async function seedFlowFile(flowId: string, userId: string, opts?: { deleted?: boolean }): Promise<string> {
+  const fileId = randomUUID();
+  cleanupFiles.push(fileId);
+  await conn.execute(
+    `INSERT INTO files (file_id, user_id, kind, storage_uri, mime_type, display_name, status)
+     VALUES (?, ?, 'image', ?, 'image/png', 'ref-output.png', 'ready')`,
+    [fileId, userId, `s3://test-bucket/${fileId}.png`],
+  );
+  await conn.execute(
+    `INSERT INTO flow_files (flow_id, file_id, deleted_at) VALUES (?, ?, ?)`,
+    [flowId, fileId, opts?.deleted ? new Date() : null],
+  );
+  return fileId;
+}
+
+/**
+ * Seed a storyboard_reference_blocks row.
+ * If flowId is provided, the block has a flow (may or may not have outputs).
+ * Returns blockId.
+ */
+async function seedRefBlock(params: {
+  draftId: string;
+  castType?: 'character' | 'environment';
+  name: string;
+  flowId?: string | null;
+  windowStatus?: 'pending' | 'running' | 'done' | 'failed' | null;
+  sortOrder?: number;
+}): Promise<string> {
+  const blockId = randomUUID();
+  await conn.execute(
+    `INSERT INTO storyboard_reference_blocks
+       (id, draft_id, flow_id, cast_type, name, sort_order, window_status)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      blockId,
+      params.draftId,
+      params.flowId ?? null,
+      params.castType ?? 'character',
+      params.name,
+      params.sortOrder ?? 1,
+      params.windowStatus ?? null,
+    ],
+  );
+  return blockId;
+}
+
+/**
+ * Seed a storyboard_reference_scene_links row linking a reference block to a scene block.
+ */
+async function seedSceneLink(referenceBlockId: string, sceneBlockId: string): Promise<void> {
+  await conn.execute(
+    `INSERT INTO storyboard_reference_scene_links (reference_block_id, scene_block_id)
+     VALUES (?, ?)`,
+    [referenceBlockId, sceneBlockId],
+  );
+}
+
+/**
+ * Seed a storyboard_illustration_references legacy principal-image row (AC-08 ignore-on-read).
+ * Returns the legacy row id.
+ */
+async function seedLegacyPrincipal(draftId: string, userId: string): Promise<string> {
+  const legacyId = randomUUID();
+  const legacyJobId = randomUUID();
+  const legacyFileId = randomUUID();
+  cleanupFiles.push(legacyFileId);
+  // Minimal file row to satisfy FK
+  await conn.execute(
+    `INSERT INTO files (file_id, user_id, kind, storage_uri, mime_type, display_name, status)
+     VALUES (?, ?, 'image', ?, 'image/png', 'legacy-principal.png', 'ready')`,
+    [legacyFileId, userId, `s3://test-bucket/${legacyFileId}.png`],
+  );
+  await conn.execute(
+    `INSERT INTO ai_generation_jobs
+       (job_id, user_id, model_id, capability, prompt, options, status, progress, output_file_id, draft_id)
+     VALUES (?, ?, 'gpt-image-2', 'text_to_image', 'legacy-principal', JSON_OBJECT(), 'completed', 100, ?, ?)`,
+    [legacyJobId, userId, legacyFileId, draftId],
+  );
+  cleanupJobs.push(legacyJobId);
+  await conn.execute(
+    `INSERT INTO storyboard_illustration_references
+       (id, draft_id, ai_job_id, status, output_file_id, source_reference_file_ids, active_lock,
+        approval_status, approved_at)
+     VALUES (?, ?, ?, 'ready', ?, JSON_ARRAY(), 1, 'approved', NOW(3))`,
+    [legacyId, draftId, legacyJobId, legacyFileId],
+  );
+  return legacyId;
+}
+
 beforeAll(async () => {
   const mod = await import('../../index.js');
   app = mod.default;
@@ -197,6 +337,11 @@ beforeAll(async () => {
   await conn.query(readFileSync(MIGRATION_039_PATH, 'utf-8'));
   await conn.query(readFileSync(MIGRATION_040_PATH, 'utf-8'));
   await conn.query(readFileSync(MIGRATION_041_PATH, 'utf-8'));
+  await conn.query(readFileSync(MIGRATION_046_PATH, 'utf-8'));
+  await conn.query(readFileSync(MIGRATION_047_PATH, 'utf-8'));
+  await conn.query(readFileSync(MIGRATION_053_PATH, 'utf-8'));
+  await conn.query(readFileSync(MIGRATION_054_PATH, 'utf-8'));
+  await conn.query(readFileSync(MIGRATION_055_PATH, 'utf-8'));
 
   userA = `ill-a-${randomUUID().slice(0, 8)}`;
   userB = `ill-b-${randomUUID().slice(0, 8)}`;
@@ -378,15 +523,7 @@ describe('storyboard illustration endpoints', () => {
       phase: 'idle',
       errorMessage: null,
     });
-    expect(res.body.reference).toMatchObject({
-      status: 'ready',
-      outputFileId: expect.any(String),
-      sourceReferenceFileIds: [],
-      errorMessage: null,
-    });
-    expect(res.body.reference.jobId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
+    expect(res.body).not.toHaveProperty('reference');
     expect(res.body.items.map((item: { blockId: string }) => item.blockId)).toEqual([
       sceneA1,
       sceneA2,
@@ -399,72 +536,13 @@ describe('storyboard illustration endpoints', () => {
     ]);
   });
 
-  it('blocks scene enqueueing until the principal image is approved', async () => {
-    await conn.execute(
-      `UPDATE storyboard_illustration_references
-          SET approval_status = 'pending', approved_at = NULL
-        WHERE draft_id = ? AND active_lock = 1`,
-      [draftA],
-    );
-
-    const blocked = await request(app)
-      .post(`/storyboards/${draftA}/illustrations`)
-      .set('Authorization', authA())
-      .send({});
-
-    expect(blocked.status).toBe(202);
-    expect(blocked.body.automation).toMatchObject({
-      phase: 'awaiting_principal_approval',
-      errorMessage: null,
-    });
-    expect(blocked.body.reference).toMatchObject({
-      status: 'ready',
-      approvalStatus: 'pending',
-    });
-
-    const [beforeRows] = await conn.query<mysql.RowDataPacket[]>(
-      'SELECT COUNT(*) AS cnt FROM storyboard_scene_illustration_jobs WHERE draft_id = ?',
-      [draftA],
-    );
-    expect(Number(beforeRows[0]!['cnt'])).toBe(0);
-
-    const approved = await request(app)
+  // T6 (AC-08): all four principal-image routes are removed; Express must answer 404.
+  it('POST principal-image/approve returns 404 (route removed by T6)', async () => {
+    const res = await request(app)
       .post(`/storyboards/${draftA}/illustrations/principal-image/approve`)
       .set('Authorization', authA())
       .send({});
-
-    expect(approved.status, JSON.stringify(approved.body)).toBe(200);
-    expect(approved.body.reference).toMatchObject({
-      status: 'ready',
-      approvalStatus: 'approved',
-    });
-
-    await conn.execute(
-      'UPDATE storyboard_blocks SET prompt = ? WHERE id = ?',
-      ['Temporary prompt so bulk generation can pass prompt validation.', sceneNoPrompt],
-    );
-    const unblocked = await request(app)
-      .post(`/storyboards/${draftA}/illustrations`)
-      .set('Authorization', authA())
-      .send({});
-
-    expect(unblocked.status, JSON.stringify(unblocked.body)).toBe(202);
-    const started = unblocked.body.items.find((item: { blockId: string }) => item.blockId === sceneA1);
-    expect(started).toMatchObject({
-      blockId: sceneA1,
-      status: 'queued',
-      outputFileId: null,
-    });
-    expect(started.jobId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
-    cleanupJobs.push(started.jobId);
-
-    await conn.execute('DELETE FROM storyboard_scene_illustration_jobs WHERE ai_job_id = ?', [
-      started.jobId,
-    ]);
-    await conn.execute('DELETE FROM ai_generation_jobs WHERE job_id = ?', [started.jobId]);
-    await conn.execute('UPDATE storyboard_blocks SET prompt = NULL WHERE id = ?', [sceneNoPrompt]);
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
   });
 
   it('starts one scene illustration and stores the draft-scoped queued mapping', async () => {
@@ -474,15 +552,7 @@ describe('storyboard illustration endpoints', () => {
       .send({});
 
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(res.body.reference).toMatchObject({
-      status: 'ready',
-      outputFileId: expect.any(String),
-      sourceReferenceFileIds: [],
-      errorMessage: null,
-    });
-    expect(res.body.reference.jobId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
+    expect(res.body).not.toHaveProperty('reference');
     const item = res.body.items.find((candidate: { blockId: string }) => candidate.blockId === sceneA1);
     expect(item).toMatchObject({
       blockId: sceneA1,
@@ -521,50 +591,31 @@ describe('storyboard illustration endpoints', () => {
     });
   });
 
-  it('creates a canonical reference first and leaves scene jobs unqueued when no reference exists', async () => {
+  it('starts scene jobs directly without a canonical reference step (AC-08)', async () => {
+    // After T5, start goes straight to scene enqueueing — no canonical reference creation.
     const res = await request(app)
       .post(`/storyboards/${draftNoReference}/illustrations`)
       .set('Authorization', authA())
       .send({});
 
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(res.body.reference).toMatchObject({
-      status: 'queued',
-      outputFileId: null,
-      sourceReferenceFileIds: [],
-      errorMessage: null,
-    });
-    expect(res.body.reference.jobId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
-    expect(res.body.items).toEqual([
-      {
-        blockId: sceneNoReference,
-        status: 'queued',
-        jobId: null,
-        outputFileId: null,
-        errorMessage: null,
-      },
-    ]);
+    expect(res.body).not.toHaveProperty('reference');
+    const item = res.body.items.find((i: { blockId: string }) => i.blockId === sceneNoReference);
+    expect(item).toMatchObject({ blockId: sceneNoReference, status: 'queued' });
 
+    // No new storyboard_illustration_references row must have been created.
     const [referenceRows] = await conn.query<mysql.RowDataPacket[]>(
-      `SELECT sr.status, sr.source_reference_file_ids, aj.model_id, aj.capability, aj.draft_id
-         FROM storyboard_illustration_references sr
-         INNER JOIN ai_generation_jobs aj ON aj.job_id = sr.ai_job_id
-        WHERE sr.draft_id = ?`,
+      'SELECT COUNT(*) AS cnt FROM storyboard_illustration_references WHERE draft_id = ?',
       [draftNoReference],
     );
-    expect(referenceRows).toHaveLength(1);
-    expect(referenceRows[0]!['status']).toBe('queued');
-    expect(referenceRows[0]!['model_id']).toBe('gpt-image-2');
-    expect(referenceRows[0]!['capability']).toBe('text_to_image');
-    expect(referenceRows[0]!['draft_id']).toBe(draftNoReference);
+    expect(Number(referenceRows[0]!['cnt'])).toBe(0);
 
-    const [sceneRows] = await conn.query<mysql.RowDataPacket[]>(
-      'SELECT COUNT(*) AS cnt FROM storyboard_scene_illustration_jobs WHERE draft_id = ?',
-      [draftNoReference],
-    );
-    expect(Number(sceneRows[0]!['cnt'])).toBe(0);
+    // Clean up the scene job that was created.
+    if (item?.jobId) {
+      cleanupJobs.push(item.jobId);
+      await conn.execute('DELETE FROM storyboard_scene_illustration_jobs WHERE ai_job_id = ?', [item.jobId]);
+      await conn.execute('DELETE FROM ai_generation_jobs WHERE job_id = ?', [item.jobId]);
+    }
   });
 
   it('reconciles completed mapped jobs into storyboard block media during status polling', async () => {
@@ -684,121 +735,421 @@ describe('storyboard illustration endpoints', () => {
     expect(missingPrompt.status).toBe(422);
   });
 
-  it('rejects invalid principal image modal inputs', async () => {
-    const invalidReplace = await request(app)
+  // T6 (AC-08): principal-image/replace is removed — any call (even bad input) returns 404.
+  it('POST principal-image/replace returns 404 (route removed by T6)', async () => {
+    const res = await request(app)
       .post(`/storyboards/${draftB}/illustrations/principal-image/replace`)
       .set('Authorization', authB())
       .send({ fileId: 'not-a-uuid' });
-    expect(invalidReplace.status).toBe(400);
-
-    const missingReferences = await request(app)
-      .put(`/storyboards/${draftB}/illustrations/principal-image/references`)
-      .set('Authorization', authB())
-      .send({});
-    expect(missingReferences.status).toBe(400);
-
-    const invalidReferences = await request(app)
-      .put(`/storyboards/${draftB}/illustrations/principal-image/references`)
-      .set('Authorization', authB())
-      .send({ fileIds: ['not-a-uuid'] });
-    expect(invalidReferences.status).toBe(400);
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
   });
 
-  it('rejects principal image modal files that are not ready draft-owned images', async () => {
-    const nonImageId = await seedDraftFile({
-      draftId: draftB,
-      userId: userB,
-      name: 'not-an-image.mp3',
-      kind: 'audio',
-    });
-    const processingImageId = await seedDraftFile({
-      draftId: draftB,
-      userId: userB,
-      name: 'processing.png',
-      status: 'processing',
-    });
-    const otherDraftImageId = await seedReadyDraftImage(draftA, userA, 'other-draft.png');
-    const otherUserImageId = await seedDraftFile({
-      draftId: draftB,
-      userId: userA,
-      name: 'other-user.png',
-    });
-    const softDeletedPivotImageId = await seedDraftFile({
-      draftId: draftB,
-      userId: userB,
-      name: 'soft-deleted-pivot.png',
-      pivotDeleted: true,
-    });
-    const softDeletedFileId = await seedDraftFile({
-      draftId: draftB,
-      userId: userB,
-      name: 'soft-deleted-file.png',
-      fileDeleted: true,
-    });
-
-    for (const fileId of [
-      nonImageId,
-      processingImageId,
-      otherDraftImageId,
-      otherUserImageId,
-      softDeletedPivotImageId,
-      softDeletedFileId,
-    ]) {
-      const res = await request(app)
-        .post(`/storyboards/${draftB}/illustrations/principal-image/replace`)
-        .set('Authorization', authB())
-        .send({ fileId });
-      expect(res.status, `${fileId}: ${JSON.stringify(res.body)}`).toBe(422);
-    }
-  });
-
-  it('updates, replaces, and edits principal image references through modal APIs', async () => {
-    const extraFileId = await seedReadyDraftImage(draftB, userB, 'extra-reference.png');
-    const replacementFileId = await seedReadyDraftImage(draftB, userB, 'replacement-principal.png');
-
-    await conn.execute(
-      `UPDATE storyboard_scene_illustration_jobs
-          SET active_lock = NULL
-        WHERE draft_id = ?`,
-      [draftB],
-    );
-
-    const refs = await request(app)
+  // T6 (AC-08): principal-image/references (PUT) is removed — any call returns 404.
+  it('PUT principal-image/references returns 404 (route removed by T6)', async () => {
+    const res = await request(app)
       .put(`/storyboards/${draftB}/illustrations/principal-image/references`)
       .set('Authorization', authB())
-      .send({ fileIds: [extraFileId] });
-    expect(refs.status, JSON.stringify(refs.body)).toBe(200);
-    expect(refs.body.reference).toMatchObject({
-      sourceReferenceFileIds: [extraFileId],
-      approvalStatus: 'pending',
-    });
+      .send({ fileIds: [] });
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
+  });
 
-    const replace = await request(app)
-      .post(`/storyboards/${draftB}/illustrations/principal-image/replace`)
-      .set('Authorization', authB())
-      .send({ fileId: replacementFileId });
-    expect(replace.status, JSON.stringify(replace.body)).toBe(200);
-    expect(replace.body.reference).toMatchObject({
-      status: 'ready',
-      outputFileId: replacementFileId,
-      sourceReferenceFileIds: [replacementFileId],
-      approvalStatus: 'pending',
-    });
-
-    const edit = await request(app)
+  // T6 (AC-08): principal-image/edit is removed — any call returns 404.
+  it('POST principal-image/edit returns 404 (route removed by T6)', async () => {
+    const res = await request(app)
       .post(`/storyboards/${draftB}/illustrations/principal-image/edit`)
       .set('Authorization', authB())
-      .send({
-        prompt: 'Make the principal image brighter.',
-        extraReferenceFileIds: [extraFileId],
-      });
-    expect(edit.status, JSON.stringify(edit.body)).toBe(202);
-    expect(edit.body.reference).toMatchObject({
-      status: 'queued',
-      outputFileId: null,
-      sourceReferenceFileIds: expect.arrayContaining([extraFileId, replacementFileId]),
-      approvalStatus: 'pending',
+      .send({ prompt: 'Make it brighter.' });
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
+  });
+
+  // ── T11 — Reference-done gate integration tests (AC-01/02/03/03b/04/04b/07/08/09 + no-provider-call) ──
+
+  describe('T11 — Reference-done gate (scene-generation-reference-gate)', () => {
+    // Per-test draft IDs and their scene IDs, created fresh in beforeEach so each test
+    // is fully isolated.  The reference blocks, flow outputs, and scene links are seeded
+    // per-test; everything is cleaned up in afterEach.
+    let gDraftId: string;
+    let gScene1: string;
+    let gScene2: string;
+    // Cleanup lists scoped to this describe — cleared after each test.
+    const gRefBlocks: string[] = [];
+    const gFlowIds: string[] = [];
+    const gJobIds: string[] = [];
+
+    beforeEach(async () => {
+      // New draft owned by userA per test
+      gDraftId = randomUUID();
+      gScene1 = randomUUID();
+      gScene2 = randomUUID();
+      gRefBlocks.length = 0;
+      gFlowIds.length = 0;
+      gJobIds.length = 0;
+      // Reset the shared queue-add call tracker so gate-rejection assertions are clean.
+      allQueueAddCalls.length = 0;
+
+      const promptDoc = {
+        schemaVersion: 1,
+        blocks: [{ type: 'text', value: 'Gate integration test.' }],
+        settings: { videoLengthSeconds: 30, aspectRatio: '16:9', styleKey: 'cinematic', modelPreference: null },
+      };
+      await conn.execute(
+        'INSERT INTO generation_drafts (id, user_id, prompt_doc, status) VALUES (?, ?, ?, ?)',
+        [gDraftId, userA, JSON.stringify(promptDoc), 'step2'],
+      );
+      await seedScene({ id: gScene1, draftId: gDraftId, name: 'Gate Scene 01', prompt: 'Gate scene one.', sortOrder: 1 });
+      await seedScene({ id: gScene2, draftId: gDraftId, name: 'Gate Scene 02', prompt: 'Gate scene two.', sortOrder: 2 });
     });
-    cleanupJobs.push(edit.body.reference.jobId);
+
+    afterEach(async () => {
+      // Clean up scene illustration jobs
+      await conn.execute(
+        'DELETE FROM storyboard_scene_illustration_jobs WHERE draft_id = ?',
+        [gDraftId],
+      );
+      // Clean up ai_generation_jobs created by the gate tests
+      if (gJobIds.length) {
+        await conn.query(
+          `DELETE FROM ai_generation_jobs WHERE job_id IN (${gJobIds.map(() => '?').join(',')})`,
+          gJobIds,
+        );
+      }
+      // Clean up storyboard_reference_scene_links (cascade on block delete but explicit is cleaner)
+      if (gRefBlocks.length) {
+        await conn.query(
+          `DELETE FROM storyboard_reference_blocks WHERE id IN (${gRefBlocks.map(() => '?').join(',')})`,
+          gRefBlocks,
+        );
+      }
+      // Clean up flow_files and generation_flows
+      if (gFlowIds.length) {
+        await conn.query(
+          `DELETE FROM flow_files WHERE flow_id IN (${gFlowIds.map(() => '?').join(',')})`,
+          gFlowIds,
+        );
+        await conn.query(
+          `DELETE FROM generation_flows WHERE flow_id IN (${gFlowIds.map(() => '?').join(',')})`,
+          gFlowIds,
+        );
+      }
+      // Clean up legacy principal rows
+      await conn.execute(
+        'DELETE FROM storyboard_illustration_references WHERE draft_id = ?',
+        [gDraftId],
+      );
+      await conn.execute('DELETE FROM storyboard_blocks WHERE draft_id = ?', [gDraftId]);
+      await conn.execute('DELETE FROM generation_drafts WHERE id = ?', [gDraftId]);
+    });
+
+    // Helper to count storyboard_scene_illustration_jobs created during a test
+    async function countSceneJobs(draftId: string): Promise<number> {
+      const [rows] = await conn.query<mysql.RowDataPacket[]>(
+        'SELECT COUNT(*) AS cnt FROM storyboard_scene_illustration_jobs WHERE draft_id = ?',
+        [draftId],
+      );
+      return Number(rows[0]!['cnt']);
+    }
+
+    // Helper: seed a ready reference block (has flow + ≥1 non-deleted flow_files row).
+    async function seedReadyRefBlock(name: string, draftId: string, sortOrder = 1): Promise<string> {
+      const flowId = await seedFlow(userA);
+      gFlowIds.push(flowId);
+      await seedFlowFile(flowId, userA);
+      const blockId = await seedRefBlock({ draftId, name, flowId, windowStatus: 'done', sortOrder });
+      gRefBlocks.push(blockId);
+      return blockId;
+    }
+
+    // Helper: seed a not-ready reference block (flow exists but zero non-deleted flow_files).
+    async function seedRunningRefBlock(name: string, draftId: string, sortOrder = 1): Promise<string> {
+      const flowId = await seedFlow(userA);
+      gFlowIds.push(flowId);
+      // No flow_files rows seeded — block has flow_id but no completed output.
+      const blockId = await seedRefBlock({ draftId, name, flowId, windowStatus: 'running', sortOrder });
+      gRefBlocks.push(blockId);
+      return blockId;
+    }
+
+    // Helper: seed a not-ready reference block with no flow at all (flow_id NULL).
+    async function seedNoFlowRefBlock(name: string, draftId: string, sortOrder = 1): Promise<string> {
+      const blockId = await seedRefBlock({ draftId, name, flowId: null, windowStatus: null, sortOrder });
+      gRefBlocks.push(blockId);
+      return blockId;
+    }
+
+    // ── AC-01 — happy path: all blocks ready + all scenes linked → 202 + jobs created ────────
+
+    it('AC-01: all blocks ready + all scenes linked → 202 with scene jobs created', async () => {
+      const ref1 = await seedReadyRefBlock('Character Alpha', gDraftId, 1);
+      const ref2 = await seedReadyRefBlock('Environment Beta', gDraftId, 2);
+      await seedSceneLink(ref1, gScene1);
+      await seedSceneLink(ref2, gScene1);
+      await seedSceneLink(ref1, gScene2);
+      await seedSceneLink(ref2, gScene2);
+
+      const res = await request(app)
+        .post(`/storyboards/${gDraftId}/illustrations`)
+        .set('Authorization', authA())
+        .send({});
+
+      expect(res.status, JSON.stringify(res.body)).toBe(202);
+      expect(res.body).not.toHaveProperty('reference');
+      expect(res.body.items).toBeDefined();
+      // At least one scene job must have been created (the first scene in order).
+      const jobCount = await countSceneJobs(gDraftId);
+      expect(jobCount).toBeGreaterThanOrEqual(1);
+    });
+
+    // ── AC-02 — blocked: one running block (flow exists, zero outputs) → 422 reference_gate_failed ──
+
+    it('AC-02: one running block (flow, no outputs) → 422 references.reference_gate_failed naming the block', async () => {
+      const blockerName = 'Blocking Character AC02';
+      const _blockerId = await seedRunningRefBlock(blockerName, gDraftId);
+
+      const res = await request(app)
+        .post(`/storyboards/${gDraftId}/illustrations`)
+        .set('Authorization', authA())
+        .send({});
+
+      expect(res.status, JSON.stringify(res.body)).toBe(422);
+      expect(res.body.code).toBe('references.reference_gate_failed');
+      expect(res.body.details.blocks).toBeDefined();
+      const blockNames = (res.body.details.blocks as Array<{ name: string; blockId: string }>).map((b) => b.name);
+      expect(blockNames).toContain(blockerName);
+      // No scene jobs must have been created — gate must refuse before any enqueue.
+      expect(await countSceneJobs(gDraftId)).toBe(0);
+      // No paid generation call (spec §6 gate-evaluation cost).
+      const imageQueueCalls = allQueueAddCalls.filter((c) => c.queueName === 'storyboard-openai-image');
+      expect(imageQueueCalls).toHaveLength(0);
+    });
+
+    // ── AC-07 — first generation still in progress (running, zero flow_files) → blocked ────────
+
+    it('AC-07: reference block first generation still in progress (running, zero flow_files) → 422 blocking', async () => {
+      const runningBlockName = 'Running Character AC07';
+      // window_status=running, flow set, NO flow_files rows — exactly the "first gen in progress" case.
+      const _blockerId = await seedRunningRefBlock(runningBlockName, gDraftId);
+
+      const res = await request(app)
+        .post(`/storyboards/${gDraftId}/illustrations`)
+        .set('Authorization', authA())
+        .send({});
+
+      expect(res.status, JSON.stringify(res.body)).toBe(422);
+      expect(res.body.code).toBe('references.reference_gate_failed');
+      const blockNames = (res.body.details.blocks as Array<{ name: string }>).map((b) => b.name);
+      expect(blockNames).toContain(runningBlockName);
+      // Gate must refuse before enqueue — no paid jobs.
+      const imageQueueCalls = allQueueAddCalls.filter((c) => c.queueName === 'storyboard-openai-image');
+      expect(imageQueueCalls).toHaveLength(0);
+    });
+
+    // ── AC-03 — per-scene happy path: linked blocks ready, unlinked block not-ready → 202 ───────
+
+    it('AC-03: per-scene start — linked blocks ready, unlinked not-ready elsewhere → 202', async () => {
+      const readyRef = await seedReadyRefBlock('Ready Char AC03', gDraftId, 1);
+      const unlinkedBlocker = await seedRunningRefBlock('Unlinked Blocker AC03', gDraftId, 2);
+      // Link ready ref to gScene1 only; unlinked blocker is NOT linked to any scene.
+      await seedSceneLink(readyRef, gScene1);
+      void unlinkedBlocker; // deliberately unlinked — should not block gScene1
+
+      const res = await request(app)
+        .post(`/storyboards/${gDraftId}/blocks/${gScene1}/illustration`)
+        .set('Authorization', authA())
+        .send({});
+
+      expect(res.status, JSON.stringify(res.body)).toBe(202);
+      expect(res.body).not.toHaveProperty('reference');
+    });
+
+    // ── AC-03b — per-scene blocked: linked block not-ready → 422 naming only scene's blockers ──
+
+    it('AC-03b: per-scene start — linked block not-ready → 422 naming only that scene\'s blockers', async () => {
+      const linkedBlockerName = 'Linked Blocker AC03b';
+      const linkedBlocker = await seedRunningRefBlock(linkedBlockerName, gDraftId, 1);
+      const unrelatedBlockerName = 'Unrelated Blocker AC03b';
+      const unrelatedBlocker = await seedRunningRefBlock(unrelatedBlockerName, gDraftId, 2);
+      // Link only the linkedBlocker to gScene1; unrelatedBlocker is linked to gScene2 only.
+      await seedSceneLink(linkedBlocker, gScene1);
+      await seedSceneLink(unrelatedBlocker, gScene2);
+
+      const res = await request(app)
+        .post(`/storyboards/${gDraftId}/blocks/${gScene1}/illustration`)
+        .set('Authorization', authA())
+        .send({});
+
+      expect(res.status, JSON.stringify(res.body)).toBe(422);
+      expect(res.body.code).toBe('references.reference_gate_failed');
+      const blockIds = (res.body.details.blocks as Array<{ blockId: string; name: string }>).map((b) => b.blockId);
+      // Must name the scene's linked blocker
+      expect(blockIds).toContain(linkedBlocker);
+      // Must NOT name the unrelated blocker (it's only linked to gScene2)
+      expect(blockIds).not.toContain(unrelatedBlocker);
+      // No jobs created
+      expect(await countSceneJobs(gDraftId)).toBe(0);
+    });
+
+    // ── AC-04 — zero reference blocks → full-draft start 2xx ─────────────────────────────────
+
+    it('AC-04: draft with zero reference blocks → full-draft start 202 (prompt+style path)', async () => {
+      // No reference blocks seeded for gDraftId
+      const res = await request(app)
+        .post(`/storyboards/${gDraftId}/illustrations`)
+        .set('Authorization', authA())
+        .send({});
+
+      expect(res.status, JSON.stringify(res.body)).toBe(202);
+      expect(res.body).not.toHaveProperty('reference');
+      const jobCount = await countSceneJobs(gDraftId);
+      expect(jobCount).toBeGreaterThanOrEqual(1);
+    });
+
+    // ── AC-04b — ≥1 ready block but ≥1 scene unlinked → 422 unlinked_scenes naming the scene ─
+
+    it('AC-04b: all blocks ready but one scene unlinked → 422 references.unlinked_scenes naming the scene', async () => {
+      const readyRef = await seedReadyRefBlock('Ready Ref AC04b', gDraftId, 1);
+      // Link gScene1 but NOT gScene2
+      await seedSceneLink(readyRef, gScene1);
+      // gScene2 is deliberately unlinked
+
+      const res = await request(app)
+        .post(`/storyboards/${gDraftId}/illustrations`)
+        .set('Authorization', authA())
+        .send({});
+
+      expect(res.status, JSON.stringify(res.body)).toBe(422);
+      expect(res.body.code).toBe('references.unlinked_scenes');
+      expect(res.body.details.scenes).toBeDefined();
+      const unlinkedIds = (res.body.details.scenes as Array<{ blockId: string }>).map((s) => s.blockId);
+      expect(unlinkedIds).toContain(gScene2);
+      expect(unlinkedIds).not.toContain(gScene1);
+      // No jobs created — gate must refuse before any enqueue.
+      expect(await countSceneJobs(gDraftId)).toBe(0);
+      // No paid generation call.
+      const imageQueueCalls = allQueueAddCalls.filter((c) => c.queueName === 'storyboard-openai-image');
+      expect(imageQueueCalls).toHaveLength(0);
+    });
+
+    // ── AC-08 — legacy principal-image row present → start/status behave as if row absent ─────
+
+    it('AC-08: legacy principal-image row present → start still 202 (ignore-on-read), status has no reference field', async () => {
+      // Seed all blocks as ready + all scenes linked so the gate passes
+      const readyRef = await seedReadyRefBlock('Ready Ref AC08', gDraftId, 1);
+      await seedSceneLink(readyRef, gScene1);
+      await seedSceneLink(readyRef, gScene2);
+
+      // Also seed a legacy principal-image row — must be ignored
+      await seedLegacyPrincipal(gDraftId, userA);
+
+      const startRes = await request(app)
+        .post(`/storyboards/${gDraftId}/illustrations`)
+        .set('Authorization', authA())
+        .send({});
+
+      expect(startRes.status, JSON.stringify(startRes.body)).toBe(202);
+      // The start response must NOT expose any principal-image / reference field
+      expect(startRes.body).not.toHaveProperty('reference');
+
+      // Status read must also be clean
+      const statusRes = await request(app)
+        .get(`/storyboards/${gDraftId}/illustrations`)
+        .set('Authorization', authA());
+
+      expect(statusRes.status).toBe(200);
+      expect(statusRes.body).not.toHaveProperty('reference');
+      // No provider-call gate (spec §6 — status read is a pure persisted query, zero paid calls).
+      // The allQueueAddCalls check covers queue.add after the status read.
+      // The status read itself must not trigger any enqueue.
+      const queueCallsAfterStatus = allQueueAddCalls.filter((c) => c.queueName === 'storyboard-openai-image');
+      // Only the start's single scene job is allowed; subsequent status reads must add nothing.
+      // (The start enqueues ≤2 jobs; we just assert the status read alone adds zero.)
+      // Reset tracker, then call status again:
+      allQueueAddCalls.length = 0;
+      const statusRes2 = await request(app)
+        .get(`/storyboards/${gDraftId}/illustrations`)
+        .set('Authorization', authA());
+      expect(statusRes2.status).toBe(200);
+      expect(allQueueAddCalls.filter((c) => c.queueName === 'storyboard-openai-image')).toHaveLength(0);
+      void queueCallsAfterStatus;
+    });
+
+    // ── AC-09 — non-owner → 403/404 with no reference/scene state disclosed ──────────────────
+
+    it('AC-09: non-owner start → denied with no reference/scene state in response body', async () => {
+      // Seed a ready block so there is gate state on the draft
+      const readyRef = await seedReadyRefBlock('Secret Ref AC09', gDraftId, 1);
+      await seedSceneLink(readyRef, gScene1);
+      await seedSceneLink(readyRef, gScene2);
+
+      // userB attempts to start generation on userA's draft
+      const res = await request(app)
+        .post(`/storyboards/${gDraftId}/illustrations`)
+        .set('Authorization', authB())
+        .send({});
+
+      // The existing convention in this repo is 403 for a known-other-owner draft.
+      expect([403, 404]).toContain(res.status);
+      // The body must NOT expose reference blocks, scene links, or any gate state.
+      expect(res.body).not.toHaveProperty('details');
+      expect(res.body).not.toHaveProperty('blocks');
+      expect(res.body).not.toHaveProperty('scenes');
+      expect(res.body).not.toHaveProperty('reference');
+      // No scene jobs must have been created for the non-owner attempt.
+      expect(await countSceneJobs(gDraftId)).toBe(0);
+    });
+
+    // ── No-provider-call: gate rejection path makes zero paid generation calls ───────────────
+
+    it('no-provider-call: gate rejection (blocking block) enqueues zero storyboard-openai-image jobs', async () => {
+      const blockerName = 'Blocker No-Provider';
+      await seedRunningRefBlock(blockerName, gDraftId, 1);
+
+      allQueueAddCalls.length = 0; // ensure clean slate
+
+      const res = await request(app)
+        .post(`/storyboards/${gDraftId}/illustrations`)
+        .set('Authorization', authA())
+        .send({});
+
+      expect(res.status).toBe(422);
+      // No queue.add calls for the paid scene-generation queue
+      const imageQueueCalls = allQueueAddCalls.filter((c) => c.queueName === 'storyboard-openai-image');
+      expect(imageQueueCalls).toHaveLength(0);
+      // Also assert at DB level — no scene jobs rows
+      expect(await countSceneJobs(gDraftId)).toBe(0);
+    });
+
+    it('no-provider-call: status read (GET illustrations) never enqueues paid generation jobs', async () => {
+      const readyRef = await seedReadyRefBlock('Ready Ref Status Read', gDraftId, 1);
+      await seedSceneLink(readyRef, gScene1);
+      await seedSceneLink(readyRef, gScene2);
+
+      allQueueAddCalls.length = 0;
+
+      const res = await request(app)
+        .get(`/storyboards/${gDraftId}/illustrations`)
+        .set('Authorization', authA());
+
+      expect(res.status).toBe(200);
+      const imageQueueCalls = allQueueAddCalls.filter((c) => c.queueName === 'storyboard-openai-image');
+      expect(imageQueueCalls).toHaveLength(0);
+    });
+
+    it('no-provider-call: unlinked-scenes rejection (AC-04b) enqueues zero paid generation jobs', async () => {
+      const readyRef = await seedReadyRefBlock('Ready Ref Unlinked', gDraftId, 1);
+      await seedSceneLink(readyRef, gScene1);
+      // gScene2 deliberately unlinked
+
+      allQueueAddCalls.length = 0;
+
+      const res = await request(app)
+        .post(`/storyboards/${gDraftId}/illustrations`)
+        .set('Authorization', authA())
+        .send({});
+
+      expect(res.status).toBe(422);
+      expect(res.body.code).toBe('references.unlinked_scenes');
+      const imageQueueCalls = allQueueAddCalls.filter((c) => c.queueName === 'storyboard-openai-image');
+      expect(imageQueueCalls).toHaveLength(0);
+    });
   });
 });

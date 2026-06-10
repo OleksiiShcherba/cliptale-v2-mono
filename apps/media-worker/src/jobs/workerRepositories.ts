@@ -9,11 +9,10 @@ import type {
 } from '@/jobs/ai-generate.job.js';
 import type {
   StoryboardImageFileReadRepo,
-  StoryboardReferenceRepo,
   SceneReferenceSelectionRepo,
   StoryboardOpenAIImageJobDeps,
 } from '@/jobs/storyboardOpenAIImage.job.js';
-import type { ReferenceBlock, ReferenceStar } from '@/jobs/referenceSelection.js';
+import type { ReferenceBlock, ReferenceOutput } from '@/jobs/referenceSelection.js';
 import type { CastExtractJobRepository } from '@/jobs/cast-extract.job.js';
 
 export const filesRepo: FilesRepo = {
@@ -169,35 +168,6 @@ export const storyboardImageFileReadRepo: StoryboardImageFileReadRepo = {
   },
 };
 
-export const storyboardReferenceRepo: StoryboardReferenceRepo = {
-  async setOutput(params): Promise<void> {
-    await pool.execute(
-      `UPDATE storyboard_illustration_references
-          SET status = 'ready',
-              output_file_id = ?,
-              error_message = NULL,
-              approval_status = 'pending',
-              approved_at = NULL,
-              active_lock = 1
-        WHERE ai_job_id = ?`,
-      [params.outputFileId, params.aiJobId],
-    );
-  },
-
-  async markFailed(aiJobId: string, errorMessage: string): Promise<void> {
-    await pool.execute(
-      `UPDATE storyboard_illustration_references
-          SET status = 'failed',
-              error_message = ?,
-              approval_status = 'pending',
-              approved_at = NULL,
-              active_lock = NULL
-        WHERE ai_job_id = ?`,
-      [errorMessage, aiJobId],
-    );
-  },
-};
-
 export const storyboardIllustrationRepo: StoryboardIllustrationRepo = {
   async attachOutputToBlock(params): Promise<void> {
     await pool.execute(
@@ -256,8 +226,9 @@ export const sceneReferenceSelectionRepo: SceneReferenceSelectionRepo = {
     // Fetch all reference blocks for the draft in cast order
     const [blockRows] = await pool.query<Array<{
       id: string;
+      flow_id: string | null;
     } & RowDataPacket>>(
-      `SELECT id
+      `SELECT id, flow_id
          FROM storyboard_reference_blocks
         WHERE draft_id = ?
         ORDER BY sort_order ASC`,
@@ -282,7 +253,7 @@ export const sceneReferenceSelectionRepo: SceneReferenceSelectionRepo = {
       blockIds,
     );
 
-    // Fetch all stars for these blocks in one query
+    // Fetch all stars for these blocks in one query (primaryStarFileId only)
     const [starRows] = await pool.query<Array<{
       reference_block_id: string;
       file_id: string;
@@ -295,6 +266,25 @@ export const sceneReferenceSelectionRepo: SceneReferenceSelectionRepo = {
       blockIds,
     );
 
+    // Fetch completed outputs from flow_files for blocks that have a flow_id
+    const flowIds = [...new Set(blockRows.map((r) => r.flow_id).filter((id): id is string => id !== null))];
+    let flowFileRows: Array<{ flow_id: string; file_id: string; created_at: Date }> = [];
+    if (flowIds.length) {
+      const flowPlaceholders = flowIds.map(() => '?').join(',');
+      const [rows] = await pool.query<Array<{
+        flow_id: string;
+        file_id: string;
+        created_at: Date;
+      } & RowDataPacket>>(
+        `SELECT flow_id, file_id, created_at
+           FROM flow_files
+          WHERE flow_id IN (${flowPlaceholders})
+            AND deleted_at IS NULL`,
+        flowIds,
+      );
+      flowFileRows = rows;
+    }
+
     // Build maps for efficient lookup
     const linksByBlock = new Map<string, string[]>();
     for (const link of linkRows) {
@@ -303,17 +293,27 @@ export const sceneReferenceSelectionRepo: SceneReferenceSelectionRepo = {
       linksByBlock.set(link.reference_block_id, existing);
     }
 
-    const starsByBlock = new Map<string, ReferenceStar[]>();
+    // Build primaryStarFileId from star rows
+    const primaryStarByBlock = new Map<string, string>();
     for (const star of starRows) {
-      const existing = starsByBlock.get(star.reference_block_id) ?? [];
-      existing.push({ fileId: star.file_id, isPrimary: star.is_primary === 1 });
-      starsByBlock.set(star.reference_block_id, existing);
+      if (star.is_primary === 1) {
+        primaryStarByBlock.set(star.reference_block_id, star.file_id);
+      }
+    }
+
+    // Build outputs per block from flow_files rows, keyed by flow_id
+    const outputsByFlowId = new Map<string, ReferenceOutput[]>();
+    for (const row of flowFileRows) {
+      const existing = outputsByFlowId.get(row.flow_id) ?? [];
+      existing.push({ fileId: row.file_id, createdAt: row.created_at });
+      outputsByFlowId.set(row.flow_id, existing);
     }
 
     return blockRows.map((block): ReferenceBlock => ({
       id: block.id,
       linkedSceneIds: linksByBlock.get(block.id) ?? [],
-      stars: starsByBlock.get(block.id) ?? [],
+      outputs: block.flow_id !== null ? (outputsByFlowId.get(block.flow_id) ?? []) : [],
+      primaryStarFileId: primaryStarByBlock.get(block.id),
     }));
   },
 };
@@ -422,7 +422,6 @@ export function buildStoryboardOpenAIImageJobDeps(
     filesRepo,
     fileReadRepo: storyboardImageFileReadRepo,
     aiGenerationJobRepo: storyboardAiGenerationJobRepo,
-    storyboardReferenceRepo,
     storyboardSceneRepo: storyboardIllustrationRepo,
     sceneReferenceSelectionRepo,
   };

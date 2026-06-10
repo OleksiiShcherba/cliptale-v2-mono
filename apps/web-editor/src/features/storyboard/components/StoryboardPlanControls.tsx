@@ -7,13 +7,9 @@ import React from 'react';
 
 import type {
   StoryboardIllustrationLifecyclePhase,
-  StoryboardIllustrationReferenceStatus,
   StoryboardIllustrationLifecycleStatus,
   StoryboardPlanGenerationStatus,
 } from '@/features/storyboard/types';
-import { buildAuthenticatedUrl } from '@/lib/api-client';
-import { config } from '@/lib/config';
-
 import { storyboardPlanControlStyles as s } from './StoryboardPlanControls.styles';
 import { StoryboardStatusMenu } from './StoryboardStatusMenu';
 import { SUCCESS } from './storyboardPageStyles';
@@ -156,20 +152,9 @@ function getStoryboardIllustrationCopy(params: {
     };
   }
   if (params.status === 'failed') {
-    return params.phase === 'reference'
-      ? {
-          title: 'Visual style reference failed',
-          meta: 'Retry from this control.',
-        }
-      : {
-          title: 'Illustration failed',
-          meta: 'Retry failed scenes from their block.',
-        };
-  }
-  if (params.phase === 'reference') {
     return {
-      title: 'Creating visual style reference',
-      meta: 'Setting the shared look before scene generation.',
+      title: 'Illustration failed',
+      meta: 'Retry failed scenes from their block.',
     };
   }
   if (params.phase === 'scene') {
@@ -180,114 +165,38 @@ function getStoryboardIllustrationCopy(params: {
   }
   return {
     title: 'Illustration status',
-    meta: 'Scene images start automatically after the principal image is approved.',
+    meta: 'Scene images start automatically once references are ready.',
   };
 }
 
 interface StoryboardIllustrationControlsProps extends StoryboardStatusMenuWiring {
   status: StoryboardIllustrationLifecycleStatus;
   phase: StoryboardIllustrationLifecyclePhase;
-  reference: StoryboardIllustrationReferenceStatus | null;
   error: string | null;
-  isBlocking: boolean;
-  onStart: () => void;
   /** When the sibling plan block is hidden, reflow up into its (top) slot (AC-02). */
   reflowToTop?: boolean;
-}
-
-function getReferencePreviewFallback(
-  reference: StoryboardIllustrationReferenceStatus | null,
-): string {
-  if (!reference || reference.jobId === null) return 'Ref';
-  if (reference.status === 'failed') return 'Failed';
-  if (reference.status === 'ready') return 'Ref';
-  return 'Wait';
-}
-
-function StoryboardReferencePreview({
-  reference,
-  isSceneGenerationActive,
-}: {
-  reference: StoryboardIllustrationReferenceStatus | null;
-  isSceneGenerationActive: boolean;
-}): React.ReactElement {
-  const [failed, setFailed] = React.useState(false);
-
-  React.useEffect(() => {
-    setFailed(false);
-  }, [reference?.outputFileId]);
-
-  const showImage = reference?.status === 'ready' && reference.outputFileId && !failed;
-  const isWaiting = reference !== null &&
-    reference.jobId !== null &&
-    (reference.status === 'queued' || reference.status === 'running');
-  const label = reference?.status === 'ready'
-    ? 'Canonical visual style reference'
-    : 'Canonical visual style reference status';
-  const showSceneLoader = isSceneGenerationActive && !showImage && !(reference?.status === 'ready' && failed);
-  const previewLabel = showSceneLoader ? 'Scene illustration generation in progress' : label;
-
-  return (
-    <div
-      style={s.referencePreview}
-      aria-label={showSceneLoader ? undefined : previewLabel}
-      title={previewLabel}
-      data-testid="storyboard-reference-preview"
-    >
-      {isWaiting || showSceneLoader ? (
-        <style>
-          {'@keyframes storyboard-reference-spin { to { transform: rotate(360deg); } }'}
-        </style>
-      ) : null}
-      {showSceneLoader ? (
-        <span
-          style={s.referencePreviewFallback}
-          data-testid="storyboard-reference-preview-fallback"
-          role="status"
-          aria-label="Scene illustration generation in progress"
-        >
-          <span style={s.referencePreviewSpinner} aria-hidden="true" data-testid="storyboard-reference-loader" />
-        </span>
-      ) : showImage ? (
-        <img
-          src={buildAuthenticatedUrl(`${config.apiBaseUrl}/assets/${reference.outputFileId}/thumbnail`)}
-          alt="Canonical visual style reference"
-          style={s.referencePreviewImage}
-          loading="lazy"
-          data-testid="storyboard-reference-preview-image"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <span style={s.referencePreviewFallback} data-testid="storyboard-reference-preview-fallback">
-          {isWaiting ? (
-            <>
-              <span style={s.referencePreviewSpinner} aria-hidden="true" data-testid="storyboard-reference-loader" />
-            </>
-          ) : null}
-          {getReferencePreviewFallback(reference)}
-        </span>
-      )}
-    </div>
-  );
+  /**
+   * When true, a structured gate error is being shown elsewhere in the page (e.g.
+   * ReferenceGateMessage).  Suppresses the inline role="alert" so there is only one
+   * alert region in the document (AC-02).
+   */
+  hasStructuredGateError?: boolean;
 }
 
 export function StoryboardIllustrationControls({
   status,
   phase,
-  reference,
   error,
-  isBlocking,
-  onStart,
   isOwner = false,
   onRegenerate,
   onHide,
   reflowToTop = false,
+  hasStructuredGateError = false,
 }: StoryboardIllustrationControlsProps): React.ReactElement {
   const copy = getStoryboardIllustrationCopy({ status, phase });
-  const isSceneFailure = status === 'failed' && phase === 'scene';
-  const isReferenceFailure = status === 'failed' && phase === 'reference';
-  const isSceneGenerationActive = phase === 'scene' && (status === 'queued' || status === 'running');
-  const isDisabled = isBlocking || isSceneFailure;
+  // Suppress the inline alert role when a structured gate error message is shown
+  // elsewhere in the page — prevents duplicate role="alert" elements (AC-02).
+  const suppressInlineAlert = status === 'failed' && hasStructuredGateError;
 
   return (
     <div
@@ -298,17 +207,11 @@ export function StoryboardIllustrationControls({
         <span style={s.controlTitle}>{copy.title}</span>
         <span
           style={status === 'failed' ? s.controlError : s.controlMeta}
-          role={status === 'failed' ? 'alert' : undefined}
+          role={status === 'failed' && !suppressInlineAlert ? 'alert' : undefined}
         >
           {status === 'failed' ? (error ?? copy.meta) : copy.meta}
         </span>
       </div>
-      {/* AC-04: the completed "Illustrations ready" block drops the "Ref" box for
-          every viewer so it reads as its sibling. In-progress / failed states
-          keep the preview (spec non-goal: those states are unchanged). */}
-      {status !== 'completed' && (
-        <StoryboardReferencePreview reference={reference} isSceneGenerationActive={isSceneGenerationActive} />
-      )}
       {status === 'completed' && (
         <span aria-label="Illustrations complete" style={{ color: SUCCESS, fontSize: '12px', fontWeight: 600 }}>
           Done
@@ -321,18 +224,6 @@ export function StoryboardIllustrationControls({
           onRegenerate={() => onRegenerate?.()}
           onHide={() => onHide?.()}
         />
-      )}
-      {isReferenceFailure && (
-        <button
-          type="button"
-          style={isDisabled ? s.buttonDisabled : s.button}
-          disabled={isDisabled}
-          aria-disabled={isDisabled}
-          onClick={onStart}
-          data-testid="storyboard-illustration-retry-button"
-        >
-          Retry
-        </button>
       )}
     </div>
   );
