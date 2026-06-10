@@ -10,16 +10,6 @@
 // Types
 // ---------------------------------------------------------------------------
 
-/**
- * Legacy type — kept for backward compatibility with callers that still
- * reference it (retired test stubs).  Not used by active logic.
- */
-export type ReferenceStar = {
-  fileId: string;
-  /** true = primary star (block preview / first-priority candidate). */
-  isPrimary: boolean;
-};
-
 /** A completed usable output for a reference block (flow_files row). */
 export type ReferenceOutput = {
   fileId: string;

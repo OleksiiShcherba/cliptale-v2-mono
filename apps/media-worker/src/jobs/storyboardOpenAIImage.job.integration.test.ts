@@ -53,6 +53,7 @@ type Ctx = {
   fileIds: string[];
   jobIds: string[];
   flowIds: string[];
+  legacyPrincipalIds: string[];
 };
 
 const ctx: Ctx = {
@@ -63,6 +64,7 @@ const ctx: Ctx = {
   fileIds: [],
   jobIds: [],
   flowIds: [],
+  legacyPrincipalIds: [],
 };
 
 // ---------------------------------------------------------------------------
@@ -118,6 +120,38 @@ async function seedFlowFile(flowId: string, fileId: string): Promise<void> {
   await pool.execute(
     `INSERT INTO flow_files (flow_id, file_id) VALUES (?, ?)`,
     [flowId, fileId],
+  );
+}
+
+/**
+ * Seeds a flow_files row with deleted_at set (soft-deleted output).
+ * Used by T12 AC-06b deleted-star fallback test.
+ */
+async function seedFlowFileDeleted(flowId: string, fileId: string): Promise<void> {
+  await pool.execute(
+    `INSERT INTO flow_files (flow_id, file_id, deleted_at) VALUES (?, ?, NOW(3))`,
+    [flowId, fileId],
+  );
+}
+
+/**
+ * Seeds a legacy storyboard_illustration_references row (principal image record).
+ * Used by T12 AC-08 ignore-on-read test.
+ * The row is inert — it must never be consumed by the scene generation path.
+ */
+async function seedLegacyPrincipal(
+  principalId: string,
+  draftId: string,
+  aiJobId: string,
+  outputFileId: string,
+): Promise<void> {
+  ctx.legacyPrincipalIds.push(principalId);
+  await pool.execute(
+    `INSERT INTO storyboard_illustration_references
+       (id, draft_id, ai_job_id, status, output_file_id, source_reference_file_ids,
+        approval_status, active_lock)
+     VALUES (?, ?, ?, 'ready', ?, CAST('[]' AS JSON), 'approved', NULL)`,
+    [principalId, draftId, aiJobId, outputFileId],
   );
 }
 
@@ -233,8 +267,15 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  // Cleanup in FK-safe order: stars → scene links → ref blocks → flow_files
-  // → flows → scene blocks → files → jobs → draft → user
+  // Cleanup in FK-safe order: legacy principals → stars → scene links → ref blocks
+  // → flow_files → flows → scene blocks → files → jobs → draft → user
+  if (ctx.legacyPrincipalIds.length) {
+    const ph = ctx.legacyPrincipalIds.map(() => '?').join(',');
+    await pool.execute(
+      `DELETE FROM storyboard_illustration_references WHERE id IN (${ph})`,
+      ctx.legacyPrincipalIds,
+    );
+  }
   if (ctx.refBlockIds.length) {
     const ph = ctx.refBlockIds.map(() => '?').join(',');
     await pool.execute(
@@ -431,5 +472,201 @@ describe('T11 — reference boundary: scene job uses only starred images of link
     expect(usedPrompt).not.toBe('A dramatic scene.');
     // The style description format includes the file ID (from buildDraftStyleDescription)
     expect(usedPrompt).toContain(starredFileCId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T12 — AC-05 / AC-06b / AC-04 / AC-08 (reference-gate worker invariants)
+// ---------------------------------------------------------------------------
+
+describe('T12 — reference boundary invariant and selection (AC-05/AC-06b/AC-04/AC-08)', () => {
+  /**
+   * AC-05 (§6 NFR Reference-boundary correctness):
+   *   Block A linked to scene S (completed output a1) and block B NOT linked to S
+   *   (completed output b1) → generation inputs for S contain a1 and NOT b1.
+   *   This is the "0 scenes fed an unlinked output" invariant from spec §6.
+   */
+  it('AC-05 boundary invariant: unlinked block output is never in the provider inputs for scene S', async () => {
+    const sceneS   = randomUUID();
+    const sceneOther = randomUUID();
+    const blockA   = randomUUID(); // linked to sceneS
+    const blockB   = randomUUID(); // NOT linked to sceneS
+    const flowA    = randomUUID();
+    const flowB    = randomUUID();
+    const fileA1   = randomUUID(); // output of blockA (linked)
+    const fileB1   = randomUUID(); // output of blockB (unlinked — must never feed S)
+    const jobId    = `t12-boundary-${randomUUID()}`;
+
+    await seedSceneBlock(sceneS, ctx.draftId, 10);
+    await seedSceneBlock(sceneOther, ctx.draftId, 11);
+    await seedFile(fileA1, ctx.userId);
+    await seedFile(fileB1, ctx.userId);
+    await seedFlow(flowA, ctx.userId);
+    await seedFlow(flowB, ctx.userId);
+    await seedRefBlock(blockA, ctx.draftId, 10, flowA);
+    await seedRefBlock(blockB, ctx.draftId, 11, flowB);
+    await seedFlowFile(flowA, fileA1);   // blockA has a completed output
+    await seedFlowFile(flowB, fileB1);   // blockB has a completed output too
+    await seedSceneLink(blockA, sceneS); // only blockA is linked to sceneS
+
+    await seedJob(jobId, ctx.draftId, ctx.userId);
+
+    const captured: CapturedFileIds = { fileIds: null };
+    const deps = makeDeps(captured);
+
+    const job = makeSceneJob(jobId, ctx.draftId, sceneS, [fileA1, fileB1]);
+    await processStoryboardOpenAIImageJob(job, deps);
+
+    // fileA1 (linked block output) must be fed to the provider
+    expect(captured.fileIds).not.toBeNull();
+    expect(captured.fileIds).toContain(fileA1);
+    // fileB1 (unlinked block output) must NEVER appear — 0 scenes fed an unlinked output
+    expect(captured.fileIds).not.toContain(fileB1);
+  });
+
+  /**
+   * AC-06b deleted-star fallback:
+   *   Star points at a soft-deleted flow_file (deleted_at IS NOT NULL).
+   *   The job must feed scene S the latest completed non-deleted output,
+   *   never the dead star file, never empty (images.edit must be called, not images.generate).
+   */
+  it('AC-06b deleted-star fallback: latest non-deleted output used when primary star is soft-deleted', async () => {
+    const sceneS   = randomUUID();
+    const blockA   = randomUUID();
+    const flowA    = randomUUID();
+    const fileOld  = randomUUID(); // older non-deleted output — the expected fallback
+    const fileDead = randomUUID(); // primary-starred but soft-deleted
+    const jobId    = `t12-deadstar-${randomUUID()}`;
+
+    await seedSceneBlock(sceneS, ctx.draftId, 20);
+    await seedFile(fileOld, ctx.userId);
+    await seedFile(fileDead, ctx.userId);
+    await seedFlow(flowA, ctx.userId);
+    await seedRefBlock(blockA, ctx.draftId, 20, flowA);
+    await seedFlowFile(flowA, fileOld);         // non-deleted output
+    await seedFlowFileDeleted(flowA, fileDead); // soft-deleted — primary star points here
+    await seedSceneLink(blockA, sceneS);
+    // Primary star points at the deleted file
+    await seedStar(blockA, fileDead, true);
+
+    await seedJob(jobId, ctx.draftId, ctx.userId);
+
+    const imagesEdit = vi.fn().mockResolvedValue({ data: [{ b64_json: B64_IMAGE }] });
+    const imagesGenerate = vi.fn().mockResolvedValue({ data: [{ b64_json: B64_IMAGE }] });
+
+    const capturedForDeadStar: CapturedFileIds = { fileIds: null };
+    const deps: StoryboardOpenAIImageJobDeps = {
+      ...makeDeps(capturedForDeadStar),
+      openai: {
+        images: { generate: imagesGenerate, edit: imagesEdit },
+      } as unknown as OpenAI,
+    };
+
+    const job = makeSceneJob(jobId, ctx.draftId, sceneS, [fileDead]);
+    await processStoryboardOpenAIImageJob(job, deps);
+
+    // Must never feed the dead star file
+    expect(capturedForDeadStar.fileIds).not.toContain(fileDead);
+    // Must feed the fallback (latest non-deleted output)
+    expect(capturedForDeadStar.fileIds).toContain(fileOld);
+    // Must call images.edit (reference inputs present) — not images.generate
+    expect(imagesEdit).toHaveBeenCalled();
+    expect(imagesGenerate).not.toHaveBeenCalled();
+  });
+
+  /**
+   * AC-04 zero-reference path:
+   *   Draft with no reference blocks → job uses images.generate (not images.edit)
+   *   and no reference file IDs appear in the provider inputs.
+   */
+  it('AC-04 zero-reference path: draft with no ref blocks generates from prompt only (images.generate, no ref IDs)', async () => {
+    const sceneS = randomUUID();
+    const jobId  = `t12-zerorefs-${randomUUID()}`;
+
+    await seedSceneBlock(sceneS, ctx.draftId, 30);
+    // No reference blocks, no flows, no files — pure zero-reference draft
+    await seedJob(jobId, ctx.draftId, ctx.userId);
+
+    const imagesGenerate = vi.fn().mockResolvedValue({ data: [{ b64_json: B64_IMAGE }] });
+    const imagesEdit = vi.fn().mockResolvedValue({ data: [{ b64_json: B64_IMAGE }] });
+    const s3Send = vi.fn().mockResolvedValue({});
+    const findFilesByIds = vi.fn().mockResolvedValue([]);
+
+    const deps: StoryboardOpenAIImageJobDeps = {
+      openai: { images: { generate: imagesGenerate, edit: imagesEdit } } as unknown as OpenAI,
+      s3: { send: s3Send } as unknown as S3Client,
+      pool,
+      bucket: 'test-bucket',
+      filesRepo: {
+        createFile: vi.fn().mockImplementation(async (p: { fileId: string }) => p.fileId),
+        markReady: vi.fn().mockResolvedValue(undefined),
+      },
+      fileReadRepo: { findFilesByIds },
+      aiGenerationJobRepo: {
+        setOutputFile: vi.fn().mockResolvedValue(undefined),
+        markFailed: vi.fn().mockResolvedValue(undefined),
+      },
+      storyboardSceneRepo: {
+        attachOutputToBlock: vi.fn().mockResolvedValue(undefined),
+        markFailed: vi.fn().mockResolvedValue(undefined),
+      },
+      sceneReferenceSelectionRepo,
+    };
+
+    const job = makeSceneJob(jobId, ctx.draftId, sceneS, []);
+    await processStoryboardOpenAIImageJob(job, deps);
+
+    // Zero reference blocks → no image inputs → images.generate (not images.edit)
+    expect(imagesGenerate).toHaveBeenCalledOnce();
+    expect(imagesEdit).not.toHaveBeenCalled();
+    // findFilesByIds must NOT have been called with any reference file IDs
+    // (it may be called with an empty list or not called at all)
+    for (const call of findFilesByIds.mock.calls) {
+      const params = call[0] as { userId: string; fileIds: string[] };
+      expect(params.fileIds).toHaveLength(0);
+    }
+  });
+
+  /**
+   * AC-08 legacy principal never consumed (ignore-on-read):
+   *   A storyboard_illustration_references row is seeded for the draft.
+   *   The worker must never pass the legacy principal's output_file_id to findFilesByIds,
+   *   and the job must complete normally.
+   */
+  it('AC-08 legacy principal ignored: pre-existing storyboard_illustration_references row never feeds the scene', async () => {
+    const sceneS        = randomUUID();
+    const blockA        = randomUUID();
+    const flowA         = randomUUID();
+    const refFile       = randomUUID(); // the reference block's real output
+    const legacyFile    = randomUUID(); // the legacy principal's output_file_id
+    const principalId   = randomUUID();
+    const principalJobId = randomUUID(); // ai_generation_jobs row for the principal
+    const jobId         = `t12-legacy-${randomUUID()}`;
+
+    await seedSceneBlock(sceneS, ctx.draftId, 40);
+    await seedFile(refFile, ctx.userId);
+    await seedFile(legacyFile, ctx.userId);
+    await seedFlow(flowA, ctx.userId);
+    await seedRefBlock(blockA, ctx.draftId, 40, flowA);
+    await seedFlowFile(flowA, refFile);
+    await seedSceneLink(blockA, sceneS);
+
+    // Seed the ai_generation_jobs row the FK requires for the legacy principal
+    await seedJob(principalJobId, ctx.draftId, ctx.userId);
+    // Seed the legacy principal row itself
+    await seedLegacyPrincipal(principalId, ctx.draftId, principalJobId, legacyFile);
+
+    await seedJob(jobId, ctx.draftId, ctx.userId);
+
+    const captured: CapturedFileIds = { fileIds: null };
+    const deps = makeDeps(captured);
+
+    const job = makeSceneJob(jobId, ctx.draftId, sceneS, [refFile]);
+    await processStoryboardOpenAIImageJob(job, deps);
+
+    // The real reference output must be present
+    expect(captured.fileIds).toContain(refFile);
+    // The legacy principal's file must NEVER appear — ignore-on-read invariant
+    expect(captured.fileIds).not.toContain(legacyFile);
   });
 });
