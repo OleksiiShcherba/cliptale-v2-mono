@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import { UnprocessableEntityError, StarGateFailedError, ReferenceNotReadyError, UnlinkedScenesError } from '@/lib/errors.js';
+import { UnprocessableEntityError, ReferenceNotReadyError, UnlinkedScenesError } from '@/lib/errors.js';
 import * as aiGenerationJobRepository from '@/repositories/aiGenerationJob.repository.js';
 import * as storyboardRepository from '@/repositories/storyboard.repository.js';
 import * as storyboardPlanJobRepository from '@/repositories/storyboardPlanJob.repository.js';
 import * as referenceRepository from '@/repositories/storyboardIllustrationReference.repository.js';
 import * as referenceBlocksRepository from '@/repositories/storyboardReference.repository.js';
-import * as referenceCurationRepository from '@/repositories/storyboardReferenceCuration.repository.js';
 import { enqueueStoryboardOpenAIImage } from '@/queues/jobs/enqueue-storyboard-openai-image.js';
 import {
   STORYBOARD_OPENAI_IMAGE_MODEL_ID,
@@ -89,32 +88,20 @@ async function assertFullSetReferenceDoneGate(draftId: string): Promise<void> {
 
 
 /**
- * Star gate — per-scene scope (AC-08b, ADR-0011).
+ * Reference-done gate — per-scene scope (AC-03, AC-03b, ADR-0002).
  *
- * Only reference blocks linked to the given scene must have at least one star.
- * Zero linked blocks → passes.
+ * Only reference blocks linked to the given scene must have ≥1 completed output.
+ * Zero linked blocks → passes (getSceneReadiness returns isReady=true).
  */
-async function assertSceneStarGate(draftId: string, sceneBlockId: string): Promise<void> {
-  const linkedBlocks = await referenceCurationRepository.listReferenceBlocksLinkedToScene({
-    sceneBlockId,
-    draftId,
-  });
-  if (linkedBlocks.length === 0) return;
+async function assertSceneReferenceDoneGate(sceneBlockId: string, draftId: string): Promise<void> {
+  const { isReady, blockingBlocks } = await referenceBlocksRepository.getSceneReadiness({ sceneBlockId, draftId });
 
-  const missing: Array<{ blockId: string; name: string }> = [];
-  for (const block of linkedBlocks) {
-    const stars = await referenceCurationRepository.listStarsForBlock(block.id);
-    if (stars.length === 0) {
-      missing.push({ blockId: block.id, name: block.name });
-    }
-  }
-
-  if (missing.length > 0) {
-    const names = missing.map((b) => b.name).join(', ');
-    throw new StarGateFailedError(
-      `${missing.length} reference block${missing.length === 1 ? '' : 's'} linked to this scene still need${missing.length === 1 ? 's' : ''} a starred result: ${names}. ` +
-        'Please retry the generation or delete the block before regenerating this scene.',
-      missing,
+  if (!isReady) {
+    const names = blockingBlocks.map((b) => b.name).join(', ');
+    throw new ReferenceNotReadyError(
+      `${blockingBlocks.length} reference block${blockingBlocks.length === 1 ? '' : 's'} not yet ready: ${names}. ` +
+        'Please wait for generation to finish before starting illustrations.',
+      blockingBlocks.map((b) => ({ blockId: b.id, name: b.name })),
     );
   }
 }
@@ -176,7 +163,7 @@ export async function startStoryboardBlockIllustration(
   blockId: string,
 ): Promise<StoryboardIllustrationStatusResponse> {
   const draft = await resolveDraft(userId, draftId);
-  await assertSceneStarGate(draftId, blockId);
+  await assertSceneReferenceDoneGate(blockId, draftId);
   const blocks = await storyboardRepository.findBlocksByDraftId(draftId);
   const block = requireSceneBlock(blocks, blockId, draftId);
   buildPrompt(block);
