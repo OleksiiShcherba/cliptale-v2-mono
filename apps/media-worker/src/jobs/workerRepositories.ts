@@ -256,8 +256,9 @@ export const sceneReferenceSelectionRepo: SceneReferenceSelectionRepo = {
     // Fetch all reference blocks for the draft in cast order
     const [blockRows] = await pool.query<Array<{
       id: string;
+      flow_id: string | null;
     } & RowDataPacket>>(
-      `SELECT id
+      `SELECT id, flow_id
          FROM storyboard_reference_blocks
         WHERE draft_id = ?
         ORDER BY sort_order ASC`,
@@ -282,7 +283,7 @@ export const sceneReferenceSelectionRepo: SceneReferenceSelectionRepo = {
       blockIds,
     );
 
-    // Fetch all stars for these blocks in one query
+    // Fetch all stars for these blocks in one query (primaryStarFileId only)
     const [starRows] = await pool.query<Array<{
       reference_block_id: string;
       file_id: string;
@@ -295,6 +296,25 @@ export const sceneReferenceSelectionRepo: SceneReferenceSelectionRepo = {
       blockIds,
     );
 
+    // Fetch completed outputs from flow_files for blocks that have a flow_id
+    const flowIds = [...new Set(blockRows.map((r) => r.flow_id).filter((id): id is string => id !== null))];
+    let flowFileRows: Array<{ flow_id: string; file_id: string; created_at: Date }> = [];
+    if (flowIds.length) {
+      const flowPlaceholders = flowIds.map(() => '?').join(',');
+      const [rows] = await pool.query<Array<{
+        flow_id: string;
+        file_id: string;
+        created_at: Date;
+      } & RowDataPacket>>(
+        `SELECT flow_id, file_id, created_at
+           FROM flow_files
+          WHERE flow_id IN (${flowPlaceholders})
+            AND deleted_at IS NULL`,
+        flowIds,
+      );
+      flowFileRows = rows;
+    }
+
     // Build maps for efficient lookup
     const linksByBlock = new Map<string, string[]>();
     for (const link of linkRows) {
@@ -303,24 +323,26 @@ export const sceneReferenceSelectionRepo: SceneReferenceSelectionRepo = {
       linksByBlock.set(link.reference_block_id, existing);
     }
 
-    // Build outputs and primaryStarFileId from star rows.
-    // outputs: each starred file treated as a completed output (T8 will replace with
-    // flow_files query for accurate createdAt; here we use a fixed epoch as placeholder).
-    const outputsByBlock = new Map<string, ReferenceOutput[]>();
+    // Build primaryStarFileId from star rows
     const primaryStarByBlock = new Map<string, string>();
     for (const star of starRows) {
-      const existing = outputsByBlock.get(star.reference_block_id) ?? [];
-      existing.push({ fileId: star.file_id, createdAt: new Date(0) });
-      outputsByBlock.set(star.reference_block_id, existing);
       if (star.is_primary === 1) {
         primaryStarByBlock.set(star.reference_block_id, star.file_id);
       }
     }
 
+    // Build outputs per block from flow_files rows, keyed by flow_id
+    const outputsByFlowId = new Map<string, ReferenceOutput[]>();
+    for (const row of flowFileRows) {
+      const existing = outputsByFlowId.get(row.flow_id) ?? [];
+      existing.push({ fileId: row.file_id, createdAt: row.created_at });
+      outputsByFlowId.set(row.flow_id, existing);
+    }
+
     return blockRows.map((block): ReferenceBlock => ({
       id: block.id,
       linkedSceneIds: linksByBlock.get(block.id) ?? [],
-      outputs: outputsByBlock.get(block.id) ?? [],
+      outputs: block.flow_id !== null ? (outputsByFlowId.get(block.flow_id) ?? []) : [],
       primaryStarFileId: primaryStarByBlock.get(block.id),
     }));
   },

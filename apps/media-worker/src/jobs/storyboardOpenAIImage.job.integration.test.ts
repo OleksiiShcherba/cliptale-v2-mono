@@ -52,6 +52,7 @@ type Ctx = {
   refBlockIds: string[];
   fileIds: string[];
   jobIds: string[];
+  flowIds: string[];
 };
 
 const ctx: Ctx = {
@@ -61,6 +62,7 @@ const ctx: Ctx = {
   refBlockIds: [],
   fileIds: [],
   jobIds: [],
+  flowIds: [],
 };
 
 // ---------------------------------------------------------------------------
@@ -103,17 +105,34 @@ async function seedFile(fileId: string, userId: string): Promise<void> {
   );
 }
 
+async function seedFlow(flowId: string, userId: string): Promise<void> {
+  ctx.flowIds.push(flowId);
+  await pool.execute(
+    `INSERT INTO generation_flows (flow_id, user_id, title, canvas)
+     VALUES (?, ?, 'Test Flow', '{}')`,
+    [flowId, userId],
+  );
+}
+
+async function seedFlowFile(flowId: string, fileId: string): Promise<void> {
+  await pool.execute(
+    `INSERT INTO flow_files (flow_id, file_id) VALUES (?, ?)`,
+    [flowId, fileId],
+  );
+}
+
 async function seedRefBlock(
   blockId: string,
   draftId: string,
   sortOrder: number,
+  flowId?: string,
 ): Promise<void> {
   ctx.refBlockIds.push(blockId);
   await pool.execute(
     `INSERT INTO storyboard_reference_blocks
-       (id, draft_id, cast_type, name, sort_order, position_x, position_y, version)
-     VALUES (?, ?, 'character', 'Test Character', ?, 0, 0, 1)`,
-    [blockId, draftId, sortOrder],
+       (id, draft_id, flow_id, cast_type, name, sort_order, position_x, position_y, version)
+     VALUES (?, ?, ?, 'character', 'Test Character', ?, 0, 0, 1)`,
+    [blockId, draftId, flowId ?? null, sortOrder],
   );
 }
 
@@ -214,8 +233,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  // Cleanup in FK-safe order: stars → scene links → ref blocks → scene blocks
-  // → files → jobs → draft → user
+  // Cleanup in FK-safe order: stars → scene links → ref blocks → flow_files
+  // → flows → scene blocks → files → jobs → draft → user
   if (ctx.refBlockIds.length) {
     const ph = ctx.refBlockIds.map(() => '?').join(',');
     await pool.execute(
@@ -229,6 +248,17 @@ afterAll(async () => {
     await pool.execute(
       `DELETE FROM storyboard_reference_blocks WHERE id IN (${ph})`,
       ctx.refBlockIds,
+    );
+  }
+  if (ctx.flowIds.length) {
+    const ph = ctx.flowIds.map(() => '?').join(',');
+    await pool.execute(
+      `DELETE FROM flow_files WHERE flow_id IN (${ph})`,
+      ctx.flowIds,
+    );
+    await pool.execute(
+      `DELETE FROM generation_flows WHERE flow_id IN (${ph})`,
+      ctx.flowIds,
     );
   }
   if (ctx.sceneBlockIds.length) {
@@ -305,16 +335,24 @@ describe('T11 — reference boundary: scene job uses only starred images of link
     const starredFileBId = randomUUID();
     const jobId = `t11-boundary-${randomUUID()}`;
 
+    const flowAId = randomUUID();
+    const flowBId = randomUUID();
+
     await seedSceneBlock(sceneXId, ctx.draftId, 0);
     await seedSceneBlock(sceneYId, ctx.draftId, 1);
     await seedFile(starredFileAId, ctx.userId);
     await seedFile(starredFileBId, ctx.userId);
-    await seedRefBlock(refBlockAId, ctx.draftId, 0);
-    await seedRefBlock(refBlockBId, ctx.draftId, 1);
+    await seedFlow(flowAId, ctx.userId);
+    await seedFlow(flowBId, ctx.userId);
+    await seedRefBlock(refBlockAId, ctx.draftId, 0, flowAId);
+    await seedRefBlock(refBlockBId, ctx.draftId, 1, flowBId);
     await seedSceneLink(refBlockAId, sceneXId); // block A → scene X
     await seedSceneLink(refBlockBId, sceneYId); // block B → scene Y (not X)
     await seedStar(refBlockAId, starredFileAId, true);  // primary star on block A
     await seedStar(refBlockBId, starredFileBId, true);  // primary star on block B (unlinked to X)
+    // T8: outputs come from flow_files — seed completed flow outputs
+    await seedFlowFile(flowAId, starredFileAId);
+    await seedFlowFile(flowBId, starredFileBId);
     await seedJob(jobId, ctx.draftId, ctx.userId);
 
     // Payload intentionally carries BOTH file IDs (as if not boundary-filtered)

@@ -335,4 +335,152 @@ describe('processStoryboardOpenAIImageJob', () => {
       'Failed to download OpenAI image output: HTTP 503',
     );
   });
+
+  // ── T8 — Drop the principal-image read from the scene job inputs ──────────────
+
+  describe('T8 / resolveSceneInputs — reference boundary via sceneReferenceSelectionRepo', () => {
+    /**
+     * AC-04 (US-04): a scene job for a draft with zero reference blocks proceeds with
+     * prompt + no reference images (images.generate, not images.edit).
+     */
+    it('AC-04: zero reference blocks — proceeds with prompt only, calls images.generate', async () => {
+      const deps = makeDeps();
+      // Wire the repo so resolveSceneInputs is active
+      const loadBlocksForDraft = vi.fn().mockResolvedValue([]);
+      deps.sceneReferenceSelectionRepo = { loadBlocksForDraft };
+
+      await processStoryboardOpenAIImageJob(
+        makeJob({
+          kind: 'scene',
+          blockId: 'scene-1',
+          prompt: 'A wide shot of an empty meadow.',
+          referenceFileIds: [],
+        }),
+        deps,
+      );
+
+      // Repo was consulted
+      expect(loadBlocksForDraft).toHaveBeenCalledWith('draft-1');
+      // No reference images → text-to-image path
+      expect(deps.imagesGenerate).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: 'A wide shot of an empty meadow.' }),
+      );
+      expect(deps.imagesEdit).not.toHaveBeenCalled();
+      // findFilesByIds not called (no file IDs to resolve)
+      expect(deps.findFilesByIds).not.toHaveBeenCalled();
+    });
+
+    /**
+     * AC-05 (US-05) / Reference-boundary invariant: only the selected outputs of
+     * blocks LINKED to scene-S feed scene-S.  An unlinked block's output must be
+     * absent from the resolved file IDs passed to findFilesByIds / images.edit.
+     */
+    it('AC-05: only linked-block outputs feed the scene — unlinked block output absent', async () => {
+      const deps = makeDeps();
+
+      const LINKED_FILE = 'file-linked-block';
+      const UNLINKED_FILE = 'file-unlinked-block';
+
+      // Block-A is linked to scene-S; block-B is NOT linked to scene-S
+      const loadBlocksForDraft = vi.fn().mockResolvedValue([
+        {
+          id: 'block-A',
+          linkedSceneIds: ['scene-S'],
+          outputs: [{ fileId: LINKED_FILE, createdAt: new Date('2025-01-02T00:00:00Z') }],
+          primaryStarFileId: undefined,
+        },
+        {
+          id: 'block-B',
+          linkedSceneIds: ['scene-other'],
+          outputs: [{ fileId: UNLINKED_FILE, createdAt: new Date('2025-01-01T00:00:00Z') }],
+          primaryStarFileId: undefined,
+        },
+      ]);
+      deps.sceneReferenceSelectionRepo = { loadBlocksForDraft };
+
+      // Make findFilesByIds return the linked file so images.edit can proceed
+      deps.findFilesByIds.mockResolvedValue([
+        {
+          fileId: LINKED_FILE,
+          storageUri: 's3://test-bucket/refs/source.png',
+          mimeType: 'image/png',
+          displayName: 'linked.png',
+        },
+      ]);
+
+      await processStoryboardOpenAIImageJob(
+        makeJob({
+          kind: 'scene',
+          blockId: 'scene-S',
+          prompt: 'Scene with hero only.',
+          referenceFileIds: [UNLINKED_FILE], // payload carries the old/wrong value — must be ignored
+        }),
+        deps,
+      );
+
+      // Only the linked block's output must reach findFilesByIds
+      expect(deps.findFilesByIds).toHaveBeenCalledWith(
+        expect.objectContaining({ fileIds: expect.not.arrayContaining([UNLINKED_FILE]) }),
+      );
+      expect(deps.findFilesByIds).toHaveBeenCalledWith(
+        expect.objectContaining({ fileIds: expect.arrayContaining([LINKED_FILE]) }),
+      );
+      // images.edit called (reference file present)
+      expect(deps.imagesEdit).toHaveBeenCalled();
+      expect(deps.imagesGenerate).not.toHaveBeenCalled();
+    });
+
+    /**
+     * AC-08 (US-07): the legacy principal-image record is ignored on read at
+     * runtime.  Even when a legacy principal fileId appears in the job payload's
+     * referenceFileIds (the T5 stopgap) and a fake sceneReferenceSelectionRepo
+     * returns linked-block outputs, the resolved inputs must contain only the
+     * linked-block selected output — never the legacy principal fileId.
+     */
+    it('AC-08: legacy principal fileId in payload.referenceFileIds is ignored when sceneReferenceSelectionRepo is wired', async () => {
+      const deps = makeDeps();
+
+      const LEGACY_PRINCIPAL_FILE = 'file-legacy-principal';
+      const LINKED_BLOCK_FILE = 'file-linked-block-output';
+
+      const loadBlocksForDraft = vi.fn().mockResolvedValue([
+        {
+          id: 'ref-block-1',
+          linkedSceneIds: ['scene-1'],
+          outputs: [{ fileId: LINKED_BLOCK_FILE, createdAt: new Date('2025-06-01T00:00:00Z') }],
+          primaryStarFileId: undefined,
+        },
+      ]);
+      deps.sceneReferenceSelectionRepo = { loadBlocksForDraft };
+
+      deps.findFilesByIds.mockResolvedValue([
+        {
+          fileId: LINKED_BLOCK_FILE,
+          storageUri: 's3://test-bucket/refs/source.png',
+          mimeType: 'image/png',
+          displayName: 'linked.png',
+        },
+      ]);
+
+      await processStoryboardOpenAIImageJob(
+        makeJob({
+          kind: 'scene',
+          blockId: 'scene-1',
+          prompt: 'Scene with character.',
+          // Simulate the T5 stopgap: legacy principal fileId was enqueued on the payload
+          referenceFileIds: [LEGACY_PRINCIPAL_FILE],
+        }),
+        deps,
+      );
+
+      // The legacy principal must NOT appear in resolved inputs
+      expect(deps.findFilesByIds).not.toHaveBeenCalledWith(
+        expect.objectContaining({ fileIds: expect.arrayContaining([LEGACY_PRINCIPAL_FILE]) }),
+      );
+      // The linked-block output must appear instead
+      expect(deps.findFilesByIds).toHaveBeenCalledWith(
+        expect.objectContaining({ fileIds: expect.arrayContaining([LINKED_BLOCK_FILE]) }),
+      );
+    });
+  });
 });
