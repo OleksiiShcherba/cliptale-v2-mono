@@ -13,7 +13,7 @@ import type {
   SceneReferenceSelectionRepo,
   StoryboardOpenAIImageJobDeps,
 } from '@/jobs/storyboardOpenAIImage.job.js';
-import type { ReferenceBlock, ReferenceStar } from '@/jobs/referenceSelection.js';
+import type { ReferenceBlock, ReferenceOutput } from '@/jobs/referenceSelection.js';
 import type { CastExtractJobRepository } from '@/jobs/cast-extract.job.js';
 
 export const filesRepo: FilesRepo = {
@@ -303,17 +303,25 @@ export const sceneReferenceSelectionRepo: SceneReferenceSelectionRepo = {
       linksByBlock.set(link.reference_block_id, existing);
     }
 
-    const starsByBlock = new Map<string, ReferenceStar[]>();
+    // Build outputs and primaryStarFileId from star rows.
+    // outputs: each starred file treated as a completed output (T8 will replace with
+    // flow_files query for accurate createdAt; here we use a fixed epoch as placeholder).
+    const outputsByBlock = new Map<string, ReferenceOutput[]>();
+    const primaryStarByBlock = new Map<string, string>();
     for (const star of starRows) {
-      const existing = starsByBlock.get(star.reference_block_id) ?? [];
-      existing.push({ fileId: star.file_id, isPrimary: star.is_primary === 1 });
-      starsByBlock.set(star.reference_block_id, existing);
+      const existing = outputsByBlock.get(star.reference_block_id) ?? [];
+      existing.push({ fileId: star.file_id, createdAt: new Date(0) });
+      outputsByBlock.set(star.reference_block_id, existing);
+      if (star.is_primary === 1) {
+        primaryStarByBlock.set(star.reference_block_id, star.file_id);
+      }
     }
 
     return blockRows.map((block): ReferenceBlock => ({
       id: block.id,
       linkedSceneIds: linksByBlock.get(block.id) ?? [],
-      stars: starsByBlock.get(block.id) ?? [],
+      outputs: outputsByBlock.get(block.id) ?? [],
+      primaryStarFileId: primaryStarByBlock.get(block.id),
     }));
   },
 };

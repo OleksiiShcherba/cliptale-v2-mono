@@ -25,11 +25,6 @@ const OPENAI_STORYBOARD_IMAGE_MODEL = 'gpt-image-2';
 const OUTPUT_CONTENT_TYPE = 'image/png';
 const OUTPUT_EXTENSION = 'png';
 const PROGRESS_OPENAI_DONE = 80;
-/**
- * Maximum number of reference images supported by gpt-image-2 in a single
- * images.edit call (ADR-0008: primary star + top-up to model capacity).
- */
-const GPT_IMAGE_2_MODEL_CAPACITY = 16;
 
 type ReferenceFile = {
   fileId: string;
@@ -217,11 +212,10 @@ async function resolveSceneInputs(
     // The prompt will still be sent with whatever references are available.
   }
 
-  // AC-09, ADR-0008: select only starred images of blocks linked to this scene
+  // AC-05/AC-06/AC-06b: select exactly one output per linked block
   const selectedFileIds = selectSceneReferences({
     sceneId: payload.blockId,
     allBlocks,
-    modelCapacity: GPT_IMAGE_2_MODEL_CAPACITY,
   });
 
   // AC-09, ADR-0007: scenes with no linked blocks get a draft-global derived
@@ -230,7 +224,9 @@ async function resolveSceneInputs(
   const hasLinkedBlocks = allBlocks.some((b) => b.linkedSceneIds.includes(payload.blockId!));
   let effectivePrompt = payload.prompt;
   if (!hasLinkedBlocks) {
-    const allStarredFileIds = allBlocks.flatMap((b) => b.stars.map((s) => s.fileId));
+    const allStarredFileIds = allBlocks.flatMap((b) =>
+      b.primaryStarFileId !== undefined ? [b.primaryStarFileId] : b.outputs.map((o) => o.fileId),
+    );
     const styleDescription = buildDraftStyleDescription({
       starredFileIds: allStarredFileIds,
       scriptFallback: payload.prompt,
