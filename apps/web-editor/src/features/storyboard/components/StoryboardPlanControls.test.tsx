@@ -27,8 +27,6 @@ function renderIllustration(
       status={status}
       phase={phase}
       error={null}
-      isBlocking={false}
-      onStart={vi.fn()}
     />,
   );
 }
@@ -54,8 +52,14 @@ describe('StoryboardPlanControls / StoryboardIllustrationControls — visual con
   });
 
   it('does not render a reference preview on the failed state (AC-08)', () => {
-    renderIllustration('failed', 'reference');
+    renderIllustration('failed', 'scene');
     expect(screen.queryByTestId('storyboard-reference-preview')).toBeNull();
+  });
+
+  it('idle copy uses the reference-done framing, not the retired principal step (AC-08, review F5)', () => {
+    renderIllustration('idle', 'idle');
+    expect(screen.getByText('Scene images start automatically once references are ready.')).toBeTruthy();
+    expect(screen.queryByText(/principal image/i)).toBeNull();
   });
 
   it('completed scene block and completed illustration block share the same shape (title + Done, no preview)', () => {
@@ -92,8 +96,8 @@ describe('StoryboardPlanControls — status menu mounting (AC-06, AC-09)', () =>
   it('renders the status menu on the completed illustration block for the owner', () => {
     render(
       <StoryboardIllustrationControls
-        status="completed" phase="scene" error={null} isBlocking={false}
-        onStart={vi.fn()} isOwner onRegenerate={vi.fn()} onHide={vi.fn()}
+        status="completed" phase="scene" error={null}
+        isOwner onRegenerate={vi.fn()} onHide={vi.fn()}
       />,
     );
     expect(screen.getByTestId('storyboard-status-menu-trigger')).toBeTruthy();
@@ -127,7 +131,7 @@ describe('StoryboardPlanControls — status menu mounting (AC-06, AC-09)', () =>
       const { unmount } = render(
         <StoryboardIllustrationControls
           status={status} phase="scene" error={status === 'failed' ? 'boom' : null}
-          isBlocking={false} onStart={vi.fn()} isOwner onRegenerate={vi.fn()} onHide={vi.fn()}
+          isOwner onRegenerate={vi.fn()} onHide={vi.fn()}
         />,
       );
       expect(screen.queryByTestId('storyboard-status-menu-trigger')).toBeNull();
@@ -144,8 +148,8 @@ describe('StoryboardPlanControls — status menu mounting (AC-06, AC-09)', () =>
 
     render(
       <StoryboardIllustrationControls
-        status="completed" phase="scene" error={null} isBlocking={false}
-        onStart={vi.fn()} isOwner
+        status="completed" phase="scene" error={null}
+        isOwner
       />,
     );
     const illustrationZ = Number(screen.getByTestId('storyboard-illustration-controls').style.zIndex);

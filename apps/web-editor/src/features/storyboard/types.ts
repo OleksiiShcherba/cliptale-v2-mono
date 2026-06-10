@@ -161,7 +161,6 @@ export type StoryboardIllustrationLifecycleStatus =
 
 export type StoryboardIllustrationLifecyclePhase =
   | 'idle'
-  | 'reference'
   | 'scene'
   | 'completed'
   | 'failed';

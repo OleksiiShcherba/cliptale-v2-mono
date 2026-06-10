@@ -331,19 +331,8 @@ describe('StoryboardPage / storyboard plan generation', () => {
   // "shows the ready canonical reference preview thumbnail", "shows a loader-only preview"
   // retired — StoryboardReferencePreview and the reference field are removed.
 
-  it('shows "Creating visual style reference" text during reference phase (AC-08)', () => {
-    setIllustrationMock({
-      status: 'running',
-      phase: 'reference',
-      isBlocking: true,
-    });
-
-    renderPage();
-
-    expect(screen.getByText('Creating visual style reference')).toBeTruthy();
-    expect(screen.queryByTestId('storyboard-reference-preview')).toBeNull();
-    expect((screen.getByTestId('next-step3-button') as HTMLButtonElement).disabled).toBe(true);
-  });
+  // Review F6 (2026-06-10): "shows 'Creating visual style reference' during reference phase"
+  // retired — the 'reference' lifecycle phase no longer exists after AC-08.
 
   it('shows "Generating scene illustrations" text during scene phase (AC-08)', () => {
     setIllustrationMock({
@@ -380,22 +369,9 @@ describe('StoryboardPage / storyboard plan generation', () => {
   // AC-08 (T9): "falls back gracefully when the canonical reference thumbnail fails"
   // retired — StoryboardReferencePreview is removed.
 
-  it('allows retry from main illustration control when the style reference failed (AC-08)', () => {
-    setIllustrationMock({
-      status: 'failed',
-      phase: 'reference',
-      isBlocking: false,
-      error: 'Reference failed',
-    });
-
-    renderPage();
-
-    expect(screen.getByText('Visual style reference failed')).toBeTruthy();
-    expect(screen.queryByTestId('storyboard-reference-preview')).toBeNull();
-    expect(screen.getByTestId('storyboard-illustration-retry-button').textContent).toBe('Retry');
-    fireEvent.click(screen.getByTestId('storyboard-illustration-retry-button'));
-    expect(mockStartIllustrations).toHaveBeenCalledTimes(1);
-  });
+  // Review F6 (2026-06-10): "allows retry from main illustration control when the style
+  // reference failed" retired — the reference phase and its main-control Retry button are
+  // gone; scene failures are retried from their scene block (covered below).
 
   it('keeps scene failure retry scoped to the scene block', () => {
     setIllustrationMock({

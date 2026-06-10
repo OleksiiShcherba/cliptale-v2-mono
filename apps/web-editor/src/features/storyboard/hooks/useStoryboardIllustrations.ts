@@ -160,7 +160,7 @@ export function useStoryboardIllustrations(
       workflowActiveRef.current = false;
       setError('Could not start illustration generation.');
       setStatus('failed');
-      setPhase('reference');
+      setPhase('failed');
     }
   }, [applyResponse, continueStoryboardIllustrations]);
 
@@ -193,7 +193,7 @@ export function useStoryboardIllustrations(
     const token = beginRequest(draftId);
     workflowActiveRef.current = true;
     setStatus('queued');
-    setPhase('reference');
+    setPhase('scene');
     setError(null);
     setGateError(null);
 

@@ -152,20 +152,9 @@ function getStoryboardIllustrationCopy(params: {
     };
   }
   if (params.status === 'failed') {
-    return params.phase === 'reference'
-      ? {
-          title: 'Visual style reference failed',
-          meta: 'Retry from this control.',
-        }
-      : {
-          title: 'Illustration failed',
-          meta: 'Retry failed scenes from their block.',
-        };
-  }
-  if (params.phase === 'reference') {
     return {
-      title: 'Creating visual style reference',
-      meta: 'Setting the shared look before scene generation.',
+      title: 'Illustration failed',
+      meta: 'Retry failed scenes from their block.',
     };
   }
   if (params.phase === 'scene') {
@@ -176,7 +165,7 @@ function getStoryboardIllustrationCopy(params: {
   }
   return {
     title: 'Illustration status',
-    meta: 'Scene images start automatically after the principal image is approved.',
+    meta: 'Scene images start automatically once references are ready.',
   };
 }
 
@@ -184,8 +173,6 @@ interface StoryboardIllustrationControlsProps extends StoryboardStatusMenuWiring
   status: StoryboardIllustrationLifecycleStatus;
   phase: StoryboardIllustrationLifecyclePhase;
   error: string | null;
-  isBlocking: boolean;
-  onStart: () => void;
   /** When the sibling plan block is hidden, reflow up into its (top) slot (AC-02). */
   reflowToTop?: boolean;
   /**
@@ -200,8 +187,6 @@ export function StoryboardIllustrationControls({
   status,
   phase,
   error,
-  isBlocking,
-  onStart,
   isOwner = false,
   onRegenerate,
   onHide,
@@ -209,9 +194,6 @@ export function StoryboardIllustrationControls({
   hasStructuredGateError = false,
 }: StoryboardIllustrationControlsProps): React.ReactElement {
   const copy = getStoryboardIllustrationCopy({ status, phase });
-  const isSceneFailure = status === 'failed' && phase === 'scene';
-  const isReferenceFailure = status === 'failed' && phase === 'reference';
-  const isDisabled = isBlocking || isSceneFailure;
   // Suppress the inline alert role when a structured gate error message is shown
   // elsewhere in the page — prevents duplicate role="alert" elements (AC-02).
   const suppressInlineAlert = status === 'failed' && hasStructuredGateError;
@@ -242,18 +224,6 @@ export function StoryboardIllustrationControls({
           onRegenerate={() => onRegenerate?.()}
           onHide={() => onHide?.()}
         />
-      )}
-      {isReferenceFailure && (
-        <button
-          type="button"
-          style={isDisabled ? s.buttonDisabled : s.button}
-          disabled={isDisabled}
-          aria-disabled={isDisabled}
-          onClick={onStart}
-          data-testid="storyboard-illustration-retry-button"
-        >
-          Retry
-        </button>
       )}
     </div>
   );
