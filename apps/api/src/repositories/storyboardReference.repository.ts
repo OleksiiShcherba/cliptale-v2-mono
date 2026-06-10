@@ -413,34 +413,49 @@ type ReferencelessSceneRow = RowDataPacket & {
   name: string | null;
 };
 
+type CountRow = RowDataPacket & { cnt: number };
+
 /**
  * Q1 — Full-set readiness for a draft (AC-01/02/07).
  * A block is ready iff flow_id IS NOT NULL AND ≥1 non-deleted flow_files row exists.
  * window_status is intentionally excluded from the predicate (ADR-0002).
+ *
+ * Returns `totalBlocks` alongside the blocking list so the caller can distinguish
+ * "zero reference blocks" (pass without the unlinked-scenes check, AC-04) from
+ * "all blocks ready" (run the unlinked-scenes check, AC-04b).
  */
 export async function getDraftReadiness(params: { draftId: string }): Promise<{
   isReady: boolean;
+  totalBlocks: number;
   blockingBlocks: Array<{ id: string; name: string; castType: 'character' | 'environment' }>;
 }> {
-  const [rows] = await pool.execute<ReadinessRow[]>(
-    `SELECT b.id, b.name, b.cast_type
-       FROM storyboard_reference_blocks b
-      WHERE b.draft_id = ?
-        AND NOT (
-          b.flow_id IS NOT NULL
-          AND EXISTS (
-            SELECT 1 FROM flow_files ff
-             WHERE ff.flow_id = b.flow_id
-               AND ff.deleted_at IS NULL
+  const [[countRows], [blockingRows]] = await Promise.all([
+    pool.execute<CountRow[]>(
+      `SELECT COUNT(*) AS cnt FROM storyboard_reference_blocks WHERE draft_id = ?`,
+      [params.draftId],
+    ),
+    pool.execute<ReadinessRow[]>(
+      `SELECT b.id, b.name, b.cast_type
+         FROM storyboard_reference_blocks b
+        WHERE b.draft_id = ?
+          AND NOT (
+            b.flow_id IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM flow_files ff
+               WHERE ff.flow_id = b.flow_id
+                 AND ff.deleted_at IS NULL
+            )
           )
-        )
-      ORDER BY b.sort_order ASC`,
-    [params.draftId],
-  );
+        ORDER BY b.sort_order ASC`,
+      [params.draftId],
+    ),
+  ]);
 
+  const totalBlocks = Number(countRows[0]!.cnt);
   return {
-    isReady: rows.length === 0,
-    blockingBlocks: rows.map((r) => ({
+    isReady: blockingRows.length === 0,
+    totalBlocks,
+    blockingBlocks: blockingRows.map((r) => ({
       id: r.id,
       name: r.name,
       castType: r.cast_type,

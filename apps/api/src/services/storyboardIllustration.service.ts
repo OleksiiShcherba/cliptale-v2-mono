@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { UnprocessableEntityError, StarGateFailedError } from '@/lib/errors.js';
+import { UnprocessableEntityError, StarGateFailedError, ReferenceNotReadyError, UnlinkedScenesError } from '@/lib/errors.js';
 import * as aiGenerationJobRepository from '@/repositories/aiGenerationJob.repository.js';
 import * as storyboardRepository from '@/repositories/storyboard.repository.js';
 import * as storyboardPlanJobRepository from '@/repositories/storyboardPlanJob.repository.js';
@@ -49,33 +49,44 @@ export type {
   StoryboardIllustrationStatusItem, StoryboardIllustrationStatusResponse,
 } from '@/services/storyboardIllustration.types.js';
 /**
- * Star gate — full-set scope (AC-08, ADR-0011).
+ * Reference-done gate — full-set scope (AC-01/02/04/04b/07, ADR-0002).
  *
- * Every reference block for the draft must have at least one starred result.
- * Zero blocks → passes (AC-08b / AC-09 no-linked-blocks rule).
- * Blocks without stars (including failed/empty ones) are named in the error (AC-04).
+ * Every reference block for the draft must have ≥1 completed output (flow_files row).
+ * Zero blocks → passes without the unlinked-scenes check (AC-04).
+ * If all blocks are ready, checks that every scene is linked (AC-04b).
+ * Blocking blocks are named in the error (AC-02); unlinked scenes in theirs (AC-04b).
+ *
+ * Gate order: readiness → unlinked-scenes (sad §6 Flow 1).
  */
-async function assertFullSetStarGate(userId: string, draftId: string): Promise<void> {
-  const blocks = await referenceBlocksRepository.listReferenceBlocksByDraftId({ draftId, userId });
-  if (blocks.length === 0) return;
+async function assertFullSetReferenceDoneGate(draftId: string): Promise<void> {
+  const { isReady, totalBlocks, blockingBlocks } = await referenceBlocksRepository.getDraftReadiness({ draftId });
 
-  const missing: Array<{ blockId: string; name: string }> = [];
-  for (const block of blocks) {
-    const stars = await referenceCurationRepository.listStarsForBlock(block.id);
-    if (stars.length === 0) {
-      missing.push({ blockId: block.id, name: block.name });
-    }
+  if (!isReady) {
+    const names = blockingBlocks.map((b) => b.name).join(', ');
+    throw new ReferenceNotReadyError(
+      `${blockingBlocks.length} reference block${blockingBlocks.length === 1 ? '' : 's'} not yet ready: ${names}. ` +
+        'Please wait for generation to finish before starting illustrations.',
+      blockingBlocks.map((b) => ({ blockId: b.id, name: b.name })),
+    );
   }
 
-  if (missing.length > 0) {
-    const names = missing.map((b) => b.name).join(', ');
-    throw new StarGateFailedError(
-      `${missing.length} reference block${missing.length === 1 ? '' : 's'} still need${missing.length === 1 ? 's' : ''} a starred result: ${names}. ` +
-        'Please retry the generation or delete the block before starting illustrations.',
-      missing,
+  // Zero-block drafts skip the unlinked-scenes check (AC-04): the "every scene must
+  // be linked" rule only applies when the draft has ≥1 reference block.
+  // totalBlocks may be undefined in unit-test mocks that pre-date this field — treat
+  // undefined as "has blocks" to preserve AC-04b behaviour in those tests.
+  if (totalBlocks === 0) return;
+
+  const referencelessScenes = await referenceBlocksRepository.getReferencelessScenes({ draftId });
+  if (referencelessScenes.length > 0) {
+    const names = referencelessScenes.map((s) => s.name ?? s.id).join(', ');
+    throw new UnlinkedScenesError(
+      `${referencelessScenes.length} scene${referencelessScenes.length === 1 ? '' : 's'} not linked to any reference block: ${names}. ` +
+        'Please link every scene to a reference block before starting illustrations.',
+      referencelessScenes.map((s) => ({ blockId: s.id, name: s.name ?? null })),
     );
   }
 }
+
 
 /**
  * Star gate — per-scene scope (AC-08b, ADR-0011).
@@ -126,7 +137,7 @@ export async function startStoryboardIllustrations(
   draftId: string,
 ): Promise<StoryboardIllustrationStatusResponse> {
   const draft = await resolveDraft(userId, draftId);
-  await assertFullSetStarGate(userId, draftId);
+  await assertFullSetReferenceDoneGate(draftId);
   const blocks = await storyboardRepository.findBlocksByDraftId(draftId);
   const edges = await storyboardRepository.findEdgesByDraftId(draftId);
   const sceneBlocks = orderStoryboardSceneBlocks(blocks, edges);
