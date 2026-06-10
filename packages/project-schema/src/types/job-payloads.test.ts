@@ -218,18 +218,18 @@ describe('MediaIngestJobPayload', () => {
 });
 
 describe('StoryboardOpenAIImageJobPayload', () => {
-  it('accepts a text-only canonical style reference job', () => {
+  it('accepts a text-only scene job (the retired style_reference kind no longer exists)', () => {
     const payload: StoryboardOpenAIImageJobPayload = {
       jobId: 'job-100',
       userId: 'user-100',
       draftId: 'draft-100',
-      kind: 'style_reference',
-      prompt: 'Create a consistent cinematic storyboard style reference.',
+      kind: 'scene',
+      prompt: 'Create a consistent cinematic storyboard scene.',
       referenceFileIds: [],
       size: '1536x1024',
     };
 
-    expect(payload.kind).toBe('style_reference');
+    expect(payload.kind).toBe('scene');
     expect(payload.referenceFileIds).toEqual([]);
     expect(payload.blockId).toBeUndefined();
   });

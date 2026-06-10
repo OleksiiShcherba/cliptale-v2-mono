@@ -28,7 +28,7 @@ describe('F3 / buildStoryboardOpenAIImageJobDeps — production wiring', () => {
     expect(typeof deps.sceneReferenceSelectionRepo!.loadBlocksForDraft).toBe('function');
   });
 
-  it('still wires the other reference/scene repos', () => {
+  it('wires the scene repos and does NOT wire the retired principal-image repo (review F2, ADR-0004)', () => {
     const deps = buildStoryboardOpenAIImageJobDeps({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       openai: {} as any,
@@ -37,7 +37,7 @@ describe('F3 / buildStoryboardOpenAIImageJobDeps — production wiring', () => {
       bucket: 'test-bucket',
     });
 
-    expect(deps.storyboardReferenceRepo).toBeDefined();
+    expect(deps).not.toHaveProperty('storyboardReferenceRepo');
     expect(deps.storyboardSceneRepo).toBeDefined();
     expect(deps.filesRepo).toBeDefined();
     expect(deps.bucket).toBe('test-bucket');

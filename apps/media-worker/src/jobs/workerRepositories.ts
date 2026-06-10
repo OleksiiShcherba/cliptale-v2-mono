@@ -9,7 +9,6 @@ import type {
 } from '@/jobs/ai-generate.job.js';
 import type {
   StoryboardImageFileReadRepo,
-  StoryboardReferenceRepo,
   SceneReferenceSelectionRepo,
   StoryboardOpenAIImageJobDeps,
 } from '@/jobs/storyboardOpenAIImage.job.js';
@@ -166,35 +165,6 @@ export const storyboardImageFileReadRepo: StoryboardImageFileReadRepo = {
         mimeType: row.mime_type!,
         displayName: row.display_name,
       }));
-  },
-};
-
-export const storyboardReferenceRepo: StoryboardReferenceRepo = {
-  async setOutput(params): Promise<void> {
-    await pool.execute(
-      `UPDATE storyboard_illustration_references
-          SET status = 'ready',
-              output_file_id = ?,
-              error_message = NULL,
-              approval_status = 'pending',
-              approved_at = NULL,
-              active_lock = 1
-        WHERE ai_job_id = ?`,
-      [params.outputFileId, params.aiJobId],
-    );
-  },
-
-  async markFailed(aiJobId: string, errorMessage: string): Promise<void> {
-    await pool.execute(
-      `UPDATE storyboard_illustration_references
-          SET status = 'failed',
-              error_message = ?,
-              approval_status = 'pending',
-              approved_at = NULL,
-              active_lock = NULL
-        WHERE ai_job_id = ?`,
-      [errorMessage, aiJobId],
-    );
   },
 };
 
@@ -452,7 +422,6 @@ export function buildStoryboardOpenAIImageJobDeps(
     filesRepo,
     fileReadRepo: storyboardImageFileReadRepo,
     aiGenerationJobRepo: storyboardAiGenerationJobRepo,
-    storyboardReferenceRepo,
     storyboardSceneRepo: storyboardIllustrationRepo,
     sceneReferenceSelectionRepo,
   };

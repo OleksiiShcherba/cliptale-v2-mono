@@ -23,7 +23,7 @@ function makeJob(overrides: Partial<StoryboardOpenAIImageJobPayload> = {}): Job<
       jobId: 'job-1',
       userId: 'user-1',
       draftId: 'draft-1',
-      kind: 'style_reference',
+      kind: 'scene',
       prompt: 'Create the canonical visual style.',
       referenceFileIds: [],
       ...overrides,
@@ -43,8 +43,6 @@ function makeDeps(): StoryboardOpenAIImageJobDeps & {
   setOutputFile: ReturnType<typeof vi.fn>;
   markFailed: ReturnType<typeof vi.fn>;
   findFilesByIds: ReturnType<typeof vi.fn>;
-  referenceSetOutput: ReturnType<typeof vi.fn>;
-  referenceMarkFailed: ReturnType<typeof vi.fn>;
   sceneAttachOutputToBlock: ReturnType<typeof vi.fn>;
   sceneMarkFailed: ReturnType<typeof vi.fn>;
 } {
@@ -73,8 +71,6 @@ function makeDeps(): StoryboardOpenAIImageJobDeps & {
       displayName: 'source.png',
     },
   ]);
-  const referenceSetOutput = vi.fn().mockResolvedValue(undefined);
-  const referenceMarkFailed = vi.fn().mockResolvedValue(undefined);
   const sceneAttachOutputToBlock = vi.fn().mockResolvedValue(undefined);
   const sceneMarkFailed = vi.fn().mockResolvedValue(undefined);
 
@@ -86,10 +82,6 @@ function makeDeps(): StoryboardOpenAIImageJobDeps & {
     filesRepo: { createFile: filesCreate, markReady: filesMarkReady },
     fileReadRepo: { findFilesByIds },
     aiGenerationJobRepo: { setOutputFile, markFailed },
-    storyboardReferenceRepo: {
-      setOutput: referenceSetOutput,
-      markFailed: referenceMarkFailed,
-    },
     storyboardSceneRepo: {
       attachOutputToBlock: sceneAttachOutputToBlock,
       markFailed: sceneMarkFailed,
@@ -103,8 +95,6 @@ function makeDeps(): StoryboardOpenAIImageJobDeps & {
     setOutputFile,
     markFailed,
     findFilesByIds,
-    referenceSetOutput,
-    referenceMarkFailed,
     sceneAttachOutputToBlock,
     sceneMarkFailed,
   };
@@ -122,7 +112,7 @@ describe('processStoryboardOpenAIImageJob', () => {
     vi.clearAllMocks();
   });
 
-  it('uses OpenAI image generation for text-only style references and stores output', async () => {
+  it('uses OpenAI image generation for text-only scene jobs and stores output', async () => {
     const deps = makeDeps();
 
     await processStoryboardOpenAIImageJob(makeJob(), deps);
@@ -146,7 +136,8 @@ describe('processStoryboardOpenAIImageJob', () => {
     const fileId = (deps.filesCreate.mock.calls[0]![0] as { fileId: string }).fileId;
     expect(deps.setOutputFile).toHaveBeenCalledWith('job-1', fileId);
     expect(deps.filesMarkReady).toHaveBeenCalledWith(fileId);
-    expect(deps.referenceSetOutput).toHaveBeenCalledWith({
+    expect(deps.sceneAttachOutputToBlock).toHaveBeenCalledWith({
+      id: expect.stringMatching(/^[0-9a-f-]+$/),
       aiJobId: 'job-1',
       outputFileId: fileId,
     });
@@ -185,7 +176,6 @@ describe('processStoryboardOpenAIImageJob', () => {
       aiJobId: 'job-1',
       outputFileId: fileId,
     });
-    expect(deps.referenceSetOutput).not.toHaveBeenCalled();
   });
 
   it('downloads URL outputs when OpenAI returns a temporary URL', async () => {
@@ -203,7 +193,7 @@ describe('processStoryboardOpenAIImageJob', () => {
     expect(deps.filesCreate).toHaveBeenCalledWith(expect.objectContaining({ bytes: 3 }));
   });
 
-  it('marks the job and reference failed with a sanitized error', async () => {
+  it('marks the job and scene mapping failed with a sanitized error', async () => {
     const deps = makeDeps();
     deps.imagesGenerate.mockRejectedValueOnce(
       new Error('OpenAI failed sk_live_abcdefghijkl at https://signed.example.com/out.png\nstack line'),
@@ -215,7 +205,7 @@ describe('processStoryboardOpenAIImageJob', () => {
       'job-1',
       'OpenAI failed [redacted] at [redacted-url]',
     );
-    expect(deps.referenceMarkFailed).toHaveBeenCalledWith(
+    expect(deps.sceneMarkFailed).toHaveBeenCalledWith(
       'job-1',
       'OpenAI failed [redacted] at [redacted-url]',
     );
@@ -233,7 +223,6 @@ describe('processStoryboardOpenAIImageJob', () => {
     ).rejects.toThrow('OpenAI scene failed');
 
     expect(deps.sceneMarkFailed).toHaveBeenCalledWith('job-1', 'OpenAI scene failed');
-    expect(deps.referenceMarkFailed).not.toHaveBeenCalled();
   });
 
   it('does not mark failed on non-final retryable attempts', async () => {
@@ -252,7 +241,7 @@ describe('processStoryboardOpenAIImageJob', () => {
     ).rejects.toThrow('OpenAI 503 Service Unavailable');
 
     expect(deps.markFailed).not.toHaveBeenCalled();
-    expect(deps.referenceMarkFailed).not.toHaveBeenCalled();
+    expect(deps.sceneMarkFailed).not.toHaveBeenCalled();
   });
 
   it('fails before calling OpenAI when a reference file is unavailable', async () => {
@@ -270,12 +259,12 @@ describe('processStoryboardOpenAIImageJob', () => {
     expect(deps.imagesGenerate).not.toHaveBeenCalled();
     expect(deps.filesCreate).not.toHaveBeenCalled();
     expect(deps.setOutputFile).not.toHaveBeenCalled();
-    expect(deps.referenceSetOutput).not.toHaveBeenCalled();
+    expect(deps.sceneAttachOutputToBlock).not.toHaveBeenCalled();
     expect(deps.markFailed).toHaveBeenCalledWith(
       'job-1',
       'Reference image file is unavailable: missing-file',
     );
-    expect(deps.referenceMarkFailed).toHaveBeenCalledWith(
+    expect(deps.sceneMarkFailed).toHaveBeenCalledWith(
       'job-1',
       'Reference image file is unavailable: missing-file',
     );
@@ -295,7 +284,7 @@ describe('processStoryboardOpenAIImageJob', () => {
     expect(deps.imagesEdit).not.toHaveBeenCalled();
     expect(deps.filesCreate).not.toHaveBeenCalled();
     expect(deps.setOutputFile).not.toHaveBeenCalled();
-    expect(deps.referenceSetOutput).not.toHaveBeenCalled();
+    expect(deps.sceneAttachOutputToBlock).not.toHaveBeenCalled();
   });
 
   it('fails without creating files when OpenAI returns no image data', async () => {
@@ -308,7 +297,7 @@ describe('processStoryboardOpenAIImageJob', () => {
 
     expect(deps.filesCreate).not.toHaveBeenCalled();
     expect(deps.setOutputFile).not.toHaveBeenCalled();
-    expect(deps.referenceSetOutput).not.toHaveBeenCalled();
+    expect(deps.sceneAttachOutputToBlock).not.toHaveBeenCalled();
     expect(deps.markFailed).toHaveBeenCalledWith(
       'job-1',
       'OpenAI Images response did not include image data',
@@ -329,7 +318,7 @@ describe('processStoryboardOpenAIImageJob', () => {
 
     expect(deps.filesCreate).not.toHaveBeenCalled();
     expect(deps.setOutputFile).not.toHaveBeenCalled();
-    expect(deps.referenceSetOutput).not.toHaveBeenCalled();
+    expect(deps.sceneAttachOutputToBlock).not.toHaveBeenCalled();
     expect(deps.markFailed).toHaveBeenCalledWith(
       'job-1',
       'Failed to download OpenAI image output: HTTP 503',

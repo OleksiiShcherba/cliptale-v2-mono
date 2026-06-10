@@ -20,7 +20,6 @@ import {
   storyboardAiGenerationJobRepo,
   storyboardIllustrationRepo,
   storyboardImageFileReadRepo,
-  storyboardReferenceRepo,
 } from './workerRepositories.js';
 
 describe('workerRepositories', () => {
@@ -143,28 +142,6 @@ describe('workerRepositories', () => {
     expect(sql).toContain('AND deleted_at IS NULL');
     expect(sql).toContain('file_id IN (?,?)');
     expect(params).toEqual(['user-1', 'file-1', 'file-2']);
-  });
-
-  it('updates storyboard reference ready and failed states', async () => {
-    mockExecute.mockResolvedValue([{ affectedRows: 1 }]);
-
-    await storyboardReferenceRepo.setOutput({
-      aiJobId: 'job-1',
-      outputFileId: 'file-1',
-    });
-    await storyboardReferenceRepo.markFailed('job-2', 'failed safely');
-
-    const [readySql, readyParams] = mockExecute.mock.calls[0] as [string, unknown[]];
-    expect(readySql).toContain("SET status = 'ready'");
-    expect(readySql).toContain("approval_status = 'pending'");
-    expect(readySql).toContain('active_lock = 1');
-    expect(readyParams).toEqual(['file-1', 'job-1']);
-
-    const [failedSql, failedParams] = mockExecute.mock.calls[1] as [string, unknown[]];
-    expect(failedSql).toContain("SET status = 'failed'");
-    expect(failedSql).toContain("approval_status = 'pending'");
-    expect(failedSql).toContain('active_lock = NULL');
-    expect(failedParams).toEqual(['failed safely', 'job-2']);
   });
 
   it('updates storyboard scene mappings and idempotently attaches generated media', async () => {
