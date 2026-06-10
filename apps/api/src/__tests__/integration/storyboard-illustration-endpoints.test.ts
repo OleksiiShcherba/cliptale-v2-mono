@@ -378,15 +378,7 @@ describe('storyboard illustration endpoints', () => {
       phase: 'idle',
       errorMessage: null,
     });
-    expect(res.body.reference).toMatchObject({
-      status: 'ready',
-      outputFileId: expect.any(String),
-      sourceReferenceFileIds: [],
-      errorMessage: null,
-    });
-    expect(res.body.reference.jobId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
+    expect(res.body).not.toHaveProperty('reference');
     expect(res.body.items.map((item: { blockId: string }) => item.blockId)).toEqual([
       sceneA1,
       sceneA2,
@@ -399,72 +391,15 @@ describe('storyboard illustration endpoints', () => {
     ]);
   });
 
-  it('blocks scene enqueueing until the principal image is approved', async () => {
-    await conn.execute(
-      `UPDATE storyboard_illustration_references
-          SET approval_status = 'pending', approved_at = NULL
-        WHERE draft_id = ? AND active_lock = 1`,
-      [draftA],
-    );
-
-    const blocked = await request(app)
-      .post(`/storyboards/${draftA}/illustrations`)
-      .set('Authorization', authA())
-      .send({});
-
-    expect(blocked.status).toBe(202);
-    expect(blocked.body.automation).toMatchObject({
-      phase: 'awaiting_principal_approval',
-      errorMessage: null,
-    });
-    expect(blocked.body.reference).toMatchObject({
-      status: 'ready',
-      approvalStatus: 'pending',
-    });
-
-    const [beforeRows] = await conn.query<mysql.RowDataPacket[]>(
-      'SELECT COUNT(*) AS cnt FROM storyboard_scene_illustration_jobs WHERE draft_id = ?',
-      [draftA],
-    );
-    expect(Number(beforeRows[0]!['cnt'])).toBe(0);
-
+  it('principal image approval endpoint still responds (T6 removes route)', async () => {
+    // The approve endpoint exists until T6. Ensure it returns 200 with no `reference` field.
     const approved = await request(app)
       .post(`/storyboards/${draftA}/illustrations/principal-image/approve`)
       .set('Authorization', authA())
       .send({});
 
     expect(approved.status, JSON.stringify(approved.body)).toBe(200);
-    expect(approved.body.reference).toMatchObject({
-      status: 'ready',
-      approvalStatus: 'approved',
-    });
-
-    await conn.execute(
-      'UPDATE storyboard_blocks SET prompt = ? WHERE id = ?',
-      ['Temporary prompt so bulk generation can pass prompt validation.', sceneNoPrompt],
-    );
-    const unblocked = await request(app)
-      .post(`/storyboards/${draftA}/illustrations`)
-      .set('Authorization', authA())
-      .send({});
-
-    expect(unblocked.status, JSON.stringify(unblocked.body)).toBe(202);
-    const started = unblocked.body.items.find((item: { blockId: string }) => item.blockId === sceneA1);
-    expect(started).toMatchObject({
-      blockId: sceneA1,
-      status: 'queued',
-      outputFileId: null,
-    });
-    expect(started.jobId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
-    cleanupJobs.push(started.jobId);
-
-    await conn.execute('DELETE FROM storyboard_scene_illustration_jobs WHERE ai_job_id = ?', [
-      started.jobId,
-    ]);
-    await conn.execute('DELETE FROM ai_generation_jobs WHERE job_id = ?', [started.jobId]);
-    await conn.execute('UPDATE storyboard_blocks SET prompt = NULL WHERE id = ?', [sceneNoPrompt]);
+    expect(approved.body).not.toHaveProperty('reference');
   });
 
   it('starts one scene illustration and stores the draft-scoped queued mapping', async () => {
@@ -474,15 +409,7 @@ describe('storyboard illustration endpoints', () => {
       .send({});
 
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(res.body.reference).toMatchObject({
-      status: 'ready',
-      outputFileId: expect.any(String),
-      sourceReferenceFileIds: [],
-      errorMessage: null,
-    });
-    expect(res.body.reference.jobId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
+    expect(res.body).not.toHaveProperty('reference');
     const item = res.body.items.find((candidate: { blockId: string }) => candidate.blockId === sceneA1);
     expect(item).toMatchObject({
       blockId: sceneA1,
@@ -521,50 +448,31 @@ describe('storyboard illustration endpoints', () => {
     });
   });
 
-  it('creates a canonical reference first and leaves scene jobs unqueued when no reference exists', async () => {
+  it('starts scene jobs directly without a canonical reference step (AC-08)', async () => {
+    // After T5, start goes straight to scene enqueueing — no canonical reference creation.
     const res = await request(app)
       .post(`/storyboards/${draftNoReference}/illustrations`)
       .set('Authorization', authA())
       .send({});
 
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(res.body.reference).toMatchObject({
-      status: 'queued',
-      outputFileId: null,
-      sourceReferenceFileIds: [],
-      errorMessage: null,
-    });
-    expect(res.body.reference.jobId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-    );
-    expect(res.body.items).toEqual([
-      {
-        blockId: sceneNoReference,
-        status: 'queued',
-        jobId: null,
-        outputFileId: null,
-        errorMessage: null,
-      },
-    ]);
+    expect(res.body).not.toHaveProperty('reference');
+    const item = res.body.items.find((i: { blockId: string }) => i.blockId === sceneNoReference);
+    expect(item).toMatchObject({ blockId: sceneNoReference, status: 'queued' });
 
+    // No new storyboard_illustration_references row must have been created.
     const [referenceRows] = await conn.query<mysql.RowDataPacket[]>(
-      `SELECT sr.status, sr.source_reference_file_ids, aj.model_id, aj.capability, aj.draft_id
-         FROM storyboard_illustration_references sr
-         INNER JOIN ai_generation_jobs aj ON aj.job_id = sr.ai_job_id
-        WHERE sr.draft_id = ?`,
+      'SELECT COUNT(*) AS cnt FROM storyboard_illustration_references WHERE draft_id = ?',
       [draftNoReference],
     );
-    expect(referenceRows).toHaveLength(1);
-    expect(referenceRows[0]!['status']).toBe('queued');
-    expect(referenceRows[0]!['model_id']).toBe('gpt-image-2');
-    expect(referenceRows[0]!['capability']).toBe('text_to_image');
-    expect(referenceRows[0]!['draft_id']).toBe(draftNoReference);
+    expect(Number(referenceRows[0]!['cnt'])).toBe(0);
 
-    const [sceneRows] = await conn.query<mysql.RowDataPacket[]>(
-      'SELECT COUNT(*) AS cnt FROM storyboard_scene_illustration_jobs WHERE draft_id = ?',
-      [draftNoReference],
-    );
-    expect(Number(sceneRows[0]!['cnt'])).toBe(0);
+    // Clean up the scene job that was created.
+    if (item?.jobId) {
+      cleanupJobs.push(item.jobId);
+      await conn.execute('DELETE FROM storyboard_scene_illustration_jobs WHERE ai_job_id = ?', [item.jobId]);
+      await conn.execute('DELETE FROM ai_generation_jobs WHERE job_id = ?', [item.jobId]);
+    }
   });
 
   it('reconciles completed mapped jobs into storyboard block media during status polling', async () => {
@@ -752,7 +660,8 @@ describe('storyboard illustration endpoints', () => {
     }
   });
 
-  it('updates, replaces, and edits principal image references through modal APIs', async () => {
+  it('updates, replaces, and edits principal image references through modal APIs (T6 removes routes)', async () => {
+    // T5: response no longer carries a `reference` field — just verify endpoints return success.
     const extraFileId = await seedReadyDraftImage(draftB, userB, 'extra-reference.png');
     const replacementFileId = await seedReadyDraftImage(draftB, userB, 'replacement-principal.png');
 
@@ -768,22 +677,14 @@ describe('storyboard illustration endpoints', () => {
       .set('Authorization', authB())
       .send({ fileIds: [extraFileId] });
     expect(refs.status, JSON.stringify(refs.body)).toBe(200);
-    expect(refs.body.reference).toMatchObject({
-      sourceReferenceFileIds: [extraFileId],
-      approvalStatus: 'pending',
-    });
+    expect(refs.body).not.toHaveProperty('reference');
 
     const replace = await request(app)
       .post(`/storyboards/${draftB}/illustrations/principal-image/replace`)
       .set('Authorization', authB())
       .send({ fileId: replacementFileId });
     expect(replace.status, JSON.stringify(replace.body)).toBe(200);
-    expect(replace.body.reference).toMatchObject({
-      status: 'ready',
-      outputFileId: replacementFileId,
-      sourceReferenceFileIds: [replacementFileId],
-      approvalStatus: 'pending',
-    });
+    expect(replace.body).not.toHaveProperty('reference');
 
     const edit = await request(app)
       .post(`/storyboards/${draftB}/illustrations/principal-image/edit`)
@@ -793,12 +694,12 @@ describe('storyboard illustration endpoints', () => {
         extraReferenceFileIds: [extraFileId],
       });
     expect(edit.status, JSON.stringify(edit.body)).toBe(202);
-    expect(edit.body.reference).toMatchObject({
-      status: 'queued',
-      outputFileId: null,
-      sourceReferenceFileIds: expect.arrayContaining([extraFileId, replacementFileId]),
-      approvalStatus: 'pending',
-    });
-    cleanupJobs.push(edit.body.reference.jobId);
+    expect(edit.body).not.toHaveProperty('reference');
+    // Grab the job ID for cleanup from the AI job that was created.
+    const [editJobs] = await conn.query<mysql.RowDataPacket[]>(
+      `SELECT job_id FROM ai_generation_jobs WHERE draft_id = ? ORDER BY created_at DESC LIMIT 1`,
+      [draftB],
+    );
+    if (editJobs[0]) cleanupJobs.push(editJobs[0]['job_id'] as string);
   });
 });

@@ -138,7 +138,6 @@ export async function getLatestReference(
 export function toStatusResponse(
   sceneBlocks: StoryboardBlock[],
   mappingsByBlock: Map<string, StoryboardSceneIllustrationJob>,
-  reference: referenceRepository.StoryboardIllustrationReference | null,
   latestPlanJob: StoryboardPlanJob | null,
 ): StoryboardIllustrationStatusResponse {
   const items = sceneBlocks.map((block) => {
@@ -154,30 +153,13 @@ export function toStatusResponse(
 
   return {
     automation: {
-      phase: getAutomationPhase({ sceneBlocks, items, reference, latestPlanJob }),
+      phase: getAutomationPhase({ sceneBlocks, items, latestPlanJob }),
       planningJobId:
         latestPlanJob && ['queued', 'running', 'completed', 'failed'].includes(latestPlanJob.status)
           ? latestPlanJob.jobId
           : null,
-      errorMessage: getAutomationErrorMessage({ items, reference, latestPlanJob }),
+      errorMessage: getAutomationErrorMessage({ items, latestPlanJob }),
     },
-    reference: reference
-      ? {
-          status: reference.status,
-          jobId: reference.aiJobId,
-          outputFileId: reference.outputFileId,
-          sourceReferenceFileIds: reference.sourceReferenceFileIds,
-          approvalStatus: reference.approvalStatus,
-          errorMessage: reference.errorMessage,
-        }
-      : {
-          status: 'queued',
-          jobId: null,
-          outputFileId: null,
-          sourceReferenceFileIds: [],
-          approvalStatus: 'pending',
-          errorMessage: null,
-        },
     items,
   };
 }
@@ -185,7 +167,6 @@ export function toStatusResponse(
 function getAutomationPhase(params: {
   sceneBlocks: StoryboardBlock[];
   items: StoryboardIllustrationStatusItem[];
-  reference: referenceRepository.StoryboardIllustrationReference | null;
   latestPlanJob: StoryboardPlanJob | null;
 }): StoryboardAutomationPhase {
   if (params.latestPlanJob?.status === 'queued' || params.latestPlanJob?.status === 'running') {
@@ -194,26 +175,13 @@ function getAutomationPhase(params: {
   if (params.latestPlanJob?.status === 'failed' && params.sceneBlocks.length === 0) {
     return 'failed';
   }
-  if (params.reference?.status === 'failed' || params.items.some((item) => item.status === 'failed')) {
+  if (params.items.some((item) => item.status === 'failed')) {
     return 'failed';
-  }
-  if (params.reference?.status === 'queued' || params.reference?.status === 'running') {
-    return 'creating_principal_image';
   }
   if (params.items.some((item) => item.jobId && (item.status === 'queued' || item.status === 'running'))) {
     return 'generating_scene_illustrations';
   }
   if (
-    params.reference?.status === 'ready' &&
-    params.reference.outputFileId &&
-    params.reference.approvalStatus !== 'approved'
-  ) {
-    return 'awaiting_principal_approval';
-  }
-  if (
-    params.reference?.status === 'ready' &&
-    params.reference.outputFileId &&
-    params.reference.approvalStatus === 'approved' &&
     params.sceneBlocks.length > 0 &&
     params.items.every((item) => item.status === 'ready')
   ) {
@@ -224,14 +192,10 @@ function getAutomationPhase(params: {
 
 function getAutomationErrorMessage(params: {
   items: StoryboardIllustrationStatusItem[];
-  reference: referenceRepository.StoryboardIllustrationReference | null;
   latestPlanJob: StoryboardPlanJob | null;
 }): string | null {
   if (params.latestPlanJob?.status === 'failed') {
     return params.latestPlanJob.errorMessage ?? 'Storyboard planning failed';
-  }
-  if (params.reference?.status === 'failed') {
-    return params.reference.errorMessage ?? 'Principal image generation failed';
   }
   const failedScene = params.items.find((item) => item.status === 'failed');
   return failedScene?.errorMessage ?? null;

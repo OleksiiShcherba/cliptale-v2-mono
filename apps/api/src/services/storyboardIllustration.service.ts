@@ -13,7 +13,6 @@ import {
 } from '@/services/storyboardIllustration.config.js';
 import {
   createIllustrationJob,
-  ensureReadyReference,
 } from '@/services/storyboardIllustration.jobs.js';
 import {
   publishStoryboardIllustrationFailure,
@@ -27,6 +26,8 @@ import {
   isActiveIllustrationStatus,
   toStatusResponse,
 } from '@/services/storyboardIllustration.status.js';
+// getLatestReference is kept for T6 principal endpoint methods (approveStoryboardPrincipalImage,
+// setStoryboardPrincipalImageReferences, editStoryboardPrincipalImage) that are removed in T6.
 import type { StoryboardIllustrationStatusResponse } from '@/services/storyboardIllustration.types.js';
 import {
   assertPromptedBlocks,
@@ -111,13 +112,12 @@ export async function listStoryboardIllustrations(
   draftId: string,
 ): Promise<StoryboardIllustrationStatusResponse> {
   await resolveDraft(userId, draftId);
-  const reference = await getLatestReference(draftId);
   const blocks = await storyboardRepository.findBlocksByDraftId(draftId);
   const edges = await storyboardRepository.findEdgesByDraftId(draftId);
   const sceneBlocks = orderStoryboardSceneBlocks(blocks, edges);
   const mappingsByBlock = await getLatestMappings(draftId);
   const latestPlanJob = await storyboardPlanJobRepository.findLatestByDraftId(draftId);
-  return toStatusResponse(sceneBlocks, mappingsByBlock, reference, latestPlanJob);
+  return toStatusResponse(sceneBlocks, mappingsByBlock, latestPlanJob);
 }
 export async function startStoryboardIllustrations(
   userId: string,
@@ -130,12 +130,6 @@ export async function startStoryboardIllustrations(
   const sceneBlocks = orderStoryboardSceneBlocks(blocks, edges);
   const mappingsByBlock = await getLatestMappings(draftId);
   const aspectRatio = getDraftAspectRatio(draft);
-  const reference = await ensureReadyReference({ userId, draft, aspectRatio });
-  if (!reference?.outputFileId) {
-    const status = await listStoryboardIllustrations(userId, draftId);
-    await publishStoryboardIllustrationStatus({ userId, draftId, status });
-    return status;
-  }
   const blocksToCreate = sceneBlocks.filter((block) => {
     const latest = mappingsByBlock.get(block.id);
     return !isActiveIllustrationStatus(latest?.status);
@@ -148,7 +142,7 @@ export async function startStoryboardIllustrations(
       draftId,
       block: next.block,
       aspectRatio,
-      referenceOutputFileId: reference.outputFileId,
+      referenceOutputFileId: '',
       previousSceneFileId: next.previousSceneFileId,
     });
   }
@@ -172,14 +166,12 @@ export async function startStoryboardBlockIllustration(
   const mappingsByBlock = await getLatestMappings(draftId);
   const latest = mappingsByBlock.get(block.id);
   const aspectRatio = getDraftAspectRatio(draft);
-  const reference = await ensureReadyReference({ userId, draft, aspectRatio });
   const previousSceneFileId = getPreviousSceneOutputFileId({
     sceneBlocks,
     blockId: block.id,
     mappingsByBlock,
   });
   if (
-    reference?.outputFileId &&
     previousSceneFileId !== null &&
     !isActiveIllustrationStatus(latest?.status)
   ) {
@@ -188,7 +180,7 @@ export async function startStoryboardBlockIllustration(
       draftId,
       block,
       aspectRatio,
-      referenceOutputFileId: reference.outputFileId,
+      referenceOutputFileId: '',
       previousSceneFileId,
     });
   }
