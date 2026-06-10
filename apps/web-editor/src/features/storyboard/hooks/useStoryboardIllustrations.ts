@@ -224,6 +224,7 @@ export function useStoryboardIllustrations(
     setStatus('queued');
     setPhase('scene');
     setError(null);
+    setGateError(null);
 
     try {
       const response = await startStoryboardBlockIllustration(draftId, blockId);
@@ -231,6 +232,14 @@ export function useStoryboardIllustrations(
       await handleStatusResponse(response);
     } catch (err) {
       if (!isCurrentRequest(draftId, token)) return;
+      const maybeGate = err as { code?: string; details?: GateErrorDetails; message?: string };
+      if (maybeGate.code && maybeGate.details) {
+        setGateError({
+          code: maybeGate.code,
+          details: maybeGate.details,
+          message: maybeGate.message ?? 'Gate error',
+        });
+      }
       setError('Could not retry the scene illustration.');
       setStatus('failed');
       setPhase('failed');

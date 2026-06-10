@@ -233,3 +233,79 @@ describe('T10 / AC-04b — useStoryboardIllustrations: unlinked_scenes exposes g
     ).toBeFalsy();
   });
 });
+
+describe('AC-03b — useStoryboardIllustrations: per-scene retryBlock exposes scene-scoped gateError', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hoisted.mockDraftSubscriptionHandlers.length = 0;
+    hoisted.mockFetchStoryboardIllustrations.mockResolvedValue(idleResponse());
+  });
+
+  it('exposes gateError with the scene-scoped blocking blocks after retryBlock() rejects with reference_gate_failed', async () => {
+    const blocks = [{ blockId: 'block-aaa', name: 'Scene Character' }];
+    hoisted.mockStartStoryboardBlockIllustration.mockRejectedValue(
+      makeGateFailedError(blocks),
+    );
+
+    const { result } = renderHook(() => useStoryboardIllustrations('draft-1', {}));
+    await act(async () => { await Promise.resolve(); });
+
+    await act(async () => {
+      await result.current.retryBlock('scene-1').catch(() => undefined);
+    });
+
+    const gateError = (result.current as Record<string, unknown>)['gateError'] as GateError | null | undefined;
+    expect(
+      gateError,
+      'useStoryboardIllustrations must expose gateError after a per-scene reference_gate_failed 422 (AC-03b)',
+    ).not.toBeNull();
+    expect(gateError).toBeDefined();
+    expect(gateError?.code).toBe('references.reference_gate_failed');
+    expect(gateError?.details?.blocks).toEqual(blocks);
+  });
+
+  it('non-gate retryBlock failures set only the generic error, not gateError', async () => {
+    hoisted.mockStartStoryboardBlockIllustration.mockRejectedValue(
+      new Error('network down'),
+    );
+
+    const { result } = renderHook(() => useStoryboardIllustrations('draft-1', {}));
+    await act(async () => { await Promise.resolve(); });
+
+    await act(async () => {
+      await result.current.retryBlock('scene-1').catch(() => undefined);
+    });
+
+    const gateError = (result.current as Record<string, unknown>)['gateError'] as GateError | null | undefined;
+    expect(gateError).toBeFalsy();
+    expect(result.current.error).toBe('Could not retry the scene illustration.');
+  });
+
+  it('gateError is cleared when retryBlock() succeeds after a prior gate failure', async () => {
+    const blocks = [{ blockId: 'block-aaa', name: 'Scene Character' }];
+    hoisted.mockStartStoryboardBlockIllustration
+      .mockRejectedValueOnce(makeGateFailedError(blocks))
+      .mockResolvedValueOnce({
+        automation: { phase: 'generating_scene_illustrations', planningJobId: null, errorMessage: null },
+        items: [],
+      });
+
+    const { result } = renderHook(() => useStoryboardIllustrations('draft-1', {}));
+    await act(async () => { await Promise.resolve(); });
+
+    await act(async () => {
+      await result.current.retryBlock('scene-1').catch(() => undefined);
+    });
+    const gateErrorAfterFail = (result.current as Record<string, unknown>)['gateError'] as GateError | null | undefined;
+    expect(gateErrorAfterFail?.code).toBe('references.reference_gate_failed');
+
+    await act(async () => {
+      await result.current.retryBlock('scene-1').catch(() => undefined);
+    });
+    const gateErrorAfterSuccess = (result.current as Record<string, unknown>)['gateError'] as GateError | null | undefined;
+    expect(
+      gateErrorAfterSuccess,
+      'gateError must be null/undefined after a successful per-scene retry',
+    ).toBeFalsy();
+  });
+});
