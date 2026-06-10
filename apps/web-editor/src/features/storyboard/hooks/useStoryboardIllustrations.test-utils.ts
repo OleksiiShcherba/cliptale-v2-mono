@@ -2,7 +2,6 @@ import { act } from '@testing-library/react';
 import { beforeEach, vi } from 'vitest';
 
 import type {
-  StoryboardIllustrationReferenceStatus,
   StoryboardIllustrationStatusItem,
   StoryboardIllustrationStatusResponse,
 } from '@/features/storyboard/types';
@@ -65,25 +64,11 @@ export function item(
   };
 }
 
-export function reference(
-  overrides: Partial<StoryboardIllustrationReferenceStatus> = {},
-): StoryboardIllustrationReferenceStatus {
-  return {
-    status: 'queued',
-    jobId: null,
-    outputFileId: null,
-    sourceReferenceFileIds: [],
-    approvalStatus: 'pending',
-    errorMessage: null,
-    ...overrides,
-  };
-}
-
 export function response(
   overrides: Partial<StoryboardIllustrationStatusResponse> = {},
 ): StoryboardIllustrationStatusResponse {
   return {
-    reference: reference(),
+    automation: { phase: 'idle', planningJobId: null, errorMessage: null },
     items: [item()],
     ...overrides,
   } as StoryboardIllustrationStatusResponse;
@@ -114,5 +99,6 @@ export function setupStoryboardIllustrationsTestLifecycle(): void {
     mockStartStoryboardBlockIllustration.mockResolvedValue(response({
       items: [item({ status: 'queued', jobId: 'job-2' })],
     }));
+
   });
 }

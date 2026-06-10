@@ -7,7 +7,6 @@ import {
 } from '@/features/storyboard/api';
 import type {
   StoryboardIllustrationLifecyclePhase,
-  StoryboardIllustrationReferenceStatus,
   StoryboardIllustrationLifecycleStatus,
   StoryboardIllustrationStatusItem,
   StoryboardIllustrationStatusResponse,
@@ -30,7 +29,6 @@ export type UseStoryboardIllustrationsResult = {
   status: StoryboardIllustrationLifecycleStatus;
   phase: StoryboardIllustrationLifecyclePhase;
   error: string | null;
-  reference: StoryboardIllustrationReferenceStatus | null;
   items: StoryboardIllustrationStatusItem[];
   byBlockId: Map<string, StoryboardIllustrationStatusItem>;
   isBlocking: boolean;
@@ -56,7 +54,6 @@ export function useStoryboardIllustrations(
   const workflowActiveRef = useRef(false);
 
   const [items, setItems] = useState<StoryboardIllustrationStatusItem[]>([]);
-  const [reference, setReference] = useState<StoryboardIllustrationReferenceStatus | null>(null);
   const [status, setStatus] = useState<StoryboardIllustrationLifecycleStatus>('idle');
   const [phase, setPhase] = useState<StoryboardIllustrationLifecyclePhase>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +67,6 @@ export function useStoryboardIllustrations(
     const nextPhase = derivePhase(response);
     const shouldContinueSceneStart = hasPendingSceneStart(response);
 
-    setReference(response.reference);
     setItems(response.items);
     setStatus(shouldContinueSceneStart ? 'queued' : nextStatus);
     setPhase(shouldContinueSceneStart ? 'scene' : nextPhase);
@@ -79,10 +75,9 @@ export function useStoryboardIllustrations(
       workflowActiveRef.current = false;
     }
 
-    const readyOutputs = [
-      response.reference.outputFileId,
-      ...response.items.map((item) => item.outputFileId),
-    ].filter((fileId): fileId is string => fileId !== null);
+    const readyOutputs = response.items
+      .map((item) => item.outputFileId)
+      .filter((fileId): fileId is string => fileId !== null);
     const unseenReadyOutput = readyOutputs.find((fileId) => (
       !seenOutputFileIdsRef.current.has(fileId)
     ));
@@ -231,7 +226,6 @@ export function useStoryboardIllustrations(
     seenOutputFileIdsRef.current = new Set();
     workflowActiveRef.current = false;
     setItems([]);
-    setReference(null);
     setStatus('idle');
     setPhase('idle');
     setError(null);
@@ -250,7 +244,6 @@ export function useStoryboardIllustrations(
     status,
     phase,
     error,
-    reference,
     items,
     byBlockId,
     isBlocking: status === 'queued' || status === 'running',

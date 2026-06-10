@@ -42,7 +42,6 @@ import { MusicBlockModal } from './MusicBlockModal';
 import { SceneModal } from './SceneModal';
 import { CastConfirmModal } from './CastConfirmModal';
 import type { CastExtractionJob, CastProposalEntry } from './CastConfirmModal';
-import { PrincipalImageApprovalModal } from './PrincipalImageApprovalModal';
 import { StoryboardBulkStreamUrlProvider } from './SceneBlockNode.mediaThumbnail';
 import { useStoryboardPageBulkStreamUrls } from './StoryboardPage.bulkStreamUrls';
 import { StoryboardPageFooter } from './StoryboardPageFooter';
@@ -169,7 +168,6 @@ export function StoryboardPage(): React.ReactElement {
     isPlanBlocking,
     isGenerationBlocking,
     isStep3Disabled,
-    principalImageModal,
   } = generationFlow;
   const {
     fileIds: bulkStreamFileIds,
@@ -506,20 +504,6 @@ export function StoryboardPage(): React.ReactElement {
             hasExistingBlocks={hasExistingReferenceBlocks}
             onConfirmCast={handleConfirmCast}
             onCancel={() => setCastModalOpen(false)}
-          />
-        )}
-
-        {/* Legacy principal-image approval — kept for drafts that started the old flow. */}
-        {principalImageModal.shouldRender && illustrationGeneration.reference && (
-          <PrincipalImageApprovalModal
-            draftId={safeDraftId}
-            reference={illustrationGeneration.reference}
-            isBusy={principalImageModal.isBusy}
-            error={principalImageModal.error}
-            onApprove={principalImageModal.onApprove}
-            onEdit={principalImageModal.onEdit}
-            onReplace={principalImageModal.onReplace}
-            onSetReferences={principalImageModal.onSetReferences}
           />
         )}
 

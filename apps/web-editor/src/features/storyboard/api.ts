@@ -242,49 +242,6 @@ export async function startStoryboardBlockIllustration(
   return res.json() as Promise<StoryboardIllustrationStatusResponse>;
 }
 
-export async function approveStoryboardPrincipalImage(
-  draftId: string,
-): Promise<StoryboardIllustrationStatusResponse> {
-  const res = await apiClient.post(`/storyboards/${draftId}/illustrations/principal-image/approve`, {});
-  if (!res.ok) {
-    throw new Error(`POST /storyboards/${draftId}/illustrations/principal-image/approve failed: ${res.status}`);
-  }
-  return res.json() as Promise<StoryboardIllustrationStatusResponse>;
-}
-
-export async function editStoryboardPrincipalImage(
-  draftId: string,
-  payload: { prompt: string; extraReferenceFileIds?: string[] },
-): Promise<StoryboardIllustrationStatusResponse> {
-  const res = await apiClient.post(`/storyboards/${draftId}/illustrations/principal-image/edit`, payload);
-  if (!res.ok) {
-    throw new Error(`POST /storyboards/${draftId}/illustrations/principal-image/edit failed: ${res.status}`);
-  }
-  return res.json() as Promise<StoryboardIllustrationStatusResponse>;
-}
-
-export async function replaceStoryboardPrincipalImage(
-  draftId: string,
-  fileId: string,
-): Promise<StoryboardIllustrationStatusResponse> {
-  const res = await apiClient.post(`/storyboards/${draftId}/illustrations/principal-image/replace`, { fileId });
-  if (!res.ok) {
-    throw new Error(`POST /storyboards/${draftId}/illustrations/principal-image/replace failed: ${res.status}`);
-  }
-  return res.json() as Promise<StoryboardIllustrationStatusResponse>;
-}
-
-export async function setStoryboardPrincipalImageReferences(
-  draftId: string,
-  fileIds: string[],
-): Promise<StoryboardIllustrationStatusResponse> {
-  const res = await apiClient.put(`/storyboards/${draftId}/illustrations/principal-image/references`, { fileIds });
-  if (!res.ok) {
-    throw new Error(`PUT /storyboards/${draftId}/illustrations/principal-image/references failed: ${res.status}`);
-  }
-  return res.json() as Promise<StoryboardIllustrationStatusResponse>;
-}
-
 export async function createProjectFromStoryboard(
   draftId: string,
   mode: StoryboardProjectAssemblyMode = 'images',

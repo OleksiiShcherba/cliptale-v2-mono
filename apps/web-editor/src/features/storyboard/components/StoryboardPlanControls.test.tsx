@@ -26,14 +26,6 @@ function renderIllustration(
     <StoryboardIllustrationControls
       status={status}
       phase={phase}
-      reference={{
-        status: 'ready',
-        jobId: 'ref-1',
-        outputFileId: 'file-1',
-        sourceReferenceFileIds: [],
-        approvalStatus: 'approved',
-        errorMessage: null,
-      }}
       error={null}
       isBlocking={false}
       onStart={vi.fn()}
@@ -51,14 +43,19 @@ describe('StoryboardPlanControls / StoryboardIllustrationControls — visual con
     expect(screen.getByLabelText('Illustrations complete')).toBeTruthy();
   });
 
-  it('keeps the reference preview while illustrations are still generating (non-goal: in-progress unchanged)', () => {
+  // AC-08 (T9): the canonical reference preview ("Ref" box) has been removed from
+  // StoryboardIllustrationControls — the principal-image approval step no longer exists.
+  // The following tests were asserting the preview was present in non-completed states;
+  // they are now replaced by the absence assertion to confirm the removal.
+
+  it('does not render a reference preview while illustrations are generating (AC-08)', () => {
     renderIllustration('running', 'scene');
-    expect(screen.getByTestId('storyboard-reference-preview')).toBeTruthy();
+    expect(screen.queryByTestId('storyboard-reference-preview')).toBeNull();
   });
 
-  it('keeps the reference preview on the failed reference state (non-goal: failed unchanged)', () => {
+  it('does not render a reference preview on the failed state (AC-08)', () => {
     renderIllustration('failed', 'reference');
-    expect(screen.getByTestId('storyboard-reference-preview')).toBeTruthy();
+    expect(screen.queryByTestId('storyboard-reference-preview')).toBeNull();
   });
 
   it('completed scene block and completed illustration block share the same shape (title + Done, no preview)', () => {
@@ -95,7 +92,7 @@ describe('StoryboardPlanControls — status menu mounting (AC-06, AC-09)', () =>
   it('renders the status menu on the completed illustration block for the owner', () => {
     render(
       <StoryboardIllustrationControls
-        status="completed" phase="scene" reference={null} error={null} isBlocking={false}
+        status="completed" phase="scene" error={null} isBlocking={false}
         onStart={vi.fn()} isOwner onRegenerate={vi.fn()} onHide={vi.fn()}
       />,
     );
@@ -129,7 +126,7 @@ describe('StoryboardPlanControls — status menu mounting (AC-06, AC-09)', () =>
     for (const status of ['idle', 'queued', 'running', 'failed'] as const) {
       const { unmount } = render(
         <StoryboardIllustrationControls
-          status={status} phase="scene" reference={null} error={status === 'failed' ? 'boom' : null}
+          status={status} phase="scene" error={status === 'failed' ? 'boom' : null}
           isBlocking={false} onStart={vi.fn()} isOwner onRegenerate={vi.fn()} onHide={vi.fn()}
         />,
       );
@@ -147,7 +144,7 @@ describe('StoryboardPlanControls — status menu mounting (AC-06, AC-09)', () =>
 
     render(
       <StoryboardIllustrationControls
-        status="completed" phase="scene" reference={null} error={null} isBlocking={false}
+        status="completed" phase="scene" error={null} isBlocking={false}
         onStart={vi.fn()} isOwner
       />,
     );

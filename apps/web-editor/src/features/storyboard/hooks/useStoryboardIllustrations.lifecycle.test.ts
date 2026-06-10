@@ -9,7 +9,6 @@ import {
   mockFetchStoryboardIllustrations,
   mockStartStoryboardBlockIllustration,
   mockStartStoryboardIllustrations,
-  reference,
   response,
   setupStoryboardIllustrationsTestLifecycle,
 } from './useStoryboardIllustrations.test-utils';
@@ -18,115 +17,14 @@ import { useStoryboardIllustrations } from './useStoryboardIllustrations';
 describe('useStoryboardIllustrations lifecycle edges', () => {
   setupStoryboardIllustrationsTestLifecycle();
 
-  it('does not auto-start scene work while the ready reference is pending approval', async () => {
-    mockFetchStoryboardIllustrations
-      .mockResolvedValueOnce(response())
-      .mockResolvedValueOnce(response({
-        reference: reference({
-          status: 'ready',
-          jobId: 'ref-job-1',
-          outputFileId: 'ref-file-ready',
-          approvalStatus: 'pending',
-        }),
-      }));
-    mockStartStoryboardIllustrations.mockResolvedValueOnce(response({
-      reference: reference({ status: 'queued', jobId: 'ref-job-1' }),
-    }));
+  // AC-08 (T9): tests for "does not auto-start scene work while the ready reference is pending
+  // approval" and "does not mark lifecycle completed while ready scenes wait on principal
+  // approval" have been retired — the principal-image approval step no longer exists.
 
-    const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, {}));
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-    await act(async () => {
-      await result.current.start();
-    });
-    emitIllustrationStatus(response({
-      reference: reference({
-        status: 'ready',
-        jobId: 'ref-job-1',
-        outputFileId: 'ref-file-ready',
-        approvalStatus: 'pending',
-      }),
-    }));
-
-    expect(mockStartStoryboardIllustrations).toHaveBeenCalledTimes(1);
-    expect(result.current.status).toBe('idle');
-    expect(result.current.phase).toBe('idle');
-    expect(result.current.isBlocking).toBe(false);
-  });
-
-  it('updates when realtime events report active reference work', async () => {
-    mockFetchStoryboardIllustrations
-      .mockResolvedValueOnce(response({
-        reference: reference({ status: 'queued', jobId: 'ref-job-1' }),
-      }))
-      .mockResolvedValueOnce(response({
-        reference: reference({ status: 'running', jobId: 'ref-job-1' }),
-      }));
-
-    const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, {}));
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    emitIllustrationStatus(response({
-      reference: reference({ status: 'running', jobId: 'ref-job-1' }),
-    }));
-    await waitFor(() => expect(result.current.status).toBe('running'));
-
-    emitIllustrationStatus(response({
-      reference: reference({
-        status: 'ready',
-        jobId: 'ref-job-1',
-        outputFileId: 'ref-file-ready',
-        approvalStatus: 'pending',
-      }),
-    }));
-    expect(result.current.reference).toMatchObject({
-      status: 'ready',
-      approvalStatus: 'pending',
-      outputFileId: 'ref-file-ready',
-    });
-  });
-
-  it('does not mark lifecycle completed while ready scenes wait on principal approval', async () => {
-    mockFetchStoryboardIllustrations.mockResolvedValueOnce(response({
-      reference: reference({
-        status: 'ready',
-        jobId: 'ref-job-1',
-        outputFileId: 'ref-file-1',
-        approvalStatus: 'pending',
-      }),
-      items: [item({ status: 'ready', jobId: 'scene-job-1', outputFileId: 'scene-file-1' })],
-    }));
-
-    const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, {}));
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    await waitFor(() => expect(result.current.status).not.toBe('completed'));
-    expect(result.current.phase).not.toBe('completed');
-  });
-
-  it('surfaces automatic scene-start failures after the reference is ready', async () => {
-    mockFetchStoryboardIllustrations
-      .mockResolvedValueOnce(response())
-      .mockResolvedValueOnce(response({
-        reference: reference({
-          status: 'ready',
-          jobId: 'ref-job-1',
-          outputFileId: 'ref-file-ready',
-          approvalStatus: 'approved',
-        }),
-      }));
+  it('surfaces scene-start failures when start() call fails', async () => {
+    // After AC-08, the principal-approval continuation no longer exists.
+    // Test that a direct start() failure surfaces correctly.
     mockStartStoryboardIllustrations
-      .mockResolvedValueOnce(response({
-        reference: reference({ status: 'queued', jobId: 'ref-job-1' }),
-      }))
       .mockRejectedValueOnce(new Error('scene start failed'));
 
     const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, {}));
@@ -137,28 +35,8 @@ describe('useStoryboardIllustrations lifecycle edges', () => {
     await act(async () => {
       await result.current.start();
     });
-    await act(async () => {
-      mockDraftSubscriptionHandlers.at(-1)?.onEvent({
-        type: 'storyboard.status.updated',
-        draftId: DRAFT_ID,
-        userId: 'user-1',
-        payload: {
-          resource: 'storyboardIllustrations',
-          status: response({
-            reference: reference({
-              status: 'ready',
-              jobId: 'ref-job-1',
-              outputFileId: 'ref-file-ready',
-              approvalStatus: 'approved',
-            }),
-          }),
-        },
-      });
-      await Promise.resolve();
-    });
 
-    await waitFor(() => expect(result.current.status).toBe('failed'));
-    expect(result.current.phase).toBe('reference');
+    expect(result.current.status).toBe('failed');
     expect(result.current.error).toBe('Could not start illustration generation.');
     expect(result.current.isBlocking).toBe(false);
   });
@@ -179,7 +57,6 @@ describe('useStoryboardIllustrations lifecycle edges', () => {
 
   it('derives failed lifecycle from failed scene status responses', async () => {
     const failedResponse = response({
-      reference: reference({ status: 'ready', jobId: 'ref-job-1', outputFileId: 'ref-file-1' }),
       items: [item({ status: 'failed', jobId: 'job-1', errorMessage: 'Provider failed' })],
     });
 
@@ -195,26 +72,8 @@ describe('useStoryboardIllustrations lifecycle edges', () => {
     expect(result.current.byBlockId.get('block-1')?.errorMessage).toBe('Provider failed');
   });
 
-  it('keeps reference phase when the canonical reference fails', async () => {
-    const failedResponse = response({
-      reference: reference({
-        status: 'failed',
-        jobId: 'ref-job-1',
-        errorMessage: 'Reference failed',
-      }),
-    });
-
-    const { result } = renderHook(() => useStoryboardIllustrations(DRAFT_ID, {}));
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-    emitIllustrationStatus(failedResponse);
-
-    await waitFor(() => expect(result.current.status).toBe('failed'));
-    expect(result.current.phase).toBe('reference');
-    expect(result.current.reference?.errorMessage).toBe('Reference failed');
-  });
+  // AC-08 (T9): "keeps reference phase when the canonical reference fails" retired —
+  // the reference field and 'reference' phase no longer exist after T9.
 
   it('surfaces start and retry request failures without keeping Step 3 blocked', async () => {
     mockStartStoryboardIllustrations.mockRejectedValueOnce(new Error('start failed'));
