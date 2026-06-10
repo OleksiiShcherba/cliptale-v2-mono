@@ -8,7 +8,6 @@ import type {
   StoryboardSceneIllustrationJob,
   StoryboardSceneIllustrationStatus,
 } from '@/repositories/storyboardSceneIllustration.repository.js';
-import * as referenceRepository from '@/repositories/storyboardIllustrationReference.repository.js';
 import type {
   StoryboardAutomationPhase,
   StoryboardIllustrationStatusItem,
@@ -71,68 +70,6 @@ export async function getLatestMappings(
   const mappings = await illustrationRepository.findLatestIllustrationJobsByDraftId(draftId);
   const refreshed = await Promise.all(mappings.map(refreshMapping));
   return new Map(refreshed.map((mapping) => [mapping.blockId, mapping]));
-}
-
-async function refreshReference(
-  reference: referenceRepository.StoryboardIllustrationReference,
-): Promise<referenceRepository.StoryboardIllustrationReference> {
-  if (reference.outputFileId && reference.status !== 'ready') {
-    await referenceRepository.setReferenceOutput({
-      aiJobId: reference.aiJobId,
-      outputFileId: reference.outputFileId,
-    });
-    return {
-      ...reference,
-      status: 'ready',
-      errorMessage: null,
-      approvalStatus: 'pending',
-      approvedAt: null,
-    };
-  }
-
-  if (reference.status === 'ready' && reference.outputFileId) return reference;
-
-  const aiJob = await aiGenerationJobRepository.getJobById(reference.aiJobId);
-  if (!aiJob) return reference;
-
-  const nextStatus = referenceRepository.toStoryboardIllustrationReferenceStatus(aiJob.status);
-  if (nextStatus === 'ready' && aiJob.outputFileId) {
-    await referenceRepository.setReferenceOutput({
-      aiJobId: reference.aiJobId,
-      outputFileId: aiJob.outputFileId,
-    });
-    return {
-      ...reference,
-      status: 'ready',
-      outputFileId: aiJob.outputFileId,
-      errorMessage: null,
-      approvalStatus: 'pending',
-      approvedAt: null,
-    };
-  }
-
-  if (nextStatus !== reference.status || aiJob.errorMessage !== reference.errorMessage) {
-    await referenceRepository.updateReferenceStatus({
-      aiJobId: reference.aiJobId,
-      status: nextStatus,
-      errorMessage: nextStatus === 'failed' ? aiJob.errorMessage : null,
-    });
-  }
-
-  return {
-    ...reference,
-    status: nextStatus,
-    approvalStatus: nextStatus === 'failed' ? 'pending' : reference.approvalStatus,
-    approvedAt: nextStatus === 'failed' ? null : reference.approvedAt,
-    errorMessage: nextStatus === 'failed' ? aiJob.errorMessage : null,
-  };
-}
-
-export async function getLatestReference(
-  draftId: string,
-): Promise<referenceRepository.StoryboardIllustrationReference | null> {
-  const reference = await referenceRepository.findLatestReferenceByDraftId(draftId);
-  return reference ? refreshReference(reference) : null;
 }
 
 export function toStatusResponse(

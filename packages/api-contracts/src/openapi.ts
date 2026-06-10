@@ -1191,7 +1191,12 @@ export const openApiSpec = {
           401: { description: 'Missing or invalid JWT.' },
           403: { description: 'Draft belongs to another user.' },
           404: { description: 'Draft not found.' },
-          422: { description: 'One or more selected scene blocks has no prompt.' },
+          422: {
+            description:
+              'Gate blocked: references.reference_gate_failed — ≥1 reference block is not ready; ' +
+              'references.unlinked_scenes — every block is ready but ≥1 scene has no linked reference; ' +
+              'or one or more selected scene blocks has no prompt.',
+          },
         },
         security: [{ bearerAuth: [] }],
       },
@@ -1396,139 +1401,6 @@ export const openApiSpec = {
           401: { description: 'Missing or invalid JWT.' },
           403: { description: 'Draft belongs to another user.' },
           404: { description: 'Draft not found.' },
-        },
-        security: [{ bearerAuth: [] }],
-      },
-    },
-    '/storyboards/{draftId}/illustrations/principal-image/approve': {
-      post: {
-        summary: 'Approve the active storyboard principal image',
-        description:
-          'Approves the ready canonical principal image for a draft. Scene illustration ' +
-          'jobs remain blocked until this approval exists.',
-        operationId: 'approveStoryboardPrincipalImage',
-        tags: ['storyboard'],
-        parameters: [
-          {
-            name: 'draftId',
-            in: 'path',
-            required: true,
-            schema: { type: 'string', format: 'uuid' },
-            description: 'UUID of the generation draft.',
-          },
-        ],
-        responses: {
-          200: {
-            description: 'Principal image approved. Returns current illustration status.',
-            content: {
-              'application/json': {
-                schema: { $ref: '#/components/schemas/StoryboardIllustrationStatusResponse' },
-              },
-            },
-          },
-          401: { description: 'Missing or invalid JWT.' },
-          403: { description: 'Draft belongs to another user.' },
-          404: { description: 'Draft not found.' },
-          422: { description: 'No ready principal image exists for this storyboard.' },
-        },
-        security: [{ bearerAuth: [] }],
-      },
-    },
-    '/storyboards/{draftId}/illustrations/principal-image/edit': {
-      post: {
-        summary: 'Regenerate the active storyboard principal image',
-        description:
-          'Starts a gpt-image-2 image-edit job from the current principal image plus optional extra references. Approval is cleared until the new image is approved.',
-        operationId: 'editStoryboardPrincipalImage',
-        tags: ['storyboard'],
-        parameters: [
-          {
-            name: 'draftId',
-            in: 'path',
-            required: true,
-            schema: { type: 'string', format: 'uuid' },
-            description: 'UUID of the generation draft.',
-          },
-        ],
-        requestBody: {
-          required: true,
-          content: { 'application/json': { schema: { $ref: '#/components/schemas/EditPrincipalImageBody' } } },
-        },
-        responses: {
-          202: {
-            description: 'Principal image edit queued.',
-            content: { 'application/json': { schema: { $ref: '#/components/schemas/StoryboardIllustrationStatusResponse' } } },
-          },
-          401: { description: 'Missing or invalid JWT.' },
-          403: { description: 'Draft belongs to another user.' },
-          404: { description: 'Draft not found.' },
-          422: { description: 'No ready principal image exists, or reference files are invalid.' },
-        },
-        security: [{ bearerAuth: [] }],
-      },
-    },
-    '/storyboards/{draftId}/illustrations/principal-image/replace': {
-      post: {
-        summary: 'Replace the active storyboard principal image',
-        description:
-          'Sets an existing ready draft-linked image file as the active principal image and clears approval.',
-        operationId: 'replaceStoryboardPrincipalImage',
-        tags: ['storyboard'],
-        parameters: [
-          {
-            name: 'draftId',
-            in: 'path',
-            required: true,
-            schema: { type: 'string', format: 'uuid' },
-            description: 'UUID of the generation draft.',
-          },
-        ],
-        requestBody: {
-          required: true,
-          content: { 'application/json': { schema: { $ref: '#/components/schemas/ReplacePrincipalImageBody' } } },
-        },
-        responses: {
-          200: {
-            description: 'Principal image replaced.',
-            content: { 'application/json': { schema: { $ref: '#/components/schemas/StoryboardIllustrationStatusResponse' } } },
-          },
-          401: { description: 'Missing or invalid JWT.' },
-          403: { description: 'Draft belongs to another user.' },
-          404: { description: 'Draft not found.' },
-          422: { description: 'Replacement file is missing, not ready, not an image, or not linked to this draft.' },
-        },
-        security: [{ bearerAuth: [] }],
-      },
-    },
-    '/storyboards/{draftId}/illustrations/principal-image/references': {
-      put: {
-        summary: 'Set extra storyboard principal image references',
-        description:
-          'Replaces the extra draft-linked image references used for future principal image regeneration and clears approval.',
-        operationId: 'setStoryboardPrincipalImageReferences',
-        tags: ['storyboard'],
-        parameters: [
-          {
-            name: 'draftId',
-            in: 'path',
-            required: true,
-            schema: { type: 'string', format: 'uuid' },
-            description: 'UUID of the generation draft.',
-          },
-        ],
-        requestBody: {
-          required: true,
-          content: { 'application/json': { schema: { $ref: '#/components/schemas/SetPrincipalImageReferencesBody' } } },
-        },
-        responses: {
-          200: {
-            description: 'Principal image references updated.',
-            content: { 'application/json': { schema: { $ref: '#/components/schemas/StoryboardIllustrationStatusResponse' } } },
-          },
-          401: { description: 'Missing or invalid JWT.' },
-          403: { description: 'Draft belongs to another user.' },
-          404: { description: 'Draft not found.' },
-          422: { description: 'One or more reference files are missing, not ready images, or not linked to this draft.' },
         },
         security: [{ bearerAuth: [] }],
       },
@@ -3023,8 +2895,6 @@ export const openApiSpec = {
             enum: [
               'idle',
               'planning',
-              'creating_principal_image',
-              'awaiting_principal_approval',
               'generating_scene_illustrations',
               'ready',
               'failed',
@@ -3044,12 +2914,11 @@ export const openApiSpec = {
       },
       StoryboardIllustrationStatusResponse: {
         type: 'object',
-        required: ['automation', 'reference', 'items'],
+        required: ['automation', 'items'],
         description:
-          'Backend-derived automation phase plus canonical reference and per-scene illustration statuses ordered by storyboard order.',
+          'Backend-derived automation phase plus per-scene illustration statuses ordered by storyboard order.',
         properties: {
           automation: { $ref: '#/components/schemas/StoryboardAutomationStatus' },
-          reference: { $ref: '#/components/schemas/StoryboardIllustrationReferenceStatus' },
           items: {
             type: 'array',
             items: { $ref: '#/components/schemas/StoryboardIllustrationStatusItem' },
@@ -3057,16 +2926,8 @@ export const openApiSpec = {
         },
         example: {
           automation: {
-            phase: 'creating_principal_image',
+            phase: 'generating_scene_illustrations',
             planningJobId: '33333333-3333-4333-8333-333333333333',
-            errorMessage: null,
-          },
-          reference: {
-            status: 'running',
-            jobId: '11111111-1111-4111-8111-111111111111',
-            outputFileId: null,
-            sourceReferenceFileIds: [],
-            approvalStatus: 'pending',
             errorMessage: null,
           },
           items: [

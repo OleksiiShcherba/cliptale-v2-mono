@@ -135,39 +135,6 @@ router.post(
   storyboardIllustrationController.startStoryboardIllustrations,
 );
 
-// POST /storyboards/:draftId/illustrations/principal-image/approve
-// Approves the ready principal image so scene illustration jobs may start.
-router.post(
-  '/storyboards/:draftId/illustrations/principal-image/approve',
-  authMiddleware,
-  aclMiddleware('editor'),
-  storyboardIllustrationController.approveStoryboardPrincipalImage,
-);
-
-router.post(
-  '/storyboards/:draftId/illustrations/principal-image/edit',
-  authMiddleware,
-  aclMiddleware('editor'),
-  validateBody(storyboardIllustrationController.editPrincipalImageBodySchema),
-  storyboardIllustrationController.editStoryboardPrincipalImage,
-);
-
-router.post(
-  '/storyboards/:draftId/illustrations/principal-image/replace',
-  authMiddleware,
-  aclMiddleware('editor'),
-  validateBody(storyboardIllustrationController.replacePrincipalImageBodySchema),
-  storyboardIllustrationController.replaceStoryboardPrincipalImage,
-);
-
-router.put(
-  '/storyboards/:draftId/illustrations/principal-image/references',
-  authMiddleware,
-  aclMiddleware('editor'),
-  validateBody(storyboardIllustrationController.setPrincipalImageReferencesBodySchema),
-  storyboardIllustrationController.setStoryboardPrincipalImageReferences,
-);
-
 // POST /storyboards/:draftId/blocks/:blockId/illustration
 // Retries or starts one scene illustration job.
 router.post(

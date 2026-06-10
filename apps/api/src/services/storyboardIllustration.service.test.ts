@@ -69,8 +69,6 @@ import {
   listStoryboardIllustrations,
   startStoryboardBlockIllustration,
   startStoryboardIllustrations,
-  approveStoryboardPrincipalImage,
-  editStoryboardPrincipalImage,
 } from './storyboardIllustration.service.js';
 
 const USER_ID = 'user-1';
@@ -574,41 +572,6 @@ describe('storyboardIllustration.service', () => {
       aiJobId: 'job-1',
       outputFileId: 'file-1',
     });
-  });
-
-  it('rejects approving when no ready principal image exists', async () => {
-    mockReferenceRepo.findLatestReferenceByDraftId.mockResolvedValue(makeReference({
-      status: 'queued',
-      outputFileId: null,
-      approvalStatus: 'pending',
-      approvedAt: null,
-    }));
-
-    await expect(approveStoryboardPrincipalImage(USER_ID, DRAFT_ID)).rejects.toThrow(
-      UnprocessableEntityError,
-    );
-    expect(mockReferenceRepo.approveReference).not.toHaveBeenCalled();
-  });
-
-  it('does not deactivate the active principal image when edit enqueueing fails', async () => {
-    const error = new Error('queue unavailable');
-    mockStoryboardOpenAIQueue.enqueueStoryboardOpenAIImage.mockRejectedValueOnce(error);
-
-    await expect(editStoryboardPrincipalImage({
-      userId: USER_ID,
-      draftId: DRAFT_ID,
-      prompt: 'Make the principal image warmer',
-      extraReferenceFileIds: [],
-    })).rejects.toThrow(error);
-
-    expect(mockAiJobRepo.setDraftId).toHaveBeenCalledWith(expect.any(String), DRAFT_ID);
-    expect(mockAiJobRepo.updateJobStatus).toHaveBeenCalledWith(
-      expect.any(String),
-      'failed',
-      'queue unavailable',
-    );
-    expect(mockReferenceRepo.deactivateActiveReference).not.toHaveBeenCalled();
-    expect(mockReferenceRepo.createReferenceMapping).not.toHaveBeenCalled();
   });
 
   it('self-heals stale scene mappings that already have an output file', async () => {

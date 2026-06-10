@@ -3,25 +3,19 @@ import { randomUUID } from 'node:crypto';
 import type { DraftAspectRatio } from '@ai-video-editor/project-schema';
 
 import * as aiGenerationJobRepository from '@/repositories/aiGenerationJob.repository.js';
-import type { GenerationDraft } from '@/repositories/generationDraft.repository.js';
 import type { StoryboardBlock } from '@/repositories/storyboard.repository.js';
 import * as illustrationRepository from '@/repositories/storyboardSceneIllustration.repository.js';
-import * as referenceRepository from '@/repositories/storyboardIllustrationReference.repository.js';
 import { enqueueStoryboardOpenAIImage } from '@/queues/jobs/enqueue-storyboard-openai-image.js';
 import {
   STORYBOARD_OPENAI_IMAGE_MODEL_ID,
   getOpenAIImageSize,
 } from '@/services/storyboardIllustration.config.js';
 import { publishStoryboardIllustrationFailure } from '@/services/storyboardIllustration.realtime.js';
-import { getLatestReference } from '@/services/storyboardIllustration.status.js';
 import {
   buildPrompt,
-  buildReferencePrompt,
-  resolveDraftImageReferenceFileIds,
 } from '@/services/storyboardIllustration.validation.js';
 
 class ActiveIllustrationJobExistsError extends Error {}
-class ActiveReferenceJobExistsError extends Error {}
 
 export async function createIllustrationJob(params: {
   userId: string;
@@ -103,91 +97,3 @@ export async function createIllustrationJob(params: {
   }
 }
 
-async function createReferenceJob(params: {
-  userId: string;
-  draft: GenerationDraft;
-  aspectRatio: DraftAspectRatio;
-}): Promise<void> {
-  const sourceReferenceFileIds = await resolveDraftImageReferenceFileIds(params.draft);
-  const prompt = buildReferencePrompt(params.draft);
-  const capability = sourceReferenceFileIds.length > 0 ? 'image_edit' : 'text_to_image';
-  const jobId = randomUUID();
-  const size = getOpenAIImageSize(params.aspectRatio);
-
-  await aiGenerationJobRepository.createJob({
-    jobId,
-    userId: params.userId,
-    modelId: STORYBOARD_OPENAI_IMAGE_MODEL_ID,
-    capability,
-    prompt,
-    options: {
-      kind: 'style_reference',
-      sourceReferenceFileIds,
-      size,
-    },
-  });
-  await aiGenerationJobRepository.setDraftId(jobId, params.draft.id);
-
-  try {
-    const inserted = await referenceRepository.createReferenceMapping({
-      id: randomUUID(),
-      draftId: params.draft.id,
-      aiJobId: jobId,
-      sourceReferenceFileIds,
-      status: 'queued',
-    });
-    if (!inserted) throw new ActiveReferenceJobExistsError();
-
-    await enqueueStoryboardOpenAIImage({
-      jobId,
-      userId: params.userId,
-      draftId: params.draft.id,
-      kind: 'style_reference',
-      prompt,
-      referenceFileIds: sourceReferenceFileIds,
-      size,
-    });
-  } catch (error) {
-    if (error instanceof ActiveReferenceJobExistsError) {
-      await aiGenerationJobRepository.updateJobStatus(jobId, 'failed', 'Active storyboard reference already exists');
-      return;
-    }
-    const message = error instanceof Error ? error.message : 'Failed to enqueue storyboard reference job';
-    await aiGenerationJobRepository.updateJobStatus(jobId, 'failed', message);
-    await referenceRepository.updateReferenceStatus({
-      aiJobId: jobId,
-      status: 'failed',
-      errorMessage: message,
-    });
-    await publishStoryboardIllustrationFailure({
-      userId: params.userId,
-      draftId: params.draft.id,
-      jobId,
-      errorMessage: message,
-    });
-    throw error;
-  }
-}
-
-export async function ensureReadyReference(params: {
-  userId: string;
-  draft: GenerationDraft;
-  aspectRatio: DraftAspectRatio;
-}): Promise<referenceRepository.StoryboardIllustrationReference | null> {
-  const latestReference = await getLatestReference(params.draft.id);
-  if (
-    latestReference &&
-    (latestReference.status === 'queued' ||
-      latestReference.status === 'running' ||
-      latestReference.status === 'ready')
-  ) {
-    return latestReference.status === 'ready' &&
-      latestReference.outputFileId &&
-      latestReference.approvalStatus === 'approved'
-      ? latestReference
-      : null;
-  }
-
-  await createReferenceJob(params);
-  return null;
-}

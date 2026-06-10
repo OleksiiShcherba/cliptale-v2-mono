@@ -216,43 +216,93 @@ describe('openApiSpec storyboard paths', () => {
       expect(responses[422]).toBeDefined();
     });
 
-    it('defines POST /storyboards/{draftId}/illustrations/principal-image/approve', () => {
-      const op = paths['/storyboards/{draftId}/illustrations/principal-image/approve']?.['post'] as Record<
-        string,
-        unknown
-      >;
-      expect(op.operationId).toBe('approveStoryboardPrincipalImage');
-      expect(op.description).toContain('blocked until this approval exists');
-      const responses = op.responses as Record<string, unknown>;
-      const ok = responses[200] as Record<string, unknown>;
-      const schema = (
-        (ok.content as Record<string, unknown>)['application/json'] as Record<string, unknown>
-      ).schema as Record<string, unknown>;
-      expect(schema.$ref).toBe('#/components/schemas/StoryboardIllustrationStatusResponse');
-      expect(responses[422]).toBeDefined();
+  });
+
+  // ── T6 (AC-08 / AC-02 / AC-04b): principal-image routes removed + contract updated ────────
+
+  describe('T6 — principal-image routes absent from openapi.ts (AC-08)', () => {
+    it('does not declare POST .../principal-image/approve', () => {
+      const path = paths['/storyboards/{draftId}/illustrations/principal-image/approve'];
+      expect(path).toBeUndefined();
     });
 
-    it('defines principal image edit, replace, and reference endpoints', () => {
-      const edit = paths['/storyboards/{draftId}/illustrations/principal-image/edit']?.['post'] as Record<
-        string,
-        unknown
-      >;
-      expect(edit.operationId).toBe('editStoryboardPrincipalImage');
-      expect(edit.requestBody).toBeDefined();
+    it('does not declare POST .../principal-image/edit', () => {
+      const path = paths['/storyboards/{draftId}/illustrations/principal-image/edit'];
+      expect(path).toBeUndefined();
+    });
 
-      const replace = paths['/storyboards/{draftId}/illustrations/principal-image/replace']?.['post'] as Record<
-        string,
-        unknown
-      >;
-      expect(replace.operationId).toBe('replaceStoryboardPrincipalImage');
-      expect(replace.requestBody).toBeDefined();
+    it('does not declare POST .../principal-image/replace', () => {
+      const path = paths['/storyboards/{draftId}/illustrations/principal-image/replace'];
+      expect(path).toBeUndefined();
+    });
 
-      const refs = paths['/storyboards/{draftId}/illustrations/principal-image/references']?.['put'] as Record<
-        string,
-        unknown
-      >;
-      expect(refs.operationId).toBe('setStoryboardPrincipalImageReferences');
-      expect(refs.requestBody).toBeDefined();
+    it('does not declare PUT .../principal-image/references', () => {
+      const path = paths['/storyboards/{draftId}/illustrations/principal-image/references'];
+      expect(path).toBeUndefined();
+    });
+  });
+
+  describe('T6 — StoryboardIllustrationStatusResponse has no reference field (AC-08)', () => {
+    const schemas = openApiSpec.components?.schemas as unknown as Record<string, Record<string, unknown>>;
+    const statusSchema = schemas?.['StoryboardIllustrationStatusResponse'] as Record<string, unknown>;
+
+    it('StoryboardIllustrationStatusResponse exists', () => {
+      expect(statusSchema).toBeDefined();
+    });
+
+    it('does not list reference in required', () => {
+      const required = statusSchema?.required as string[] | undefined;
+      expect(required).not.toContain('reference');
+    });
+
+    it('does not have a reference property', () => {
+      const properties = statusSchema?.properties as Record<string, unknown> | undefined;
+      expect(properties).not.toHaveProperty('reference');
+    });
+  });
+
+  describe('T6 — StoryboardAutomationStatus.phase has no principal-image values (AC-08)', () => {
+    const schemas = openApiSpec.components?.schemas as unknown as Record<string, Record<string, unknown>>;
+    const automationSchema = schemas?.['StoryboardAutomationStatus'] as Record<string, unknown>;
+    const phaseEnum = (
+      (automationSchema?.properties as Record<string, Record<string, unknown>>)?.['phase']?.enum
+    ) as string[] | undefined;
+
+    it('StoryboardAutomationStatus exists', () => {
+      expect(automationSchema).toBeDefined();
+    });
+
+    it('phase enum does not contain creating_principal_image', () => {
+      expect(phaseEnum).not.toContain('creating_principal_image');
+    });
+
+    it('phase enum does not contain awaiting_principal_approval', () => {
+      expect(phaseEnum).not.toContain('awaiting_principal_approval');
+    });
+  });
+
+  describe('T6 — POST /storyboards/{draftId}/illustrations declares 422 reference_gate_failed and unlinked_scenes (AC-02 / AC-04b)', () => {
+    const op = paths['/storyboards/{draftId}/illustrations']?.['post'] as Record<string, unknown>;
+
+    it('POST /storyboards/{draftId}/illustrations exists', () => {
+      expect(op).toBeDefined();
+    });
+
+    it('has a 422 response', () => {
+      const responses = op?.responses as Record<string, unknown>;
+      expect(responses?.[422]).toBeDefined();
+    });
+
+    it('422 description mentions references.reference_gate_failed', () => {
+      const responses = op?.responses as Record<string, unknown>;
+      const desc422 = (responses?.[422] as Record<string, unknown>)?.description as string | undefined;
+      expect(desc422).toContain('reference_gate_failed');
+    });
+
+    it('422 description mentions references.unlinked_scenes', () => {
+      const responses = op?.responses as Record<string, unknown>;
+      const desc422 = (responses?.[422] as Record<string, unknown>)?.description as string | undefined;
+      expect(desc422).toContain('unlinked_scenes');
     });
   });
 

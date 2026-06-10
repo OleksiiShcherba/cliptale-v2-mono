@@ -391,15 +391,13 @@ describe('storyboard illustration endpoints', () => {
     ]);
   });
 
-  it('principal image approval endpoint still responds (T6 removes route)', async () => {
-    // The approve endpoint exists until T6. Ensure it returns 200 with no `reference` field.
-    const approved = await request(app)
+  // T6 (AC-08): all four principal-image routes are removed; Express must answer 404.
+  it('POST principal-image/approve returns 404 (route removed by T6)', async () => {
+    const res = await request(app)
       .post(`/storyboards/${draftA}/illustrations/principal-image/approve`)
       .set('Authorization', authA())
       .send({});
-
-    expect(approved.status, JSON.stringify(approved.body)).toBe(200);
-    expect(approved.body).not.toHaveProperty('reference');
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
   });
 
   it('starts one scene illustration and stores the draft-scoped queued mapping', async () => {
@@ -592,114 +590,30 @@ describe('storyboard illustration endpoints', () => {
     expect(missingPrompt.status).toBe(422);
   });
 
-  it('rejects invalid principal image modal inputs', async () => {
-    const invalidReplace = await request(app)
+  // T6 (AC-08): principal-image/replace is removed — any call (even bad input) returns 404.
+  it('POST principal-image/replace returns 404 (route removed by T6)', async () => {
+    const res = await request(app)
       .post(`/storyboards/${draftB}/illustrations/principal-image/replace`)
       .set('Authorization', authB())
       .send({ fileId: 'not-a-uuid' });
-    expect(invalidReplace.status).toBe(400);
-
-    const missingReferences = await request(app)
-      .put(`/storyboards/${draftB}/illustrations/principal-image/references`)
-      .set('Authorization', authB())
-      .send({});
-    expect(missingReferences.status).toBe(400);
-
-    const invalidReferences = await request(app)
-      .put(`/storyboards/${draftB}/illustrations/principal-image/references`)
-      .set('Authorization', authB())
-      .send({ fileIds: ['not-a-uuid'] });
-    expect(invalidReferences.status).toBe(400);
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
   });
 
-  it('rejects principal image modal files that are not ready draft-owned images', async () => {
-    const nonImageId = await seedDraftFile({
-      draftId: draftB,
-      userId: userB,
-      name: 'not-an-image.mp3',
-      kind: 'audio',
-    });
-    const processingImageId = await seedDraftFile({
-      draftId: draftB,
-      userId: userB,
-      name: 'processing.png',
-      status: 'processing',
-    });
-    const otherDraftImageId = await seedReadyDraftImage(draftA, userA, 'other-draft.png');
-    const otherUserImageId = await seedDraftFile({
-      draftId: draftB,
-      userId: userA,
-      name: 'other-user.png',
-    });
-    const softDeletedPivotImageId = await seedDraftFile({
-      draftId: draftB,
-      userId: userB,
-      name: 'soft-deleted-pivot.png',
-      pivotDeleted: true,
-    });
-    const softDeletedFileId = await seedDraftFile({
-      draftId: draftB,
-      userId: userB,
-      name: 'soft-deleted-file.png',
-      fileDeleted: true,
-    });
-
-    for (const fileId of [
-      nonImageId,
-      processingImageId,
-      otherDraftImageId,
-      otherUserImageId,
-      softDeletedPivotImageId,
-      softDeletedFileId,
-    ]) {
-      const res = await request(app)
-        .post(`/storyboards/${draftB}/illustrations/principal-image/replace`)
-        .set('Authorization', authB())
-        .send({ fileId });
-      expect(res.status, `${fileId}: ${JSON.stringify(res.body)}`).toBe(422);
-    }
-  });
-
-  it('updates, replaces, and edits principal image references through modal APIs (T6 removes routes)', async () => {
-    // T5: response no longer carries a `reference` field — just verify endpoints return success.
-    const extraFileId = await seedReadyDraftImage(draftB, userB, 'extra-reference.png');
-    const replacementFileId = await seedReadyDraftImage(draftB, userB, 'replacement-principal.png');
-
-    await conn.execute(
-      `UPDATE storyboard_scene_illustration_jobs
-          SET active_lock = NULL
-        WHERE draft_id = ?`,
-      [draftB],
-    );
-
-    const refs = await request(app)
+  // T6 (AC-08): principal-image/references (PUT) is removed — any call returns 404.
+  it('PUT principal-image/references returns 404 (route removed by T6)', async () => {
+    const res = await request(app)
       .put(`/storyboards/${draftB}/illustrations/principal-image/references`)
       .set('Authorization', authB())
-      .send({ fileIds: [extraFileId] });
-    expect(refs.status, JSON.stringify(refs.body)).toBe(200);
-    expect(refs.body).not.toHaveProperty('reference');
+      .send({ fileIds: [] });
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
+  });
 
-    const replace = await request(app)
-      .post(`/storyboards/${draftB}/illustrations/principal-image/replace`)
-      .set('Authorization', authB())
-      .send({ fileId: replacementFileId });
-    expect(replace.status, JSON.stringify(replace.body)).toBe(200);
-    expect(replace.body).not.toHaveProperty('reference');
-
-    const edit = await request(app)
+  // T6 (AC-08): principal-image/edit is removed — any call returns 404.
+  it('POST principal-image/edit returns 404 (route removed by T6)', async () => {
+    const res = await request(app)
       .post(`/storyboards/${draftB}/illustrations/principal-image/edit`)
       .set('Authorization', authB())
-      .send({
-        prompt: 'Make the principal image brighter.',
-        extraReferenceFileIds: [extraFileId],
-      });
-    expect(edit.status, JSON.stringify(edit.body)).toBe(202);
-    expect(edit.body).not.toHaveProperty('reference');
-    // Grab the job ID for cleanup from the AI job that was created.
-    const [editJobs] = await conn.query<mysql.RowDataPacket[]>(
-      `SELECT job_id FROM ai_generation_jobs WHERE draft_id = ? ORDER BY created_at DESC LIMIT 1`,
-      [draftB],
-    );
-    if (editJobs[0]) cleanupJobs.push(editJobs[0]['job_id'] as string);
+      .send({ prompt: 'Make it brighter.' });
+    expect(res.status, JSON.stringify(res.body)).toBe(404);
   });
 });

@@ -136,22 +136,6 @@ export class SceneNotInDraftError extends GateError {
 }
 
 /**
- * Star gate failed — one or more reference blocks lack a starred result.
- *
- * Raised by storyboardIllustration.service assertFullSetStarGate (AC-08) and
- * assertSceneStarGate (AC-08b). The `details.blocks` array names every offending
- * block with its id and name so the client can surface actionable information
- * (AC-04 / openapi.yaml 422 bodies for startStoryboardIllustrations and
- * startStoryboardBlockIllustration).
- */
-export class StarGateFailedError extends GateError {
-  constructor(message: string, blocks: Array<{ blockId: string; name: string }>) {
-    super(message, 'references.star_gate_failed', { blocks });
-    this.name = 'StarGateFailedError';
-  }
-}
-
-/**
  * One or more reference blocks have not finished generating (AC-02 / AC-03b).
  *
  * Raised by the scene-generation-reference-gate service when a full-draft or
