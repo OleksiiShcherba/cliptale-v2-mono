@@ -399,3 +399,106 @@ export async function updateReferenceBlockWindowStatus(params: {
   );
   return result.affectedRows;
 }
+
+// ── Readiness reads (Q1–Q3, scene-generation-reference-gate) ─────────────────
+
+type ReadinessRow = RowDataPacket & {
+  id: string;
+  name: string;
+  cast_type: 'character' | 'environment';
+};
+
+type ReferencelessSceneRow = RowDataPacket & {
+  id: string;
+  name: string | null;
+};
+
+/**
+ * Q1 — Full-set readiness for a draft (AC-01/02/07).
+ * A block is ready iff flow_id IS NOT NULL AND ≥1 non-deleted flow_files row exists.
+ * window_status is intentionally excluded from the predicate (ADR-0002).
+ */
+export async function getDraftReadiness(params: { draftId: string }): Promise<{
+  isReady: boolean;
+  blockingBlocks: Array<{ id: string; name: string; castType: 'character' | 'environment' }>;
+}> {
+  const [rows] = await pool.execute<ReadinessRow[]>(
+    `SELECT b.id, b.name, b.cast_type
+       FROM storyboard_reference_blocks b
+      WHERE b.draft_id = ?
+        AND NOT (
+          b.flow_id IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM flow_files ff
+             WHERE ff.flow_id = b.flow_id
+               AND ff.deleted_at IS NULL
+          )
+        )
+      ORDER BY b.sort_order ASC`,
+    [params.draftId],
+  );
+
+  return {
+    isReady: rows.length === 0,
+    blockingBlocks: rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      castType: r.cast_type,
+    })),
+  };
+}
+
+/**
+ * Q2 — Scene-scoped readiness (AC-03/03b).
+ * Only reference blocks linked to the given scene are evaluated.
+ * Same readiness predicate as Q1.
+ */
+export async function getSceneReadiness(params: { sceneBlockId: string; draftId: string }): Promise<{
+  isReady: boolean;
+  blockingBlocks: Array<{ id: string; name: string; castType: 'character' | 'environment' }>;
+}> {
+  const [rows] = await pool.execute<ReadinessRow[]>(
+    `SELECT b.id, b.name, b.cast_type
+       FROM storyboard_reference_scene_links l
+       JOIN storyboard_reference_blocks b ON b.id = l.reference_block_id
+      WHERE l.scene_block_id = ?
+        AND b.draft_id = ?
+        AND NOT (
+          b.flow_id IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM flow_files ff
+             WHERE ff.flow_id = b.flow_id
+               AND ff.deleted_at IS NULL
+          )
+        )`,
+    [params.sceneBlockId, params.draftId],
+  );
+
+  return {
+    isReady: rows.length === 0,
+    blockingBlocks: rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      castType: r.cast_type,
+    })),
+  };
+}
+
+/**
+ * Q3 — Reference-less scenes for a draft (AC-04b).
+ * Returns all scene-type storyboard_blocks that have no entry in
+ * storyboard_reference_scene_links (anti-join).
+ */
+export async function getReferencelessScenes(params: { draftId: string }): Promise<Array<{ id: string; name: string | null }>> {
+  const [rows] = await pool.execute<ReferencelessSceneRow[]>(
+    `SELECT s.id, s.name
+       FROM storyboard_blocks s
+       LEFT JOIN storyboard_reference_scene_links l ON l.scene_block_id = s.id
+      WHERE s.draft_id = ?
+        AND s.block_type = 'scene'
+        AND l.scene_block_id IS NULL`,
+    [params.draftId],
+  );
+
+  return rows.map((r) => ({ id: r.id, name: r.name }));
+}
