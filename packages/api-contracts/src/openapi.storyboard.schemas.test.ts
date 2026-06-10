@@ -212,18 +212,10 @@ describe('openApiSpec storyboard component schemas', () => {
     expect(items.$ref).toBe('#/components/schemas/StoryboardVideoStatusItem');
   });
 
-  it('defines principal image action body schemas', () => {
-    const edit = schemas['EditPrincipalImageBody'] as Record<string, unknown>;
-    expect(edit.required).toEqual(['prompt']);
-    const editProps = edit.properties as Record<string, Record<string, unknown>>;
-    expect(editProps.prompt?.maxLength).toBe(4000);
-    expect(editProps.extraReferenceFileIds?.type).toBe('array');
-
-    const replace = schemas['ReplacePrincipalImageBody'] as Record<string, unknown>;
-    expect(replace.required).toEqual(['fileId']);
-
-    const refs = schemas['SetPrincipalImageReferencesBody'] as Record<string, unknown>;
-    expect(refs.required).toEqual(['fileIds']);
+  it('does not define the retired principal-image body schemas (review F3, ADR-0004)', () => {
+    expect(schemas['EditPrincipalImageBody']).toBeUndefined();
+    expect(schemas['ReplacePrincipalImageBody']).toBeUndefined();
+    expect(schemas['SetPrincipalImageReferencesBody']).toBeUndefined();
   });
 
   it('defines SaveStoryboardBody schema with blocks, edges, and optional musicBlocks', () => {

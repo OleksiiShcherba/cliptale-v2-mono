@@ -3012,41 +3012,6 @@ export const openApiSpec = {
           },
         },
       },
-      EditPrincipalImageBody: {
-        type: 'object',
-        required: ['prompt'],
-        properties: {
-          prompt: {
-            type: 'string',
-            minLength: 1,
-            maxLength: 4000,
-            description: 'User instruction describing how to change the active principal image.',
-          },
-          extraReferenceFileIds: {
-            type: 'array',
-            items: { type: 'string', format: 'uuid' },
-            description: 'Additional ready draft-linked image files to use for this regeneration.',
-          },
-        },
-      },
-      ReplacePrincipalImageBody: {
-        type: 'object',
-        required: ['fileId'],
-        properties: {
-          fileId: { type: 'string', format: 'uuid' },
-        },
-      },
-      SetPrincipalImageReferencesBody: {
-        type: 'object',
-        required: ['fileIds'],
-        properties: {
-          fileIds: {
-            type: 'array',
-            items: { type: 'string', format: 'uuid' },
-            description: 'Ready draft-linked image files to store as extra principal-image references.',
-          },
-        },
-      },
       BlockInsert: {
         type: 'object',
         required: [
