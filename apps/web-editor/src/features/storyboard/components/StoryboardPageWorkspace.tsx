@@ -200,7 +200,8 @@ export function StoryboardPageWorkspace({
           <StoryboardIllustrationControls
             status={illustrationGeneration.status}
             phase={illustrationGeneration.phase}
-            error={illustrationGeneration.error}
+            error={illustrationGeneration.gateError ? null : illustrationGeneration.error}
+            hasStructuredGateError={illustrationGeneration.gateError !== null}
             isBlocking={illustrationGeneration.isBlocking || isPlanBlocking}
             onStart={() => { void illustrationGeneration.start(); }}
             isOwner={isOwner}

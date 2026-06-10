@@ -6,7 +6,7 @@ import type { Edge as FlowEdge, Node, NodeMouseHandler } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { fetchDraft } from '@/features/generate-wizard/api';
-import { startCastExtraction, getLatestCastExtraction, confirmCast, startStoryboardIllustrations, retryReferenceBlockGeneration } from '@/features/storyboard/api';
+import { startCastExtraction, getLatestCastExtraction, confirmCast, retryReferenceBlockGeneration } from '@/features/storyboard/api';
 import { useAddBlock } from '@/features/storyboard/hooks/useAddBlock';
 import { useAddMusicBlock } from '@/features/storyboard/hooks/useAddMusicBlock';
 import { useHandleAddFromLibrary } from '@/features/storyboard/hooks/useHandleAddFromLibrary';
@@ -414,11 +414,15 @@ export function StoryboardPage(): React.ReactElement {
     if (effectiveIsStep3Disabled) return;
     setIllustrationGateError(null);
 
-    // When reference blocks are present and illustrations haven't started,
-    // clicking "Next" starts them. This enforces the star gate via the API (AC-08 / AC-09).
-    if (illustrationGeneration.status === 'idle' && hasReferenceBlocks) {
-      void startStoryboardIllustrations(safeDraftId)
-        .then(() => { /* generation started — hook will poll and update */ })
+    // When reference blocks are present and illustrations haven't started (or a
+    // gate error is showing), clicking "Next" starts/retries them.  Route through
+    // the hook so gateError is set for structured 422 responses (AC-02) and cleared
+    // on success (AC-01) — the hook catches internally.
+    const shouldStartIllustrations =
+      hasReferenceBlocks &&
+      (illustrationGeneration.status === 'idle' || illustrationGeneration.gateError !== null);
+    if (shouldStartIllustrations) {
+      void illustrationGeneration.start()
         .catch((err: unknown) => {
           setIllustrationGateError(err instanceof Error ? err.message : String(err));
         });
@@ -426,7 +430,7 @@ export function StoryboardPage(): React.ReactElement {
     }
 
     openStep3Modal();
-  }, [isMusicBlockingStep3, effectiveIsStep3Disabled, illustrationGeneration.status, hasReferenceBlocks, safeDraftId, openStep3Modal]);
+  }, [isMusicBlockingStep3, effectiveIsStep3Disabled, illustrationGeneration.status, illustrationGeneration.gateError, illustrationGeneration.start, hasReferenceBlocks, openStep3Modal]);
 
   return (
     <div style={s.page} data-testid="storyboard-page">

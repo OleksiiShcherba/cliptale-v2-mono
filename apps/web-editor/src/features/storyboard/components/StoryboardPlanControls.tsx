@@ -188,6 +188,12 @@ interface StoryboardIllustrationControlsProps extends StoryboardStatusMenuWiring
   onStart: () => void;
   /** When the sibling plan block is hidden, reflow up into its (top) slot (AC-02). */
   reflowToTop?: boolean;
+  /**
+   * When true, a structured gate error is being shown elsewhere in the page (e.g.
+   * ReferenceGateMessage).  Suppresses the inline role="alert" so there is only one
+   * alert region in the document (AC-02).
+   */
+  hasStructuredGateError?: boolean;
 }
 
 export function StoryboardIllustrationControls({
@@ -200,11 +206,15 @@ export function StoryboardIllustrationControls({
   onRegenerate,
   onHide,
   reflowToTop = false,
+  hasStructuredGateError = false,
 }: StoryboardIllustrationControlsProps): React.ReactElement {
   const copy = getStoryboardIllustrationCopy({ status, phase });
   const isSceneFailure = status === 'failed' && phase === 'scene';
   const isReferenceFailure = status === 'failed' && phase === 'reference';
   const isDisabled = isBlocking || isSceneFailure;
+  // Suppress the inline alert role when a structured gate error message is shown
+  // elsewhere in the page — prevents duplicate role="alert" elements (AC-02).
+  const suppressInlineAlert = status === 'failed' && hasStructuredGateError;
 
   return (
     <div
@@ -215,7 +225,7 @@ export function StoryboardIllustrationControls({
         <span style={s.controlTitle}>{copy.title}</span>
         <span
           style={status === 'failed' ? s.controlError : s.controlMeta}
-          role={status === 'failed' ? 'alert' : undefined}
+          role={status === 'failed' && !suppressInlineAlert ? 'alert' : undefined}
         >
           {status === 'failed' ? (error ?? copy.meta) : copy.meta}
         </span>
