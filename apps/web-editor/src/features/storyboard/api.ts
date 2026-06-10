@@ -45,6 +45,30 @@ export type StartStoryboardPlanResponse = {
   status: 'queued' | 'running';
 };
 
+// ── Structured gate error (T10 / AC-02 / AC-03b / AC-04b) ─────────────────────
+
+export interface GateErrorDetails {
+  blocks?: Array<{ blockId: string; name: string }>;
+  scenes?: Array<{ blockId: string; name: string | null }>;
+}
+
+/**
+ * Thrown by startStoryboardIllustrations / startStoryboardBlockIllustration when
+ * the server responds 422 with a structured gate-failure body.
+ * Carries `code` and `details` so callers can render named blocks / scenes.
+ */
+export class GateError extends Error {
+  code: string;
+  details: GateErrorDetails;
+
+  constructor(message: string, code: string, details: GateErrorDetails) {
+    super(message);
+    this.name = 'GateError';
+    this.code = code;
+    this.details = details;
+  }
+}
+
 export type StoryboardPlanJobStatusResponse = StoryboardPlanJobResult;
 
 /**
@@ -218,9 +242,19 @@ export async function startStoryboardIllustrations(
 ): Promise<StoryboardIllustrationStatusResponse> {
   const res = await apiClient.post(`/storyboards/${draftId}/illustrations`, {});
   if (!res.ok) {
-    // On 422 (star gate failure), surface the API error message verbatim.
     if (res.status === 422) {
-      const body = await res.json().catch(() => null) as { error?: string } | null;
+      const body = await res.json().catch(() => null) as {
+        error?: string;
+        code?: string;
+        details?: GateErrorDetails;
+      } | null;
+      if (body?.code && body.details) {
+        throw new GateError(
+          body.error ?? `POST /storyboards/${draftId}/illustrations failed: 422`,
+          body.code,
+          body.details,
+        );
+      }
       const message = body?.error ?? `POST /storyboards/${draftId}/illustrations failed: ${res.status}`;
       throw new Error(message);
     }
@@ -235,6 +269,20 @@ export async function startStoryboardBlockIllustration(
 ): Promise<StoryboardIllustrationStatusResponse> {
   const res = await apiClient.post(`/storyboards/${draftId}/blocks/${blockId}/illustration`, {});
   if (!res.ok) {
+    if (res.status === 422) {
+      const body = await res.json().catch(() => null) as {
+        error?: string;
+        code?: string;
+        details?: GateErrorDetails;
+      } | null;
+      if (body?.code && body.details) {
+        throw new GateError(
+          body.error ?? `POST /storyboards/${draftId}/blocks/${blockId}/illustration failed: 422`,
+          body.code,
+          body.details,
+        );
+      }
+    }
     throw new Error(
       `POST /storyboards/${draftId}/blocks/${blockId}/illustration failed: ${res.status}`,
     );

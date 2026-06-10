@@ -5,6 +5,7 @@ import {
   startStoryboardBlockIllustration,
   startStoryboardIllustrations,
 } from '@/features/storyboard/api';
+import type { GateErrorDetails } from '@/features/storyboard/api';
 import type {
   StoryboardIllustrationLifecyclePhase,
   StoryboardIllustrationLifecycleStatus,
@@ -25,10 +26,17 @@ type UseStoryboardIllustrationsOptions = {
   onStoryboardUpdated?: () => void | Promise<void>;
 };
 
+export interface StructuredGateError {
+  code: string;
+  details: GateErrorDetails;
+  message: string;
+}
+
 export type UseStoryboardIllustrationsResult = {
   status: StoryboardIllustrationLifecycleStatus;
   phase: StoryboardIllustrationLifecyclePhase;
   error: string | null;
+  gateError: StructuredGateError | null;
   items: StoryboardIllustrationStatusItem[];
   byBlockId: Map<string, StoryboardIllustrationStatusItem>;
   isBlocking: boolean;
@@ -57,6 +65,7 @@ export function useStoryboardIllustrations(
   const [status, setStatus] = useState<StoryboardIllustrationLifecycleStatus>('idle');
   const [phase, setPhase] = useState<StoryboardIllustrationLifecyclePhase>('idle');
   const [error, setError] = useState<string | null>(null);
+  const [gateError, setGateError] = useState<StructuredGateError | null>(null);
 
   useEffect(() => {
     onStoryboardUpdatedRef.current = options.onStoryboardUpdated;
@@ -186,6 +195,7 @@ export function useStoryboardIllustrations(
     setStatus('queued');
     setPhase('reference');
     setError(null);
+    setGateError(null);
 
     try {
       const response = await startStoryboardIllustrations(draftId);
@@ -194,6 +204,14 @@ export function useStoryboardIllustrations(
     } catch (err) {
       if (!isCurrentRequest(draftId, token)) return;
       workflowActiveRef.current = false;
+      const maybeGate = err as { code?: string; details?: GateErrorDetails; message?: string };
+      if (maybeGate.code && maybeGate.details) {
+        setGateError({
+          code: maybeGate.code,
+          details: maybeGate.details,
+          message: maybeGate.message ?? 'Gate error',
+        });
+      }
       setError('Could not start illustration generation.');
       setStatus('failed');
       setPhase('failed');
@@ -229,6 +247,7 @@ export function useStoryboardIllustrations(
     setStatus('idle');
     setPhase('idle');
     setError(null);
+    setGateError(null);
     void refresh().catch(() => undefined);
 
     return () => {
@@ -244,6 +263,7 @@ export function useStoryboardIllustrations(
     status,
     phase,
     error,
+    gateError,
     items,
     byBlockId,
     isBlocking: status === 'queued' || status === 'running',

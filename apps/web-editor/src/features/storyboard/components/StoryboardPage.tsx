@@ -6,7 +6,7 @@ import type { Edge as FlowEdge, Node, NodeMouseHandler } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { fetchDraft } from '@/features/generate-wizard/api';
-import { startCastExtraction, getLatestCastExtraction, confirmCast, startStoryboardIllustrations } from '@/features/storyboard/api';
+import { startCastExtraction, getLatestCastExtraction, confirmCast, startStoryboardIllustrations, retryReferenceBlockGeneration } from '@/features/storyboard/api';
 import { useAddBlock } from '@/features/storyboard/hooks/useAddBlock';
 import { useAddMusicBlock } from '@/features/storyboard/hooks/useAddMusicBlock';
 import { useHandleAddFromLibrary } from '@/features/storyboard/hooks/useHandleAddFromLibrary';
@@ -44,6 +44,7 @@ import { CastConfirmModal } from './CastConfirmModal';
 import type { CastExtractionJob, CastProposalEntry } from './CastConfirmModal';
 import { StoryboardBulkStreamUrlProvider } from './SceneBlockNode.mediaThumbnail';
 import { useStoryboardPageBulkStreamUrls } from './StoryboardPage.bulkStreamUrls';
+import { ReferenceGateMessage, UnlinkedScenesMessage } from './ReferenceGateMessage';
 import { StoryboardPageFooter } from './StoryboardPageFooter';
 import { StoryboardPageWorkspace } from './StoryboardPageWorkspace';
 import { StoryboardTopBar } from './StoryboardPage.topBar';
@@ -466,12 +467,22 @@ export function StoryboardPage(): React.ReactElement {
           draftOwnerId={draftOwnerId} hasMusic={musicBlocks.length > 0}
           onStartReferenceGeneration={handleStartCastExtraction}
         />
-        {/* AC-08: star gate error alert when POST /illustrations returns 422 */}
-        {illustrationGateError !== null && (
+        {/* AC-08: gate error alerts when POST /illustrations returns 422 */}
+        {illustrationGeneration.gateError?.code === 'references.reference_gate_failed' ? (
+          <ReferenceGateMessage
+            blocks={illustrationGeneration.gateError.details.blocks ?? []}
+            onRetryBlock={(blockId) => void retryReferenceBlockGeneration(safeDraftId, blockId)}
+            onDeleteBlock={removeNode}
+          />
+        ) : illustrationGeneration.gateError?.code === 'references.unlinked_scenes' ? (
+          <UnlinkedScenesMessage
+            scenes={illustrationGeneration.gateError.details.scenes ?? []}
+          />
+        ) : illustrationGateError !== null ? (
           <div role="alert" style={{ background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#991B1B', padding: '12px 16px', margin: '0 16px 8px', borderRadius: 6, fontSize: 14 }}>
             {illustrationGateError}
           </div>
-        )}
+        ) : null}
         <StoryboardPageFooter isNextDisabled={effectiveIsStep3Disabled || isMusicBlockingStep3} onBack={handleBack} onNext={handleNext} />
         {editingBlock !== null && (
           <SceneModal

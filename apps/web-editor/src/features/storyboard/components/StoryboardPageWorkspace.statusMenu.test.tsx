@@ -40,6 +40,7 @@ function illusGen(
     status,
     phase: 'scene',
     error: null,
+    gateError: null,
     items: [],
     byBlockId: new Map(),
     isBlocking: false,

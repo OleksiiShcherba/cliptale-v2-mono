@@ -16,6 +16,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    setupFiles: [],
+    setupFiles: [
+      './src/features/storyboard/__tests__/setup-require-tsx.ts',
+    ],
   },
 });
