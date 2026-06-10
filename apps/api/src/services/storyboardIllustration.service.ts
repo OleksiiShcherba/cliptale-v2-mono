@@ -65,10 +65,11 @@ async function assertFullSetReferenceDoneGate(draftId: string): Promise<void> {
 
   const referencelessScenes = await referenceBlocksRepository.getReferencelessScenes({ draftId });
   if (referencelessScenes.length > 0) {
+    const single = referencelessScenes.length === 1;
     const names = referencelessScenes.map((s) => s.name ?? s.id).join(', ');
     throw new UnlinkedScenesError(
-      `${referencelessScenes.length} scene${referencelessScenes.length === 1 ? '' : 's'} not linked to any reference block: ${names}. ` +
-        'Please link every scene to a reference block before starting illustrations.',
+      `${referencelessScenes.length} scene${single ? ' has' : 's have'} no linked reference: ${names}. ` +
+        'Link a reference before starting.',
       referencelessScenes.map((s) => ({ blockId: s.id, name: s.name ?? null })),
     );
   }

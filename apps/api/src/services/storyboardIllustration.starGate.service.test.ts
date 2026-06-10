@@ -348,6 +348,9 @@ describe('storyboardIllustration.service — Reference-done gate T3 (AC-01/02/04
 
     expect(error).toBeInstanceOf(UnlinkedScenesError);
     expect(error.message).toContain('Orphan Scene');
+    // AC-04b guidance (review F8): the message must offer the link-a-reference exit,
+    // matching the openapi unlinkedScenes example.
+    expect(error.message).toContain('Link a reference before starting.');
     // Machine code must match openapi contract references.unlinked_scenes.
     expect(error.code).toBe('references.unlinked_scenes');
     // Structured details must carry the unlinked scene(s).
