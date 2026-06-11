@@ -1,0 +1,213 @@
+# ───────────────────────────────────────────────────────────────────────────────────────────
+# reference-generation-autostart — interface contract (DELTA)
+#
+# Surface (sad.md target_surfaces): [web-frontend, backend-service].
+#   • web-frontend  — CONSUMES this contract (useCastAutostart hook + CastConfirmModal); authors nothing.
+#   • backend-service — AUTHORS exactly ONE change: the idempotent start (ADR-0001).
+#
+# This feature REUSES the existing reference endpoints, signatures unchanged
+# (sad.md §2 Constraints). It is therefore a DELTA contract, not a fresh surface:
+#
+#   CHANGED here  → POST /storyboards/{draftId}/references/extract
+#                   (idempotent per draft; ExtractionStartResult.status union widens — ADR-0001)
+#   REUSED verbatim (NOT redefined here — see ../../storyboard-reference-flows/contracts/openapi.yaml):
+#     • GET  /storyboards/{draftId}/references/extraction   (getCastExtraction — CastExtractionJob | 404)
+#     • POST /storyboards/{draftId}/references/confirm       (confirmCast — paid first generation)
+#   REUSED async event (NOT redefined here):
+#     • storyboard.cast_extraction.updated — see ../../storyboard-reference-flows/contracts/events.md
+#       (proposal logic is a spec §3 non-goal; no new event, no payload change → no events.md in this feature)
+#
+# Field origins, drift checklist and the §5-AC coverage cross-check live in api-sync-report.md.
+# Derived from: data-model.md (storyboard_cast_extraction_jobs, schema_delta: none),
+# sad.md §6 Flow 1/2/5 + ADR-0001, spec.md §4 (US-01/US-05/US-06) + §5 (AC-01/AC-05/AC-07).
+# ───────────────────────────────────────────────────────────────────────────────────────────
+openapi: 3.1.0
+info:
+  title: ClipTale — Reference generation auto-start (extract delta)
+  version: 1.1.0
+  description: |
+    Why this delta exists (spec §1): a Creator entering Step 2 (the Video Road Map) should find
+    the free cast extraction already underway — `useCastAutostart` issues the start on entry.
+    Because "entry" is every open / re-mount / re-focus (React 18 StrictMode double-invokes
+    mount effects), several near-simultaneous starts can arrive for the same draft. To keep the
+    "0 second-extractions per draft" invariant (spec §6 NFR; AC-05), the existing
+    `POST …/references/extract` becomes **idempotent per draft** (ADR-0001): before inserting it
+    returns the latest non-`failed` job for the draft instead of creating a second row.
+
+    Only this one operation changes. The latest-extraction read and the paid-confirm endpoint are
+    reused verbatim from the predecessor contract (storyboard-reference-flows). `version` bumps
+    1.0.0 → 1.1.0 to mark the additive widening of `ExtractionStartResult.status`.
+
+servers:
+  - url: https://api.cliptale.com
+    description: Production
+  - url: http://localhost:3000
+    description: Local
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: cast-extraction
+    description: Free, non-charging cast extraction (auto-started on Step-2 entry).
+
+paths:
+  # ───────────────────────── Cast extraction — idempotent start (CHANGED) ─────────────────────────
+  /storyboards/{draftId}/references/extract:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    post:
+      summary: Ensure cast extraction is started for a draft (idempotent, async, no charge)
+      description: |
+        sad.md §6 Flow 1 (first entry) + Flow 2 / Flow 5 (re-entry, concurrent start, manual
+        recovery). AC-01 / AC-05 / AC-07.
+
+        **Idempotent per draft (ADR-0001 — the delta).** Before creating a job the service looks up
+        the latest extraction for the draft and:
+          - **no job, or latest is `failed`** → inserts a new `storyboard_cast_extraction_jobs` row,
+            enqueues the `cast-extract` worker job, and returns it with `status: queued`
+            (`failed` is treated as not-existing — a fresh start is allowed; CONTEXT glossary
+            "Idempotent start").
+          - **latest is `queued` / `running` / `completed`** → returns that existing job's
+            `{ jobId, status }` and inserts **no** second row (the invariant the duplicate-rate
+            NFR rests on; auto-path and manual control converge on the same job).
+
+        No paid generation starts and nothing is charged (free extraction path, spec §6.1). Progress
+        and the proposal arrive asynchronously (reused event `storyboard.cast_extraction.updated`,
+        see storyboard-reference-flows/contracts/events.md); poll fallback via
+        `GET …/references/extraction`. The `CastAlreadyExtractedError` blocks-guard is unchanged and
+        still wins (409) when the draft already has confirmed reference blocks.
+
+        Both outcomes return **202** with the same body shape — the caller need not distinguish
+        "created" from "reused"; that transparency is the point of the idempotent guard
+        (status-code decision recorded in api-sync-report.md).
+      operationId: startCastExtraction
+      tags: [cast-extraction]
+      parameters:
+        # Mutating + async actor (Flow 1) ⇒ Idempotency-Key required (repo precedent TTL 24h).
+        # Distinct from the per-draft idempotency above: this header dedups a single client's retry
+        # of THE SAME request; ADR-0001 dedups DIFFERENT requests racing on the same draft.
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: |
+            Accepted — an extraction for the draft is underway. The body carries either the
+            freshly-enqueued job (`status: queued`) or the pre-existing job
+            (`status: queued | running | completed`) returned idempotently (ADR-0001).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExtractionStartResult" }
+              examples:
+                createdNew:
+                  summary: First Step-2 entry — new job enqueued (AC-01)
+                  value:
+                    jobId: "11111111-1111-4111-8111-111111111111"
+                    status: "queued"
+                returnedExistingRunning:
+                  summary: Concurrent / re-entry start — existing running job returned, no second row (AC-05)
+                  value:
+                    jobId: "11111111-1111-4111-8111-111111111111"
+                    status: "running"
+                returnedExistingCompleted:
+                  summary: Re-entry after the cast is ready — existing completed job returned (AC-05)
+                  value:
+                    jobId: "11111111-1111-4111-8111-111111111111"
+                    status: "completed"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/DraftNotFound" }
+        "409":
+          description: |
+            The draft already has confirmed reference blocks — the cast is extended only by manually
+            adding blocks, not re-extracted (`references.cast_already_confirmed`, AC-01b). Unchanged
+            by this feature; listed so the contract stays complete. (Per spec OQ-3 the strict no-op
+            keeps this guard as the authority once any extraction/blocks exist.)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "This draft already has a confirmed cast. Add new entries manually on the canvas."
+                code: "references.cast_already_confirmed"
+                details: { draftId: "22222222-2222-4222-8222-222222222222" }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    DraftId:
+      in: path
+      name: draftId
+      required: true
+      description: generation_drafts.id — every operation is owner-scoped through it (resolveDraftOwner; spec §6.1)
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: true
+      description: client-generated UUID; the server returns the first result on retry (TTL 24h, repo precedent)
+      schema: { type: string, format: uuid }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Unauthorized", code: "auth.unauthorized" }
+    DraftNotFound:
+      description: Draft not found OR not owned by the caller — denied without revealing existence (spec §6.1, existence hiding).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Draft not found.", code: "references.draft_not_found" }
+
+  schemas:
+    # Unified error envelope — repo's `{ error }` + additive `{ code, details }`. Reused verbatim
+    # from storyboard-reference-flows so the consuming client parses one shape across all reference
+    # endpoints. `code` = neutral `module.error_name` snake_case.
+    Error:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+          description: human-readable message (the existing repo field; safe to show to the Creator)
+        code:
+          type: [string, "null"]
+          pattern: "^[a-z_]+\\.[a-z_]+$"
+          description: machine-readable code, neutral `module.error_name` convention; null on legacy errors
+          example: "references.cast_already_confirmed"
+        details:
+          type: object
+          description: optional structured context (conflicting draftId / jobId, …)
+          additionalProperties: true
+
+    # ── The ONE schema this feature changes (ADR-0001 §Consequences) ──────────────────────────────
+    # Domain type: StartExtractionResult (apps/api/src/services/storyboardReference.extraction.service.ts).
+    # WAS:  status enum [queued]            (literal — only a freshly-created job was ever returned)
+    # NOW:  status enum [queued, running, completed]
+    #       so the idempotent guard can return an ALREADY queued/running/completed job. No field
+    #       added; `failed` is deliberately absent (a `failed` latest is treated as not-existing and
+    #       triggers a fresh start, returning `queued`). Backward-compatible widening → version 1.1.0.
+    ExtractionStartResult:
+      type: object
+      required: [jobId, status]
+      additionalProperties: false
+      properties:
+        jobId:
+          type: string
+          format: uuid
+          description: storyboard_cast_extraction_jobs.id — the new OR the existing job (ADR-0001)
+        status:
+          type: string
+          enum: [queued, running, completed]
+          description: |
+            storyboard_cast_extraction_jobs.status of the returned job.
+            `queued` — newly enqueued, OR an existing not-yet-picked-up job.
+            `running` / `completed` — an existing job returned idempotently (no new row).
+            `failed` is never returned here: a failed latest is treated as not-existing, so a fresh
+            start is issued and `queued` is returned instead (CONTEXT glossary "Idempotent start").
