@@ -1,13 +1,17 @@
 /**
  * API calls for the storyboard feature.
  *
- * All HTTP calls go through `apiClient` — never call `fetch` directly.
+ * HTTP calls go through `apiClient`. The one exception is endpoints requiring a
+ * per-call `Idempotency-Key` header (extract / confirm / retry) — `apiClient`
+ * cannot attach custom headers, so those use a raw fetch via
+ * `postWithIdempotencyKey` (same auth + base-url idiom as generate-ai-flow).
  */
 
 import type { StoryboardPlanJobResult } from '@ai-video-editor/project-schema';
 
 import { toStoryboardMusicBlockSaveInputs } from '@/features/storyboard/utils/musicBlockSaveInput';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, getAuthToken } from '@/lib/api-client';
+import { config } from '@/lib/config';
 
 import type {
   StoryboardBlock,
@@ -557,15 +561,14 @@ export async function deleteReferenceBlock(
  * it again (ADR-0003). Only the auto-started first generation is retried here; later
  * regenerations go through the flow's own Generate surface.
  *
- * NOTE: The contract requires an `Idempotency-Key` header (TTL 24h). The caller is
- * responsible for generating a UUID and attaching it — the current apiClient does not
- * yet support per-call extra headers; that extension is tracked separately.
+ * REQUIRES an `Idempotency-Key` header (TTL 24h) — the controller rejects the
+ * request with 400 without it. Sent via `postWithIdempotencyKey`.
  */
 export async function retryReferenceBlockGeneration(
   draftId: string,
   blockId: string,
 ): Promise<RetryReferenceBlockResponse> {
-  const res = await apiClient.post(
+  const res = await postWithIdempotencyKey(
     `/storyboards/${draftId}/references/blocks/${blockId}/retry`,
     {},
   );
@@ -580,19 +583,53 @@ export async function retryReferenceBlockGeneration(
 // ── File info API (storyboard-reference-flows AC-06) ──────────────────────────
 
 /**
- * Fetches the public URL for a file by its ID.
+ * Fetches a displayable URL for a file by its ID.
  *
- * Maps to GET /files/:fileId.
- * Used to resolve previewFileId on reference blocks to a displayable URL (AC-06).
- * Returns null when the file is not found (404) so the canvas falls back gracefully.
+ * Maps to GET /files/:fileId/stream → `{ url }` (short-lived presigned HTTPS URL)
+ * — the same owner-scoped endpoint generate-ai-flow's getFileUrl uses. The bare
+ * `/files/:id` route does NOT exist; hitting it always 404'd and silently broke
+ * every reference-block preview on the storyboard.
+ * Returns null on any failure so the canvas falls back gracefully.
  */
 export async function fetchFileInfo(
   fileId: string,
 ): Promise<{ url: string } | null> {
-  const res = await apiClient.get(`/files/${fileId}`);
-  if (res.status === 404) return null;
+  const res = await apiClient.get(`/files/${fileId}/stream`);
   if (!res.ok) return null;
-  return res.json() as Promise<{ url: string }>;
+  const data = (await res.json()) as { url?: string | null };
+  return data.url ? { url: data.url } : null;
+}
+
+// ── Idempotency-Key POST helper ───────────────────────────────────────────────
+//
+// Several reference endpoints (extract / confirm / retry) REQUIRE an
+// `Idempotency-Key` header — the controller rejects the request with 400 without
+// it. `apiClient.post` cannot attach a custom header, so — like `generateBlock`
+// in generate-ai-flow — these calls use a raw fetch with the same auth + base-url
+// idiom and a fresh key per call.
+
+/** A fresh idempotency key per call. crypto.randomUUID in jsdom + browsers; fallback for safety. */
+function freshIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `idem-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+/** POST with a fresh Idempotency-Key header + bearer auth, returning the raw Response. */
+async function postWithIdempotencyKey(path: string, body: unknown): Promise<Response> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Idempotency-Key': freshIdempotencyKey(),
+  };
+  const token = getAuthToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  return fetch(`${config.apiBaseUrl}${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body ?? {}),
+  });
 }
 
 // ── Cast extraction API (storyboard-reference-flows T17) ──────────────────────
@@ -605,11 +642,14 @@ export async function fetchFileInfo(
  * Returns ExtractionAccepted { jobId, status }. The status is the idempotent
  * union queued|running|completed (ADR-0001): a fresh start is `queued`, while a
  * converged-on existing extraction returns its current status.
+ *
+ * REQUIRES an `Idempotency-Key` header (the controller rejects the request with
+ * 400 without it) — sent via `postWithIdempotencyKey`.
  */
 export async function startCastExtraction(
   draftId: string,
 ): Promise<{ jobId: string; status: 'queued' | 'running' | 'completed' }> {
-  const res = await apiClient.post(`/storyboards/${draftId}/references/extract`, {});
+  const res = await postWithIdempotencyKey(`/storyboards/${draftId}/references/extract`, {});
   if (!res.ok) {
     throw new Error(`POST /storyboards/${draftId}/references/extract failed: ${res.status}`);
   }
@@ -642,13 +682,17 @@ export async function getLatestCastExtraction(
  * Creates one reference block per entry (off-chain), each linked 1:1 to a new
  * reference flow pre-filled with the entry's images/description; auto-starts the
  * first generation in each flow in a rolling window.
+ *
+ * REQUIRES an `Idempotency-Key` header (the controller rejects the request with
+ * 400 without it) — this is the spend path, so the header guards against a
+ * double-charge on retry. Sent via `postWithIdempotencyKey`.
  */
 export async function confirmCast(
   draftId: string,
   entries: CastProposalEntry[],
   acknowledgedAggregateCredits: number,
 ): Promise<ReferenceBlockListResponse> {
-  const res = await apiClient.post(`/storyboards/${draftId}/references/confirm`, {
+  const res = await postWithIdempotencyKey(`/storyboards/${draftId}/references/confirm`, {
     entries,
     acknowledgedAggregateCredits,
   });
