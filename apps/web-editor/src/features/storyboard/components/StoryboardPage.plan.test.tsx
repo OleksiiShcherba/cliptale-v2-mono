@@ -91,6 +91,9 @@ vi.mock('@/features/storyboard/hooks/useStoryboardIllustrations', () => ({
 }));
 
 vi.mock('@/features/storyboard/api', () => ({
+  // useCastAutostart (mounted by StoryboardPage) calls these on mount.
+  getLatestCastExtraction: vi.fn().mockResolvedValue(null),
+  startCastExtraction: vi.fn().mockResolvedValue({ jobId: 'cast-auto', status: 'queued' }),
   approveStoryboardPrincipalImage: mockApprovePrincipalImage,
   editStoryboardPrincipalImage: mockEditPrincipalImage,
   replaceStoryboardPrincipalImage: mockReplacePrincipalImage,

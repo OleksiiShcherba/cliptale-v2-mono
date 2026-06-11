@@ -453,3 +453,206 @@ describe('CastConfirmModal — AC-03 (confirm sends corrected cast)', () => {
     resolveConfirm();
   });
 });
+
+// ---------------------------------------------------------------------------
+// AC-02: dialog wrapper — EVERY modal state renders inside a role=dialog
+//        backdrop+centered shell, with focus-on-mount and Esc/backdrop close;
+//        no branch renders loose action buttons inline in the page body
+//        (0 stray-buttons).
+// ---------------------------------------------------------------------------
+
+const FAILED_EXTRACTION: CastExtractionJob = {
+  jobId: 'job-003',
+  draftId: 'draft-1',
+  status: 'failed',
+  proposal: null,
+  aggregateEstimateCredits: null,
+  errorMessage: 'extraction blew up',
+};
+
+// AC-06: extraction finished but proposed no cast (nothing to extract).
+const EMPTY_COMPLETED_EXTRACTION: CastExtractionJob = {
+  jobId: 'job-004',
+  draftId: 'draft-1',
+  status: 'completed',
+  proposal: [],
+  aggregateEstimateCredits: 0,
+  errorMessage: null,
+  truncated: false,
+};
+
+describe('CastConfirmModal — AC-02 (dialog wrapper, every state)', () => {
+  const STATES: Array<{ label: string; overrides: Partial<CastConfirmModalProps> }> = [
+    { label: 'running', overrides: { extraction: RUNNING_EXTRACTION } },
+    { label: 'completed proposal', overrides: { extraction: COMPLETED_EXTRACTION } },
+    { label: 'existing blocks', overrides: { hasExistingBlocks: true, extraction: null } },
+    { label: 'failed', overrides: { extraction: FAILED_EXTRACTION } },
+    { label: 'no extraction', overrides: { extraction: null } },
+  ];
+
+  it.each(STATES)(
+    'renders a role=dialog with a backdrop in the "$label" state',
+    ({ overrides }) => {
+      renderModal(overrides);
+      expect(screen.getByRole('dialog')).toBeTruthy();
+      expect(screen.getByTestId('cast-modal-backdrop')).toBeTruthy();
+    },
+  );
+
+  it.each(STATES)(
+    'renders NO stray buttons outside the dialog in the "$label" state (0 stray-buttons)',
+    ({ overrides }) => {
+      renderModal(overrides);
+      const dialog = screen.getByRole('dialog');
+      const buttons = Array.from(document.querySelectorAll('button'));
+      // Each state must render at least one action (close/cancel/confirm/start).
+      expect(buttons.length).toBeGreaterThan(0);
+      const stray = buttons.filter((b) => !dialog.contains(b));
+      expect(stray).toHaveLength(0);
+    },
+  );
+
+  it('moves focus into the dialog on mount', () => {
+    renderModal({ extraction: RUNNING_EXTRACTION });
+    const dialog = screen.getByRole('dialog');
+    expect(dialog === document.activeElement || dialog.contains(document.activeElement)).toBe(true);
+  });
+
+  it('calls onCancel when Escape is pressed', () => {
+    const onCancel = vi.fn();
+    renderModal({ extraction: RUNNING_EXTRACTION, onCancel });
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onCancel when the backdrop is clicked, but NOT when the dialog body is clicked', () => {
+    const onCancel = vi.fn();
+    renderModal({ extraction: RUNNING_EXTRACTION, onCancel });
+
+    // Clicking inside the dialog body must NOT dismiss.
+    fireEvent.click(screen.getByRole('dialog'));
+    expect(onCancel).not.toHaveBeenCalled();
+
+    // Clicking the backdrop itself dismisses.
+    fireEvent.click(screen.getByTestId('cast-modal-backdrop'));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-03: in-progress state — "being prepared", no confirm until proposal ready
+// ---------------------------------------------------------------------------
+
+describe('CastConfirmModal — AC-03 (in-progress "being prepared")', () => {
+  it('communicates that the cast is being prepared while extraction runs', () => {
+    renderModal({ extraction: RUNNING_EXTRACTION });
+    const progress = screen.getByTestId('cast-extraction-progress');
+    expect(progress.textContent?.toLowerCase()).toMatch(/being prepared|preparing/);
+  });
+
+  it('offers no confirm action while extraction is still running (queued or running)', () => {
+    renderModal({ extraction: { ...RUNNING_EXTRACTION, status: 'queued' } });
+    expect(screen.queryByTestId('cast-confirm-button')).toBeNull();
+    expect(screen.getByTestId('cast-extraction-progress')).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-06: completed-empty — distinct "nothing to generate references for" body,
+//        close-only, no confirm, no proposal form, no aggregate estimate
+// ---------------------------------------------------------------------------
+
+describe('CastConfirmModal — AC-06 (completed-empty: nothing to generate)', () => {
+  it('shows a distinct completed-empty state with a close action and no confirm', () => {
+    renderModal({ extraction: EMPTY_COMPLETED_EXTRACTION });
+
+    const empty = screen.getByTestId('cast-extraction-empty');
+    expect(empty.textContent?.toLowerCase()).toMatch(/nothing to generate references/);
+    expect(screen.getByTestId('cast-cancel-button')).toBeTruthy();
+    expect(screen.queryByTestId('cast-confirm-button')).toBeNull();
+  });
+
+  it('does not render the proposal form or an aggregate estimate in completed-empty', () => {
+    renderModal({ extraction: EMPTY_COMPLETED_EXTRACTION });
+    expect(screen.queryByTestId('cast-entry-0')).toBeNull();
+    expect(screen.queryByTestId('cast-aggregate-estimate')).toBeNull();
+  });
+
+  it('treats a completed extraction with a null proposal as completed-empty', () => {
+    renderModal({ extraction: { ...EMPTY_COMPLETED_EXTRACTION, proposal: null } });
+    expect(screen.getByTestId('cast-extraction-empty')).toBeTruthy();
+    expect(screen.queryByTestId('cast-confirm-button')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-04: proposal-ready is the ONLY state that exposes the confirm action
+// ---------------------------------------------------------------------------
+
+describe('CastConfirmModal — AC-04 (only proposal-ready exposes confirm)', () => {
+  const NON_CONFIRM_STATES: Array<{ label: string; overrides: Partial<CastConfirmModalProps> }> = [
+    { label: 'running', overrides: { extraction: RUNNING_EXTRACTION } },
+    { label: 'failed', overrides: { extraction: FAILED_EXTRACTION } },
+    { label: 'existing blocks', overrides: { hasExistingBlocks: true, extraction: null } },
+    { label: 'no extraction', overrides: { extraction: null } },
+    { label: 'completed-empty', overrides: { extraction: EMPTY_COMPLETED_EXTRACTION } },
+  ];
+
+  it.each(NON_CONFIRM_STATES)('does NOT expose confirm in the "$label" state', ({ overrides }) => {
+    renderModal(overrides);
+    expect(screen.queryByTestId('cast-confirm-button')).toBeNull();
+  });
+
+  it('DOES expose confirm in the proposal-ready state (completed with a non-empty proposal)', () => {
+    renderModal({ extraction: COMPLETED_EXTRACTION });
+    expect(screen.getByTestId('cast-confirm-button')).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T7 regression — 0 stray-buttons across EVERY modal state + consent preserved
+// (no confirm outside proposal-ready; confirm never auto-fires on render).
+// ---------------------------------------------------------------------------
+
+describe('CastConfirmModal — T7 regression (no stray buttons · consent preserved)', () => {
+  const ALL_STATES: Array<{ label: string; overrides: Partial<CastConfirmModalProps> }> = [
+    { label: 'queued', overrides: { extraction: { ...RUNNING_EXTRACTION, status: 'queued' } } },
+    { label: 'running', overrides: { extraction: RUNNING_EXTRACTION } },
+    { label: 'failed', overrides: { extraction: FAILED_EXTRACTION } },
+    { label: 'no extraction', overrides: { extraction: null } },
+    { label: 'existing blocks', overrides: { hasExistingBlocks: true, extraction: null } },
+    { label: 'completed-empty', overrides: { extraction: EMPTY_COMPLETED_EXTRACTION } },
+    { label: 'proposal-ready', overrides: { extraction: COMPLETED_EXTRACTION } },
+  ];
+
+  it.each(ALL_STATES)(
+    'renders every button inside the dialog in the "$label" state (0 stray-buttons)',
+    ({ overrides }) => {
+      renderModal(overrides);
+      const dialog = screen.getByRole('dialog');
+      const stray = Array.from(document.querySelectorAll('button')).filter(
+        (b) => !dialog.contains(b),
+      );
+      expect(stray).toHaveLength(0);
+    },
+  );
+
+  it.each(ALL_STATES.filter((s) => s.label !== 'proposal-ready'))(
+    'exposes no confirm action in the non-proposal-ready "$label" state (AC-04)',
+    ({ overrides }) => {
+      renderModal(overrides);
+      expect(screen.queryByTestId('cast-confirm-button')).toBeNull();
+    },
+  );
+
+  it('never fires onConfirmCast on render — consent requires an explicit confirm click (AC-04)', async () => {
+    const onConfirmCast = vi.fn().mockResolvedValue(undefined);
+    renderModal({ extraction: COMPLETED_EXTRACTION, onConfirmCast });
+
+    // Rendering the proposal-ready state must charge nothing.
+    expect(onConfirmCast).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('cast-confirm-button'));
+    await waitFor(() => expect(onConfirmCast).toHaveBeenCalledTimes(1));
+  });
+});

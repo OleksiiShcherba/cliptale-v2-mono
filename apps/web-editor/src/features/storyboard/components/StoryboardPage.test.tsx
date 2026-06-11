@@ -17,7 +17,7 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -27,6 +27,22 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const { mockNavigate } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
+}));
+
+// Cast-extraction api — mocked so useCastAutostart (mounted by the page) never
+// hits the network. Defaults are set in beforeEach.
+const castApi = vi.hoisted(() => ({
+  startCastExtraction: vi.fn(),
+  getLatestCastExtraction: vi.fn(),
+  confirmCast: vi.fn(),
+  retryReferenceBlockGeneration: vi.fn(),
+}));
+
+vi.mock('@/features/storyboard/api', () => ({
+  startCastExtraction: castApi.startCastExtraction,
+  getLatestCastExtraction: castApi.getLatestCastExtraction,
+  confirmCast: castApi.confirmCast,
+  retryReferenceBlockGeneration: castApi.retryReferenceBlockGeneration,
 }));
 
 vi.mock('react-router-dom', async (importOriginal) => {
@@ -118,6 +134,7 @@ vi.mock('@/features/storyboard/hooks/useStoryboardHistorySeed', () => ({
 
 import { StoryboardPage } from './StoryboardPage';
 import { useStoryboardCanvas } from '../hooks/useStoryboardCanvas';
+import { __resetCastAutostartGuard } from '../hooks/useCastAutostart';
 
 // ---------------------------------------------------------------------------
 // Render helper
@@ -149,6 +166,12 @@ function renderPage(draftId = 'test-draft-abc') {
 describe('StoryboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetCastAutostartGuard();
+    // Cast-extraction api defaults: no existing extraction; start succeeds.
+    castApi.getLatestCastExtraction.mockResolvedValue(null);
+    castApi.startCastExtraction.mockResolvedValue({ jobId: 'auto-job', status: 'queued' });
+    castApi.confirmCast.mockResolvedValue(undefined);
+    castApi.retryReferenceBlockGeneration.mockResolvedValue(undefined);
     // Reset useStoryboardCanvas mock to default (loaded, no error).
     vi.mocked(useStoryboardCanvas).mockReturnValue({
       nodes: [],
@@ -279,5 +302,111 @@ describe('StoryboardPage', () => {
   it('renders the "STEP 2: STORYBOARD" label in the bottom bar', () => {
     renderPage();
     expect(screen.getByText(/step 2.*storyboard/i)).toBeTruthy();
+  });
+
+  // ── Cast auto-start wiring (T6 — AC-01, AC-05, AC-07) ──────────────────────
+
+  describe('cast auto-start wiring', () => {
+    it('auto-starts the free extraction on Step-2 entry without forcing the modal open (AC-01)', async () => {
+      renderPage('draft-autostart');
+
+      await waitFor(() => {
+        expect(castApi.startCastExtraction).toHaveBeenCalledTimes(1);
+      });
+      expect(castApi.startCastExtraction).toHaveBeenCalledWith('draft-autostart');
+      // The extraction runs silently — no modal is forced open.
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('re-entering Step 2 starts nothing new (AC-05)', async () => {
+      const { unmount } = renderPage('draft-reentry');
+      await waitFor(() => expect(castApi.startCastExtraction).toHaveBeenCalledTimes(1));
+
+      unmount();
+      renderPage('draft-reentry');
+      // Let any second-mount effect settle inside an act() boundary, then assert
+      // the guard suppressed the redundant start (negative wait — no new call).
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+      });
+
+      // The in-flight/once guard (+ server idempotency) keep it at a single start.
+      expect(castApi.startCastExtraction).toHaveBeenCalledTimes(1);
+    });
+
+    it('manual control starts and opens the modal after a failed auto-start (AC-07)', async () => {
+      castApi.startCastExtraction
+        .mockRejectedValueOnce(new Error('auto-start never accepted'))
+        .mockResolvedValue({ jobId: 'manual-job', status: 'queued' });
+
+      renderPage('draft-failed-auto');
+      // The auto-start attempt fired and was swallowed — nothing opened.
+      await waitFor(() => expect(castApi.startCastExtraction).toHaveBeenCalledTimes(1));
+      expect(screen.queryByRole('dialog')).toBeNull();
+
+      // The manual control always opens the modal; with no existing extraction it
+      // starts a fresh one (AC-07).
+      fireEvent.click(screen.getByTestId('start-reference-generation-button'));
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeTruthy());
+      expect(castApi.startCastExtraction).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // ── T7 regression — single start across re-entries · consent preserved ──────
+
+  describe('cast regression (T7 — AC-05 single start · AC-04 consent)', () => {
+    it('keeps a single extraction start across repeated Step-2 entries (AC-05)', async () => {
+      const a = renderPage('draft-multi-entry');
+      await waitFor(() => expect(castApi.startCastExtraction).toHaveBeenCalledTimes(1));
+
+      a.unmount();
+      const b = renderPage('draft-multi-entry');
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 15));
+      });
+      b.unmount();
+      renderPage('draft-multi-entry');
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 15));
+      });
+
+      expect(castApi.startCastExtraction).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not call confirmCast on auto-start or modal open — only after an explicit confirm (AC-04)', async () => {
+      const completed = {
+        jobId: 'job-consent',
+        draftId: 'draft-consent',
+        status: 'completed' as const,
+        proposal: [
+          {
+            castType: 'character' as const,
+            name: 'Hero',
+            description: 'desc',
+            imageFileIds: [],
+            sceneBlockIds: [],
+            perRunEstimate: 1,
+          },
+        ],
+        aggregateEstimateCredits: 1,
+        errorMessage: null,
+        truncated: false,
+      };
+      castApi.getLatestCastExtraction.mockResolvedValue(completed);
+
+      renderPage('draft-consent');
+      await waitFor(() => expect(castApi.getLatestCastExtraction).toHaveBeenCalled());
+      // An existing extraction means no auto-start and certainly no consent charge.
+      expect(castApi.confirmCast).not.toHaveBeenCalled();
+
+      // Open the modal — surfacing the proposal must NOT charge anything.
+      fireEvent.click(screen.getByTestId('start-reference-generation-button'));
+      await waitFor(() => expect(screen.getByTestId('cast-confirm-button')).toBeTruthy());
+      expect(castApi.confirmCast).not.toHaveBeenCalled();
+
+      // Explicit confirm is the single point of paid consent.
+      fireEvent.click(screen.getByTestId('cast-confirm-button'));
+      await waitFor(() => expect(castApi.confirmCast).toHaveBeenCalledTimes(1));
+    });
   });
 });

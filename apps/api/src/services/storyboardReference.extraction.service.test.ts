@@ -142,6 +142,76 @@ describe('storyboardReference.extraction.service — startExtraction', () => {
     expect(enqueueCastExtract).not.toHaveBeenCalled();
   });
 
+  // AC-05 — idempotent: latest job is queued/running/completed → return existing, no second row
+  it.each(['queued', 'running', 'completed'] as const)(
+    'returns the existing job and inserts no second row when latest is %s (AC-05)',
+    async (status) => {
+      vi.mocked(generationDraftRepository.findDraftById).mockResolvedValue(makeDraft());
+      vi.mocked(storyboardReferenceRepository.listReferenceBlocksByDraftId).mockResolvedValue([]);
+      vi.mocked(
+        storyboardReferenceRepository.findLatestCastExtractionJobForDraft,
+      ).mockResolvedValue(makeJob({ id: 'existing-job-id', status }));
+
+      const result = await startExtraction(USER_ID, DRAFT_ID);
+
+      // Same job returned with its own status — no created/queued row.
+      expect(result.jobId).toBe('existing-job-id');
+      expect(result.status).toBe(status);
+      expect(storyboardReferenceRepository.createCastExtractionJob).not.toHaveBeenCalled();
+      expect(enqueueCastExtract).not.toHaveBeenCalled();
+    },
+  );
+
+  // AC-07 — failed latest counts as not-existing → a fresh start is allowed
+  it('creates a fresh queued job when the latest job is failed (AC-07)', async () => {
+    vi.mocked(generationDraftRepository.findDraftById).mockResolvedValue(makeDraft());
+    vi.mocked(storyboardReferenceRepository.listReferenceBlocksByDraftId).mockResolvedValue([]);
+    vi.mocked(
+      storyboardReferenceRepository.findLatestCastExtractionJobForDraft,
+    ).mockResolvedValue(makeJob({ id: 'failed-job-id', status: 'failed' }));
+    vi.mocked(storyboardReferenceRepository.createCastExtractionJob).mockResolvedValue(
+      makeJob({ id: 'new-job-id', status: 'queued' }),
+    );
+    vi.mocked(enqueueCastExtract).mockResolvedValue(undefined);
+
+    const result = await startExtraction(USER_ID, DRAFT_ID);
+
+    expect(result.status).toBe('queued');
+    expect(result.jobId).toBe('new-job-id');
+    expect(storyboardReferenceRepository.createCastExtractionJob).toHaveBeenCalledTimes(1);
+    expect(enqueueCastExtract).toHaveBeenCalledTimes(1);
+  });
+
+  // AC-01b — blocks guard still wins over the idempotent return (strict no-op)
+  it('throws CastAlreadyExtractedError before consulting the latest job (AC-01b precedence)', async () => {
+    vi.mocked(generationDraftRepository.findDraftById).mockResolvedValue(makeDraft());
+    vi.mocked(storyboardReferenceRepository.listReferenceBlocksByDraftId).mockResolvedValue([
+      {
+        id: 'block-01',
+        draftId: DRAFT_ID,
+        flowId: null,
+        castType: 'character',
+        name: 'Test Character',
+        description: null,
+        sortOrder: 0,
+        positionX: 0,
+        positionY: 0,
+        windowStatus: null,
+        firstJobId: null,
+        errorMessage: null,
+        version: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    await expect(startExtraction(USER_ID, DRAFT_ID)).rejects.toThrow(CastAlreadyExtractedError);
+    expect(
+      storyboardReferenceRepository.findLatestCastExtractionJobForDraft,
+    ).not.toHaveBeenCalled();
+    expect(storyboardReferenceRepository.createCastExtractionJob).not.toHaveBeenCalled();
+  });
+
   // AC-13 — non-owner on startExtraction → not-found (no content leak)
   it('throws NotFoundError for a missing draft without revealing existence (AC-13)', async () => {
     vi.mocked(generationDraftRepository.findDraftById).mockResolvedValue(null);

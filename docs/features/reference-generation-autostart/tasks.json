@@ -1,0 +1,90 @@
+{
+  "slug": "reference-generation-autostart",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Make startExtraction idempotent per draft + widen StartExtractionResult.status union",
+      "layer": "app",
+      "deps": [],
+      "acs": ["AC-01", "AC-05", "AC-07"],
+      "dod": "A duplicate startExtraction returns the existing job with no second row; a failed/absent latest creates a fresh queued job; StartExtractionResult.status is the queued|running|completed union and the controller returns it at 202.",
+      "files_hint": [
+        "apps/api/src/services/storyboardReference.extraction.service.ts",
+        "apps/api/src/controllers/storyboardReference.controller.ts"
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "Backend integration test — idempotent start returns existing job (QG-3)",
+      "layer": "tests",
+      "deps": ["T1"],
+      "acs": ["AC-05", "AC-07"],
+      "dod": "Integration test against real MySQL asserts a duplicate startExtraction returns the same jobId with row count 1, and a failed latest triggers a fresh queued job.",
+      "files_hint": [
+        "apps/api/src/services/storyboardReference.extraction.service.test.ts",
+        "apps/api/src/controllers/storyboardReference.controller.test.ts"
+      ]
+    },
+    {
+      "id": "T3",
+      "title": "Refactor CastConfirmModal into a backdrop+centered dialog wrapper (every state)",
+      "layer": "ui",
+      "deps": [],
+      "acs": ["AC-02"],
+      "dod": "Every modal state renders inside a role=dialog backdrop+centered shell with focus-on-mount and Esc/backdrop close; no branch renders loose inline buttons (0 stray-buttons).",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/CastConfirmModal.tsx",
+        "apps/web-editor/src/features/storyboard/components/CastConfirmModal.styles.ts",
+        "apps/web-editor/src/features/storyboard/components/CastConfirmModal.test.tsx"
+      ]
+    },
+    {
+      "id": "T4",
+      "title": "Modal states — in-progress / proposal-ready / completed-empty",
+      "layer": "ui",
+      "deps": ["T3"],
+      "acs": ["AC-03", "AC-04", "AC-06"],
+      "dod": "in-progress shows 'being prepared' with no confirm; completed-empty shows a distinct 'nothing to generate references for' close-only body; proposal-ready is the only state exposing the confirm action.",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/CastConfirmModal.tsx",
+        "apps/web-editor/src/features/storyboard/components/CastConfirmModal.test.tsx"
+      ]
+    },
+    {
+      "id": "T5",
+      "title": "New useCastAutostart(draftId) hook + widen client return type",
+      "layer": "ui",
+      "deps": [],
+      "acs": ["AC-01", "AC-05"],
+      "dod": "On mount with no existing extraction the hook issues exactly one silent start; an existing job issues none; an in-flight guard suppresses the re-mount POST; polling stops on terminal status; startCastExtraction client return type widened to the union.",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/hooks/useCastAutostart.ts",
+        "apps/web-editor/src/features/storyboard/hooks/useCastAutostart.test.ts",
+        "apps/web-editor/src/features/storyboard/api.ts"
+      ]
+    },
+    {
+      "id": "T6",
+      "title": "Wire useCastAutostart + manual control into StoryboardPage",
+      "layer": "wiring",
+      "deps": ["T4", "T5"],
+      "acs": ["AC-01", "AC-05", "AC-07"],
+      "dod": "Step-2 entry auto-starts the free extraction without opening the modal; re-entry starts nothing new; the manual control always opens the modal and surfaces the existing extraction; local castExtraction state and ad-hoc poll are removed in favour of the hook query.",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/StoryboardPage.tsx"
+      ]
+    },
+    {
+      "id": "T7",
+      "title": "Frontend UI regression — no stray buttons, no duplicate, consent preserved",
+      "layer": "tests",
+      "deps": ["T6"],
+      "acs": ["AC-02", "AC-04", "AC-05"],
+      "dod": "Regression asserts 0 stray-buttons across all modal states, a single extraction start across repeated Step-2 entries, and confirmCast firing only from proposal-ready on explicit confirm.",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/StoryboardPage.test.tsx",
+        "apps/web-editor/src/features/storyboard/components/CastConfirmModal.test.tsx"
+      ]
+    }
+  ]
+}

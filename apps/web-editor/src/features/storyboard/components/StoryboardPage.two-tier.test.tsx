@@ -46,6 +46,9 @@ const {
 });
 
 vi.mock('@/features/storyboard/api', () => ({
+  // useCastAutostart (mounted by StoryboardPage) calls these on mount.
+  getLatestCastExtraction: vi.fn().mockResolvedValue(null),
+  startCastExtraction: vi.fn().mockResolvedValue({ jobId: 'cast-auto', status: 'queued' }),
   saveStoryboard: mockSaveStoryboard,
   initializeStoryboard: vi.fn().mockResolvedValue({ blocks: [], edges: [] }),
   fetchStoryboard: vi.fn().mockResolvedValue({ blocks: [], edges: [] }),
