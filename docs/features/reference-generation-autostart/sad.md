@@ -103,7 +103,47 @@ Each tactical decision in later sections traces to one of these seeds. Tactical 
 
 ## 5. Building block view
 
-<!-- drafting -->
+The web-editor follows the repo's **feature-folder** style (`features/<name>/` with co-located `components/ + hooks/ + api.ts + types.ts`; server state via TanStack Query; per-component modal wrappers). This feature adds no module — it extends `features/storyboard/`: one new hook owns the auto-start lifecycle, `CastConfirmModal` is refactored into a dialog, and `api.ts` is reused. The backend follows the existing layered chain (routes → controller → service → repository); only the extraction **service** gains the idempotency guard.
+
+**Internal decomposition (changed / added files):**
+
+```
+apps/web-editor/src/features/storyboard/
+├── components/
+│   ├── StoryboardPage.tsx        # Step-2 host — mounts useCastAutostart, renders dialog (changed)
+│   ├── CastConfirmModal.tsx      # backdrop+dialog wrapper; in-progress / proposal / completed-empty / failed (changed)
+│   └── CastConfirmModal.styles.ts# backdrop + dialog shell styles, per SceneModal precedent (changed)
+├── hooks/
+│   └── useCastAutostart.ts       # NEW — mount existence-check + conditional start + in-flight guard + poll
+└── api.ts                        # reused: startCastExtraction / getLatestCastExtraction / confirmCast
+
+apps/api/src/services/
+└── storyboardReference.extraction.service.ts  # startExtraction → idempotent per draft (ADR-0001)
+```
+
+**C4 Container (L2):**
+
+```mermaid
+C4Container
+    title reference-generation-autostart — Containers
+
+    Person(creator, "Creator", "Owns the draft; enters Step 2")
+
+    Container_Boundary(ct, "ClipTale") {
+        Container(web, "web-editor", "React 18 + Vite SPA", "useCastAutostart hook + CastConfirmModal dialog on Step 2")
+        Container(api, "Reference API", "Express 4 service", "Idempotent extraction start, latest extraction, confirm cast")
+        Container(worker, "media-worker", "BullMQ consumer", "Runs the cast-extraction job async")
+        ContainerDb(mysql, "MySQL 8", "InnoDB", "cast_extraction_jobs, reference blocks")
+    }
+
+    Rel(creator, web, "Enters Step 2, opens/confirms modal", "HTTPS")
+    Rel(web, api, "Existence check, start, confirm", "REST")
+    Rel(api, mysql, "Reads latest job / inserts at most one", "mysql2")
+    Rel(api, worker, "Enqueues extraction job", "BullMQ")
+    Rel(worker, mysql, "Writes proposal / status", "mysql2")
+```
+
+The two declared `target_surfaces` map to the **web-editor** container (web-frontend) and the **Reference API** container (backend-service); `media-worker` and MySQL are existing infrastructure the flow depends on, unchanged.
 
 ## 6. Runtime view
 
