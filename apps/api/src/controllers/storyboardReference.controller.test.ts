@@ -293,6 +293,50 @@ describe('getCastExtraction handler (GET .../references/extraction)', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
+  it('unwraps the worker `{ cast: [...] }` proposal shape into a non-empty proposal array', async () => {
+    // Regression: the worker persists proposal_json as { cast: [...] } (not a bare
+    // array). mapProposal must unwrap `.cast`, else the client sees proposal: null
+    // and the modal renders the misleading "nothing to generate" empty state.
+    const job = {
+      jobId: '22222222-2222-4222-8222-222222222222',
+      status: 'completed' as const,
+      proposalJson: {
+        cast: [
+          {
+            type: 'environment',
+            name: 'Underground facility',
+            description: 'A clinical setting.',
+            image_file_ids: [42],
+            scene_block_ids: [1, 2],
+            per_run_estimate: 0.03,
+          },
+        ],
+      },
+      truncated: false,
+      aggregateEstimateCredits: '0.0300',
+      errorMessage: null,
+      completedAt: new Date('2026-06-11T12:00:00Z'),
+      failedAt: null,
+      createdAt: new Date('2026-06-11T11:59:00Z'),
+    };
+    mockExtractionService.getExtraction.mockResolvedValueOnce(job);
+    const req = makeReq({ params: { draftId: DRAFT_ID } });
+    const { res, json } = makeRes();
+    const next = makeNext();
+
+    await getCastExtraction(req, res, next);
+
+    const payload = json.mock.calls[0]![0] as { proposal: Array<{ castType: string; name: string }> | null };
+    expect(Array.isArray(payload.proposal)).toBe(true);
+    expect(payload.proposal).toHaveLength(1);
+    // Wire field is castType (frontend + confirm schema), mapped from stored `type`.
+    expect(payload.proposal![0]).toMatchObject({
+      castType: 'environment',
+      name: 'Underground facility',
+    });
+    expect(next).not.toHaveBeenCalled();
+  });
+
   it('AC-13 — no extraction found → 404 with code references.extraction_not_found', async () => {
     // Service returns null when no job exists for this draft (AC-13: existence hiding).
     mockExtractionService.getExtraction.mockResolvedValueOnce(null);

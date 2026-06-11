@@ -821,13 +821,16 @@ components:
     CastProposalEntry:
       type: object
       description: one element of storyboard_cast_extraction_jobs.proposal_json
-      required: [type, name]
+      required: [castType, name]
       additionalProperties: false
       properties:
-        type:
+        castType:
           type: string
           enum: [character, environment]
-          description: proposal_json[].type (mirrors storyboard_reference_blocks.cast_type)
+          description: >-
+            proposal_json[].type, surfaced on the wire as castType to match the
+            ConfirmCastRequest entry + the web CastProposalEntry (mirrors
+            storyboard_reference_blocks.cast_type)
         name: { type: string, maxLength: 255, description: "proposal_json[].name" }
         description: { type: [string, "null"], description: "proposal_json[].description" }
         imageFileIds:

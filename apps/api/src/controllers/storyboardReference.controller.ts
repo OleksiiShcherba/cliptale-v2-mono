@@ -564,14 +564,23 @@ function toIsoOrNull(v: Date | string | null | undefined): string | null {
 /**
  * Maps proposalJson (snake_case DB storage) to the CastProposalEntry wire shape
  * (camelCase, openapi.yaml).
+ *
+ * The worker persists the full CastProposal object `{ cast: [...] }` (see
+ * cast-extract.job markCompleted), so unwrap `.cast` before mapping. A bare array
+ * is also accepted for forward/back compatibility.
  */
 function mapProposal(proposalJson: unknown): unknown[] | null {
-  if (!Array.isArray(proposalJson)) return null;
-  return proposalJson.map((entry: unknown) => {
+  const arr = Array.isArray(proposalJson)
+    ? proposalJson
+    : (proposalJson as { cast?: unknown } | null)?.cast;
+  if (!Array.isArray(arr)) return null;
+  return arr.map((entry: unknown) => {
     if (typeof entry !== 'object' || entry === null) return entry;
     const e = entry as Record<string, unknown>;
     return {
-      type: e['type'],
+      // Wire field is castType (matches the frontend CastProposalEntry + the
+      // confirm request schema). The stored proposal_json uses `type`.
+      castType: e['castType'] ?? e['type'],
       name: e['name'],
       description: e['description'] ?? null,
       imageFileIds: e['image_file_ids'] ?? e['imageFileIds'] ?? [],
