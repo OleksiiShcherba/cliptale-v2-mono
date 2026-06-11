@@ -57,6 +57,31 @@ const REF_DEFAULT_OPTIONS    = {
 };
 
 /**
+ * Finds the canvas generation block of a flow (reference flows seed exactly one).
+ * Returns null when the flow/canvas has none — the job is then inserted without a
+ * block binding, as before.
+ */
+async function findCanvasGenerationBlockId(pool: Pool, flowId: string): Promise<string | null> {
+  const [rows] = await pool.execute(
+    `SELECT canvas FROM generation_flows WHERE flow_id = ? LIMIT 1`,
+    [flowId],
+  );
+  const raw = ((rows ?? []) as Array<{ canvas: unknown }>)[0]?.canvas;
+  if (!raw) return null;
+  try {
+    const canvas = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const blocks: Array<{ blockId?: string; type?: string }> = Array.isArray(
+      (canvas as { blocks?: unknown })?.blocks,
+    )
+      ? (canvas as { blocks: Array<{ blockId?: string; type?: string }> }).blocks
+      : [];
+    return blocks.find((b) => b.type === 'generation')?.blockId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Completion-hook for the rolling-window (ADR-0003, AC-03, AC-04).
  *
  * On success: marks `window_status='done'`, then atomically claims the next
@@ -104,6 +129,28 @@ export async function onReferenceBlockJobComplete(
   // Idempotency: if 0 rows affected, the block was already terminal — stop.
   if (updateResult.affectedRows === 0) {
     return;
+  }
+
+  // Auto-star the first generation's output as the block's primary preview
+  // (only when the block has no stars yet). Without this, a done block renders
+  // empty until the Creator opens the flow and stars a result by hand.
+  if (outcome === 'success') {
+    const [outRows] = await pool.execute(
+      `SELECT output_file_id FROM ai_generation_jobs WHERE job_id = ? LIMIT 1`,
+      [jobId],
+    );
+    const outputFileId = ((outRows ?? []) as Array<{ output_file_id: string | null }>)[0]
+      ?.output_file_id;
+    if (outputFileId) {
+      await pool.execute(
+        `INSERT INTO storyboard_reference_stars (id, reference_block_id, file_id, is_primary)
+         SELECT ?, ?, ?, 1
+          WHERE NOT EXISTS (
+            SELECT 1 FROM storyboard_reference_stars WHERE reference_block_id = ?
+          )`,
+        [randomUUID(), blockId, outputFileId, blockId],
+      );
+    }
   }
 
   // Publish realtime status for the completed block.
@@ -167,11 +214,14 @@ export async function onReferenceBlockJobComplete(
 
   // Step 4: Create the ai_generation_jobs row for the next block's run.
   // This lets the worker call setJobStatus / setOutputFile by the new jobId.
+  // block_id binds the run to the flow canvas' generation block so the flow's
+  // result block resolves this run's output as its preview.
+  const nextGenBlockId = await findCanvasGenerationBlockId(pool, next.flow_id);
   const nextJobId = randomUUID();
   await pool.execute(
     `INSERT INTO ai_generation_jobs
-       (job_id, user_id, model_id, capability, prompt, options, flow_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (job_id, user_id, model_id, capability, prompt, options, flow_id, block_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       nextJobId,
       next.user_id,
@@ -180,6 +230,7 @@ export async function onReferenceBlockJobComplete(
       prompt,
       JSON.stringify(parsedOpts),
       next.flow_id,
+      nextGenBlockId,
     ],
   );
 

@@ -49,6 +49,15 @@ mediaIngestQueue.on('error', (err) => {
   console.error('[media-worker] mediaIngestQueue error:', err.message);
 });
 
+// Worker-side producer for ai-generate — used by the reference rolling-window hook
+// (ADR-0003) to enqueue the NEXT pending reference block after one completes.
+// Without this, maybeAdvanceReferenceWindow silently no-ops and reference blocks
+// stay stuck in window_status='running' forever.
+const aiGenerateQueue = new Queue<AiGenerateJobPayload>(QUEUE_AI_GENERATE, { connection });
+aiGenerateQueue.on('error', (err) => {
+  console.error('[media-worker] aiGenerateQueue error:', err.message);
+});
+
 // ── Ingest worker (concurrency 2) ─────────────────────────────────────────────
 
 const ingestWorker = new Worker<MediaIngestJobPayload>(
@@ -106,6 +115,7 @@ const aiGenerateWorker = new Worker<AiGenerateJobPayload>(
     elevenlabsKey: config.elevenlabs.apiKey,
     elevenlabs: { textToSpeech, voiceClone, speechToSpeech, createMusicCompositionPlan, musicGeneration },
     ingestQueue: mediaIngestQueue,
+    aiGenerateQueue,
     filesRepo,
     aiGenerationJobRepo,
     storyboardIllustrationRepo,
@@ -211,6 +221,7 @@ async function shutdown(signal: string): Promise<void> {
     storyboardPlanWorker.close(),
     storyboardOpenAIImageWorker.close(),
     mediaIngestQueue.close(),
+    aiGenerateQueue.close(),
   ]);
   console.log('[media-worker] Workers closed. Exiting.');
   process.exit(0);

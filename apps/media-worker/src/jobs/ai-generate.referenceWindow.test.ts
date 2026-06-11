@@ -146,9 +146,11 @@ describe('T7 — onReferenceBlockJobComplete rolling-window hook', () => {
 
     it('claims the next pending block in cast order and enqueues its generation', async () => {
       const enqueue = makeEnqueue();
-      // execute calls: (1) UPDATE done, (2) SELECT next pending → one row, (3) UPDATE next running
+      // execute calls: (1) UPDATE done, (2) SELECT output_file_id (auto-star),
+      // (3) SELECT next pending → one row, (4) UPDATE next running
       const { pool } = makePool([
         [[], []], // UPDATE block A → done
+        [[], []], // SELECT output_file_id → none (no auto-star)
         [[NEXT_PENDING_ROW], []], // SELECT next pending → block B found
         [[], []], // UPDATE block B → running
       ]);
@@ -174,6 +176,7 @@ describe('T7 — onReferenceBlockJobComplete rolling-window hook', () => {
       const enqueue = makeEnqueue();
       const { pool } = makePool([
         [[], []],   // UPDATE block A → done
+        [[], []],   // SELECT output_file_id → none
         [[], []],   // SELECT next pending → empty
       ]);
 
@@ -183,6 +186,45 @@ describe('T7 — onReferenceBlockJobComplete rolling-window hook', () => {
       } satisfies ReferenceWindowHookDeps);
 
       expect(enqueue).not.toHaveBeenCalled();
+    });
+
+    it('auto-stars the first generation output as the primary preview (when no stars exist)', async () => {
+      const enqueue = makeEnqueue();
+      const OUTPUT_FILE_ID = '99999999-9999-4999-8999-999999999999';
+      const { pool, calls } = makePool([
+        [[], []],                                   // UPDATE block A → done
+        [[{ output_file_id: OUTPUT_FILE_ID }], []], // SELECT output_file_id → present
+        [[], []],                                   // INSERT star (guarded NOT EXISTS)
+        [[], []],                                   // SELECT next pending → empty
+      ]);
+
+      await onReferenceBlockJobComplete(makeSuccessParams(), {
+        pool,
+        aiGenerateQueue: makeQueue(enqueue),
+      } satisfies ReferenceWindowHookDeps);
+
+      const starInsert = calls.find(([sql]) =>
+        /INSERT INTO storyboard_reference_stars/i.test(sql),
+      );
+      expect(starInsert).toBeTruthy();
+      const [, params] = starInsert!;
+      expect(params).toContain(BLOCK_ID_A);
+      expect(params).toContain(OUTPUT_FILE_ID);
+    });
+
+    it('does NOT auto-star on failure', async () => {
+      const enqueue = makeEnqueue();
+      const { pool, calls } = makePool([
+        [[], []], // UPDATE block A → failed
+        [[], []], // SELECT next pending → empty
+      ]);
+
+      await onReferenceBlockJobComplete(makeFailureParams(), {
+        pool,
+        aiGenerateQueue: makeQueue(enqueue),
+      } satisfies ReferenceWindowHookDeps);
+
+      expect(calls.some(([sql]) => /storyboard_reference_stars/i.test(sql))).toBe(false);
     });
   });
 
