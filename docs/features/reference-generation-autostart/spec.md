@@ -157,3 +157,53 @@ feature_size: "S"
 - [ ] OQ-1: Should a failed auto-start retry automatically before falling back to the manual control? Default now: no auto-retry — Creator recovers manually (AC-07). — owner: Oleksii (Storyboard squad), due: before `sdd:tasks`
 - [ ] OQ-2: Should the Cast confirmation modal auto-open once the proposal is ready, or stay closed until the Creator opens it? Default now: stay closed (background extraction, Creator opens on demand). — owner: PM, due: before `sdd:tasks`
 - [ ] OQ-3: On a draft that already has *confirmed* reference blocks, should entering Step 2 still attempt anything, or is auto-start strictly for the no-extraction case? Default now: strictly no-op once any extraction exists (AC-05). — owner: Tech Lead, due: before `sdd:tasks`
+
+## Test plan
+
+> **Scope:** S feature, plan inline per size-matrix. Surfaces = `web-frontend` + `backend-service` (sad `target_surfaces`), so the levels in play are **unit**, **integration** (api against real MySQL), **component** (RTL/Testing Library), and **e2e-through-UI** (Playwright). No dedicated visual-regression tool exists in the repo → the stray-buttons defect is covered by a **component assertion** plus the spec's manual visual review (§6). Tools are detected by `implement` (vitest · @testing-library/react · @playwright/test · supertest); not hard-coded here.
+
+### Coverage — every §5 AC maps to ≥1 named test
+
+| AC | Test (named from intent) | Level(s) | Expected outcome |
+|---|---|---|---|
+| **AC-01** auto-start happy path | `useCastAutostart starts extraction on Step-2 entry when none exists` | component | On mount with existence-check → none, the hook issues exactly one start request; no modal forced open, no charge. |
+| **AC-01** (end-to-end journey) | `entering Step 2 auto-starts extraction and the proposal becomes reviewable` | e2e-through-UI | Real UI: enter Step 2 → extraction starts silently → modal later shows the proposal. |
+| **AC-02** real dialog, never stray buttons | `CastConfirmModal renders a backdrop+dialog in every state with zero inline action buttons` | component | In each state (pre-proposal, running, proposal-ready, completed-empty, failed) the surface exposes `role="dialog"` + backdrop and renders **no** loose buttons in the page body. Backstops QG-2 / NFR "stray-buttons = 0". |
+| **AC-03** progress visible | `CastConfirmModal shows in-progress state and offers no confirm while extraction runs` | component | Open during `queued`/`running` → "cast is being prepared", confirm action absent until proposal ready. |
+| **AC-04** consent before charge | `confirm cost starts the paid generation; nothing is charged before confirm` | integration · e2e-through-UI | api integration (real MySQL): no paid generation / no credit spend until `POST …/confirm`; only then is the paid first generation dispatched. e2e: review proposal → confirm → "generation underway". |
+| **AC-05** one extraction per draft (ADR-0001) | `duplicate startExtraction returns the existing job and the row count for the draft stays at 1` | integration | **Key test (QG-3).** Real MySQL: two `startExtraction` calls for the same draft → second returns the existing job's `id`; `SELECT COUNT(*) … WHERE draft_id` = 1. Covers re-mount / concurrent-tab race. |
+| **AC-05** client traffic-hygiene guard | `useCastAutostart in-flight guard suppresses the redundant start on re-mount` | component | A second mount while a start is in flight issues **no** second request (the latency/traffic optimization, not the correctness mechanism — that's the integration test above). |
+| **AC-06** nothing to extract (completed-empty) | `CastConfirmModal shows the completed-empty state with close-only and no confirm` | component | Extraction completed with empty proposal → "nothing to generate references for", close action present, **no** confirm; no error surfaced. |
+| **AC-06** empty extraction completes cleanly | `auto-started extraction with no characters completes empty without error` | integration | Real MySQL: empty-proposal completion leaves the draft usable, status `completed`, no reference blocks, no error row (reuses the existing extraction-service seam; asserts the auto-start path inherits it). |
+| **AC-07** error recovery via manual control | `manual Start control opens the modal and starts extraction when auto-start created none` | component · e2e-through-UI | component: the manual control always opens the modal and (when no extraction exists) issues the start; a *failed* auto-start surfaces no toast (swallowed per §1¶4). e2e: failed auto-start → click manual → extraction starts + modal opens, no charge for the failed attempt. |
+
+### Edge & error rows (called out, not folded into happy paths)
+
+- **AC-02** broken-surface defect, **AC-06** completed-empty, and **AC-07** failed-auto-start recovery each have their **own** rows above — none folded into a happy path.
+- **Silent failed auto-start:** asserted inside the AC-07 component test — a rejected/never-accepted start produces **no** error toast and leaves the draft recoverable via the manual control (spec §1¶4; sad §8 Error handling).
+- **Concurrent / re-mount race:** the AC-05 integration test exercises the duplicate-call path (idempotent start); the AC-05 component test exercises the single-client in-flight guard — the two halves of the dedup invariant.
+
+### Integration strategy — ephemeral real dependency, never mocked
+
+- **Datastore:** the api integration suite runs against **real MySQL** (`singleFork: true`, datastore never mocked — architecture-map §Tests; existing `storyboardReference.extraction.service.test.ts` + `__tests__/integration/migration-052-055-references.integration.test.ts` are the precedent the AC-05 / AC-04 / AC-06 integration tests join).
+- **Seed:** no new factory — insert `storyboard_cast_extraction_jobs` rows through the existing cast-extraction seam (`data-model.md §Test fixtures`); the duplicate-start test seeds one job then asserts the count stays at 1.
+- **Cleanup boundary:** per the repo's existing integration convention (truncate/rollback per test in the single fork); leaving rows behind would make the count assertion flaky — cleanup is per-test.
+- **PII guard:** any seeded owner uses `user-<uuid>@example.test`.
+
+### Load
+
+<!-- N/A: no numeric NFR carries a server throughput/concurrency target. The §6 numbers (auto-start dispatch ≤500 ms p95, modal first paint ≤150 ms p95) are front-end render/dispatch latencies — verified by instrumentation / RUM in production (§6 Measurement), not a load tool. The "duplicate-extraction rate = 0" NFR is verified by the AC-05 integration test; "stray-buttons = 0" by the AC-02 component test. -->
+
+### NFR / QG verification (non-test, recorded for traceability)
+
+| NFR / QG | How verified | Test row? |
+|---|---|---|
+| QG-1 auto-start dispatch ≤ 500 ms p95 | Front-end timing metric / RUM in prod (chosen: instrumentation only — p95 isn't representable in unit/component) | No automated test — instrument the dispatch timing |
+| QG-2 modal first paint ≤ 150 ms p95 | Front-end render metric / RUM | No automated test — instrument render timing |
+| Duplicate-extraction rate = 0 | **AC-05 integration test** (count stays 1) | Yes |
+| Stray-buttons defect = 0 | **AC-02 component test** + manual visual review (§6) | Yes (component) |
+
+### CI placement
+
+- **Every PR (fast):** unit · component · api integration (the AC-01/02/03/05/06 component tests + AC-04/05/06 integration tests).
+- **Scheduled / pre-release (heavier):** the three e2e-through-UI journeys (AC-01, AC-04, AC-07) — run off the PR critical path because the Playwright suite carries the seed-user + 15-min login rate-limit friction noted in the repo's gate realities. Split is advice; `implement` and the repo CI own the wiring.
