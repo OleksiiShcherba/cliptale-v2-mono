@@ -4,7 +4,7 @@ owner: "Oleksii (Storyboard squad)"
 reviewers: ["Tech Lead", "Security Lead"]
 updated_at: "2026-06-11"
 feature_size: "S"
-target_surfaces: []  # filled in §4 — subset of: backend-service | web-frontend | mobile-app | desktop-app | cli | worker | library-sdk. Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
+target_surfaces: [web-frontend, backend-service]  # §4: web-frontend is primary; backend-service added for the idempotent-start guard (ADR-0001)
 ---
 
 # Software Architecture Document — reference-generation-autostart
@@ -31,7 +31,10 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
 | Tech Lead | SAD approval; owns the dedup-race resolution | Yes |
 | Security Lead | Confirms no new authz boundary / PII (reuses owner-scoped free extraction) | No |
 
-<!-- Decision overrides (¶4) — populated by the critic resolution loop, empty otherwise. -->
+<!-- Decision overrides (¶4) — populated by the critic resolution loop and by reconciled §4 decisions. -->
+
+**Decision overrides.**
+- **Decision override: the feature touches the backend (one additive guard), not frontend-only** — rationale: the "0 duplicate extractions" NFR (spec §6) cannot be guaranteed by a client guard under multi-tab/multi-device concurrency; spec §1¶4 keys dedup on *persisted* state, so the invariant is enforced at the server (ADR-0001). This supersedes the initial frontend-only framing; proposal logic and endpoint signatures are unchanged. `target_surfaces` = `[web-frontend, backend-service]`.
 
 ## 2. Constraints
 
@@ -39,7 +42,8 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
 - TypeScript 5.4+ (strict, ESM), Node ≥20.
 - React 18 + Vite 5 + React-Router v7 + TanStack Query 5; project document via the custom external store + `useSyncExternalStore` (no Redux/Zustand).
 - UI styling: plain inline `CSSProperties` in co-located `*.styles.ts` (no Tailwind / CSS-modules / styled-components).
-- **No backend change.** Reuses the existing reference endpoints unchanged: `POST /storyboards/:draftId/references/extract` (start free extraction), `GET /storyboards/:draftId/references/extraction` (latest extraction, `CastExtractionJob | null`), `POST /storyboards/:draftId/references/confirm` (confirm cast → paid first generation). Extraction runs async in `media-worker`.
+- **Reuses the existing reference endpoints**, signatures unchanged: `POST /storyboards/:draftId/references/extract` (start free extraction), `GET /storyboards/:draftId/references/extraction` (latest extraction, `CastExtractionJob | null`), `POST /storyboards/:draftId/references/confirm` (confirm cast → paid first generation). Extraction runs async in `media-worker`.
+- **One additive backend change** (ADR-0001): `startExtraction` becomes idempotent per draft (returns the existing job instead of creating a second). No request/response shape change, no proposal-logic change — see §1¶4 override.
 
 **Organisational.**
 - Effort budget: S (a few component-days, single squad).
@@ -85,7 +89,17 @@ C4Context
 
 ## 4. Solution strategy
 
-<!-- drafting -->
+**Top strategic choices (the seeds for ADRs):**
+
+1. **Target surfaces — `web-frontend` (primary) + `backend-service` (additive guard).** The feature is overwhelmingly a web-editor change (when extraction starts; how the modal renders). It crosses into the backend only for the dedup guard in choice 3 — a small, additive idempotency check on the existing `startExtraction`, with **no change to proposal logic** (spec §3 non-goal preserved). The web-editor stays a React 18 SPA; no new state library, routing, or rendering model. Multi-surface here is the *consequence* of choice 3, so it carries no separate ADR — see ADR-0001.
+
+2. **Auto-start via a dedicated `useCastAutostart(draftId)` hook, with TanStack Query as the single source of truth for extraction state.** Today extraction lives in `StoryboardPage` local state and is polled only while the modal is open — there is no entry-time existence check. The hook encapsulates the mount-time existence check, the conditional start, the in-flight guard, and the poll, exposing one query (`['cast-extraction', draftId]`) that both the auto-path and the manual control read. This unifies the manual and auto paths on one cache entry (so the manual control "surfaces the existing one" for free) and is testable in isolation. *Single-module, reversible — does not cross the blast-radius gate; recorded here, not as an ADR.*
+
+3. **Dedup is enforced at the source of truth (server), with a client guard for traffic hygiene.** The spec requires *zero* second extractions per draft, and §1¶4 keys dedup on the draft's **persisted** state. The server's `startExtraction` is today **not** idempotent at the job level — it guards only against already-confirmed reference *blocks*, so two near-simultaneous starts (re-mount race, React 18 StrictMode double-effect, two tabs) would create two job rows. We make `startExtraction` **idempotent per draft** — return the existing queued/running/completed job instead of creating a second — so the invariant holds wherever the start arrives from; and keep a frontend in-flight guard so the common single-client re-mount never issues the redundant POST. This is the feature's one irreversible, multi-module decision → **ADR-0001**.
+
+4. **Cast confirmation becomes a real dialog via a per-component backdrop+dialog wrapper, following the `SceneModal` precedent.** `CastConfirmModal` today returns bare `<div>`s in every branch (the no-proposal branch is the stray-buttons defect). We wrap it in the same inline-styled backdrop + centered dialog shell that `SceneModal`/`MusicBlockModal` use (`dialog` semantics, focus-on-mount, Esc-to-close), adding a distinct **completed-empty** state. This matches the repo convention "each modal owns its wrapper — no shared Modal primitive" (§8); extracting a shared primitive is deliberately out of scope for this S feature. *Convention-following — no ADR.*
+
+Each tactical decision in later sections traces to one of these seeds. Tactical decisions that *contradict* a strategic choice are red flags — surfaced in §11.
 
 ## 5. Building block view
 
