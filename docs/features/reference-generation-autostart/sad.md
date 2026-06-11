@@ -184,6 +184,81 @@ sequenceDiagram
     end
 ```
 
+**Critical flow 3: open the Cast confirmation modal — state-driven (AC-02, AC-03, AC-06)**
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web as web-editor (CastConfirmModal)
+    participant API as Reference API
+    Note over Creator,Web: precondition — an extraction exists (auto-started or manual); modal currently closed
+    Creator->>Web: opens the Cast confirmation modal
+    Web->>Web: renders backdrop + centered dialog (never loose inline buttons)
+    Web->>API: requests the latest extraction for the draft
+    alt extraction still running
+        API-->>Web: status in-progress, no proposal yet
+        Web-->>Creator: shows "cast is being prepared", offers no confirm action
+    else completed with a proposed cast
+        API-->>Web: returns the proposal + aggregate cost estimate
+        Web-->>Creator: shows the proposal + cost, enables the confirm action
+    else completed but empty
+        API-->>Web: status completed, empty proposal
+        Web-->>Creator: shows "nothing to generate references for", close only
+    end
+    Note over Creator,Web: dialog wrapper identical in every state — stray-buttons defect impossible
+```
+
+**Critical flow 4: confirm cost → paid first generation (AC-04)**
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web as web-editor (CastConfirmModal)
+    participant API as Reference API
+    participant Worker as media-worker
+    participant DB as MySQL
+    Note over Creator,Web: precondition — extraction completed with a proposed cast + aggregate cost; nothing charged yet
+    Creator->>Web: reviews the proposal, clicks confirm cost
+    Web->>API: confirms the cost for the proposed cast
+    alt cost confirmed
+        API->>DB: records the cost confirmation
+        Note over API,DB: persists cost-confirmation; credit charge inherited unchanged
+        API->>Worker: dispatches the paid first reference generation
+        API-->>Web: accepted, paid generation started
+        Web-->>Creator: shows generation underway
+    else Creator dismisses without confirming
+        Web-->>Creator: closes the modal — no charge, no paid generation
+    end
+    Note over Creator,API: credits spent only after an explicit confirm — the single consent gate
+```
+
+**Critical flow 5: manual recovery after a failed auto-start (AC-07)**
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web as web-editor (useCastAutostart)
+    participant API as Reference API
+    participant Worker as media-worker
+    Note over Creator,Web: precondition — auto-start never created an extraction (request was never accepted); no credits charged
+    Creator->>Web: clicks "Start reference generation"
+    Web->>API: starts the free cast extraction (idempotent per draft)
+    alt no extraction exists yet
+        API->>Worker: dispatches the extraction job
+        API-->>Web: accepted, in progress
+    else an extraction already exists
+        API-->>Web: returns the existing extraction (no second row)
+    end
+    Web-->>Creator: opens the Cast confirmation modal
+    Note over Creator,Web: the manual control always opens the modal; no charge for the failed attempt
+```
+
+**Flagged for downstream stages (flag only — no auto-ADR):**
+- **Async dead-letter is feature-level, not queue-level.** The extraction job's *internal* retry/dead-letter behaviour is inherited unchanged (proposal logic is a non-goal). The spec's only async-failure case — "request was never accepted" — is recovered by Flow 5 (manual control), not a queue dead-letter branch; no new worker flow was drawn (owner choice, this stage).
+- **Idempotent-start guard already has its ADR.** Flows 2 and 5 show the per-draft idempotent start; this is **ADR-0001** (§9), not a new decision.
+- **No new participants.** Every participant (Creator, web-editor, Reference API, media-worker, MySQL) is already declared in the §5 C4Container — nothing for `design` to reconcile.
+- **Persist hint for `data-model`.** Only Flow 4 mutates (`persists cost-confirmation`); all other flows read the latest extraction. The dedup invariant (AC-05) implies the latest-extraction lookup keys on `draft_id` — index hint for `data-model`.
+
 ## 7. Deployment view
 
 <!-- N/A: reuses the existing web-editor, Reference API, and media-worker deployment units. ADR-0001 is a code change to an existing service, not an infra change — no new replica, queue, or topology. -->
