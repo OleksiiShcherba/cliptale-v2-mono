@@ -147,7 +147,42 @@ The two declared `target_surfaces` map to the **web-editor** container (web-fron
 
 ## 6. Runtime view
 
-<!-- drafting -->
+Seeded flows below; the `sequences` stage covers every §5 AC (no cap). Participants are the §5 containers; messages are semantic (endpoint-level detail arrives in the `api` stage).
+
+**Critical flow 1: Step-2 entry auto-start (happy path, AC-01)**
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web as web-editor (useCastAutostart)
+    participant API as Reference API
+    participant Worker as media-worker
+    Creator->>Web: enters Step 2 (page-ready)
+    Web->>API: requests the latest extraction for the draft
+    API-->>Web: none exists
+    Web->>API: starts the free cast extraction
+    API->>Worker: dispatches the extraction job
+    API-->>Web: accepted, in progress
+    Note over Creator,Web: nothing charged, no modal forced open — runs silently
+```
+
+**Critical flow 2: re-entry / concurrent start — no duplicate (AC-05, NFR "0 duplicates")**
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web as web-editor (useCastAutostart)
+    participant API as Reference API
+    Creator->>Web: re-enters Step 2 (re-mount / second tab)
+    Web->>API: requests the latest extraction for the draft
+    alt an extraction already exists
+        API-->>Web: returns the existing extraction
+        Web-->>Creator: keeps it available, starts nothing new
+    else concurrent start slips past the client check
+        Web->>API: starts the free cast extraction
+        API-->>Web: returns the existing job (idempotent — no second row)
+    end
+```
 
 ## 7. Deployment view
 
