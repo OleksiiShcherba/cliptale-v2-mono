@@ -8,8 +8,8 @@
  *   AC-01  — POST .../extract returns 202 { jobId, status:'queued' } on success
  *   AC-01b — POST .../extract returns 409 references.cast_already_confirmed when
  *            draft already has reference blocks
- *   AC-01b — POST .../extract returns 409 references.extraction_in_progress when
- *            an extraction job is already queued/running (openapi.yaml resolved gap)
+ *   AC-05  — POST .../extract returns 202 with the existing job status (idempotent
+ *            passthrough, ADR-0001) when an extraction is already queued/running/completed
  *   AC-03  — POST .../confirm returns 201 ReferenceBlockList (items[].windowStatus='pending')
  *   AC-03  — POST .../confirm returns 409 references.cast_already_confirmed when blocks exist
  *   AC-13  — non-owner on each endpoint → next(NotFoundError) — existence hiding
@@ -200,24 +200,25 @@ describe('startCastExtraction handler (POST .../references/extract)', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('AC-01b(edge) — returns 409 with code references.extraction_in_progress when a job is already running', async () => {
-    // ExtractionInProgressError is a new error type the controller must recognise
-    // (resolved sequence gap, openapi.yaml 2026-06-07).
-    const err = new Error('Cast extraction is already running for this draft.');
-    (err as Error & { statusCode: number; code: string }).statusCode = 409;
-    (err as Error & { statusCode: number; code: string }).code = 'references.extraction_in_progress';
-    Object.defineProperty(err, 'name', { value: 'ExtractionInProgressError' });
-    mockExtractionService.startExtraction.mockRejectedValueOnce(err);
+  it('AC-05 — idempotent passthrough: returns 202 with the existing job status (running), not a 409', async () => {
+    // ADR-0001: the service converges on the existing extraction and returns its
+    // current status; the controller passes that union value straight through at 202.
+    mockExtractionService.startExtraction.mockResolvedValueOnce({
+      jobId: EXTRACTION_ACCEPTED.jobId,
+      status: 'running',
+    });
     const req = makeExtractReq();
     const { res, status, json } = makeRes();
     const next = makeNext();
 
     await startCastExtraction(req, res, next);
 
-    expect(status).toHaveBeenCalledWith(409);
+    expect(status).toHaveBeenCalledWith(202);
+    expect(status).not.toHaveBeenCalledWith(409);
     expect(json).toHaveBeenCalledWith(
       expect.objectContaining({
-        code: 'references.extraction_in_progress',
+        jobId: EXTRACTION_ACCEPTED.jobId,
+        status: 'running',
       }),
     );
     expect(next).not.toHaveBeenCalled();

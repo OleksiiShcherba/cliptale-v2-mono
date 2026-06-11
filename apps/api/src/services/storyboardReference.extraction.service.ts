@@ -16,7 +16,11 @@ export class CastAlreadyExtractedError extends Error {
 
 export type StartExtractionResult = {
   jobId: string;
-  status: 'queued';
+  /**
+   * Idempotent start (ADR-0001): a fresh start returns `queued`; a converged-on
+   * existing extraction returns its current `running` / `completed` status.
+   */
+  status: 'queued' | 'running' | 'completed';
 };
 
 export type GetExtractionResult = {
@@ -48,7 +52,10 @@ async function resolveDraftOwner(userId: string, draftId: string) {
  *
  * - Owner check (AC-13): not-found on missing or non-owned draft.
  * - Guard (AC-01b): if draft already has reference blocks, throws CastAlreadyExtractedError.
- * - Creates a queued job row, then enqueues the cast-extract job.
+ * - Idempotent per draft (AC-05, ADR-0001): if the latest job is queued/running/completed,
+ *   returns it untouched — no second row. A `failed` (or absent) latest is treated as
+ *   not-existing, so a fresh start is allowed (AC-07).
+ * - Otherwise creates a queued job row, then enqueues the cast-extract job (AC-01).
  */
 export async function startExtraction(
   userId: string,
@@ -56,7 +63,7 @@ export async function startExtraction(
 ): Promise<StartExtractionResult> {
   await resolveDraftOwner(userId, draftId);
 
-  // AC-01b: guard — if blocks exist, extraction cannot be re-run
+  // AC-01b: guard — if blocks exist, extraction cannot be re-run (wins over the idempotent return)
   const existingBlocks = await storyboardReferenceRepository.listReferenceBlocksByDraftId({
     draftId,
     userId,
@@ -65,7 +72,17 @@ export async function startExtraction(
     throw new CastAlreadyExtractedError();
   }
 
-  // AC-01: persist job row before enqueue
+  // AC-05 (ADR-0001): idempotent per draft — converge on the existing non-failed extraction
+  // instead of inserting a second row. `failed` = not-existing → fall through to a fresh start.
+  const latest = await storyboardReferenceRepository.findLatestCastExtractionJobForDraft({
+    draftId,
+    userId,
+  });
+  if (latest && latest.status !== 'failed') {
+    return { jobId: latest.id, status: latest.status };
+  }
+
+  // AC-01 / AC-07: persist job row before enqueue
   const jobId = randomUUID();
   const job = await storyboardReferenceRepository.createCastExtractionJob({
     id: jobId,

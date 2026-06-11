@@ -51,27 +51,16 @@ function isCastAlreadyExtracted(err: unknown): err is Error & { statusCode: 409 
   );
 }
 
-/**
- * Returns true when the error is an ExtractionInProgressError (resolved sequence gap,
- * openapi.yaml 2026-06-07): statusCode=409, code='references.extraction_in_progress'.
- */
-function isExtractionInProgress(err: unknown): err is Error & { statusCode: 409; code: string } {
-  return (
-    err instanceof Error &&
-    err.name === 'ExtractionInProgressError' &&
-    (err as Error & { statusCode?: number }).statusCode === 409
-  );
-}
-
 // ── POST /storyboards/:draftId/references/extract ─────────────────────────────
 
 /**
  * POST /storyboards/:draftId/references/extract
  * AC-01, AC-01b, AC-13.
  *
- * Returns 202 { jobId, status:'queued' } on success.
- * Returns 409 with code on domain conflicts (CastAlreadyExtractedError,
- * ExtractionInProgressError).
+ * Returns 202 { jobId, status } on success — status is the idempotent union
+ * queued|running|completed (ADR-0001): a fresh start is `queued`, a converged-on
+ * existing extraction returns its current status.
+ * Returns 409 references.cast_already_confirmed on CastAlreadyExtractedError.
  * Non-owner: NotFoundError forwarded to next() (existence hiding, AC-13).
  */
 export async function startCastExtraction(
@@ -95,15 +84,6 @@ export async function startCastExtraction(
       res.status(409).json({
         error: (err as Error).message || 'This draft already has a confirmed cast.',
         code: 'references.cast_already_confirmed',
-      });
-      return;
-    }
-    if (isExtractionInProgress(err)) {
-      const e = err as Error & { code: string; details?: unknown };
-      res.status(409).json({
-        error: e.message || 'Cast extraction is already running for this draft.',
-        code: 'references.extraction_in_progress',
-        ...(e.details !== undefined ? { details: e.details } : {}),
       });
       return;
     }
