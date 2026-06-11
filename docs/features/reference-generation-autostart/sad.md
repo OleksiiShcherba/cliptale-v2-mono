@@ -43,7 +43,7 @@ target_surfaces: [web-frontend, backend-service]  # §4: web-frontend is primary
 - React 18 + Vite 5 + React-Router v7 + TanStack Query 5; project document via the custom external store + `useSyncExternalStore` (no Redux/Zustand).
 - UI styling: plain inline `CSSProperties` in co-located `*.styles.ts` (no Tailwind / CSS-modules / styled-components).
 - **Reuses the existing reference endpoints**, signatures unchanged: `POST /storyboards/:draftId/references/extract` (start free extraction), `GET /storyboards/:draftId/references/extraction` (latest extraction, `CastExtractionJob | null`), `POST /storyboards/:draftId/references/confirm` (confirm cast → paid first generation). Extraction runs async in `media-worker`.
-- **One additive backend change** (ADR-0001): `startExtraction` becomes idempotent per draft (returns the existing job instead of creating a second). No request/response shape change, no proposal-logic change — see §1¶4 override.
+- **One additive backend change** (ADR-0001): `startExtraction` becomes idempotent per draft (returns the existing job instead of creating a second). No new request field and no proposal-logic change; the one shape delta is that `StartExtractionResult.status` widens from the literal `'queued'` to the `queued | running | completed` union (so an already-running/completed job can be returned) — carried into the `api` stage. See §1¶4 override.
 
 **Organisational.**
 - Effort budget: S (a few component-days, single squad).
@@ -198,7 +198,7 @@ sequenceDiagram
 | State / data fetching | Extraction state is a single TanStack Query entry `['cast-extraction', draftId]`; the manual control and auto-start both read/refresh it. Project doc stays in the custom external store (untouched). | §4 choice 2 · architecture-map §Frontend |
 | Polling | While the extraction is non-terminal (`queued`/`running`), the hook polls on the existing 3 s interval; stops on `completed`/`failed`. | existing `StoryboardPage` pattern, moved into the hook |
 | Modal / dialog | Per-component backdrop + centered dialog wrapper with `dialog` semantics, focus-on-mount, Esc-to-close — following `SceneModal`. No shared Modal primitive (repo convention: each modal owns its wrapper). | `SceneModal.styles.ts` precedent · §4 choice 4 |
-| Idempotent no-op UX | Auto-start never forces the modal open and never charges; an empty proposal is a **completed-empty** modal state ("nothing to generate references for"), not an error. | spec §1¶4, AC-06 |
+| Idempotent no-op UX | Auto-start never forces the modal open and never charges; an empty proposal is a **completed-empty** modal state ("nothing to generate references for"), not an error. | spec §1¶4, AC-03/AC-06 |
 
 ## 9. Architecture decisions
 

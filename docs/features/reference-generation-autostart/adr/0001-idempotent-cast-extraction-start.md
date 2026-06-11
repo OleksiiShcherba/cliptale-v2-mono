@@ -45,6 +45,7 @@ Auto-start fires the free cast extraction on every Step-2 entry for a draft that
 **Negative**
 - Expands the feature's surface from frontend-only to also touch one backend service method (and its tests); the SAD's §2 "no backend change" assumption is overridden accordingly.
 - "Return existing" must define which statuses count as existing (queued/running/completed = existing; `failed` = not existing, a new start is allowed) — a small semantic the contract/tests must pin (carried into the `api` stage and AC-07).
+- The response type widens: `StartExtractionResult.status` changes from the literal `'queued'` to the `queued | running | completed` union so an already-running/completed job can be returned. No field is added, but this is a (small) typed-contract change the `api` stage must reflect.
 
 **Neutral**
 - The frontend guard becomes a latency/traffic optimization rather than a correctness mechanism; it could be dropped later with no invariant impact.
