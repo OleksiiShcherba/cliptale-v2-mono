@@ -239,7 +239,7 @@ export function CastConfirmModal({
     return (
       <CastModalShell onCancel={onCancel}>
         <div data-testid="cast-extraction-progress">
-          <p>Extracting cast from your storyboard&hellip;</p>
+          <p>Your cast is being prepared&hellip;</p>
           <button data-testid="cast-cancel-button" onClick={onCancel}>Cancel</button>
         </div>
       </CastModalShell>
@@ -270,7 +270,20 @@ export function CastConfirmModal({
     );
   }
 
-  // Completed — show proposal for review.
+  // AC-06: completed but proposed no cast — distinct close-only "nothing to
+  // generate references for" state. No proposal form, no aggregate, no confirm.
+  if (extraction.status === 'completed' && (!extraction.proposal || extraction.proposal.length === 0)) {
+    return (
+      <CastModalShell onCancel={onCancel}>
+        <div data-testid="cast-extraction-empty">
+          <p>There is nothing to generate references for in this storyboard.</p>
+          <button data-testid="cast-cancel-button" onClick={onCancel}>Close</button>
+        </div>
+      </CastModalShell>
+    );
+  }
+
+  // Completed with a non-empty proposal (proposal-ready) — show it for review.
   const aggregateCredits = extraction.aggregateEstimateCredits ?? 0;
 
   function handleEntryChange(index: number, updated: CastProposalEntry) {
