@@ -29,16 +29,28 @@ function ReferenceGlyph(): React.ReactElement {
 }
 
 export function ReferenceBlockNode({ id, data }: ReferenceBlockNodeProps): React.ReactElement {
-  const { referenceBlock, previewUrls, onOpenFlow, onRetry, onAddBlock } = data;
+  const { referenceBlock, previewUrls, onOpenFlow, onOpenDetails, onRetry, onAddBlock } = data;
   const { flowId, name, castType, windowStatus, errorMessage } = referenceBlock;
 
   const hasFlow = flowId !== null;
 
+  // Click opens the DETAILS modal (scene links + prompt); the flow page moved to
+  // the explicit "View flow" button. Legacy fallback: no details handler → flow.
   const handleClick = useCallback((): void => {
-    if (hasFlow) {
+    if (onOpenDetails) {
+      onOpenDetails(id);
+    } else if (hasFlow) {
       onOpenFlow(id);
     }
-  }, [id, hasFlow, onOpenFlow]);
+  }, [id, hasFlow, onOpenFlow, onOpenDetails]);
+
+  const handleViewFlow = useCallback(
+    (event: React.MouseEvent): void => {
+      event.stopPropagation();
+      if (hasFlow) onOpenFlow(id);
+    },
+    [id, hasFlow, onOpenFlow],
+  );
 
   const handleRetry = useCallback(
     (event: React.MouseEvent): void => {
@@ -63,7 +75,7 @@ export function ReferenceBlockNode({ id, data }: ReferenceBlockNodeProps): React
       style={{ ...s.root, ...(!hasFlow ? s.rootNoFlow : {}) }}
       role="button"
       tabIndex={0}
-      aria-label={hasFlow ? `Open reference flow for ${name}` : name}
+      aria-label={onOpenDetails ? `Open reference details for ${name}` : hasFlow ? `Open reference flow for ${name}` : name}
       data-testid="reference-block-node"
       onClick={handleClick}
       onKeyDown={(event) => {
@@ -145,6 +157,19 @@ export function ReferenceBlockNode({ id, data }: ReferenceBlockNodeProps): React
           <div style={s.noFlowBadge} data-testid="reference-block-no-flow">
             No flow linked
           </div>
+        )}
+
+        {/* View flow — opens the linked generate-ai flow (the old click default) */}
+        {hasFlow && (
+          <button
+            type="button"
+            style={s.viewFlowButton}
+            data-testid="reference-block-view-flow-button"
+            onClick={handleViewFlow}
+            aria-label={`View flow for ${name}`}
+          >
+            View flow
+          </button>
         )}
       </div>
 

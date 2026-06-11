@@ -6,7 +6,7 @@ import type { Edge as FlowEdge, Node, NodeMouseHandler } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { fetchDraft } from '@/features/generate-wizard/api';
-import { startCastExtraction, confirmCast, retryReferenceBlockGeneration, updateReferenceBlock } from '@/features/storyboard/api';
+import { startCastExtraction, confirmCast, retryReferenceBlockGeneration, updateReferenceBlock, saveReferenceSceneLinks } from '@/features/storyboard/api';
 import { useAddBlock } from '@/features/storyboard/hooks/useAddBlock';
 import { useAddMusicBlock } from '@/features/storyboard/hooks/useAddMusicBlock';
 import { useHandleAddFromLibrary } from '@/features/storyboard/hooks/useHandleAddFromLibrary';
@@ -43,6 +43,7 @@ import { MusicBlockModal } from './MusicBlockModal';
 import { SceneModal } from './SceneModal';
 import { CastConfirmModal } from './CastConfirmModal';
 import type { CastExtractionJob, CastProposalEntry } from './CastConfirmModal';
+import { ReferenceDetailsModal } from './ReferenceDetailsModal';
 import { StoryboardBulkStreamUrlProvider } from './SceneBlockNode.mediaThumbnail';
 import { useStoryboardPageBulkStreamUrls } from './StoryboardPage.bulkStreamUrls';
 import { ReferenceGateMessage, UnlinkedScenesMessage } from './ReferenceGateMessage';
@@ -88,13 +89,54 @@ export function StoryboardPage(): React.ReactElement {
     // No-op at page level for now — the node button calls retryReferenceBlockGeneration directly.
   }, []);
 
+  // Reference details modal: block click opens it (scene links adjustable +
+  // prompt view-only); the flow page moved to the node's "View flow" button.
+  const [detailsBlockId, setDetailsBlockId] = useState<string | null>(null);
+  const handleOpenReferenceDetails = useCallback((blockId: string): void => {
+    setDetailsBlockId(blockId);
+  }, []);
+
   const { nodes, edges, isLoading, error, setNodes, setEdges, removeNode, reload } =
     useStoryboardCanvas(safeDraftId, {
       onOpenReferenceFlow: handleOpenReferenceFlow,
       onRetryReferenceBlock: handleRetryReferenceBlock,
+      onOpenReferenceDetails: handleOpenReferenceDetails,
     });
   // Keep nodesRef in sync so handleOpenReferenceFlow always sees the latest nodes.
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+
+  // The reference block whose details modal is open (derived from the live nodes).
+  const detailsNodeData = detailsBlockId
+    ? (nodes.find((n) => n.id === detailsBlockId)?.data as ReferenceBlockNodeData | undefined)
+    : undefined;
+
+  // Persist the replacement scene-link list, then sync the node data in place
+  // (sceneBlockIds + bumped compare-and-set version) — no full canvas reload.
+  const handleSaveReferenceSceneLinks = useCallback(
+    async (
+      sceneBlockIds: string[],
+      version: number,
+    ): Promise<{ sceneBlockIds: string[]; version: number }> => {
+      if (!detailsBlockId) throw new Error('No reference block selected');
+      const saved = await saveReferenceSceneLinks(safeDraftId, detailsBlockId, sceneBlockIds, version);
+      setNodes((prev) =>
+        prev.map((n) => {
+          if (n.id !== detailsBlockId || n.type !== 'reference-block') return n;
+          const data = n.data as ReferenceBlockNodeData;
+          return {
+            ...n,
+            data: {
+              ...data,
+              sceneBlockIds: saved.sceneBlockIds,
+              referenceBlock: { ...data.referenceBlock, version: saved.version },
+            },
+          };
+        }),
+      );
+      return saved;
+    },
+    [detailsBlockId, safeDraftId, setNodes],
+  );
 
   const reloadStoryboard = useCallback(async (): Promise<void> => {
     await reload?.();
@@ -522,6 +564,22 @@ export function StoryboardPage(): React.ReactElement {
             hasExistingBlocks={hasExistingReferenceBlocks}
             onConfirmCast={handleConfirmCast}
             onCancel={() => setCastModalOpen(false)}
+          />
+        )}
+
+        {/* Reference details — scene links (adjustable) + prompt (view only). */}
+        {detailsBlockId && detailsNodeData && (
+          <ReferenceDetailsModal
+            key={detailsBlockId}
+            referenceBlock={detailsNodeData.referenceBlock}
+            sceneBlockIds={detailsNodeData.sceneBlockIds}
+            orderedScenes={orderedScenes}
+            onSaveSceneLinks={handleSaveReferenceSceneLinks}
+            onViewFlow={() => {
+              setDetailsBlockId(null);
+              handleOpenReferenceFlow(detailsBlockId);
+            }}
+            onClose={() => setDetailsBlockId(null)}
           />
         )}
 

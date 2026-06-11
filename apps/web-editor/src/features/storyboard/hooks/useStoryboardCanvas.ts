@@ -118,6 +118,7 @@ function referenceBlockToNode(
   onOpenFlow: (blockId: string) => void,
   onRetry: (blockId: string) => void,
   resolvedPreviewUrls: string[] = [],
+  onOpenDetails?: (blockId: string) => void,
 ): Node {
   const data: ReferenceBlockNodeData = {
     referenceBlock: {
@@ -138,7 +139,9 @@ function referenceBlockToNode(
       updatedAt: block.updatedAt,
     },
     previewUrls: resolvedPreviewUrls,
+    sceneBlockIds: block.sceneBlockIds,
     onOpenFlow,
+    onOpenDetails,
     onRetry,
   };
 
@@ -221,6 +224,8 @@ type UseStoryboardCanvasResult = CanvasState & {
 };
 
 type UseStoryboardCanvasOptions = {
+  /** Opens the reference details modal on block click (scene links + prompt). */
+  onOpenReferenceDetails?: (blockId: string) => void;
   /** Called when a reference block node is clicked (opens the linked flow). Default: no-op. */
   onOpenReferenceFlow?: (blockId: string) => void;
   /** Called when the retry button is clicked on a failed reference block. Default: no-op. */
@@ -239,16 +244,20 @@ export function useStoryboardCanvas(
   draftId: string,
   options: UseStoryboardCanvasOptions = {},
 ): UseStoryboardCanvasResult {
-  const { onOpenReferenceFlow, onRetryReferenceBlock } = options;
+  const { onOpenReferenceFlow, onRetryReferenceBlock, onOpenReferenceDetails } = options;
   // Use stable ref wrappers so the reload callback doesn't change when the callbacks change.
   const onOpenFlowRef = useRef<(blockId: string) => void>(onOpenReferenceFlow ?? (() => { /* no-op */ }));
   const onRetryRef = useRef<(blockId: string) => void>(onRetryReferenceBlock ?? (() => { /* no-op */ }));
+  const onOpenDetailsRef = useRef<((blockId: string) => void) | undefined>(onOpenReferenceDetails);
   useEffect(() => {
     if (onOpenReferenceFlow) onOpenFlowRef.current = onOpenReferenceFlow;
   }, [onOpenReferenceFlow]);
   useEffect(() => {
     if (onRetryReferenceBlock) onRetryRef.current = onRetryReferenceBlock;
   }, [onRetryReferenceBlock]);
+  useEffect(() => {
+    if (onOpenReferenceDetails) onOpenDetailsRef.current = onOpenReferenceDetails;
+  }, [onOpenReferenceDetails]);
 
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
@@ -351,6 +360,9 @@ export function useStoryboardCanvas(
             (blockId) => { onOpenFlowRef.current(blockId); },
             (blockId) => { onRetryRef.current(blockId); },
             resolvedUrls,
+            onOpenDetailsRef.current
+              ? (blockId) => { onOpenDetailsRef.current?.(blockId); }
+              : undefined,
           );
         }),
       ];

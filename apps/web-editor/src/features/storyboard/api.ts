@@ -583,6 +583,36 @@ export async function retryReferenceBlockGeneration(
 // ── File info API (storyboard-reference-flows AC-06) ──────────────────────────
 
 /**
+ * Saves the full replacement scene-link list of a reference block (AC-10).
+ *
+ * Maps to PUT /storyboards/:draftId/references/blocks/:blockId/scene-links.
+ * Compare-and-set on `version`; a stale version → throws with status=409 so the
+ * SceneLinkSelector can show its reload prompt.
+ */
+export async function saveReferenceSceneLinks(
+  draftId: string,
+  blockId: string,
+  sceneBlockIds: string[],
+  version: number,
+): Promise<{ sceneBlockIds: string[]; version: number }> {
+  const res = await apiClient.put(
+    `/storyboards/${draftId}/references/blocks/${blockId}/scene-links`,
+    { sceneBlockIds, version },
+  );
+  if (res.status === 409) {
+    const err = new Error('Version conflict — reload and retry.') as Error & { status: number };
+    err.status = 409;
+    throw err;
+  }
+  if (!res.ok) {
+    throw new Error(
+      `PUT /storyboards/${draftId}/references/blocks/${blockId}/scene-links failed: ${res.status}`,
+    );
+  }
+  return res.json() as Promise<{ sceneBlockIds: string[]; version: number }>;
+}
+
+/**
  * Fetches a displayable URL for a file by its ID.
  *
  * Maps to GET /files/:fileId/stream → `{ url }` (short-lived presigned HTTPS URL)

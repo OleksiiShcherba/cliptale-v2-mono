@@ -45,6 +45,7 @@ function makeData(overrides?: Partial<ReferenceBlockNodeData>): ReferenceBlockNo
     },
     /** URLs of ALL starred results, oldest-first — [] = no-preview placeholder. */
     previewUrls: ['https://cdn.example.test/starred-result.jpg'],
+    sceneBlockIds: [],
     onOpenFlow: vi.fn(),
     onRetry: vi.fn(),
     ...overrides,
@@ -202,7 +203,7 @@ describe('ReferenceBlockNode — AC-04 (failed status + retry)', () => {
 // ── AC-05: open linked flow ───────────────────────────────────────────────────
 
 describe('ReferenceBlockNode — AC-05 (open linked flow)', () => {
-  it('calls onOpenFlow with the block id when the node is clicked', () => {
+  it('calls onOpenFlow with the block id when the node is clicked (legacy: no details handler)', () => {
     const onOpenFlow = vi.fn();
     render(<ReferenceBlockNode id="rb-1" data={makeData({ onOpenFlow })} />);
 
@@ -210,6 +211,36 @@ describe('ReferenceBlockNode — AC-05 (open linked flow)', () => {
 
     expect(onOpenFlow).toHaveBeenCalledTimes(1);
     expect(onOpenFlow).toHaveBeenCalledWith('rb-1');
+  });
+
+  it('opens the DETAILS modal on click when onOpenDetails is provided (flow moves to the button)', () => {
+    const onOpenFlow = vi.fn();
+    const onOpenDetails = vi.fn();
+    render(<ReferenceBlockNode id="rb-1" data={makeData({ onOpenFlow, onOpenDetails })} />);
+
+    fireEvent.click(screen.getByTestId('reference-block-node'));
+
+    expect(onOpenDetails).toHaveBeenCalledWith('rb-1');
+    expect(onOpenFlow).not.toHaveBeenCalled();
+  });
+
+  it('"View flow" button opens the flow WITHOUT opening details (stopPropagation)', () => {
+    const onOpenFlow = vi.fn();
+    const onOpenDetails = vi.fn();
+    render(<ReferenceBlockNode id="rb-1" data={makeData({ onOpenFlow, onOpenDetails })} />);
+
+    fireEvent.click(screen.getByTestId('reference-block-view-flow-button'));
+
+    expect(onOpenFlow).toHaveBeenCalledWith('rb-1');
+    expect(onOpenDetails).not.toHaveBeenCalled();
+  });
+
+  it('does NOT render the "View flow" button in the no-flow state', () => {
+    const data = makeData();
+    data.referenceBlock = { ...data.referenceBlock, flowId: null };
+    render(<ReferenceBlockNode id="rb-1" data={data} />);
+
+    expect(screen.queryByTestId('reference-block-view-flow-button')).toBeNull();
   });
 
   it('does NOT call onOpenFlow when the block is in no-flow state (flowId null)', () => {

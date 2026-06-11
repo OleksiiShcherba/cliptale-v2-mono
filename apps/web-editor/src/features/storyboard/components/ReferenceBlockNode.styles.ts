@@ -173,6 +173,20 @@ export const referenceBlockNodeStyles = {
     padding: '4px 8px',
   } as React.CSSProperties,
 
+  // "View flow" — opens the linked generate-ai flow (block click now opens details).
+  viewFlowButton: {
+    width: '100%',
+    border: `1px solid ${BORDER}`,
+    borderRadius: '4px',
+    background: SURFACE,
+    color: TEXT_SECONDARY,
+    cursor: 'pointer',
+    fontSize: '10px',
+    fontWeight: 600,
+    lineHeight: '14px',
+    padding: '4px 8px',
+  } as React.CSSProperties,
+
   noFlowBadge: {
     display: 'inline-flex',
     alignItems: 'center',

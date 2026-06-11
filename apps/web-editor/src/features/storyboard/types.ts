@@ -288,8 +288,12 @@ export type ReferenceBlockNodeData = {
    *  reference in scenes" and surfaces in the block preview (AC-03/AC-06).
    *  Empty = no starred result → no-preview placeholder (AC-07). */
   previewUrls: string[];
-  /** Called with blockId when the block is clicked and flowId is non-null (AC-05). */
+  /** Scene ids this reference is linked to (editable in the details modal). */
+  sceneBlockIds: string[];
+  /** Called with blockId when the "View flow" button is clicked and flowId is non-null (AC-05). */
   onOpenFlow: (blockId: string) => void;
+  /** Called with blockId when the block body is clicked — opens the details modal. */
+  onOpenDetails?: (blockId: string) => void;
   /** Called with blockId when the retry button is clicked on a failed block (AC-04). */
   onRetry: (blockId: string) => void;
   /**
