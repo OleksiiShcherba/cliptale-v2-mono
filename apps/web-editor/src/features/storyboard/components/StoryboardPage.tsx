@@ -6,7 +6,7 @@ import type { Edge as FlowEdge, Node, NodeMouseHandler } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { fetchDraft } from '@/features/generate-wizard/api';
-import { startCastExtraction, getLatestCastExtraction, confirmCast, retryReferenceBlockGeneration } from '@/features/storyboard/api';
+import { startCastExtraction, confirmCast, retryReferenceBlockGeneration } from '@/features/storyboard/api';
 import { useAddBlock } from '@/features/storyboard/hooks/useAddBlock';
 import { useAddMusicBlock } from '@/features/storyboard/hooks/useAddMusicBlock';
 import { useHandleAddFromLibrary } from '@/features/storyboard/hooks/useHandleAddFromLibrary';
@@ -14,6 +14,7 @@ import { useStoryboardCanvas } from '@/features/storyboard/hooks/useStoryboardCa
 import { useHandleAddBlock } from '@/features/storyboard/hooks/useHandleAddBlock';
 import { useHandleRestore } from '@/features/storyboard/hooks/useHandleRestore';
 import { useSceneModal } from '@/features/storyboard/hooks/useSceneModal';
+import { useCastAutostart, castExtractionQueryKey } from '@/features/storyboard/hooks/useCastAutostart';
 import { useStoryboardHistorySeed } from '@/features/storyboard/hooks/useStoryboardHistorySeed';
 import { useStoryboardAutosave } from '@/features/storyboard/hooks/useStoryboardAutosave';
 import {
@@ -99,24 +100,26 @@ export function StoryboardPage(): React.ReactElement {
     await reload?.();
   }, [reload]);
 
-  // ── Cast extraction state (AC-01, AC-01b, AC-03) ──────────────────────────
+  // ── Cast extraction (AC-01, AC-05, AC-07) ─────────────────────────────────
+  // useCastAutostart owns the lifecycle: entering Step 2 auto-starts the free
+  // extraction (silently, no modal forced open), re-entry starts nothing new,
+  // and its single query (['cast-extraction', draftId]) is the source of truth
+  // the manual control surfaces. Polling lives in the hook and stops on terminal.
   const [castModalOpen, setCastModalOpen] = useState(false);
-  const [castExtraction, setCastExtraction] = useState<CastExtractionJob | null>(null);
   const [hasExistingReferenceBlocks, setHasExistingReferenceBlocks] = useState(false);
+  const castExtractionQuery = useCastAutostart(safeDraftId);
+  const castExtraction = castExtractionQuery.data ?? null;
 
+  // The manual control always opens the modal and surfaces the existing
+  // extraction. If auto-start never created one (a failed auto-start — AC-07),
+  // it starts a fresh extraction now via the manual path (not gated by the
+  // hook's auto-start guard).
   const handleStartCastExtraction = useCallback(async (): Promise<void> => {
     setCastModalOpen(true);
+    if (castExtractionQuery.data) return; // existing extraction already surfaced
     try {
-      // First check if there is an existing completed/running extraction to resume.
-      const existing = await getLatestCastExtraction(safeDraftId);
-      if (existing) {
-        // Resume: show existing proposal (completed) or progress (queued/running).
-        setCastExtraction(existing);
-        return;
-      }
-      // No existing extraction — start a new one.
       const accepted = await startCastExtraction(safeDraftId);
-      setCastExtraction({
+      queryClient.setQueryData<CastExtractionJob>(castExtractionQueryKey(safeDraftId), {
         jobId: accepted.jobId,
         draftId: safeDraftId,
         status: accepted.status,
@@ -125,22 +128,9 @@ export function StoryboardPage(): React.ReactElement {
         errorMessage: null,
       });
     } catch (err) {
-      console.error('[StoryboardPage] startCastExtraction failed:', err);
+      console.error('[StoryboardPage] manual startCastExtraction failed:', err);
     }
-  }, [safeDraftId]);
-
-  // Poll for extraction completion while the modal is open and extraction is running.
-  useEffect(() => {
-    if (!castModalOpen || !castExtraction) return;
-    if (castExtraction.status !== 'queued' && castExtraction.status !== 'running') return;
-
-    const interval = setInterval(() => {
-      void getLatestCastExtraction(safeDraftId).then((job) => {
-        if (job) setCastExtraction(job);
-      });
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [castModalOpen, castExtraction, safeDraftId]);
+  }, [castExtractionQuery.data, safeDraftId, queryClient]);
 
   const handleConfirmCast = useCallback(
     async (entries: CastProposalEntry[], acknowledgedAggregateCredits: number): Promise<void> => {
