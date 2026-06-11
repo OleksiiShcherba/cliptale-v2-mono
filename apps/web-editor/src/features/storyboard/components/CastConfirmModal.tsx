@@ -61,9 +61,10 @@ type EntryEditorProps = {
   index: number;
   orderedScenes: StoryboardBlock[];
   onChange: (index: number, updated: CastProposalEntry) => void;
+  onRemove: (index: number) => void;
 };
 
-function EntryEditor({ entry, index, orderedScenes, onChange }: EntryEditorProps) {
+function EntryEditor({ entry, index, orderedScenes, onChange, onRemove }: EntryEditorProps) {
   function handleNameChange(e: React.ChangeEvent<HTMLInputElement>) {
     onChange(index, { ...entry, name: e.target.value });
   }
@@ -87,37 +88,49 @@ function EntryEditor({ entry, index, orderedScenes, onChange }: EntryEditorProps
 
   return (
     <div data-testid={`cast-entry-${index}`} style={castConfirmModalStyles.entryEditor}>
-      <div>
-        <label>Name</label>
+      <div style={castConfirmModalStyles.entryHeader}>
+        <button
+          type="button"
+          data-testid={`cast-entry-remove-${index}`}
+          onClick={() => onRemove(index)}
+          style={castConfirmModalStyles.removeEntryButton}
+          aria-label={`Remove ${entry.name || 'reference'}`}
+        >
+          Remove
+        </button>
+      </div>
+      <div style={castConfirmModalStyles.field}>
+        <label style={castConfirmModalStyles.label}>Name</label>
         <input
           data-testid={`cast-entry-name-${index}`}
           value={entry.name}
           onChange={handleNameChange}
           aria-label={entry.name}
+          style={castConfirmModalStyles.input}
         />
-        <span>{entry.name}</span>
       </div>
-      <div>
-        <label>Type</label>
-        <span>{entry.castType}</span>
-      </div>
-      <div>
-        <label>Description</label>
+      <div style={castConfirmModalStyles.field}>
+        <label style={castConfirmModalStyles.label}>Description</label>
         <textarea
           data-testid={`cast-entry-description-${index}`}
           value={entry.description ?? ''}
           onChange={handleDescChange}
+          style={castConfirmModalStyles.textarea}
         />
       </div>
-      {/* AC-01 / AC-10: scene links correctable in place via the same multi-select selector */}
-      <div data-testid={`cast-entry-scene-links-${index}`}>
-        <SceneLinkSelector
-          blockId={`proposal-entry-${index}`}
-          orderedScenes={orderedScenes}
-          linkedSceneIds={entry.sceneBlockIds}
-          version={1}
-          onSave={handleSceneLinkSave}
-        />
+      {/* AC-01 / AC-10: scene links correctable in place via the same multi-select selector.
+          Pre-selected by the AI from the real scene ids (scene preselection). */}
+      <div style={castConfirmModalStyles.field}>
+        <label style={castConfirmModalStyles.label}>Used in scenes</label>
+        <div data-testid={`cast-entry-scene-links-${index}`}>
+          <SceneLinkSelector
+            blockId={`proposal-entry-${index}`}
+            orderedScenes={orderedScenes}
+            linkedSceneIds={entry.sceneBlockIds}
+            version={1}
+            onSave={handleSceneLinkSave}
+          />
+        </div>
       </div>
       <div>
         {entry.imageFileIds.map((fileId) => (
@@ -177,21 +190,59 @@ function CastModalShell({
     <div
       data-testid="cast-modal-backdrop"
       style={castConfirmModalStyles.backdrop}
+      role="presentation"
       onClick={handleBackdropClick}
     >
-      <div
+      <section
         role="dialog"
         aria-modal="true"
+        aria-label="Cast confirmation"
         tabIndex={-1}
         ref={dialogRef}
-        style={castConfirmModalStyles.dialog}
+        style={castConfirmModalStyles.panel}
         onKeyDown={handleKeyDown}
       >
         {children}
-      </div>
+      </section>
     </div>
   );
 }
+
+/** Shared header — title (+ optional subtitle) and the close button. */
+function ModalHeader({
+  title,
+  subtitle,
+  onClose,
+}: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+}) {
+  return (
+    <header style={castConfirmModalStyles.header}>
+      <div style={castConfirmModalStyles.titleGroup}>
+        <h2 style={castConfirmModalStyles.title}>{title}</h2>
+        {subtitle !== undefined && <span style={castConfirmModalStyles.subtitle}>{subtitle}</span>}
+      </div>
+      <button
+        type="button"
+        style={castConfirmModalStyles.closeButton}
+        onClick={onClose}
+        aria-label="Close cast confirmation"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" focusable="false">
+          <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </button>
+    </header>
+  );
+}
+
+/** Human label for a cast section heading. */
+const CAST_TYPE_LABEL: Record<CastProposalEntry['castType'], string> = {
+  character: 'Character references',
+  environment: 'Environment references',
+};
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -214,6 +265,7 @@ export function CastConfirmModal({
 
   const [entries, setEntries] = useState<CastProposalEntry[]>(initialEntries);
   const [submitting, setSubmitting] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   // Sync entries when extraction arrives asynchronously (AC-01).
   useEffect(() => {
@@ -226,9 +278,12 @@ export function CastConfirmModal({
   if (hasExistingBlocks) {
     return (
       <CastModalShell onCancel={onCancel}>
-        <div data-testid="cast-already-confirmed">
-          <p>Cast already confirmed. You can add more entries manually from the canvas.</p>
-          <button data-testid="cast-cancel-button" onClick={onCancel}>Close</button>
+        <ModalHeader title="Cast already confirmed" onClose={onCancel} />
+        <div style={castConfirmModalStyles.body} data-testid="cast-already-confirmed">
+          <p style={castConfirmModalStyles.message}>You can add more entries manually from the canvas.</p>
+        </div>
+        <div style={castConfirmModalStyles.footer}>
+          <button data-testid="cast-cancel-button" onClick={onCancel} style={castConfirmModalStyles.primaryButton}>Close</button>
         </div>
       </CastModalShell>
     );
@@ -238,9 +293,12 @@ export function CastConfirmModal({
   if (extraction && (extraction.status === 'running' || extraction.status === 'queued')) {
     return (
       <CastModalShell onCancel={onCancel}>
-        <div data-testid="cast-extraction-progress">
-          <p>Your cast is being prepared&hellip;</p>
-          <button data-testid="cast-cancel-button" onClick={onCancel}>Cancel</button>
+        <ModalHeader title="Preparing your cast" onClose={onCancel} />
+        <div style={castConfirmModalStyles.body} data-testid="cast-extraction-progress">
+          <p style={castConfirmModalStyles.message}>Your cast is being prepared&hellip; this usually takes a few seconds.</p>
+        </div>
+        <div style={castConfirmModalStyles.footer}>
+          <button data-testid="cast-cancel-button" onClick={onCancel} style={castConfirmModalStyles.secondaryButton}>Cancel</button>
         </div>
       </CastModalShell>
     );
@@ -250,9 +308,12 @@ export function CastConfirmModal({
   if (extraction && extraction.status === 'failed') {
     return (
       <CastModalShell onCancel={onCancel}>
-        <div data-testid="cast-extraction-failed">
-          <p>Cast extraction failed: {extraction.errorMessage}</p>
-          <button data-testid="cast-cancel-button" onClick={onCancel}>Close</button>
+        <ModalHeader title="Cast extraction failed" onClose={onCancel} />
+        <div style={castConfirmModalStyles.body} data-testid="cast-extraction-failed">
+          <p style={castConfirmModalStyles.error}>{extraction.errorMessage}</p>
+        </div>
+        <div style={castConfirmModalStyles.footer}>
+          <button data-testid="cast-cancel-button" onClick={onCancel} style={castConfirmModalStyles.primaryButton}>Close</button>
         </div>
       </CastModalShell>
     );
@@ -262,9 +323,13 @@ export function CastConfirmModal({
   if (!extraction) {
     return (
       <CastModalShell onCancel={onCancel}>
-        <div data-testid="cast-no-extraction">
-          <button data-testid="start-cast-extraction">Start reference generation</button>
-          <button data-testid="cast-cancel-button" onClick={onCancel}>Cancel</button>
+        <ModalHeader title="Generate reference images" onClose={onCancel} />
+        <div style={castConfirmModalStyles.body} data-testid="cast-no-extraction">
+          <p style={castConfirmModalStyles.message}>Extract the cast from your storyboard to start preparing reference images.</p>
+        </div>
+        <div style={castConfirmModalStyles.footer}>
+          <button data-testid="cast-cancel-button" onClick={onCancel} style={castConfirmModalStyles.secondaryButton}>Cancel</button>
+          <button data-testid="start-cast-extraction" style={castConfirmModalStyles.primaryButton}>Start reference generation</button>
         </div>
       </CastModalShell>
     );
@@ -275,58 +340,143 @@ export function CastConfirmModal({
   if (extraction.status === 'completed' && (!extraction.proposal || extraction.proposal.length === 0)) {
     return (
       <CastModalShell onCancel={onCancel}>
-        <div data-testid="cast-extraction-empty">
-          <p>There is nothing to generate references for in this storyboard.</p>
-          <button data-testid="cast-cancel-button" onClick={onCancel}>Close</button>
+        <ModalHeader title="Nothing to generate" onClose={onCancel} />
+        <div style={castConfirmModalStyles.body} data-testid="cast-extraction-empty">
+          <p style={castConfirmModalStyles.message}>There is nothing to generate references for in this storyboard.</p>
+        </div>
+        <div style={castConfirmModalStyles.footer}>
+          <button data-testid="cast-cancel-button" onClick={onCancel} style={castConfirmModalStyles.primaryButton}>Close</button>
         </div>
       </CastModalShell>
     );
   }
 
   // Completed with a non-empty proposal (proposal-ready) — show it for review.
-  const aggregateCredits = extraction.aggregateEstimateCredits ?? 0;
+  // Per-entry unit price derived from the server's trusted aggregate so the
+  // estimate stays correct as the Creator adds / removes references.
+  const baseCount = extraction.proposal?.length ?? 0;
+  const unitPrice = baseCount > 0 ? (extraction.aggregateEstimateCredits ?? 0) / baseCount : 0;
+  const liveEstimate = unitPrice * entries.length;
 
   function handleEntryChange(index: number, updated: CastProposalEntry) {
     setEntries((prev) => prev.map((e, i) => (i === index ? updated : e)));
   }
 
+  function handleAddEntry(castType: CastProposalEntry['castType']) {
+    setEntries((prev) => [
+      ...prev,
+      { castType, name: '', description: '', imageFileIds: [], sceneBlockIds: [], perRunEstimate: unitPrice },
+    ]);
+  }
+
+  function handleRemoveEntry(index: number) {
+    setEntries((prev) => prev.filter((_, i) => i !== index));
+  }
+
   async function handleConfirm() {
     setSubmitting(true);
+    setConfirmError(null);
     try {
-      await onConfirmCast(entries, aggregateCredits);
+      // Drop blank custom rows the Creator added but never filled in, and
+      // sanitize scene links to REAL scene ids — a stale/hallucinated id (e.g. a
+      // numeric index from an extraction that ran before the plan created the
+      // scenes) would fail the confirm endpoint's UUID validation with a 400.
+      const validSceneIds = new Set(orderedScenes.map((s) => s.id));
+      const toConfirm = entries
+        .filter((e) => e.name.trim().length > 0)
+        .map((e) => ({
+          ...e,
+          sceneBlockIds: e.sceneBlockIds.filter((id) => validSceneIds.has(id)),
+        }));
+      await onConfirmCast(toConfirm, liveEstimate);
+    } catch (err) {
+      // Surface the failure — a silently swallowed error reads as a dead button.
+      setConfirmError(
+        err instanceof Error ? err.message : 'Confirming the cast failed. Please try again.',
+      );
     } finally {
       setSubmitting(false);
     }
   }
 
+  // #1: group entries by type into Character / Environment sections, keeping each
+  // entry's ORIGINAL index so the testids + onChange stay stable. Each section can
+  // be extended with a custom reference (add affordance).
+  const indexedEntries = entries.map((entry, index) => ({ entry, index }));
+  function renderSection(type: CastProposalEntry['castType']) {
+    const group = indexedEntries.filter(({ entry }) => entry.castType === type);
+    return (
+      <div style={castConfirmModalStyles.section} data-testid={`cast-section-${type}`}>
+        <div style={castConfirmModalStyles.sectionHeader}>
+          <h3 style={castConfirmModalStyles.sectionTitle}>{CAST_TYPE_LABEL[type]}</h3>
+          <span style={castConfirmModalStyles.sectionCount}>{group.length}</span>
+        </div>
+        {group.map(({ entry, index }) => (
+          <EntryEditor
+            key={index}
+            entry={entry}
+            index={index}
+            orderedScenes={orderedScenes}
+            onChange={handleEntryChange}
+            onRemove={handleRemoveEntry}
+          />
+        ))}
+        <button
+          type="button"
+          data-testid={`cast-add-${type}`}
+          onClick={() => handleAddEntry(type)}
+          style={castConfirmModalStyles.addEntryButton}
+        >
+          + Add {type === 'character' ? 'character' : 'environment'} reference
+        </button>
+      </div>
+    );
+  }
+
   return (
     <CastModalShell onCancel={onCancel}>
-      <div data-testid="cast-proposal-review">
-        <h2>Review Cast Proposal</h2>
-
+      <ModalHeader
+        title="Review cast proposal"
+        subtitle="Review and edit the extracted cast, then confirm to generate reference images."
+        onClose={onCancel}
+      />
+      <div style={castConfirmModalStyles.body} data-testid="cast-proposal-review">
         {extraction.truncated && (
-          <div data-testid="cast-overflow-message">
+          <div data-testid="cast-overflow-message" style={castConfirmModalStyles.overflowMessage}>
             Some cast entries were omitted due to the cast size limit. You can add more entries manually after confirming.
           </div>
         )}
 
-        {entries.map((entry, i) => (
-          <EntryEditor key={i} entry={entry} index={i} orderedScenes={orderedScenes} onChange={handleEntryChange} />
-        ))}
+        {renderSection('character')}
+        {renderSection('environment')}
 
-        <div data-testid="cast-aggregate-estimate">
-          Estimated cost: {aggregateCredits} credits
+        <div data-testid="cast-aggregate-estimate" style={castConfirmModalStyles.estimate}>
+          <span>Estimated cost</span>
+          <span style={castConfirmModalStyles.estimateAmount}>USD {liveEstimate.toFixed(2)}</span>
         </div>
 
+        {confirmError && (
+          <div data-testid="cast-confirm-error" style={castConfirmModalStyles.error}>
+            {confirmError}
+          </div>
+        )}
+      </div>
+      <div style={castConfirmModalStyles.footer}>
+        <button
+          data-testid="cast-cancel-button"
+          onClick={onCancel}
+          disabled={submitting}
+          style={castConfirmModalStyles.secondaryButton}
+        >
+          Cancel
+        </button>
         <button
           data-testid="cast-confirm-button"
           onClick={handleConfirm}
           disabled={submitting}
+          style={castConfirmModalStyles.primaryButton}
         >
           {submitting ? 'Confirming…' : 'Confirm Cast'}
-        </button>
-        <button data-testid="cast-cancel-button" onClick={onCancel} disabled={submitting}>
-          Cancel
         </button>
       </div>
     </CastModalShell>

@@ -1,10 +1,24 @@
 /**
  * SceneLinkSelector — multi-select scene linker for reference blocks (T16, AC-10/AC-10b).
+ *
+ * Styled to match the Music block modal's scene colour scheme: a linked scene is a
+ * green (SUCCESS) chip, an available scene is a neutral chip — the same active/idle
+ * language the music range preview uses.
  */
 
 import React, { useState } from 'react';
+import type { CSSProperties } from 'react';
 
 import type { StoryboardBlock } from '@/features/storyboard/types';
+import {
+  BORDER,
+  SUCCESS,
+  SURFACE,
+  SURFACE_ALT,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+  PRIMARY,
+} from './storyboardPageStyles';
 
 export interface SceneLinkSelectorProps {
   /** The reference block id whose scene links are being edited. */
@@ -25,6 +39,86 @@ export interface SceneLinkSelectorProps {
     sceneBlockIds: string[],
     version: number,
   ) => Promise<{ sceneBlockIds: string[]; version: number }>;
+}
+
+const FONT = 'Inter, sans-serif';
+
+const styles = {
+  root: { display: 'flex', flexDirection: 'column', gap: 8 } as CSSProperties,
+  chipRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 6,
+    margin: 0,
+    padding: 0,
+    listStyle: 'none',
+  } as CSSProperties,
+  empty: { color: TEXT_SECONDARY, fontSize: 12, lineHeight: '16px' } as CSSProperties,
+  // Linked scene — green active chip (matches the music range preview's SUCCESS).
+  linkedChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '3px 6px 3px 10px',
+    borderRadius: 999,
+    background: 'rgba(16, 185, 129, 0.15)',
+    border: `1px solid ${SUCCESS}`,
+    color: TEXT_PRIMARY,
+    fontSize: 12,
+    fontFamily: FONT,
+  } as CSSProperties,
+  removeButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 16,
+    height: 16,
+    padding: 0,
+    border: 0,
+    borderRadius: 999,
+    background: 'transparent',
+    color: SUCCESS,
+    cursor: 'pointer',
+    fontSize: 13,
+    lineHeight: '16px',
+  } as CSSProperties,
+  // Available scene — neutral idle chip.
+  addChip: {
+    padding: '3px 10px',
+    borderRadius: 999,
+    background: SURFACE_ALT,
+    border: `1px solid ${BORDER}`,
+    color: TEXT_SECONDARY,
+    cursor: 'pointer',
+    fontSize: 12,
+    fontFamily: FONT,
+  } as CSSProperties,
+  saveButton: {
+    alignSelf: 'flex-start',
+    height: 28,
+    padding: '0 12px',
+    borderRadius: 8,
+    border: 0,
+    background: PRIMARY,
+    color: TEXT_PRIMARY,
+    cursor: 'pointer',
+    fontSize: 12,
+    fontWeight: 600,
+    fontFamily: FONT,
+  } as CSSProperties,
+  conflict: {
+    padding: '6px 10px',
+    borderRadius: 8,
+    background: SURFACE,
+    border: `1px solid ${BORDER}`,
+    color: TEXT_SECONDARY,
+    fontSize: 12,
+    lineHeight: '16px',
+  } as CSSProperties,
+} as const;
+
+function sceneLabel(scene: StoryboardBlock): string {
+  return scene.name?.trim() || `Scene ${String(scene.sortOrder).padStart(2, '0')}`;
 }
 
 /**
@@ -71,50 +165,54 @@ export function SceneLinkSelector({
     }
   }
 
+  // Preserve story order for the linked chips so they read like the music lane.
+  const linkedScenes = orderedScenes.filter((s) => linkedSet.has(s.id));
   const unlinkedScenes = orderedScenes.filter((s) => !linkedSet.has(s.id));
 
   return (
-    <div>
-      {/* Visible linked-scenes list */}
-      <ul>
-        {linked.map((id) => {
-          const scene = orderedScenes.find((s) => s.id === id);
-          if (!scene) return null;
-          return (
-            <li key={id} data-testid={`linked-scene-${id}`}>
-              {scene.name ?? id}
-              <button
-                data-testid={`remove-scene-${id}`}
-                onClick={() => handleRemove(id)}
-              >
-                Remove
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-
-      {/* Available (unlinked) scenes to add */}
-      <ul>
-        {unlinkedScenes.map((scene) => (
-          <li key={scene.id}>
+    <div style={styles.root}>
+      {/* Visible linked-scenes list — green active chips */}
+      <ul style={styles.chipRow}>
+        {linkedScenes.length === 0 && <li style={styles.empty}>No scenes selected yet</li>}
+        {linkedScenes.map((scene) => (
+          <li key={scene.id} data-testid={`linked-scene-${scene.id}`} style={styles.linkedChip}>
+            {sceneLabel(scene)}
             <button
-              data-testid={`add-scene-${scene.id}`}
-              onClick={() => handleAdd(scene.id)}
+              data-testid={`remove-scene-${scene.id}`}
+              onClick={() => handleRemove(scene.id)}
+              aria-label={`Remove ${sceneLabel(scene)}`}
+              style={styles.removeButton}
             >
-              Add {scene.name ?? scene.id}
+              ×
             </button>
           </li>
         ))}
       </ul>
 
-      <button data-testid="save-scene-links" onClick={handleSave}>
-        Save
+      {/* Available (unlinked) scenes to add — neutral idle chips */}
+      {unlinkedScenes.length > 0 && (
+        <ul style={styles.chipRow}>
+          {unlinkedScenes.map((scene) => (
+            <li key={scene.id}>
+              <button
+                data-testid={`add-scene-${scene.id}`}
+                onClick={() => handleAdd(scene.id)}
+                style={styles.addChip}
+              >
+                + {sceneLabel(scene)}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <button data-testid="save-scene-links" onClick={handleSave} style={styles.saveButton}>
+        Save scenes
       </button>
 
       {/* 409 version-conflict reload prompt (AC-10 NFR concurrency) */}
       {conflictPrompt && (
-        <div data-testid="scene-links-conflict-prompt">
+        <div data-testid="scene-links-conflict-prompt" style={styles.conflict}>
           Another change was made to this block. Please reload to get the
           latest version before saving.
         </div>

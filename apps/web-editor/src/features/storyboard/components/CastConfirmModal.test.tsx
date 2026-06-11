@@ -238,8 +238,9 @@ describe('CastConfirmModal — AC-01 (completed proposal review)', () => {
 
     expect(screen.getByTestId('cast-entry-0')).toBeTruthy();
     expect(screen.getByTestId('cast-entry-1')).toBeTruthy();
-    expect(screen.getByText('Test Character')).toBeTruthy();
-    expect(screen.getByText('Test Environment')).toBeTruthy();
+    // Name is shown in the editable input (AC-01/AC-10: correctable in place).
+    expect(screen.getByDisplayValue('Test Character')).toBeTruthy();
+    expect(screen.getByDisplayValue('Test Environment')).toBeTruthy();
   });
 
   it('renders each entry description in an editable field', () => {
@@ -654,5 +655,96 @@ describe('CastConfirmModal — T7 regression (no stray buttons · consent preser
 
     fireEvent.click(screen.getByTestId('cast-confirm-button'));
     await waitFor(() => expect(onConfirmCast).toHaveBeenCalledTimes(1));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Custom references: the Creator can add a manual entry per category and remove
+// any entry; the estimate tracks the count; blank rows are dropped on confirm.
+// ---------------------------------------------------------------------------
+
+describe('CastConfirmModal — custom references (add / remove)', () => {
+  it('adds a custom character reference when the add button is clicked', () => {
+    renderModal();
+    // Fixture has one character (index 0) + one environment (index 1).
+    expect(screen.queryByTestId('cast-entry-2')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('cast-add-character'));
+
+    // A new editable entry is appended.
+    expect(screen.getByTestId('cast-entry-2')).toBeTruthy();
+    expect(screen.getByTestId('cast-entry-name-2')).toBeTruthy();
+  });
+
+  it('removes an entry when its remove button is clicked', () => {
+    renderModal();
+    expect(screen.getByTestId('cast-entry-0')).toBeTruthy();
+    expect(screen.getByTestId('cast-entry-1')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('cast-entry-remove-1'));
+
+    // The second entry is gone; only one remains.
+    expect(screen.queryByTestId('cast-entry-1')).toBeNull();
+    expect(screen.getByTestId('cast-entry-0')).toBeTruthy();
+  });
+
+  it('confirms with the added custom reference (blank rows dropped)', async () => {
+    const onConfirmCast = vi.fn().mockResolvedValue(undefined);
+    renderModal({ onConfirmCast });
+
+    fireEvent.click(screen.getByTestId('cast-add-character'));
+    // Fill the new entry's name so it is not dropped as blank.
+    fireEvent.change(screen.getByTestId('cast-entry-name-2'), {
+      target: { value: 'Custom Hero' },
+    });
+    fireEvent.click(screen.getByTestId('cast-confirm-button'));
+
+    await waitFor(() => expect(onConfirmCast).toHaveBeenCalledTimes(1));
+    const [entries] = onConfirmCast.mock.calls[0] as [Array<{ name: string; castType: string }>, number];
+    expect(entries).toHaveLength(3);
+    expect(entries.some((e) => e.name === 'Custom Hero' && e.castType === 'character')).toBe(true);
+  });
+
+  it('sanitizes stale/hallucinated scene ids out of the confirm payload', async () => {
+    const onConfirmCast = vi.fn().mockResolvedValue(undefined);
+    // 'scene-a' is real (ORDERED_SCENES); '2' is a hallucinated numeric index that
+    // would fail the confirm endpoint's UUID validation.
+    const staleExtraction: CastExtractionJob = {
+      ...COMPLETED_EXTRACTION,
+      proposal: [{ ...CHARACTER_ENTRY, sceneBlockIds: ['scene-a', '2'] }],
+    };
+    renderModal({ extraction: staleExtraction, onConfirmCast });
+
+    fireEvent.click(screen.getByTestId('cast-confirm-button'));
+
+    await waitFor(() => expect(onConfirmCast).toHaveBeenCalledTimes(1));
+    const [entries] = onConfirmCast.mock.calls[0] as [Array<{ sceneBlockIds: string[] }>, number];
+    expect(entries[0]!.sceneBlockIds).toEqual(['scene-a']);
+  });
+
+  it('shows a visible error when confirm fails instead of silently doing nothing', async () => {
+    const onConfirmCast = vi.fn().mockRejectedValue(new Error('confirm failed: 400'));
+    renderModal({ onConfirmCast });
+
+    fireEvent.click(screen.getByTestId('cast-confirm-button'));
+
+    await waitFor(() => expect(screen.getByTestId('cast-confirm-error')).toBeTruthy());
+    expect(screen.getByTestId('cast-confirm-error').textContent).toMatch(/confirm failed/);
+    // The button is re-enabled so the Creator can retry.
+    expect((screen.getByTestId('cast-confirm-button') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('drops a blank custom row on confirm (only filled entries are sent)', async () => {
+    const onConfirmCast = vi.fn().mockResolvedValue(undefined);
+    renderModal({ onConfirmCast });
+
+    // Add an environment but leave its name blank.
+    fireEvent.click(screen.getByTestId('cast-add-environment'));
+    fireEvent.click(screen.getByTestId('cast-confirm-button'));
+
+    await waitFor(() => expect(onConfirmCast).toHaveBeenCalledTimes(1));
+    const [entries] = onConfirmCast.mock.calls[0] as [Array<{ name: string }>, number];
+    // The two original named entries are sent; the blank added one is dropped.
+    expect(entries).toHaveLength(2);
   });
 });
