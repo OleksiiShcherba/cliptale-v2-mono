@@ -600,18 +600,20 @@ export async function fetchFileInfo(
 /**
  * Starts cast extraction for a draft (AC-01 / US-01).
  *
- * Maps to POST /storyboards/:draftId/references/extraction.
+ * Maps to POST /storyboards/:draftId/references/extract.
  * Enqueues a cast extraction job; no paid generation starts yet.
- * Returns ExtractionAccepted { jobId, status: 'queued' }.
+ * Returns ExtractionAccepted { jobId, status }. The status is the idempotent
+ * union queued|running|completed (ADR-0001): a fresh start is `queued`, while a
+ * converged-on existing extraction returns its current status.
  */
 export async function startCastExtraction(
   draftId: string,
-): Promise<{ jobId: string; status: 'queued' }> {
+): Promise<{ jobId: string; status: 'queued' | 'running' | 'completed' }> {
   const res = await apiClient.post(`/storyboards/${draftId}/references/extract`, {});
   if (!res.ok) {
     throw new Error(`POST /storyboards/${draftId}/references/extract failed: ${res.status}`);
   }
-  return res.json() as Promise<{ jobId: string; status: 'queued' }>;
+  return res.json() as Promise<{ jobId: string; status: 'queued' | 'running' | 'completed' }>;
 }
 
 /**
