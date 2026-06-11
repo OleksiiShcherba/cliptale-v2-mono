@@ -187,7 +187,7 @@ feature_size: "S"
 
 - **Datastore:** the api integration suite runs against **real MySQL** (`singleFork: true`, datastore never mocked — architecture-map §Tests; existing `storyboardReference.extraction.service.test.ts` + `__tests__/integration/migration-052-055-references.integration.test.ts` are the precedent the AC-05 / AC-04 / AC-06 integration tests join).
 - **Seed:** no new factory — insert `storyboard_cast_extraction_jobs` rows through the existing cast-extraction seam (`data-model.md §Test fixtures`); the duplicate-start test seeds one job then asserts the count stays at 1.
-- **Cleanup boundary:** per the repo's existing integration convention (truncate/rollback per test in the single fork); leaving rows behind would make the count assertion flaky — cleanup is per-test.
+- **Cleanup boundary:** each row-count assertion is isolated on a freshly-seeded draft (unique `draft_id` per case), with table cleanup in `afterAll` of the single fork — so per-draft counts can never collide even before cleanup runs; leaving rows behind for *another* draft would not affect a `WHERE draft_id` count.
 - **PII guard:** any seeded owner uses `user-<uuid>@example.test`.
 
 ### Load

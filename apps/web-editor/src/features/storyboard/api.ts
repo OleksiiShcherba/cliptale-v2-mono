@@ -619,7 +619,7 @@ export async function startCastExtraction(
 /**
  * Polls the cast extraction job status (AC-01).
  *
- * Maps to GET /storyboards/:draftId/references/extraction/latest.
+ * Maps to GET /storyboards/:draftId/references/extraction.
  * Returns null when no extraction has been started for this draft.
  */
 export async function getLatestCastExtraction(

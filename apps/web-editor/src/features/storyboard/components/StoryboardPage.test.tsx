@@ -17,7 +17,7 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -324,7 +324,11 @@ describe('StoryboardPage', () => {
 
       unmount();
       renderPage('draft-reentry');
-      await new Promise((r) => setTimeout(r, 20));
+      // Let any second-mount effect settle inside an act() boundary, then assert
+      // the guard suppressed the redundant start (negative wait — no new call).
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+      });
 
       // The in-flight/once guard (+ server idempotency) keep it at a single start.
       expect(castApi.startCastExtraction).toHaveBeenCalledTimes(1);
@@ -357,10 +361,14 @@ describe('StoryboardPage', () => {
 
       a.unmount();
       const b = renderPage('draft-multi-entry');
-      await new Promise((r) => setTimeout(r, 15));
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 15));
+      });
       b.unmount();
       renderPage('draft-multi-entry');
-      await new Promise((r) => setTimeout(r, 15));
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 15));
+      });
 
       expect(castApi.startCastExtraction).toHaveBeenCalledTimes(1);
     });
