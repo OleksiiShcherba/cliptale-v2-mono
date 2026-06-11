@@ -99,11 +99,21 @@ function toJobState(job: AiGenerationJob) {
 }
 
 /** Maps a FlowRecord + jobs to the full Flow wire shape (canvas included). */
-function toFullFlow(flow: FlowRecord, jobs: AiGenerationJob[]) {
+function toFullFlow(
+  flow: FlowRecord,
+  jobs: AiGenerationJob[],
+  reference: flowService.FlowReferenceContext | null = null,
+) {
   return {
     ...toSummary(flow),
     canvas: flow.canvas,
     jobs: jobs.map(toJobState),
+    // Reference-flows AC-06/AC-07: the linked block's persisted star state, so a
+    // page refresh restores stars + the primary preview instead of rendering
+    // everything unstarred. Null/absent for plain flows.
+    reference,
+    stars: reference?.stars ?? [],
+    previewFileId: reference?.previewFileId ?? null,
   };
 }
 
@@ -164,8 +174,8 @@ export async function getFlow(
 ): Promise<void> {
   try {
     const flowId = req.params['flowId']!;
-    const { flow, jobs } = await flowService.openFlow(flowId, req.user!.userId);
-    res.json(toFullFlow(flow, jobs));
+    const { flow, jobs, reference } = await flowService.openFlow(flowId, req.user!.userId);
+    res.json(toFullFlow(flow, jobs, reference));
   } catch (err) {
     next(err);
   }

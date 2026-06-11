@@ -122,30 +122,83 @@ async function getConcurrencyLimit(userId: string): Promise<number> {
  * reference material immediately on opening the flow (AC-03).
  *
  * Returns a JSON-serialisable FlowCanvas-shaped object.
+ *
+ * Seeds the FULL visible chain — content → generation → result — not just the
+ * content material. The auto-started first run carries `block_id = genBlockId`,
+ * and the result block (no per-run jobId) falls back to the latest job of its
+ * source generation block, so opening the flow shows the generated output
+ * instead of an empty canvas.
  */
-function buildReferenceCanvas(entry: CastEntry): { blocks: unknown[]; edges: unknown[] } {
+function buildReferenceCanvas(entry: CastEntry): {
+  canvas: { blocks: unknown[]; edges: unknown[] };
+  genBlockId: string;
+} {
   const blocks: unknown[] = [];
+  const edges: unknown[] = [];
   const imageFileIds = entry.imageFileIds ?? [];
+  const contentIds: string[] = [];
 
+  // Content params mirror the interactive addContentBlock shape — contentType +
+  // modality are REQUIRED for the Inspector to offer the right editor (a bare
+  // { text } falls through to the image/asset picker).
   if (imageFileIds.length > 0) {
     for (let idx = 0; idx < imageFileIds.length; idx++) {
+      const contentId = randomUUID();
+      contentIds.push(contentId);
       blocks.push({
-        blockId: randomUUID(),
+        blockId: contentId,
         type: 'content',
-        position: { x: idx * 220, y: 0 },
-        params: { fileId: imageFileIds[idx] },
+        position: { x: 0, y: idx * 220 },
+        params: { contentType: 'asset', fileId: imageFileIds[idx], modality: 'image' },
       });
     }
   } else if (entry.description) {
+    const contentId = randomUUID();
+    contentIds.push(contentId);
     blocks.push({
-      blockId: randomUUID(),
+      blockId: contentId,
       type: 'content',
       position: { x: 0, y: 0 },
-      params: { text: entry.description },
+      params: { contentType: 'text', text: entry.description, modality: 'text' },
     });
   }
 
-  return { blocks, edges: [] };
+  // Generation block — the auto-run binds to it via ai_generation_jobs.block_id.
+  const genBlockId = randomUUID();
+  blocks.push({
+    blockId: genBlockId,
+    type: 'generation',
+    position: { x: 340, y: 0 },
+    params: { modelId: REFERENCE_DEFAULT_MODEL_ID },
+  });
+  for (const contentId of contentIds) {
+    edges.push({
+      edgeId: randomUUID(),
+      sourceBlockId: contentId,
+      sourceHandle: 'out',
+      targetBlockId: genBlockId,
+      targetHandle: 'prompt',
+    });
+  }
+
+  // Result block (legacy binding: no jobId) — shows the LATEST run of the
+  // generation block, which is exactly the auto-started first generation.
+  const resultBlockId = randomUUID();
+  blocks.push({
+    blockId: resultBlockId,
+    type: 'result',
+    position: { x: 680, y: 0 },
+    params: { sourceBlockId: genBlockId },
+  });
+  edges.push({
+    edgeId: randomUUID(),
+    sourceBlockId: genBlockId,
+    sourceHandle: 'out',
+    targetBlockId: resultBlockId,
+    targetHandle: 'in',
+  });
+
+  return { canvas: { blocks, edges }, genBlockId };
 }
 
 /**
@@ -192,6 +245,8 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmedB
 
   const conn = await pool.getConnection();
   const confirmed: ConfirmedBlock[] = [];
+  // Canvas generation-block id per flow — the dispatched job's block_id binds to it.
+  const genBlockIdByFlow = new Map<string, string>();
 
   try {
     await conn.beginTransaction();
@@ -224,8 +279,10 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmedB
       const blockId = randomUUID();
       const flowId = randomUUID();
 
-      // 1. Create the generation_flow row pre-filled with entry's reference material.
-      const canvas = buildReferenceCanvas(entry);
+      // 1. Create the generation_flow row pre-filled with entry's reference material
+      //    (full content → generation → result chain; the run binds to genBlockId).
+      const { canvas, genBlockId } = buildReferenceCanvas(entry);
+      genBlockIdByFlow.set(flowId, genBlockId);
       await conn.execute(
         `INSERT INTO generation_flows (flow_id, user_id, title, canvas)
          VALUES (?, ?, ?, ?)`,
@@ -330,10 +387,12 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmedB
     const options = buildReferenceOptions(entry);
 
     // 1. Insert the ai_generation_jobs row so the worker can call setJobStatus('processing').
+    //    block_id binds the run to the canvas generation block — the flow's result
+    //    block resolves its preview via the latest job of that block.
     await pool.execute(
       `INSERT INTO ai_generation_jobs
-         (job_id, user_id, model_id, capability, prompt, options, flow_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         (job_id, user_id, model_id, capability, prompt, options, flow_id, block_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         jobId,
         userId,
@@ -342,6 +401,7 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmedB
         prompt,
         JSON.stringify(options),
         block.flowId,
+        genBlockIdByFlow.get(block.flowId) ?? null,
       ],
     );
 

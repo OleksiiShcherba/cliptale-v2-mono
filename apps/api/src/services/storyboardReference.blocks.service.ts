@@ -276,7 +276,10 @@ async function enrichBlocks(
       isPrimary,
       createdAt: s.created_at instanceof Date ? s.created_at.toISOString() : String(s.created_at),
     });
+    // AC-07: primary wins; else the OLDEST star is the fallback preview (rows
+    // arrive ordered by created_at ASC, so only set when nothing is set yet).
     if (isPrimary) entry.previewFileId = s.file_id;
+    else if (entry.previewFileId === null) entry.previewFileId = s.file_id;
   }
 
   const [linkRows] = await conn.execute<SceneLinkEnrichRow[]>(
@@ -505,10 +508,31 @@ export async function retryBlock(params: RetryBlockParams): Promise<BlockResult>
     };
 
     // 1. Insert the ai_generation_jobs row so the worker can call setJobStatus('processing').
+    //    block_id binds the run to the flow canvas' generation block (when seeded)
+    //    so the flow's result block resolves this retry's output as its preview.
+    const [canvasRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT canvas FROM generation_flows WHERE flow_id = ? LIMIT 1`,
+      [flowId],
+    );
+    let genBlockId: string | null = null;
+    const rawCanvas = (canvasRows as Array<{ canvas: unknown }>)[0]?.canvas;
+    if (rawCanvas) {
+      try {
+        const parsedCanvas = typeof rawCanvas === 'string' ? JSON.parse(rawCanvas) : rawCanvas;
+        const canvasBlocks: Array<{ blockId?: string; type?: string }> = Array.isArray(
+          (parsedCanvas as { blocks?: unknown })?.blocks,
+        )
+          ? (parsedCanvas as { blocks: Array<{ blockId?: string; type?: string }> }).blocks
+          : [];
+        genBlockId = canvasBlocks.find((b) => b.type === 'generation')?.blockId ?? null;
+      } catch {
+        genBlockId = null;
+      }
+    }
     await pool.execute(
       `INSERT INTO ai_generation_jobs
-         (job_id, user_id, model_id, capability, prompt, options, flow_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+         (job_id, user_id, model_id, capability, prompt, options, flow_id, block_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         jobId,
         userId,
@@ -517,6 +541,7 @@ export async function retryBlock(params: RetryBlockParams): Promise<BlockResult>
         prompt,
         JSON.stringify(options),
         flowId,
+        genBlockId,
       ],
     );
 

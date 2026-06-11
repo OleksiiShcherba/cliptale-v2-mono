@@ -136,8 +136,10 @@ async function readStarsState(conn: PoolConnection, blockId: string): Promise<Bl
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
   }));
 
+  // AC-07: the primary star is the preview; with no explicit primary the OLDEST
+  // star is the fallback — a starred result always surfaces as the block preview.
   const primaryStar = rows.find((r) => r.is_primary === 1);
-  const previewFileId = primaryStar ? primaryStar.file_id : null;
+  const previewFileId = primaryStar?.file_id ?? rows[0]?.file_id ?? null;
 
   return { blockId, stars, previewFileId };
 }

@@ -31,10 +31,30 @@ import type { RowDataPacket } from 'mysql2/promise';
 
 // ── Return types ──────────────────────────────────────────────────────────────
 
+/** One star entry of the linked reference block (reference-flows AC-06/AC-07). */
+export type FlowStarEntry = {
+  fileId: string;
+  isPrimary: boolean;
+  createdAt: string;
+};
+
+/**
+ * Reference-block context for a flow opened from a storyboard reference block.
+ * Null when no reference block links to this flow.
+ */
+export type FlowReferenceContext = {
+  draftId: string;
+  blockId: string;
+  stars: FlowStarEntry[];
+  previewFileId: string | null;
+};
+
 /** Payload returned by openFlow — canvas + per-result-block job states. */
 export type OpenFlowResult = {
   flow: FlowRecord;
   jobs: AiGenerationJob[];
+  /** Stars context of the linked reference block — null for plain flows. */
+  reference: FlowReferenceContext | null;
 };
 
 /**
@@ -110,8 +130,46 @@ export async function openFlow(flowId: string, userId: string): Promise<OpenFlow
   }
 
   const jobs = await jobRepo.getJobsByFlowId(flowId);
+  const reference = await loadReferenceContext(flowId);
 
-  return { flow, jobs };
+  return { flow, jobs, reference };
+}
+
+/**
+ * Loads the linked reference block's star state for a flow (reference-flows
+ * AC-06/AC-07). Stars persist server-side; without surfacing them here a page
+ * refresh would render every result unstarred even though the rows exist.
+ */
+async function loadReferenceContext(flowId: string): Promise<FlowReferenceContext | null> {
+  const [blockRows] = await pool.execute<RowDataPacket[]>(
+    `SELECT id, draft_id FROM storyboard_reference_blocks WHERE flow_id = ? LIMIT 1`,
+    [flowId],
+  );
+  const block = (blockRows as Array<{ id: string; draft_id: string }>)[0];
+  if (!block) return null;
+
+  const [starRows] = await pool.execute<RowDataPacket[]>(
+    `SELECT file_id, is_primary, created_at
+       FROM storyboard_reference_stars
+      WHERE reference_block_id = ?
+      ORDER BY created_at ASC`,
+    [block.id],
+  );
+  const stars = (starRows as Array<{ file_id: string; is_primary: number; created_at: Date }>).map(
+    (s) => ({
+      fileId: s.file_id,
+      isPrimary: s.is_primary === 1,
+      createdAt: s.created_at instanceof Date ? s.created_at.toISOString() : String(s.created_at),
+    }),
+  );
+
+  return {
+    draftId: block.draft_id,
+    blockId: block.id,
+    stars,
+    // AC-07: primary star wins; else the oldest star is the fallback preview.
+    previewFileId: stars.find((s) => s.isPrimary)?.fileId ?? stars[0]?.fileId ?? null,
+  };
 }
 
 // ── renameFlow ────────────────────────────────────────────────────────────────
