@@ -453,3 +453,77 @@ describe('CastConfirmModal — AC-03 (confirm sends corrected cast)', () => {
     resolveConfirm();
   });
 });
+
+// ---------------------------------------------------------------------------
+// AC-02: dialog wrapper — EVERY modal state renders inside a role=dialog
+//        backdrop+centered shell, with focus-on-mount and Esc/backdrop close;
+//        no branch renders loose action buttons inline in the page body
+//        (0 stray-buttons).
+// ---------------------------------------------------------------------------
+
+const FAILED_EXTRACTION: CastExtractionJob = {
+  jobId: 'job-003',
+  draftId: 'draft-1',
+  status: 'failed',
+  proposal: null,
+  aggregateEstimateCredits: null,
+  errorMessage: 'extraction blew up',
+};
+
+describe('CastConfirmModal — AC-02 (dialog wrapper, every state)', () => {
+  const STATES: Array<{ label: string; overrides: Partial<CastConfirmModalProps> }> = [
+    { label: 'running', overrides: { extraction: RUNNING_EXTRACTION } },
+    { label: 'completed proposal', overrides: { extraction: COMPLETED_EXTRACTION } },
+    { label: 'existing blocks', overrides: { hasExistingBlocks: true, extraction: null } },
+    { label: 'failed', overrides: { extraction: FAILED_EXTRACTION } },
+    { label: 'no extraction', overrides: { extraction: null } },
+  ];
+
+  it.each(STATES)(
+    'renders a role=dialog with a backdrop in the "$label" state',
+    ({ overrides }) => {
+      renderModal(overrides);
+      expect(screen.getByRole('dialog')).toBeTruthy();
+      expect(screen.getByTestId('cast-modal-backdrop')).toBeTruthy();
+    },
+  );
+
+  it.each(STATES)(
+    'renders NO stray buttons outside the dialog in the "$label" state (0 stray-buttons)',
+    ({ overrides }) => {
+      renderModal(overrides);
+      const dialog = screen.getByRole('dialog');
+      const buttons = Array.from(document.querySelectorAll('button'));
+      // Each state must render at least one action (close/cancel/confirm/start).
+      expect(buttons.length).toBeGreaterThan(0);
+      const stray = buttons.filter((b) => !dialog.contains(b));
+      expect(stray).toHaveLength(0);
+    },
+  );
+
+  it('moves focus into the dialog on mount', () => {
+    renderModal({ extraction: RUNNING_EXTRACTION });
+    const dialog = screen.getByRole('dialog');
+    expect(dialog === document.activeElement || dialog.contains(document.activeElement)).toBe(true);
+  });
+
+  it('calls onCancel when Escape is pressed', () => {
+    const onCancel = vi.fn();
+    renderModal({ extraction: RUNNING_EXTRACTION, onCancel });
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onCancel when the backdrop is clicked, but NOT when the dialog body is clicked', () => {
+    const onCancel = vi.fn();
+    renderModal({ extraction: RUNNING_EXTRACTION, onCancel });
+
+    // Clicking inside the dialog body must NOT dismiss.
+    fireEvent.click(screen.getByRole('dialog'));
+    expect(onCancel).not.toHaveBeenCalled();
+
+    // Clicking the backdrop itself dismisses.
+    fireEvent.click(screen.getByTestId('cast-modal-backdrop'));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+});

@@ -5,7 +5,7 @@
  * before the Creator confirms and triggers reference generation.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 import type { StoryboardBlock } from '@/features/storyboard/types';
 import { SceneLinkSelector } from './SceneLinkSelector';
@@ -134,6 +134,66 @@ function EntryEditor({ entry, index, orderedScenes, onChange }: EntryEditorProps
 }
 
 // ---------------------------------------------------------------------------
+// Dialog shell (AC-02)
+// ---------------------------------------------------------------------------
+
+/**
+ * CastModalShell — the single backdrop + centered dialog wrapper every modal
+ * state renders inside (AC-02). Provides focus-on-mount, Esc-to-close, and
+ * backdrop-click-to-close so no branch can render loose inline buttons in the
+ * page body (0 stray-buttons).
+ */
+function CastModalShell({
+  onCancel,
+  children,
+}: {
+  onCancel: () => void;
+  children: React.ReactNode;
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Focus-on-mount: move keyboard focus into the dialog so Esc works and the
+  // background is logically inert.
+  useEffect(() => {
+    dialogRef.current?.focus();
+  }, []);
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      onCancel();
+    }
+  }
+
+  // Only a click on the backdrop itself (not bubbled from the dialog body)
+  // dismisses — guards against accidental close while interacting with content.
+  function handleBackdropClick(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.target === e.currentTarget) {
+      onCancel();
+    }
+  }
+
+  return (
+    <div
+      data-testid="cast-modal-backdrop"
+      style={castConfirmModalStyles.backdrop}
+      onClick={handleBackdropClick}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
+        ref={dialogRef}
+        style={castConfirmModalStyles.dialog}
+        onKeyDown={handleKeyDown}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -165,40 +225,48 @@ export function CastConfirmModal({
   // AC-01b: draft already has confirmed reference blocks — show existing-blocks state.
   if (hasExistingBlocks) {
     return (
-      <div data-testid="cast-already-confirmed">
-        <p>Cast already confirmed. You can add more entries manually from the canvas.</p>
-        <button data-testid="cast-cancel-button" onClick={onCancel}>Close</button>
-      </div>
+      <CastModalShell onCancel={onCancel}>
+        <div data-testid="cast-already-confirmed">
+          <p>Cast already confirmed. You can add more entries manually from the canvas.</p>
+          <button data-testid="cast-cancel-button" onClick={onCancel}>Close</button>
+        </div>
+      </CastModalShell>
     );
   }
 
   // AC-01 running/queued state — show progress indicator, no confirm.
   if (extraction && (extraction.status === 'running' || extraction.status === 'queued')) {
     return (
-      <div data-testid="cast-extraction-progress">
-        <p>Extracting cast from your storyboard&hellip;</p>
-        <button data-testid="cast-cancel-button" onClick={onCancel}>Cancel</button>
-      </div>
+      <CastModalShell onCancel={onCancel}>
+        <div data-testid="cast-extraction-progress">
+          <p>Extracting cast from your storyboard&hellip;</p>
+          <button data-testid="cast-cancel-button" onClick={onCancel}>Cancel</button>
+        </div>
+      </CastModalShell>
     );
   }
 
   // Failed state.
   if (extraction && extraction.status === 'failed') {
     return (
-      <div>
-        <p>Cast extraction failed: {extraction.errorMessage}</p>
-        <button data-testid="cast-cancel-button" onClick={onCancel}>Close</button>
-      </div>
+      <CastModalShell onCancel={onCancel}>
+        <div data-testid="cast-extraction-failed">
+          <p>Cast extraction failed: {extraction.errorMessage}</p>
+          <button data-testid="cast-cancel-button" onClick={onCancel}>Close</button>
+        </div>
+      </CastModalShell>
     );
   }
 
   // No extraction started yet — show start action.
   if (!extraction) {
     return (
-      <div>
-        <button data-testid="start-cast-extraction">Start reference generation</button>
-        <button data-testid="cast-cancel-button" onClick={onCancel}>Cancel</button>
-      </div>
+      <CastModalShell onCancel={onCancel}>
+        <div data-testid="cast-no-extraction">
+          <button data-testid="start-cast-extraction">Start reference generation</button>
+          <button data-testid="cast-cancel-button" onClick={onCancel}>Cancel</button>
+        </div>
+      </CastModalShell>
     );
   }
 
@@ -219,33 +287,35 @@ export function CastConfirmModal({
   }
 
   return (
-    <div>
-      <h2>Review Cast Proposal</h2>
+    <CastModalShell onCancel={onCancel}>
+      <div data-testid="cast-proposal-review">
+        <h2>Review Cast Proposal</h2>
 
-      {extraction.truncated && (
-        <div data-testid="cast-overflow-message">
-          Some cast entries were omitted due to the cast size limit. You can add more entries manually after confirming.
+        {extraction.truncated && (
+          <div data-testid="cast-overflow-message">
+            Some cast entries were omitted due to the cast size limit. You can add more entries manually after confirming.
+          </div>
+        )}
+
+        {entries.map((entry, i) => (
+          <EntryEditor key={i} entry={entry} index={i} orderedScenes={orderedScenes} onChange={handleEntryChange} />
+        ))}
+
+        <div data-testid="cast-aggregate-estimate">
+          Estimated cost: {aggregateCredits} credits
         </div>
-      )}
 
-      {entries.map((entry, i) => (
-        <EntryEditor key={i} entry={entry} index={i} orderedScenes={orderedScenes} onChange={handleEntryChange} />
-      ))}
-
-      <div data-testid="cast-aggregate-estimate">
-        Estimated cost: {aggregateCredits} credits
+        <button
+          data-testid="cast-confirm-button"
+          onClick={handleConfirm}
+          disabled={submitting}
+        >
+          {submitting ? 'Confirming…' : 'Confirm Cast'}
+        </button>
+        <button data-testid="cast-cancel-button" onClick={onCancel} disabled={submitting}>
+          Cancel
+        </button>
       </div>
-
-      <button
-        data-testid="cast-confirm-button"
-        onClick={handleConfirm}
-        disabled={submitting}
-      >
-        {submitting ? 'Confirming…' : 'Confirm Cast'}
-      </button>
-      <button data-testid="cast-cancel-button" onClick={onCancel} disabled={submitting}>
-        Cancel
-      </button>
-    </div>
+    </CastModalShell>
   );
 }
