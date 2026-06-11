@@ -608,3 +608,51 @@ describe('CastConfirmModal — AC-04 (only proposal-ready exposes confirm)', () 
     expect(screen.getByTestId('cast-confirm-button')).toBeTruthy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// T7 regression — 0 stray-buttons across EVERY modal state + consent preserved
+// (no confirm outside proposal-ready; confirm never auto-fires on render).
+// ---------------------------------------------------------------------------
+
+describe('CastConfirmModal — T7 regression (no stray buttons · consent preserved)', () => {
+  const ALL_STATES: Array<{ label: string; overrides: Partial<CastConfirmModalProps> }> = [
+    { label: 'queued', overrides: { extraction: { ...RUNNING_EXTRACTION, status: 'queued' } } },
+    { label: 'running', overrides: { extraction: RUNNING_EXTRACTION } },
+    { label: 'failed', overrides: { extraction: FAILED_EXTRACTION } },
+    { label: 'no extraction', overrides: { extraction: null } },
+    { label: 'existing blocks', overrides: { hasExistingBlocks: true, extraction: null } },
+    { label: 'completed-empty', overrides: { extraction: EMPTY_COMPLETED_EXTRACTION } },
+    { label: 'proposal-ready', overrides: { extraction: COMPLETED_EXTRACTION } },
+  ];
+
+  it.each(ALL_STATES)(
+    'renders every button inside the dialog in the "$label" state (0 stray-buttons)',
+    ({ overrides }) => {
+      renderModal(overrides);
+      const dialog = screen.getByRole('dialog');
+      const stray = Array.from(document.querySelectorAll('button')).filter(
+        (b) => !dialog.contains(b),
+      );
+      expect(stray).toHaveLength(0);
+    },
+  );
+
+  it.each(ALL_STATES.filter((s) => s.label !== 'proposal-ready'))(
+    'exposes no confirm action in the non-proposal-ready "$label" state (AC-04)',
+    ({ overrides }) => {
+      renderModal(overrides);
+      expect(screen.queryByTestId('cast-confirm-button')).toBeNull();
+    },
+  );
+
+  it('never fires onConfirmCast on render — consent requires an explicit confirm click (AC-04)', async () => {
+    const onConfirmCast = vi.fn().mockResolvedValue(undefined);
+    renderModal({ extraction: COMPLETED_EXTRACTION, onConfirmCast });
+
+    // Rendering the proposal-ready state must charge nothing.
+    expect(onConfirmCast).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('cast-confirm-button'));
+    await waitFor(() => expect(onConfirmCast).toHaveBeenCalledTimes(1));
+  });
+});

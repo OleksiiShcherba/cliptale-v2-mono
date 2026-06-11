@@ -347,4 +347,58 @@ describe('StoryboardPage', () => {
       expect(castApi.startCastExtraction).toHaveBeenCalledTimes(2);
     });
   });
+
+  // ── T7 regression — single start across re-entries · consent preserved ──────
+
+  describe('cast regression (T7 — AC-05 single start · AC-04 consent)', () => {
+    it('keeps a single extraction start across repeated Step-2 entries (AC-05)', async () => {
+      const a = renderPage('draft-multi-entry');
+      await waitFor(() => expect(castApi.startCastExtraction).toHaveBeenCalledTimes(1));
+
+      a.unmount();
+      const b = renderPage('draft-multi-entry');
+      await new Promise((r) => setTimeout(r, 15));
+      b.unmount();
+      renderPage('draft-multi-entry');
+      await new Promise((r) => setTimeout(r, 15));
+
+      expect(castApi.startCastExtraction).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not call confirmCast on auto-start or modal open — only after an explicit confirm (AC-04)', async () => {
+      const completed = {
+        jobId: 'job-consent',
+        draftId: 'draft-consent',
+        status: 'completed' as const,
+        proposal: [
+          {
+            castType: 'character' as const,
+            name: 'Hero',
+            description: 'desc',
+            imageFileIds: [],
+            sceneBlockIds: [],
+            perRunEstimate: 1,
+          },
+        ],
+        aggregateEstimateCredits: 1,
+        errorMessage: null,
+        truncated: false,
+      };
+      castApi.getLatestCastExtraction.mockResolvedValue(completed);
+
+      renderPage('draft-consent');
+      await waitFor(() => expect(castApi.getLatestCastExtraction).toHaveBeenCalled());
+      // An existing extraction means no auto-start and certainly no consent charge.
+      expect(castApi.confirmCast).not.toHaveBeenCalled();
+
+      // Open the modal — surfacing the proposal must NOT charge anything.
+      fireEvent.click(screen.getByTestId('start-reference-generation-button'));
+      await waitFor(() => expect(screen.getByTestId('cast-confirm-button')).toBeTruthy());
+      expect(castApi.confirmCast).not.toHaveBeenCalled();
+
+      // Explicit confirm is the single point of paid consent.
+      fireEvent.click(screen.getByTestId('cast-confirm-button'));
+      await waitFor(() => expect(castApi.confirmCast).toHaveBeenCalledTimes(1));
+    });
+  });
 });
