@@ -186,24 +186,66 @@ sequenceDiagram
 
 ## 7. Deployment view
 
-<!-- drafting -->
+<!-- N/A: reuses the existing web-editor, Reference API, and media-worker deployment units. ADR-0001 is a code change to an existing service, not an infra change — no new replica, queue, or topology. -->
 
 ## 8. Crosscutting concepts
 
-<!-- drafting -->
+| Concept | Convention | Where defined |
+|---|---|---|
+| Authentication / AuthZ | Inherited owner-scoped check on the Reference API (`resolveDraftOwner`); only the draft owner enters Step 2, so only they auto-start. No new boundary. | existing api service · spec §6.1 |
+| Error handling | Typed server errors (`CastAlreadyExtractedError` 409, etc.) unchanged. Client: a **failed auto-start** (request never accepted) is swallowed silently — no toast — and recovered only via the manual control (spec §1¶4, AC-07). | `apps/api/src/lib/errors.ts` · here |
+| Dedup / idempotency | Server is the source of truth: `startExtraction` returns the existing queued/running/completed job rather than creating a second (ADR-0001). Client `useCastAutostart` adds an in-flight guard so a re-mounting client never issues the redundant request. `failed` = not existing (a new start is allowed). | ADR-0001 · §4 choice 3 |
+| State / data fetching | Extraction state is a single TanStack Query entry `['cast-extraction', draftId]`; the manual control and auto-start both read/refresh it. Project doc stays in the custom external store (untouched). | §4 choice 2 · architecture-map §Frontend |
+| Polling | While the extraction is non-terminal (`queued`/`running`), the hook polls on the existing 3 s interval; stops on `completed`/`failed`. | existing `StoryboardPage` pattern, moved into the hook |
+| Modal / dialog | Per-component backdrop + centered dialog wrapper with `dialog` semantics, focus-on-mount, Esc-to-close — following `SceneModal`. No shared Modal primitive (repo convention: each modal owns its wrapper). | `SceneModal.styles.ts` precedent · §4 choice 4 |
+| Idempotent no-op UX | Auto-start never forces the modal open and never charges; an empty proposal is a **completed-empty** modal state ("nothing to generate references for"), not an error. | spec §1¶4, AC-06 |
 
 ## 9. Architecture decisions
 
-<!-- drafting -->
+| # | Title | Status | Section |
+|---|---|---|---|
+| 0001 | Make cast-extraction start idempotent per draft (return the existing job) | Accepted | §4 |
+
+ADR files live under `docs/features/reference-generation-autostart/adr/NNNN-<title>.md`.
 
 ## 10. Quality requirements
 
-<!-- drafting -->
+**QG-1. Auto-start latency**
+- **When:** Step-2 page-ready — the page is mounted AND the draft + cast-extraction-existence check has resolved (the existence check is inside this budget).
+- **Then:** the extraction request is issued ≤ 500 ms (p95) from page-ready.
+- **How verify:** front-end timing metric / RUM (spec §6 NFR row 1).
+
+**QG-2. Dialog correctness**
+- **When:** the Cast confirmation modal is shown in any state (pre-proposal, running, proposal-ready, completed-empty, failed).
+- **Then:** it presents as a proper centered dialog with a backdrop and **0 stray-buttons-defect occurrences** in any state; first paint ≤ 150 ms (p95) after open.
+- **How verify:** UI regression test + visual review (stray-buttons row); front-end render metric (modal-first-paint row) — spec §6 NFR rows 2 & 4.
+
+**QG-3. One-extraction-per-draft invariant**
+- **When:** a Creator makes repeated Step-2 entries (including re-mount / re-focus / concurrent tabs) on the same draft.
+- **Then:** **0 second-extractions per draft**.
+- **How verify:** extraction-job audit count per draft (spec §6 NFR row 3); integration test asserting `startExtraction` returns the existing job under a duplicate call (ADR-0001).
 
 ## 11. Risks and technical debt
 
-<!-- drafting -->
+| Risk / debt | Severity | Mitigation | Owner |
+|---|---|---|---|
+| Re-mount / concurrent-tab race before the first extraction persists could create a duplicate | Low | Closed by ADR-0001 (server idempotent start) + client in-flight guard; verified by QG-3 integration test | Tech Lead |
+| Extra existence-check GET on every Step-2 entry adds latency / traffic | Low | Inside the 500 ms budget (QG-1); TanStack Query caches the entry so re-mounts within stale-time reuse it | Storyboard squad |
+| Open architectural decision: auto-retry a failed auto-start before manual fallback | Open question | Resolve before `sdd:tasks`; default = no auto-retry, recover via the manual control (spec OQ-1) | Oleksii (Storyboard squad) |
+| Open architectural decision: auto-open the modal once the proposal is ready | Open question | Resolve before `sdd:tasks`; default = stay closed, background extraction (spec OQ-2) | PM |
+| Open architectural decision: behaviour on a draft that already has *confirmed* reference blocks | Open question | Resolve before `sdd:tasks`; default = strict no-op once any extraction/blocks exist (spec OQ-3, `CastAlreadyExtractedError`) | Tech Lead |
+
+**Accepted debt (acceptable in v1, plan to fix later):**
+- No shared `<Modal>` primitive — the backdrop+dialog wrapper is duplicated across `SceneModal`, `MusicBlockModal`, and now `CastConfirmModal`. Acceptable per the current repo convention; a future extraction to `shared/components/` is the migration trigger when a 4th modal appears.
 
 ## 12. Glossary
 
-<!-- drafting -->
+| Term | Meaning |
+|---|---|
+| Reference-generation auto-start | Starting the free cast extraction automatically and silently on the first Step-2 entry for a draft that has none; once per draft, no-op when one exists, never charges or forces a modal open. |
+| Auto-start (per-entry) | "Entry" = each Step-2 open/re-mount/re-focus; auto-start re-checks the draft's **persisted** extraction state each time and fires only when none exists. |
+| Failed auto-start | An auto-start whose start request was **never accepted** (no extraction created). A created-but-errored extraction counts as *existing* (no-op), not failed — only the never-started case is recovered via the manual control. |
+| Idempotent start | `startExtraction` returns the existing queued/running/completed job for the draft instead of creating a second (ADR-0001); `failed` is treated as not-existing so a new start is allowed. |
+| In-flight guard | A client-side per-draft guard in `useCastAutostart` that suppresses the redundant start request during a re-mount (a latency/traffic optimization, not the correctness mechanism). |
+| Completed-empty state | The Cast confirmation modal state when extraction finished proposing no characters/environments — a "nothing to generate references for" surface with a close action and no confirm; counts as *ready*, not in-progress. |
+| Stray-buttons defect | The removed defect: the no-proposal state rendered two unstyled buttons inline at the page bottom instead of a dialog. |
