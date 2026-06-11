@@ -6,11 +6,11 @@ import type { Edge as FlowEdge, Node, NodeMouseHandler } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { fetchDraft } from '@/features/generate-wizard/api';
-import { startCastExtraction, confirmCast, retryReferenceBlockGeneration } from '@/features/storyboard/api';
+import { startCastExtraction, confirmCast, retryReferenceBlockGeneration, updateReferenceBlock } from '@/features/storyboard/api';
 import { useAddBlock } from '@/features/storyboard/hooks/useAddBlock';
 import { useAddMusicBlock } from '@/features/storyboard/hooks/useAddMusicBlock';
 import { useHandleAddFromLibrary } from '@/features/storyboard/hooks/useHandleAddFromLibrary';
-import { useStoryboardCanvas } from '@/features/storyboard/hooks/useStoryboardCanvas';
+import { useStoryboardCanvas, REFERENCE_BLOCK_Y_OFFSET } from '@/features/storyboard/hooks/useStoryboardCanvas';
 import { useHandleAddBlock } from '@/features/storyboard/hooks/useHandleAddBlock';
 import { useHandleRestore } from '@/features/storyboard/hooks/useHandleRestore';
 import { useSceneModal } from '@/features/storyboard/hooks/useSceneModal';
@@ -343,8 +343,21 @@ export function StoryboardPage(): React.ReactElement {
     (...args) => {
       setIsDraggingNode(false);
       handleNodeDragStop(...args);
+      // Reference-block positions live in their own table — the storyboard autosave
+      // only persists scene/start/end nodes, so persist a dragged reference block
+      // directly (versionless last-write-wins). Display y carries a +OFFSET, so
+      // store display-y minus the offset to round-trip on reload.
+      const draggedNode = args[1] as Node | undefined;
+      if (draggedNode?.type === 'reference-block') {
+        void updateReferenceBlock(safeDraftId, draggedNode.id, {
+          positionX: draggedNode.position.x,
+          positionY: draggedNode.position.y - REFERENCE_BLOCK_Y_OFFSET,
+        }).catch((err) => {
+          console.error('[StoryboardPage] failed to persist reference block position:', err);
+        });
+      }
     },
-    [handleNodeDragStop],
+    [handleNodeDragStop, safeDraftId],
   );
   useEffect(() => {
     syncRefs(nodes, edges);

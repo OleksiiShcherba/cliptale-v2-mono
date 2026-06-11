@@ -81,10 +81,10 @@ export function FlowEditorPage(): React.ReactElement {
 
   // AC-05: detect when this flow was opened from a storyboard reference block.
   // The navigation state carries `{ fromDraft: draftId, fromBlockId: blockId }`.
+  // The server's `reference` context (linked reference block) is the fallback so
+  // a direct URL open / refresh without history state still gets star controls.
   const location = useLocation();
   const locationState = location.state as { fromDraft?: string; fromBlockId?: string } | null;
-  const fromDraft = locationState?.fromDraft ?? null;
-  const fromBlockId = locationState?.fromBlockId ?? null;
 
   // Initial flow load (canvas + jobs). While any job is non-terminal the read is
   // polled so an in-flight generation reattaches and finishes live (AC-08b).
@@ -106,6 +106,12 @@ export function FlowEditorPage(): React.ReactElement {
       </ChromeMessage>
     );
   }
+
+  const flowReference = (flow as Flow & {
+    reference?: { draftId: string; blockId: string } | null;
+  }).reference ?? null;
+  const fromDraft = locationState?.fromDraft ?? flowReference?.draftId ?? null;
+  const fromBlockId = locationState?.fromBlockId ?? flowReference?.blockId ?? null;
 
   return (
     <FlowEditor

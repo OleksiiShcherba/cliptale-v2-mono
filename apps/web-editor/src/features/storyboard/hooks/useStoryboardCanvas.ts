@@ -99,17 +99,25 @@ function edgeToFlowEdge(edge: StoryboardEdge): Edge {
 }
 
 /**
+ * Vertical offset applied to reference-block nodes so they render below the main
+ * story row. Persisted positionY is display-y minus this offset (round-trips on
+ * reload). Exported so the drag-persist path stays in sync with the layout.
+ */
+export const REFERENCE_BLOCK_Y_OFFSET = 350;
+
+/**
  * Converts a ReferenceBlockApiResponse to a React Flow Node (off-chain, like musicBlockToNode).
  * The node type is 'reference-block' — registered in STORYBOARD_NODE_TYPES.
  *
- * `resolvedPreviewUrl` is the pre-fetched URL for the block's previewFileId (AC-06).
- * Pass null if no previewFileId is set or the URL could not be resolved.
+ * `resolvedPreviewUrls` are the pre-fetched URLs for ALL the block's starred
+ * files, oldest-first (AC-06) — every star surfaces in the preview.
+ * Pass [] when nothing is starred or no URL could be resolved.
  */
 function referenceBlockToNode(
   block: ReferenceBlockApiResponse,
   onOpenFlow: (blockId: string) => void,
   onRetry: (blockId: string) => void,
-  resolvedPreviewUrl: string | null = null,
+  resolvedPreviewUrls: string[] = [],
 ): Node {
   const data: ReferenceBlockNodeData = {
     referenceBlock: {
@@ -129,7 +137,7 @@ function referenceBlockToNode(
       createdAt: block.createdAt,
       updatedAt: block.updatedAt,
     },
-    previewUrl: resolvedPreviewUrl,
+    previewUrls: resolvedPreviewUrls,
     onOpenFlow,
     onRetry,
   };
@@ -137,7 +145,7 @@ function referenceBlockToNode(
   return {
     id: block.blockId,
     type: 'reference-block',
-    position: { x: block.positionX, y: block.positionY + 350 }, // below main flow row
+    position: { x: block.positionX, y: block.positionY + REFERENCE_BLOCK_Y_OFFSET }, // below main flow row
     data,
     draggable: true,
     deletable: true,
@@ -292,14 +300,23 @@ export function useStoryboardCanvas(
         safeListReferenceBlocks(),
       ]);
 
-      // Resolve preview URLs for reference blocks that have a previewFileId (AC-06).
+      // Resolve preview URLs for ALL starred files of every reference block —
+      // each star means "used as a reference in scenes" and surfaces in the
+      // block preview (AC-06). previewFileId remains the no-stars fallback.
       const previewUrlMap = new Map<string, string>();
-      const blocksNeedingUrl = refBlocksResult.items.filter((b) => b.previewFileId != null);
-      if (blocksNeedingUrl.length > 0) {
-        const urlFetches = blocksNeedingUrl.map(async (b) => {
+      const fileIdsNeedingUrl = [
+        ...new Set(
+          refBlocksResult.items.flatMap((b) => [
+            ...b.stars.map((s) => s.fileId),
+            ...(b.previewFileId != null ? [b.previewFileId] : []),
+          ]),
+        ),
+      ];
+      if (fileIdsNeedingUrl.length > 0) {
+        const urlFetches = fileIdsNeedingUrl.map(async (fileId) => {
           try {
-            const info = await fetchFileInfo(b.previewFileId as string);
-            if (info?.url) previewUrlMap.set(b.previewFileId as string, info.url);
+            const info = await fetchFileInfo(fileId);
+            if (info?.url) previewUrlMap.set(fileId, info.url);
           } catch {
             // Ignore individual fetch failures (including missing mock in tests).
           }
@@ -318,14 +335,22 @@ export function useStoryboardCanvas(
         ...positionedBlocks.map((block) => blockToNode(block, removeNode)),
         ...state.musicBlocks.map((musicBlock) => musicBlockToNode(musicBlock, orderedScenes as StoryboardBlock[])),
         ...refBlocksResult.items.map((refBlock) => {
-          const resolvedUrl = refBlock.previewFileId
-            ? (previewUrlMap.get(refBlock.previewFileId) ?? null)
-            : null;
+          // All starred files, oldest-first; fall back to previewFileId when
+          // nothing is starred (e.g. legacy/auto preview).
+          const starUrls = refBlock.stars
+            .map((s) => previewUrlMap.get(s.fileId))
+            .filter((u): u is string => u != null);
+          const fallbackUrl = refBlock.previewFileId
+            ? previewUrlMap.get(refBlock.previewFileId)
+            : undefined;
+          const resolvedUrls = starUrls.length > 0
+            ? starUrls
+            : fallbackUrl != null ? [fallbackUrl] : [];
           return referenceBlockToNode(
             refBlock,
             (blockId) => { onOpenFlowRef.current(blockId); },
             (blockId) => { onRetryRef.current(blockId); },
-            resolvedUrl,
+            resolvedUrls,
           );
         }),
       ];

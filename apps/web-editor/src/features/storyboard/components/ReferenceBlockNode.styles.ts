@@ -96,6 +96,24 @@ export const referenceBlockNodeStyles = {
     display: 'block',
   } as React.CSSProperties,
 
+  // Multi-star preview: a horizontal strip — every starred result is shown.
+  previewStrip: {
+    display: 'grid',
+    gridAutoFlow: 'column',
+    gridAutoColumns: 'minmax(0, 1fr)',
+    gap: '4px',
+    width: '100%',
+  } as React.CSSProperties,
+
+  previewStripItem: {
+    width: '100%',
+    height: '80px',
+    borderRadius: '4px',
+    objectFit: 'cover',
+    display: 'block',
+    minWidth: 0,
+  } as React.CSSProperties,
+
   previewPlaceholder: {
     width: '100%',
     height: '80px',

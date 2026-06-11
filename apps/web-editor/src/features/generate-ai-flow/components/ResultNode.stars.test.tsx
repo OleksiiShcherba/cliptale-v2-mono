@@ -164,11 +164,14 @@ describe('ResultNode — AC-06: star controls only in reference-flow context', (
     ).toBeDefined();
   });
 
-  it('shows a primary-star control when referenceContext is provided', () => {
+  it('does NOT render a separate primary-star control — the single star IS the control', () => {
+    // One control only: a star means "use as a scene reference"; several results
+    // can be starred and ALL starred results surface in the block preview.
     const referenceContext = makeReferenceContext({ stars: [] });
     renderNode({ referenceContext });
 
-    expect(screen.getByTestId('primary-star-toggle')).toBeDefined();
+    expect(screen.queryByTestId('primary-star-toggle')).toBeNull();
+    expect(screen.getByTestId('star-toggle')).toBeDefined();
   });
 
   it('calls onStarToggle (optimistic) when the star button is clicked', async () => {
@@ -198,19 +201,18 @@ describe('ResultNode — AC-06: star controls only in reference-flow context', (
     expect(isStarred).toBe(true);
   });
 
-  it('shows the primary badge when the result file is the primary star', () => {
+  it('treats a legacy primary star simply as starred (single control reflects it)', () => {
     const referenceContext = makeReferenceContext({
       stars: [{ fileId: FILE_A, isPrimary: true, createdAt: '2026-06-07T12:30:00.000Z' }],
       previewFileId: FILE_A,
     });
     renderNode({ referenceContext });
 
-    // Primary star should have aria-pressed=true or data-primary=true.
-    const primaryToggle = screen.getByTestId('primary-star-toggle');
-    const isPrimary =
-      primaryToggle.getAttribute('aria-pressed') === 'true' ||
-      primaryToggle.getAttribute('data-primary') === 'true';
-    expect(isPrimary).toBe(true);
+    const starToggle = screen.getByTestId('star-toggle');
+    const isStarred =
+      starToggle.getAttribute('aria-pressed') === 'true' ||
+      starToggle.getAttribute('data-starred') === 'true';
+    expect(isStarred).toBe(true);
   });
 
   it('rolls back the optimistic star when the API call rejects', async () => {
@@ -277,22 +279,20 @@ describe('ResultNode — AC-07: un-star primary falls back to another star or pl
     ).toBeDefined();
   });
 
-  it('shows the fallback star preview indicator when primary is removed but another star remains', () => {
-    // Two stars; FILE_A is the non-primary remaining star after the primary was removed.
-    // The block preview (previewFileId) points to FILE_A as the fallback.
+  it('a remaining non-primary star reads as plainly starred (no fallback indicator — all stars are equal)', () => {
+    // With the single-star semantics every star is equal: there is no separate
+    // "fallback" state to indicate; the star toggle simply reflects starred.
     const referenceContext = makeReferenceContext({
       stars: [
         { fileId: FILE_A, isPrimary: false, createdAt: '2026-06-07T12:30:00.000Z' },
       ],
       previewFileId: FILE_A,
     });
-    // Render the node for FILE_A result; the block still has a star (fallback state).
     renderNode({ referenceContext });
 
-    // The component must show the fallback-preview indicator (data-testid="reference-preview-fallback"
-    // or similar) — distinct from both the no-preview placeholder and the primary-preview state.
-    // This element is new production code; its absence is the GOOD RED.
-    expect(screen.getByTestId('reference-preview-fallback')).toBeDefined();
+    expect(screen.queryByTestId('reference-preview-fallback')).toBeNull();
+    const starToggle = screen.getByTestId('star-toggle');
+    expect(starToggle.getAttribute('data-starred')).toBe('true');
   });
 
   it('renders the node without crashing when all results in the flow are removed (no-flow still intact)', () => {

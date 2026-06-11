@@ -122,11 +122,10 @@ function StarControls({
 
   const starEntry = stars.find((s) => s.fileId === fileId);
   const isStarred = starEntry != null;
-  const isPrimary = starEntry?.isPrimary ?? false;
 
-  // Fallback state: file is starred but not the primary (previewFileId points elsewhere or null).
-  const isFallback = isStarred && !isPrimary;
-
+  // ONE control: a star means "use this result as a reference in scenes".
+  // Several results can be starred; every starred result surfaces in the
+  // storyboard block preview — there is no separate "primary" concept.
   async function handleStarClick(): Promise<void> {
     if (isStarred) {
       // Un-star optimistically via context callback, then call API.
@@ -135,10 +134,11 @@ function StarControls({
         await unstarReferenceResult(draftId, blockId, fileId);
       } catch {
         // Roll back by re-starring — use onStarToggle to inform parent.
-        onStarToggle(fileId, isPrimary);
+        onStarToggle(fileId, false);
       }
     } else {
       // Star optimistically, then call API; roll back via onUnstar on failure.
+      // All stars are equal (isPrimary: false) — the preview shows every star.
       onStarToggle(fileId, false);
       try {
         await starReferenceResult(draftId, blockId, fileId, { isPrimary: false });
@@ -148,64 +148,20 @@ function StarControls({
     }
   }
 
-  async function handlePrimaryClick(): Promise<void> {
-    if (isPrimary) {
-      // Demote primary → un-star (AC-07).
-      onUnstar(fileId);
-      try {
-        await unstarReferenceResult(draftId, blockId, fileId);
-      } catch {
-        onStarToggle(fileId, true);
-      }
-    } else {
-      // Make primary.
-      onStarToggle(fileId, true);
-      try {
-        await starReferenceResult(draftId, blockId, fileId, { isPrimary: true });
-      } catch {
-        onUnstar(fileId);
-      }
-    }
-  }
-
   return (
     <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 4 }}>
-      {/* Star toggle */}
+      {/* Star toggle — starred = used as a scene reference (shown in block preview) */}
       <button
         type="button"
         data-testid="star-toggle"
         aria-pressed={isStarred}
         data-starred={isStarred ? 'true' : 'false'}
-        aria-label={isStarred ? 'Unstar result' : 'Star result'}
+        aria-label={isStarred ? 'Unstar result' : 'Star result (use as scene reference)'}
         onClick={() => { void handleStarClick(); }}
         style={{ ...starBtnBase, color: isStarred ? '#FBBF24' : '#888' }}
       >
         {isStarred ? '★' : '☆'}
       </button>
-
-      {/* Primary-star toggle (block preview) */}
-      <button
-        type="button"
-        data-testid="primary-star-toggle"
-        aria-pressed={isPrimary}
-        data-primary={isPrimary ? 'true' : 'false'}
-        aria-label={isPrimary ? 'Remove primary star' : 'Star as primary (block preview)'}
-        onClick={() => { void handlePrimaryClick(); }}
-        style={{ ...starBtnBase, color: isPrimary ? '#F59E0B' : '#555', fontSize: 12 }}
-      >
-        {isPrimary ? '◆' : '◇'}
-      </button>
-
-      {/* Fallback-preview indicator: starred but not primary */}
-      {isFallback && (
-        <span
-          data-testid="reference-preview-fallback"
-          style={{ fontSize: 10, color: '#9CA3AF' }}
-          aria-label="Fallback preview"
-        >
-          fallback
-        </span>
-      )}
 
       {/* No-preview placeholder: no stars at all */}
       {!isStarred && stars.length === 0 && previewFileId == null && (

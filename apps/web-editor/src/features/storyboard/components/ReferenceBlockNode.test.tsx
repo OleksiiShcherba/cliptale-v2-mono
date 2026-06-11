@@ -43,23 +43,44 @@ function makeData(overrides?: Partial<ReferenceBlockNodeData>): ReferenceBlockNo
       createdAt: '2026-06-07T00:00:00Z',
       updatedAt: '2026-06-07T00:00:00Z',
     },
-    /** URL (or file id) of the primary-starred result — null = no-preview placeholder. */
-    previewUrl: 'https://cdn.example.test/primary-star.jpg',
+    /** URLs of ALL starred results, oldest-first — [] = no-preview placeholder. */
+    previewUrls: ['https://cdn.example.test/starred-result.jpg'],
     onOpenFlow: vi.fn(),
     onRetry: vi.fn(),
     ...overrides,
   };
 }
 
-// ── AC-03: preview from primary star ──────────────────────────────────────────
+// ── AC-03: preview from starred results ──────────────────────────────────────
 
-describe('ReferenceBlockNode — AC-03 (preview from primary star)', () => {
-  it('renders the block name and displays a preview image when previewUrl is provided', () => {
+describe('ReferenceBlockNode — AC-03 (preview from starred results)', () => {
+  it('renders the block name and displays a preview image when one star is present', () => {
     render(<ReferenceBlockNode id="rb-1" data={makeData()} />);
 
     expect(screen.getByTestId('reference-block-name').textContent).toBe('Test Character');
     const img = screen.getByTestId('reference-block-preview') as HTMLImageElement;
-    expect(img.src).toContain('primary-star.jpg');
+    expect(img.src).toContain('starred-result.jpg');
+  });
+
+  it('renders EVERY starred result in a preview strip when several are starred', () => {
+    render(
+      <ReferenceBlockNode
+        id="rb-1"
+        data={makeData({
+          previewUrls: [
+            'https://cdn.example.test/star-1.jpg',
+            'https://cdn.example.test/star-2.jpg',
+            'https://cdn.example.test/star-3.jpg',
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('reference-block-preview-strip')).toBeTruthy();
+    const imgs = screen.getAllByTestId('reference-block-preview') as HTMLImageElement[];
+    expect(imgs).toHaveLength(3);
+    expect(imgs[0]!.src).toContain('star-1.jpg');
+    expect(imgs[2]!.src).toContain('star-3.jpg');
   });
 
   it('renders the cast_type badge (character or environment)', () => {
@@ -73,8 +94,8 @@ describe('ReferenceBlockNode — AC-03 (preview from primary star)', () => {
 // ── AC-07: no-preview placeholder ─────────────────────────────────────────────
 
 describe('ReferenceBlockNode — AC-07 (no-preview placeholder)', () => {
-  it('shows the no-preview placeholder when previewUrl is null (primary star removed)', () => {
-    render(<ReferenceBlockNode id="rb-1" data={makeData({ previewUrl: null })} />);
+  it('shows the no-preview placeholder when nothing is starred (previewUrls empty)', () => {
+    render(<ReferenceBlockNode id="rb-1" data={makeData({ previewUrls: [] })} />);
 
     expect(screen.queryByTestId('reference-block-preview')).toBeNull();
     expect(screen.getByTestId('reference-block-preview-placeholder')).toBeTruthy();

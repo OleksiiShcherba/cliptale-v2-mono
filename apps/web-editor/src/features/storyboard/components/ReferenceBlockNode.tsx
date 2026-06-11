@@ -29,7 +29,7 @@ function ReferenceGlyph(): React.ReactElement {
 }
 
 export function ReferenceBlockNode({ id, data }: ReferenceBlockNodeProps): React.ReactElement {
-  const { referenceBlock, previewUrl, onOpenFlow, onRetry, onAddBlock } = data;
+  const { referenceBlock, previewUrls, onOpenFlow, onRetry, onAddBlock } = data;
   const { flowId, name, castType, windowStatus, errorMessage } = referenceBlock;
 
   const hasFlow = flowId !== null;
@@ -85,14 +85,26 @@ export function ReferenceBlockNode({ id, data }: ReferenceBlockNodeProps): React
 
       {/* Body */}
       <div style={s.body}>
-        {/* AC-03 / AC-07 — preview or placeholder */}
-        {previewUrl !== null ? (
+        {/* AC-03 / AC-07 — every starred result is a preview; placeholder when none */}
+        {previewUrls.length === 1 ? (
           <img
-            src={previewUrl}
+            src={previewUrls[0]}
             alt={name}
             style={s.preview}
             data-testid="reference-block-preview"
           />
+        ) : previewUrls.length > 1 ? (
+          <div style={s.previewStrip} data-testid="reference-block-preview-strip">
+            {previewUrls.map((url, i) => (
+              <img
+                key={url}
+                src={url}
+                alt={`${name} — starred result ${i + 1}`}
+                style={s.previewStripItem}
+                data-testid="reference-block-preview"
+              />
+            ))}
+          </div>
         ) : (
           <div style={s.previewPlaceholder} data-testid="reference-block-preview-placeholder">
             No preview

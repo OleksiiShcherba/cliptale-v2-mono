@@ -284,9 +284,10 @@ export type StoryboardReferenceBlock = {
 /** React Flow node data for a reference block (off-chain, like MusicBlockNodeData). */
 export type ReferenceBlockNodeData = {
   referenceBlock: StoryboardReferenceBlock;
-  /** URL of the primary-starred result file to show as block preview (AC-03/AC-06).
-   *  NULL = no starred result → no-preview placeholder (AC-07). */
-  previewUrl: string | null;
+  /** URLs of ALL starred result files, oldest-first — every star is "used as a
+   *  reference in scenes" and surfaces in the block preview (AC-03/AC-06).
+   *  Empty = no starred result → no-preview placeholder (AC-07). */
+  previewUrls: string[];
   /** Called with blockId when the block is clicked and flowId is non-null (AC-05). */
   onOpenFlow: (blockId: string) => void;
   /** Called with blockId when the retry button is clicked on a failed block (AC-04). */
