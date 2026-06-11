@@ -404,6 +404,26 @@ export const castExtractJobRepo: CastExtractJobRepository = {
       .filter(Boolean)
       .join('\n\n');
   },
+
+  async getScenes(draftId: string, userId: string) {
+    // Real Step-2 scene blocks in story order — id is the same UUID the canvas /
+    // SceneLinkSelector use, so the LLM's scene_block_ids preselect directly.
+    // user_id scoping guards a non-owner from reading another draft's scenes.
+    const [rows] = await pool.query<
+      Array<{ id: string; name: string | null; prompt: string | null } & RowDataPacket>
+    >(
+      `SELECT b.id, b.name, b.prompt
+         FROM storyboard_blocks b
+         JOIN generation_drafts d ON d.id = b.draft_id
+        WHERE b.draft_id = ?
+          AND d.user_id = ?
+          AND d.deleted_at IS NULL
+          AND b.block_type = 'scene'
+        ORDER BY b.sort_order ASC`,
+      [draftId, userId],
+    );
+    return rows.map((r) => ({ id: r.id, name: r.name, description: r.prompt }));
+  },
 };
 
 /**

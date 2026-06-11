@@ -127,6 +127,80 @@ describe('processCastExtractJob', () => {
     );
   });
 
+  // Regression: LLMs emit id-like fields as JSON numbers (scene_block_ids: [1, 2]).
+  // These must be coerced to strings and the job must complete — NOT fail the schema.
+  it('coerces numeric scene_block_ids / image_file_ids to strings instead of failing', async () => {
+    const events: string[] = [];
+    const proposalWithNumericIds = {
+      cast: [
+        {
+          type: 'character',
+          name: 'Hero',
+          description: 'A hero.',
+          image_file_ids: [42, 7],
+          scene_block_ids: [1, 2, 3],
+          per_run_estimate: 0.05,
+        },
+      ],
+    };
+    const llm = makeLlmMock(proposalWithNumericIds);
+    const repository = makeRepository(events);
+
+    const result = await processCastExtractJob(makeJob(), { llm, pool, repository });
+
+    expect(events).toEqual(['running', 'completed']);
+    expect(repository.markFailed).not.toHaveBeenCalled();
+    expect(result.cast[0]!.scene_block_ids).toEqual(['1', '2', '3']);
+    expect(result.cast[0]!.image_file_ids).toEqual(['42', '7']);
+  });
+
+  // AI scene preselection: the LLM is given the real scenes and its scene_block_ids
+  // are kept only when they are real scene ids (hallucinated indices are pruned).
+  it('passes real scenes to the LLM and prunes scene_block_ids to known scene ids', async () => {
+    const proposal = makeCastProposal([
+      // SCENE_ID_1 is real (kept); '7' is a hallucinated index (pruned).
+      makeCastEntry({ name: 'Hero', scene_block_ids: [SCENE_ID_1, '7'] }),
+    ]);
+    const llm = makeLlmMock(proposal);
+    const scenes = [
+      { id: SCENE_ID_1, name: 'Scene 01', description: 'A clinical room.' },
+      { id: SCENE_ID_2, name: 'Scene 02', description: 'A dark corridor.' },
+    ];
+    const repository: CastExtractJobRepository = {
+      ...makeRepository(),
+      getScenes: vi.fn(async () => scenes),
+    };
+
+    const result = await processCastExtractJob(makeJob(), { llm, pool, repository });
+
+    // The LLM user message carried the real scenes (id + description).
+    const createArg = vi.mocked(llm.chat.completions.create).mock.calls[0]![0] as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const userMsg = createArg.messages.find((m) => m.role === 'user')!.content;
+    expect(userMsg).toContain(SCENE_ID_1);
+    expect(JSON.parse(userMsg).scenes).toHaveLength(2);
+    // Hallucinated '7' pruned; real SCENE_ID_1 kept.
+    expect(result.cast[0]!.scene_block_ids).toEqual([SCENE_ID_1]);
+  });
+
+  // Race guard: extraction ran before the plan created any scenes → getScenes
+  // returns [] → EVERY scene id the LLM invented must be pruned (no fake ids may
+  // reach the UUID-validated confirm endpoint).
+  it('prunes ALL scene_block_ids when the draft has no scenes yet (extraction raced the plan)', async () => {
+    const proposal = makeCastProposal([
+      makeCastEntry({ name: 'Hero', scene_block_ids: ['2', '3'] }), // hallucinated indices
+    ]);
+    const repository: CastExtractJobRepository = {
+      ...makeRepository(),
+      getScenes: vi.fn(async () => []),
+    };
+
+    const result = await processCastExtractJob(makeJob(), { llm: makeLlmMock(proposal), pool, repository });
+
+    expect(result.cast[0]!.scene_block_ids).toEqual([]);
+  });
+
   // AC-01 realtime: storyboard.cast_extraction.updated published after each lifecycle write.
   it('publishes cast_extraction.updated realtime event after running and after completed', async () => {
     const { publishCastExtractionStatus } = await import('@/lib/realtime.js');
