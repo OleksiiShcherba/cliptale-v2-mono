@@ -4,7 +4,7 @@ owner: "Tech Lead"
 reviewers: ["Tech Lead", "Security Lead"]
 updated_at: "2026-06-12"
 feature_size: "L"
-target_surfaces: []  # filled in §4 — subset of: backend-service | web-frontend | mobile-app | desktop-app | cli | worker | library-sdk. Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
+target_surfaces: [backend-service, worker, web-frontend]  # §4 ADR-0001. Read (never re-derived) by api/sequences/tasks/plan-tests/review → _shared/surfaces.md
 ---
 
 # Software Architecture Document — <slug>
@@ -121,13 +121,20 @@ C4Context
      📋 Write: 3–4 choices; each a heading + 2–3 sentences of rationale.
      📌 «Store content as a table of typed blocks» is a pillar — ADR-0001 grows from it. -->
 
+**Target surfaces (the §4 first decision).** `target_surfaces = [backend-service, worker, web-frontend]` (frontmatter). The rework spans three surfaces because orchestration authority moves server-side: the **api** (backend-service) holds the authoritative state machine and exposes the pipeline operations; the **media-worker** (worker) executes each phase against the AI providers and reports unit completion back; the **web-editor** (web-frontend) becomes a pure projection of the backend state. Single-surface alternatives are non-viable — frontend-only is the broken status quo, backend-only renders nothing. → **ADR-0001**.
+
+**UI-architecture (web-frontend).** No new SPA architecture: the existing React-18 + custom-external-store + TanStack-Query + `@xyflow/react` storyboard surface is kept. The pipeline UI (blocking loader, Review-cast-proposal modal, scene-image-offer modal, corner step controls) is reconstructed on every Step-2 open from a single backend pipeline-state read and converges via the existing Redis-pub/sub realtime — **no client-owned orchestration state** (the `StoryboardAutomationPhase` client enum and the `useStoryboard*Generation` orchestration hooks are retired). This is a direct consequence of ADR-0001, not an independent fork, so it stays an inline note rather than its own ADR.
+
 **Top strategic choices (the seeds for ADRs):**
 
-1. **<e.g. Module isolation through events>** — <2–3 sentences citing quality goals + constraints>.
-2. **<e.g. Single-store persistence>** — <2–3 sentences>.
-3. **<e.g. Server-rendered read side>** — <2–3 sentences>.
+1. **Backend-owned orchestration authority** — the Step-2 flow becomes a server-authoritative state machine; the frontend renders what it reports and never owns generation state. Directly serves QG-1 *Resumability* (state is reconstructed from the backend, not client memory) and is the root fix for the production failure. → **ADR-0001**.
+2. **A single denormalized pipeline-state row per draft** — one `storyboard_pipeline` row carries `active_phase` + per-phase sub-state + the UI payload (loader label / pending-modal data), read on every open in ≤ 300 ms (§6 NFR); per-unit detail stays in the existing job/block tables. Chosen over derive-on-read (no place to store `skipped`≠`idle` or single-active-run) and event-sourcing (overkill for a synchronous single-draft machine, off-convention vs raw-SQL). → **ADR-0002**.
+3. **Phases advance via worker completion-hooks into a backend transition service** — the worker reports unit completion (reusing the `onReferenceBlockJobComplete` pattern) and the api owns all transitions and guards, keeping the state-machine invariants in one place. Serves QG-2 *Interruption-safety* (transitions, including stuck-release, are decided server-side). → **ADR-0003**.
+4. **Resume-by-read with observer tabs** — every Step-2 open reads the single pipeline-state; other tabs are observers that converge via realtime within ≤ 2 s (§6), with no hard draft lock (resolves OQ-4). Combined with idempotency this makes a second tab harmless. → **ADR-0004**, **ADR-0007**.
+5. **Interruption-safety mechanisms** — stuck phases self-release via hybrid lazy-on-read + a reaper sweep at a 10-min heartbeat bound (resolves OQ-3 → **ADR-0005**); cancel keeps partial results and re-trigger is incremental over per-unit terminal-state, never re-spending on completed units (AC-06 → **ADR-0008**).
+6. **Cost transparency without a billing build-out** — the cost estimate is computed and re-validated **server-side** and the actual cost is instrumented per run (estimate-vs-actual delta from day 1), but real credit *deduction* is deferred since no credits substrate exists in the repo (OQ-1 → **ADR-0006**; deduction ownership → §11 OQ row).
 
-Each tactical decision in later sections should trace to one of these seeds. Tactical decisions that *contradict* a strategic choice are red flags — surface them in §11.
+Each tactical decision in later sections traces to one of these seeds. Tactical decisions that *contradict* a strategic choice are red flags — surfaced in §11.
 
 ## 5. Building block view
 
