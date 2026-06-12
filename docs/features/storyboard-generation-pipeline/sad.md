@@ -289,16 +289,16 @@ sequenceDiagram
      🎯 N/A allowed for XS/S that reuses an existing deployment unit with no change.
      Deployment-diagram scaffold → templates/deployment.md. -->
 
-<Topology in 2–3 sentences. Where it runs, replicas, scaling thresholds.>
+No new deployment unit. The pipeline adds endpoints + the `storyboardPipeline` module to the **existing api** (Express, behind the existing replicas), a new BullMQ **repeatable reaper job** + completion-hook calls to the **existing media-worker**, and **one new MySQL table** (`056_storyboard_pipeline`) applied by the in-process migration runner on boot (`APP_MIGRATE_ON_BOOT`). The render-worker is untouched. Redis is unchanged — the pipeline reuses the existing queues (`storyboard-plan`, `ai-generate`, `storyboard-openai-image`) and the realtime pub/sub channel; reference-image fan-out stays capped at the existing rolling window (≤ 4 parallel). A **deploy-time migration of in-flight drafts** (drain/seed old-flow jobs into the new state row) is required at cut-over (→ §11 OQ-2).
 
 **Monitoring:**
-- <Metrics — e.g. `<metric_name>`>
-- <Alerts — e.g. «worker lag > 10 min → page on-call»>
-- <Tracing — e.g. spans on the request boundary>
+- Metrics: `pipeline_state_read_ms` (p95), `resume_freshness_ms`, `phase_age_seconds` (per running phase), `cancel_to_no_enqueue_ms`, `cost_estimate_actual_delta_pct`, `duplicate_reference_block_sets`, `reaper_sweep_lag_ms`.
+- Alerts: a `running` phase with `phase_age_seconds` > 10 min that the reaper has not released → page on-call (the stuck-release SLO is breaching); pipeline-state read p95 > 300 ms; estimate-vs-actual delta outside ±10% on > 5% of runs.
+- Tracing: spans on the pipeline-state read and on each transition (start/advance/cancel/skip/confirm), tagged `draft_id`, `phase`.
 
 **Scaling thresholds:**
-- <e.g. comfortable in one table up to N rows/year>
-- <e.g. partition by quarter above N rows/year>
+- One `storyboard_pipeline` row per draft (PK `draft_id`) — the resume read is a single-row PK lookup; comfortable to millions of drafts in one table, no partitioning planned.
+- The real ceiling is worker AI concurrency, not the state store — the rolling window (≤ 4 references) already bounds fan-out; scale by adding media-worker replicas, not by changing the state model.
 
 <!-- For XS/S with no deployment change: <!-- N/A: reuses existing deployment unit, no infra change --> -->
 
@@ -312,13 +312,18 @@ sequenceDiagram
 
 | Concept | Convention | Where defined |
 |---|---|---|
-| Logging | <e.g. structured, fields `module=<name>`> | <convention file §X or here> |
-| Authentication | <e.g. token-based via middleware> | <convention file §X> |
-| Error handling | <e.g. domain sentinel → ports error mapping → JSON> | <convention file §X> |
-| ID strategy | <e.g. sortable time-based ID in the app layer> | <convention file §X> |
-| Internationalisation | <e.g. N/A, single language> | — |
-| Observability | <e.g. tracing on the request boundary> | — |
-| Events | <module-specific patterns, if any> | <here> |
+| Authentication | Bearer-token `authMiddleware` attaches `req.user`; `aclMiddleware('editor')` role gate | `apps/api/src/middleware/auth.middleware.ts` |
+| Authorization | Owner-of-draft, enforced in the service layer (`assertDraftOwner` → `NotFoundError`), **evaluated before any prerequisite/ordering check** so a non-owner cannot probe existence (AC-13) | here + `architecture-rules.md` |
+| Error handling | Typed sentinels in `lib/errors.ts` → central Express handler maps `statusCode` → JSON; phase-order/prereq violations are `ConflictError`/`UnprocessableEntityError` with plain-language messages (AC-08, AC-15) | `apps/api/src/lib/errors.ts` |
+| State transitions | One shared transition module (api + worker) holds the transition table + phase-order/single-active-run guards; every transition is a `version` CAS (ADR-0002, ADR-0003, ADR-0007) | here |
+| Idempotency | Active-run marker + `version` CAS on the state row; double-confirm/double-trigger collapse to the existing run (AC-14, ADR-0007) | here |
+| ID strategy | UUID v4 via `randomUUID()`, `CHAR(36)`, Zod `z.string().uuid()` | `architecture-map.md` |
+| Realtime / events | Redis pub/sub + ws (`publishStoryboardStatusUpdated`); the pipeline publishes the full state on every transition so observer tabs converge ≤ 2 s (ADR-0004) | `apps/api/src/lib/realtime.ts`, `realtimePublisher.ts` |
+| Concurrency | Reference-image fan-out via the existing rolling window (`window_status`, ≤ 4); incremental re-trigger skips `done` units (ADR-0008) | `media-worker/.../ai-generate.referenceWindow.ts` |
+| Cost estimate | Computed and **re-validated server-side** at confirm/charge time, never trusted from the client; estimate + actual persisted per run (ADR-0006, §6.1) | here |
+| Liveness / stuck-release | `phase_started_at` + heartbeat on the state row; lazy-on-read + reaper release past the 10-min bound (ADR-0005) | here |
+| Config | `process.env` only in `config.ts`, `APP_*` Zod-validated (e.g. the stuck-phase bound) | `apps/*/src/config.ts` |
+| Internationalisation | N/A — single language | — |
 
 ## 9. Architecture decisions
 
@@ -329,10 +334,16 @@ sequenceDiagram
 
 | # | Title | Status | Section |
 |---|---|---|---|
-| <NNNN> | <imperative — e.g. "Use a sliding-window counter for rate limiting"> | Accepted | §<N> |
-| <NNNN> | <imperative — e.g. "Co-locate the worker in the API process"> | Accepted | §<N> |
+| 0001 | Own Step-2 orchestration in a backend pipeline state machine | Accepted | §4 |
+| 0002 | Represent pipeline state as a single denormalized row per draft | Accepted | §4, §5 |
+| 0003 | Advance phases via worker completion-hooks into a backend transition service | Accepted | §5, §6 |
+| 0004 | Resume by a single-state read with observer tabs and no hard draft lock | Accepted | §4, §6 |
+| 0005 | Release stuck phases via lazy-on-read plus a reaper sweep at a 10-minute bound | Accepted | §4, §8 |
+| 0006 | Compute & re-validate the cost estimate server-side, instrument the actual, defer deduction | Accepted | §4, §8 |
+| 0007 | Guarantee single-active-run via an active-run marker plus a version CAS | Accepted | §8 |
+| 0008 | Make cancel and re-trigger incremental via per-unit terminal-state | Accepted | §4, §8 |
 
-ADR files live under `docs/features/<slug>/adr/NNNN-<title>.md`.
+ADR files live under `docs/features/storyboard-generation-pipeline/adr/NNNN-<title>.md`.
 
 ## 10. Quality requirements
 
@@ -343,22 +354,22 @@ ADR files live under `docs/features/<slug>/adr/NNNN-<title>.md`.
      round ≤250ms to ≤300ms — that's a critic F6 hit).
      📌 e.g. «p95 ≤ 500 ms on a block update, verified by a 100 req/s load test». -->
 
-Each top-3 goal from §1 expanded into a full scenario:
+Each top-3 goal from §1 expanded into a full scenario (numbers verbatim from spec §6 NFR):
 
-**QG-1. <quality attribute>**
-- **When:** <trigger condition>
-- **Then:** <expected behaviour with numbers from spec §6 NFR>
-- **How verify:** <test / chaos drill / load test / metric>
+**QG-1. Resumability**
+- **When:** a Creator's draft has a phase running or a review modal pending, and the Creator closed/reloaded the page or opens a second tab.
+- **Then:** reopening Step 2 reconstructs the exact screen from the backend pipeline state — pipeline-state read **p95 ≤ 300 ms**, and the reopened client reflects true backend state **≤ 2 s after open** (observer tabs converge within the same bound); availability of the pipeline-state read **99.9%** (monthly SLO).
+- **How verify:** API metric on the Step-2 state read (p95); a realtime/poll convergence metric for resume freshness; a reopen integration test (close mid-phase → reopen → same loader/modal); the 99.9% monthly SLO window.
 
-**QG-2. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-2. Interruption-safety**
+- **When:** a phase is running behind the blocking loader and the Creator cancels, or the phase makes no progress.
+- **Then:** a `running` phase with no progress for **≤ 10 min** is marked failed and the loader released; **cancel takes effect (no new work enqueued) ≤ 5 s** (target 0 jobs enqueued after cancel); on re-trigger only the unfinished units regenerate.
+- **How verify:** worker heartbeat / phase-age monitor (stuck-release bound); an enqueue-after-cancel audit (target 0 jobs); an incremental-re-trigger test asserting `done` units are not re-enqueued.
 
-**QG-3. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-3. Cost-integrity**
+- **When:** an expensive phase (reference-image / scene-image) is committed via its confirm modal, or a step is re-triggered / double-confirmed.
+- **Then:** the actual charge stays **within ±10% of the shown estimate for ≥ 95% of runs** (instrumented from day 1 per ADR-0006), reference-image concurrency stays **≤ 4 in parallel**, and **0 duplicate reference-block sets** are created.
+- **How verify:** billing telemetry on the estimate-vs-actual delta; the worker concurrency metric; a drafts-with-duplicate-blocks audit (target 0).
 
 ## 11. Risks and technical debt
 
