@@ -212,23 +212,73 @@ C4Container
      📌 e.g. «author → web: composes draft → web → content API: save». Seed the primary flow(s) here;
      the `sequences` stage then covers every §5 AC (no cap). Never N/A for M+; XS/S keeps ≥1 happy-path flow. -->
 
-**Critical flow 1: <flow name>**
+> Two seed flows below; the `sequences` stage covers the remaining ACs (cancel/incremental AC-06, skip AC-07, phase-order AC-08/AC-15, reference-below-music AC-09, references-feed/text-only AC-10/AC-11, authorization AC-13, idempotency AC-14). Participants are the §5 containers; messages are semantic (endpoint-level detail arrives at the `api` stage).
+
+**Critical flow 1: full happy-path pipeline (AC-01 → AC-04, AC-10/AC-11)**
 
 ```mermaid
 sequenceDiagram
-    actor Actor
+    actor Creator
     participant Web
-    participant Service
+    participant Api
     participant Store
-    Actor->>Web: <action>
-    Web->>Service: <call>
-    Service->>Store: <write>
-    Store-->>Service: ok
-    Service-->>Web: result
-    Web-->>Actor: confirmation
+    participant Worker
+    Creator->>Web: opens Step 2 on an unplanned draft
+    Web->>Api: read pipeline state
+    Api->>Store: load state row (none yet) — create it, claim active-run, start scene generation
+    Api->>Worker: enqueue scene generation
+    Api-->>Web: state = scene generation running
+    Web-->>Creator: full-screen loader (scene generation)
+    Worker->>Store: record scene blocks, run transition (advance to reference-data)
+    Worker->>Api: publish state
+    Api-->>Web: state via realtime (reference-data running)
+    Worker->>Store: record cast proposal + reference-image estimate, transition to awaiting-review
+    Worker->>Api: publish state
+    Api-->>Web: state = awaiting-review (cast proposal + cost estimate)
+    Web-->>Creator: Review cast proposal modal
+    Creator->>Web: confirms cast
+    Web->>Api: confirm cast
+    Api->>Store: re-validate estimate, create reference blocks below music, transition
+    Api->>Worker: enqueue reference-image generation (rolling window <=4)
+    Api-->>Web: state = reference-image running
+    Worker->>Store: per-reference terminal result (window_status); on all terminal, transition
+    Worker->>Api: publish state (scene-image offer + estimate)
+    Api-->>Web: state = awaiting-review (scene-image offer)
+    Web-->>Creator: scene-image offer modal
+    Creator->>Web: accepts scene-image generation
+    Web->>Api: accept
+    Api->>Worker: enqueue scene-image (Ready refs feed linked scenes; text-only fallback otherwise)
+    Worker->>Store: per-scene terminal result; on all terminal, phase completed
+    Worker->>Api: publish state
+    Api-->>Web: state = completed
+    Web-->>Creator: illustrated scenes
 ```
 
-**Critical flow 2: <e.g. async event propagation>** — <if applicable, otherwise N/A>.
+**Critical flow 2: resume + observer-tab convergence + stuck-release (AC-05, AC-12)**
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web
+    participant Api
+    participant Store
+    participant Worker
+    Note over Worker: a phase is running; the Creator closed the tab
+    Worker->>Store: work continues, heartbeats the phase
+    Creator->>Web: reopens Step 2 (possibly a new tab)
+    Web->>Api: read pipeline state
+    Api->>Store: load the one state row
+    Api-->>Web: state = same running loader / same pending modal
+    Web-->>Creator: screen reconstructed from backend (<=2s)
+    Note over Web,Api: a second tab is an observer — no lock; it converges via realtime
+    Worker->>Store: transition on completion
+    Worker->>Api: publish state
+    Api-->>Web: realtime push — modal opens/closes in every tab
+    Note over Api,Worker: stuck case — no progress past 10 min
+    Api->>Store: lazy-on-read (or the reaper) marks the phase failed, releases the loader
+    Api-->>Web: state = failed, retry offered
+    Web-->>Creator: loader released, failure explained
+```
 
 ## 7. Deployment view
 
