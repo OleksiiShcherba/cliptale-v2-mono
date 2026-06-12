@@ -40,7 +40,7 @@ Phases run as async BullMQ jobs in the media-worker (`storyboard-plan`, `ai-gene
 - Reuses the proven rolling-window completion-hook pattern.
 
 **Negative**
-- The transition service must be callable from both the api process and the worker process (shared module or a thin internal endpoint) — a small coupling surface to design.
+- The transition service must be callable from both the api process and the worker process. **Resolved (§5):** a **shared transition module** imported by both (not an internal HTTP endpoint) — no network hop, but both processes write the state row directly, so the module is the single home for transition/guard/CAS logic.
 
 **Neutral**
 - Per-unit progress still lives in the job tables; the hook bridges unit-completion → phase-transition.

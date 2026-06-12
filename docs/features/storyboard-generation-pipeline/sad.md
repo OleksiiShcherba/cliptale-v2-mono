@@ -148,39 +148,58 @@ Each tactical decision in later sections traces to one of these seeds. Tactical 
      just one surface's container — swap/add per what was declared in §4. → _shared/surfaces.md
      📌 e.g. «web app, content API, media worker, datastore, object store, CDN». -->
 
-<One paragraph: layered / hexagonal / clean / event-driven, and why.>
+**Layered (`routes → controllers → services → repositories`, module singletons, no DI) plus event-driven worker orchestration.** A new `storyboardPipeline` module in the api owns the state machine. The transition logic + guards + version-CAS live in a **shared transition module imported by both the api and the media-worker** (no internal network hop): the api invokes it on Creator actions (start/cancel/skip/trigger/confirm), the worker invokes it from its job completion-hooks (ADR-0003). The web-editor is a projection surface (ADR-0001): one `usePipelineState` hook reads the state and subscribes to realtime; the loader/modals/corner-controls are stateless renders of the payload.
 
 **Internal decomposition:**
 
 ```
-<e.g. modules/<feature>/>
-├── domain/       <entities + sentinel errors>
-├── app/          <use cases / services>
-├── infra/        <repository + integration impl>
-├── ports/        <handlers, DTOs, error mapping>
-└── wiring        <self-wiring entry point>
+shared transition module (importable by api + worker) — ADR-0003
+└── storyboardPipeline.transition.ts            # transition table, phase-order/single-active-run guards, version-CAS
+
+apps/api/src/
+├── routes/storyboardPipeline.routes.ts          # GET state · start / cancel / skip / trigger / confirm-cast
+├── controllers/storyboardPipeline.controller.ts # Zod-validate · ownership-before-prerequisite (AC-13) · error-map
+├── services/storyboardPipeline.service.ts       # use cases + cost-estimate compute / server-side re-validate
+├── repositories/storyboardPipeline.repository.ts# storyboard_pipeline row · active-run marker · CAS
+└── db/migrations/056_storyboard_pipeline.sql    # state row: active_phase, per-phase sub-state, payload_json,
+                                                 #   version, active_run marker, phase_started_at + heartbeat,
+                                                 #   cost_estimate / actual_cost
+apps/media-worker/src/jobs/
+├── *.job.ts (existing)                           # on unit completion → call shared transition module
+└── storyboardPipelineReaper.job.ts             # BullMQ repeatable: release phases past the 10-min bound (ADR-0005)
+apps/web-editor/src/features/storyboard/
+├── hooks/usePipelineState.ts                    # single GET state + realtime; retires useStoryboard*Generation
+├── components/{BlockingLoader,ReviewCastProposalModal,SceneImageOfferModal,StepCorners}.tsx
+└── api.ts                                        # pipeline endpoints
 ```
 
-**C4 Container (L2):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. ONE Container per declared target_surface (frontmatter); the web container below is one example surface. -->
+**C4 Container (L2):** <!-- one container per declared target_surface: web-frontend, backend-service (api), worker (media-worker) -->
 
 ```mermaid
 C4Container
-    title <feature> — Containers
+    title storyboard-generation-pipeline — Containers
 
-    Person(actor, "<Actor>")
+    Person(creator, "Creator")
 
-    Container_Boundary(app, "<Our system>") {
-        Container(web, "<Web/UI>", "<technology>", "<purpose>")
-        Container(api, "<API/handler>", "<technology>", "<purpose>")
-        ContainerDb(db, "<Datastore>", "<technology>", "<purpose>")
+    Container_Boundary(app, "ClipTale") {
+        Container(web, "web-editor", "React 18 + xyflow + TanStack Query", "Projects pipeline-state: blocking loader, cast/offer modals, corner step controls")
+        Container(api, "api", "Express 4 + ws", "Pipeline state machine: start/cancel/skip/trigger/confirm + GET state; shared transition guards")
+        Container(worker, "media-worker", "BullMQ 5", "Executes phases (existing queues), completion-hooks advance phases, reaper releases stuck phases")
+        ContainerDb(mysql, "MySQL 8", "InnoDB", "storyboard_pipeline state row + existing job/block/cast/link/star tables")
+        ContainerDb(redis, "Redis 7", "Redis", "BullMQ queues + realtime pub/sub for state convergence")
     }
 
-    System_Ext(ext, "<External>", "<purpose>")
+    System_Ext(ai, "AI providers", "fal.ai / ElevenLabs / OpenAI")
+    System_Ext(s3, "S3 object store", "Generated images / reference outputs")
 
-    Rel(actor, web, "<interaction>", "<protocol>")
-    Rel(web, api, "<calls>")
-    Rel(api, db, "<reads/writes>", "<driver>")
-    Rel(api, ext, "<emits>", "<protocol>")
+    Rel(creator, web, "Drives Step 2", "HTTPS / WS")
+    Rel(web, api, "Reads state, triggers phases", "REST + WebSocket")
+    Rel(api, mysql, "Reads/writes state (CAS)", "mysql2")
+    Rel(api, redis, "Enqueues phase jobs / publishes state", "BullMQ / pub-sub")
+    Rel(worker, redis, "Consumes phase jobs", "BullMQ")
+    Rel(worker, mysql, "Reports unit completion, runs transition", "mysql2")
+    Rel(worker, ai, "Generation", "HTTPS")
+    Rel(worker, s3, "Uploads assets", "AWS SDK v3")
 ```
 
 ## 6. Runtime view

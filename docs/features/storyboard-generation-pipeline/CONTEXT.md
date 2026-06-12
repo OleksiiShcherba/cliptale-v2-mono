@@ -1,0 +1,28 @@
+# CONTEXT — storyboard-generation-pipeline
+
+> Feature-local glossary. Roles and terms here are canonical for this feature's spec and downstream stages.
+> Inherits the canonical terms of
+> [scene-generation-reference-gate/CONTEXT.md](../scene-generation-reference-gate/CONTEXT.md) and its parents
+> (Creator, Draft, Video Road Map / Step 2, Reference block, Reference flow, Character, Environment,
+> Cast extraction, Cast confirmation, Scene block, Scene generation, Ready reference block,
+> Selected reference output, Music block, Starred result, Primary starred result, Scene link) —
+> they keep their meaning unchanged **except** where redefined below (the Reference-done gate is relaxed).
+
+## Glossary
+
+- **Creator** — the signed-in user who owns the draft. The single acting role: the only one who can drive, cancel, skip, re-trigger, or read the state of the draft's generation pipeline.
+- **Generation pipeline** (a.k.a. **Step-2 pipeline**) — the **backend-owned, sequential state machine** that drives Step 2 from an empty draft to fully illustrated scenes. It is authoritative: the frontend renders whatever the pipeline reports, never the reverse. Replaces the retired frontend-driven orchestration (the deleted *Scene planning* and *Illustration status* flows).
+- **Pipeline phase** — one ordered stage of the pipeline. The four work phases, in strict order: **scene generation** (scene text only, no images) → **reference-data generation** (the cast proposal preview, no images yet) → **reference-image generation** (one image per reference block) → **scene-image generation** (final scene previews). Each phase has a lifecycle sub-state: `idle` / `running` / `awaiting-review` (a modal is pending) / `completed` / `cancelled` / `failed` / `skipped`. `skipped` is **distinct from `idle`**: it records an intentional decline so a prerequisite check can tell a deliberate skip from a phase that has simply never run.
+- **Pipeline state** — the single, resumable, server-authoritative answer to "what should the Creator see right now": the active phase + its sub-state + the payload the UI needs (loader label, or the data for a pending modal). Read on every Step-2 open so the screen is reconstructed from the backend, never from client memory.
+- **Blocking loader** — the full-screen overlay shown while a work phase is `running`. It blocks all canvas activity, shows the phase's status label (e.g. *scene generation*, *reference data generation*, *reference image generation*, *scene image generation*), and carries a **Cancel** control. It is reconstructed on reopen from the **Pipeline state**.
+- **Reference data** — the pre-image **cast proposal preview** produced by **Cast extraction**: the proposed characters/environments with their AI-selected scene links, shown in the **Review cast proposal** modal. NOT the reference images (those come from the next phase).
+- **Review cast proposal modal** — the modal shown when reference-data generation reaches `awaiting-review`: at least two reference entries per row, project-styled scrollbar, each entry pre-populated with **AI-selected scenes**, and a precomputed **reference-image cost estimate** (confirming the cast commits to that reference-image spend).
+- **Scene-image offer modal** — the modal shown when reference-image generation completes: proposes starting scene-image generation and shows a **precomputed cost estimate** (same style as the reference cost estimate).
+- **Cost estimate** — the credit amount the system precomputes and shows in a confirm modal **before** an expensive phase, so the Creator commits with the price known up front. The actual charge for the run must stay within a bounded tolerance of this estimate.
+- **Skip** — dismissing a pending modal (or otherwise declining a phase) **without running it**. The phase becomes `skipped` (a state distinct from `idle`, so prerequisites can tell an intentional skip from never-run) and stays re-triggerable via the bottom-right step controls. Skipping the reference phases means scenes later generate **text-prompt-only** (see the relaxed gate).
+- **Cancel** — stopping a `running` phase early via the loader's Cancel control. Already-produced results are **kept**; the phase returns to `idle` (re-triggerable). No new work is enqueued after a cancel takes effect. On re-trigger after a cancel (or after a partial failure) the phase is **incremental** — it regenerates only the units that did not finish and never re-spends on already-produced units.
+- **Manual step trigger** — a bottom-right control per phase that re-runs that phase on demand. Phases stay in **strict order** (a phase may run only once its prerequisite phase has completed or been skipped) but each completed phase is **re-triggerable**.
+- **Reference-done gate (relaxed)** — supersedes the inherited gate. Scene-image generation **no longer blocks** on scenes that have no linked reference block. A scene with ≥1 linked **Ready reference block** consumes its **Selected reference outputs**; a scene with **no Ready linked reference** — none linked at all, **or** links only to non-Ready (failed/cancelled/skipped) reference blocks — generates from its **text prompt only** (plus any directly-attached scene images). A link without a Ready output is treated as no reference for illustration. Orphan/unlinked/failed-linked scenes never dead-end the batch.
+- **Stuck phase** — a `running` phase whose underlying work has made no progress past a bounded timeout. The pipeline marks it `failed` and releases the blocking loader so the Creator is **never permanently trapped** behind a wedged job.
+</content>
+</invoke>
