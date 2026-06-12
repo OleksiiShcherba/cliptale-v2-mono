@@ -383,12 +383,16 @@ Each top-3 goal from §1 expanded into a full scenario (numbers verbatim from sp
 
 | Risk / debt | Severity | Mitigation | Owner |
 |---|---|---|---|
-| <e.g. Worker lag may reach hours during a downstream outage> | Medium | <alert >10 min, on-call playbook, retry backoff> | <DevOps> |
-| <e.g. No event-schema versioning in v1> | Medium | <ADR-NNNN planned for v2, tolerate unknown fields> | <Backend> |
-| Open architectural decision: <decision-headline> | Open question | Resolve before <stage trigger or YYYY-MM-DD>; <inline rationale from the Save-as-OQ> | <owner> |
+| **Product:** charge deduction deferred (ADR-0006) — the ±10% cost NFR is *observed* (delta logged) but not *enforced* by a real charge until deduction ships, so over/under-charge cannot be prevented yet | Medium | Instrument estimate + actual from day 1; server-side re-validation blocks client tampering now; deduction tracked as the OQ below | Tech Lead |
+| Stuck-release false-positive — a healthy but slow phase past 10 min is marked failed and its loader released (AC-12 vs a legitimately long generation) | Medium | Heartbeat on real per-unit progress (not wall-clock alone); 10-min bound configurable via `APP_*`; alert before auto-release | Backend |
+| Realtime convergence lag / missed event — an observer tab does not converge within ≤ 2 s (ADR-0004) | Medium | Read-on-open heals state; a poll fallback backs up the pub/sub; the resume read is authoritative | Backend |
+| Shared transition module writes the state row from two processes (api + worker, ADR-0003) — a transition/CAS bug could double-write | Medium | Single transition module is the only writer of transitions; `version` CAS rejects lost updates; integration tests against real MySQL | Backend |
+| Open architectural decision: **credit-deduction ownership** — who implements the real per-run credit deduction once a credits substrate exists (residual of OQ-1; estimate/instrumentation resolved by ADR-0006) | Open question | Resolve **after the KPI window (~2026-07-12)**, when the estimate-vs-actual baseline exists so deduction lands on real data | Tech Lead |
+| Open architectural decision: **in-flight draft migration at deploy** — how drafts mid-old-flow (queued/running *Scene planning* / *Illustration status* jobs) are drained or one-time-migrated into the new pipeline state at cut-over (OQ-2) | Open question | Resolve **before sdd:tasks**; default — drain or one-time-migrate old jobs into the new state row before cut-over | Tech Lead |
 
 **Accepted debt (acceptable in v1, plan to fix later):**
-- <e.g. the entity is immutable / unversioned — OK for v1, may need audit versioning in v2>
+- **Reference-below-music ordering is a creation-time snapshot** (AC-09): references are placed below the current max music `sort_order` at creation and are *not* reactively re-ordered if a music block is added later — consistent with the §3 non-goal (the pipeline does not own music). Acceptable in v1.
+- **No transition history / audit log** on the state row (ADR-0002): the row holds only the current state, not a trail. Acceptable in v1; an append-only side table can be added without changing the resume read path if an audit is later required.
 
 ## 12. Glossary
 
@@ -397,8 +401,19 @@ Each top-3 goal from §1 expanded into a full scenario (numbers verbatim from sp
      📋 Write: a term / meaning table. Business + technical terms mixed.
      📌 e.g. «Lesson | a unit inside a course made of blocks (text, video)». -->
 
+> Domain roles/terms are canonical in [CONTEXT.md](./CONTEXT.md) (Creator, Pipeline phase, Blocking loader, Reference data, Review cast proposal modal, Scene-image offer modal, Cost estimate, Skip, Cancel, Reference-done gate (relaxed), Stuck phase). Below are the architecture-level terms this SAD introduces.
+
 | Term | Meaning |
 |---|---|
-| <e.g. domain object A> | <its meaning in this domain> |
-| <e.g. domain object B> | <its meaning> |
-| <e.g. domain invariant name> | <the rule, in plain language> |
+| Pipeline state (row) | The single `storyboard_pipeline` row per draft — `active_phase` + per-phase sub-state + the UI payload (loader label / pending-modal data) + `version` + active-run marker + heartbeat. The server-authoritative answer to "what should the Creator see right now" (ADR-0002). |
+| Sub-state | A phase's lifecycle: `idle` / `running` / `awaiting-review` / `completed` / `cancelled` / `failed` / `skipped`. `skipped` is **distinct from `idle`** (an intentional decline vs never-run). |
+| Transition module | The one shared module (imported by api + worker) that holds the transition table, the phase-order + single-active-run guards, and performs the `version` CAS (ADR-0003). |
+| Completion-hook | The worker call, on a generation unit finishing, into the transition module to advance the phase — reuses the existing `onReferenceBlockJobComplete` pattern. |
+| Reaper | The BullMQ repeatable job that releases phases past the 10-min no-progress bound, as the backstop for closed tabs (ADR-0005). |
+| Lazy-on-read | Releasing a stuck phase the moment a client reads the state (instant release when watched); paired with the reaper (ADR-0005). |
+| Active-run marker | The partial-unique marker on the state row guaranteeing one active run per draft+phase; double-confirm/double-trigger collapse to it (AC-14, ADR-0007). |
+| Version CAS | Compare-and-set on the state row's `version` column; every transition increments it, and a lost race returns the existing run rather than duplicating (ADR-0007). |
+| Observer tab | A second tab on the same draft — not a driver; it reads-on-open and converges to the one backend state via realtime, with no lock (ADR-0004). |
+| Incremental re-trigger | Re-running a phase regenerates only non-`done` units (per-unit terminal-state), never re-spending on completed units (AC-06, ADR-0008). |
+| Cost estimate (server-side) | The credit price computed and re-validated **on the server**, shown in the confirm modals and persisted with the actual cost per run; never trusted from the client (ADR-0006). |
+| Reference-below-music (snapshot) | The invariant that created reference blocks sort below every music block at creation time — a snapshot, not reactively maintained (AC-09). |
