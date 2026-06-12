@@ -21,21 +21,22 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      ¶4 is the override slot — critic `Override` resolutions emit «Decision override: <headline>
      — rationale: <reason>» bullets here so downstream skills see the deliberate choice. -->
 
-**Intent.** <One paragraph from spec §2 Goals — what we're building and for whom.>
+**Intent.** Replace the broken frontend-driven Step-2 ("Video Road Map") orchestration with a single **backend-owned, resumable, sequential pipeline state machine** that walks a Creator's draft through four ordered phases — scene generation → reference-data (cast proposal) generation → reference-image generation → scene-image generation — each behind a full-screen blocking loader or a review modal, where every transition, cancel, skip and re-trigger is decided and persisted server-side. The frontend renders whatever the pipeline reports; it never owns generation state. This retires the *Scene planning* and *Illustration status* statuses and relaxes the inherited reference-done gate (a scene with no Ready linked reference generates text-only instead of dead-ending the batch).
 
 **Top-3 quality goals (1-liners; full scenarios in §10):**
 
-1. <e.g. "Availability under partial failure of a downstream module">
-2. <e.g. "Read performance for the dashboard under data-scale growth">
-3. <e.g. "Recoverability with <30 min RTO">
+1. **Resumability** — the pipeline state survives page close, reload and browser switch, reconstructed entirely from the backend on every Step-2 open (this is the core "open Step 2 and it just doesn't work" failure being fixed).
+2. **Interruption-safety** — a Creator is never permanently trapped behind a wedged loader and never loses already-produced results: stuck phases self-release, cancel keeps partial results, re-trigger is incremental.
+3. **Cost-integrity** — every expensive phase commits with its price shown up front, the amount actually charged stays within a bounded tolerance, and re-triggers/double-confirms never create duplicate work or duplicate spend.
 
 **Stakeholders.**
 
 | Role | Interest | Sign-off owner? |
 |---|---|---|
-| <author role from glossary> | <feature usage> | No |
-| <consumer role from glossary> | <read usage> | No |
-| Tech Lead | SAD approval | Yes |
+| Creator | Drives, cancels, skips, re-triggers and resumes the Step-2 pipeline; owns the draft | No |
+| Tech Lead | SAD approval; owns the orchestration rework and the charge-path decision (OQ-1) | Yes |
+| Security Lead | New authz surface across pipeline ops + a spend/charge path (§6.1 review required) | Yes |
+| PM | Consulted on §10 quality goals and §11 risk severities; owns KPI targets | No |
 
 <!-- Decision overrides (¶4) — populated by the critic resolution loop, empty otherwise. -->
 
@@ -48,23 +49,30 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      Never N/A — every feature inherits at least Conventions + Technical. -->
 
 **Technical.**
-- <Language + version>
-- <Framework(s) + version>
-- <Datastore(s) + version>
-- <Architecture convention — e.g. the layering style from the project convention file>
+- TypeScript 5.4+ (strict, ESM), Node ≥ 20; Turborepo + npm workspaces monorepo.
+- **api:** Express 4 + Helmet + CORS + express-rate-limit + Zod; `ws` for WebSocket realtime.
+- **workers:** BullMQ 5 on Redis 7 (`media-worker` runs the AI generation jobs; existing queues `storyboard-plan`, `ai-generate` (rolling window ≤ 4), `storyboard-openai-image`).
+- **DB:** MySQL 8 / InnoDB via `mysql2` raw parameterized SQL — **no ORM**; in-process migration runner (`apps/api/src/db/migrations/NNN_*.sql`, currently ≥ 055).
+- **web-editor:** React 18 + Vite + React-Router v7 + TanStack Query + a custom external store + `useSyncExternalStore` (no Redux/Zustand); storyboard canvas on `@xyflow/react`; inline `CSSProperties` in `*.styles.ts`.
+- **Layering convention:** `routes → controllers → services → repositories`; module singletons (`pool`, `redis`, `s3`, `config`) imported directly — **no DI container**.
 
 **Organisational.**
-- <Effort budget — e.g. 3 person-weeks>
-- <Deadline — e.g. 2026-Q3 hard>
-- <Team composition>
+- Single-developer, high-iteration cadence (the cast/reference pipeline took 13 post-ship fixes in one day — re-owning the orchestration once is the response).
+- No hard external deadline; this is a stabilisation rework of a production-broken seam, prioritised over new Step-2 capability.
+- This pipeline **subsumes and retires** four inherited features' glue (generate-ai-flow, storyboard-reference-flows, scene-generation-reference-gate, reference-generation-autostart).
 
 **Conventions.**
-- <Link to the project's convention file>
-- <Naming, ID strategy, error-handling pattern>
+- `docs/architecture-rules.md` + `docs/architecture-map.md` (current map at commit `9f943df`; this design also relies on the post-map cast/reference migrations 052–055).
+- IDs: **UUID v4** via `randomUUID()`, stored `CHAR(36)`, validated `z.string().uuid()`.
+- Errors: typed classes in `apps/api/src/lib/errors.ts` (`ValidationError` 400, `UnauthorizedError` 401, `ForbiddenError` 403, `NotFoundError` 404, `ConflictError`/`OptimisticLockError` 409, `UnprocessableEntityError` 422, `GoneError` 410); central Express handler maps `err.statusCode`.
+- OpenAPI is hand-maintained (`packages/api-contracts/src/openapi.ts`) — spec + impl updated in the **same commit**.
+- `process.env` read only in `apps/*/src/config.ts`, vars prefixed `APP_*`, Zod-validated.
+- Tests: Vitest co-located `*.test.ts`; API integration tests hit a **real MySQL** (`singleFork: true`), never mock the DB.
 
 **Regulatory / external.**
-- <e.g. data-retention / deletion behaviour per ADR-NNNN>
-- <e.g. applicable compliance controls, or N/A with a reason>
+- Data classification: internal — Creator-owned storyboard creative content; no public exposure, no new personal data.
+- A new **spend/charge path** is exercised (image generation behind a cost estimate) → **security review required** (§6.1).
+- No external compliance regime (GDPR-class personal data not newly touched); soft-delete + ownership scoping inherited from the platform.
 
 ## 3. Context and scope
 
@@ -75,30 +83,34 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
      Trust boundary — the line past which you don't trust data without checking it.
      Never N/A — greenfield still draws the planned actors + external systems. -->
 
-<Business context in 2–3 sentences. What the system does for whom.>
+The Step-2 pipeline drives a single Creator's draft from an empty Video Road Map to fully illustrated scenes. It is a **backend-owned state machine**: the api holds the authoritative pipeline state per draft, the media-worker executes each phase's generation against external AI providers, and the web-editor is a pure projection that reconstructs the screen (running loader or pending modal) from the backend state on every Step-2 open. The **trust boundary** is the api authorization gate: every pipeline operation — reading state, starting/cancelling/skipping/triggering a phase, confirming a cast — is gated on the caller **owning the draft**, evaluated *before* any prerequisite/ordering check so a non-owner cannot probe a draft's existence (AC-13).
 
-<!-- brownfield: <one-line scan summary> (or «N/A — greenfield repo» if no source existed) -->
+<!-- brownfield: extends the existing Step-2 storyboard subsystem — replaces the frontend-owned orchestration (useStoryboardPlanGeneration / useStoryboardIllustrations hooks, the StoryboardAutomationPhase client enum) with a server-authoritative pipeline; reuses the BullMQ queues (storyboard-plan, ai-generate rolling-window, storyboard-openai-image), the Redis pub/sub + ws realtime (publishStoryboardStatusUpdated), and the cast/reference tables (migrations 052–055). No backend pipeline-state table exists yet. -->
 
 **External systems (in / out):**
 
 | Actor or system | Type | Interaction |
 |---|---|---|
-| <author role> | Person | <what they do> |
-| <external service> | System (internal/external) | <interaction> |
-| <identity provider> | System (external) | <provides auth tokens> |
+| Creator | Person | Owns a draft; drives/cancels/skips/resumes the pipeline, confirms the cast, accepts scene-image spend |
+| AI providers (fal.ai, ElevenLabs, OpenAI) | System (external) | Scene planning, cast extraction, reference-image and scene-image generation — invoked only by the worker |
+| S3 / object store | System (external) | Stores generated reference outputs and scene images (presigned read/write) |
+| MySQL 8 | System (internal) | Authoritative pipeline-state + block/cast/link/star persistence |
+| Redis 7 | System (internal) | BullMQ queues (phase execution) + realtime pub/sub (state convergence to observer tabs) |
 
-**C4 Context (L1):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. -->
+**C4 Context (L1):**
 
 ```mermaid
 C4Context
-    title <feature> — System Context
+    title storyboard-generation-pipeline — System Context
 
-    Person(actor, "<Actor role>", "<intent>")
-    System(app, "<Our system>", "<one-sentence description>")
-    System_Ext(ext, "<External system>", "<one-sentence description>")
+    Person(creator, "Creator", "Owns a draft; drives/cancels/skips/resumes the Step-2 pipeline")
+    System(pipeline, "ClipTale Step-2 pipeline", "Backend-owned resumable state machine: scene -> reference-data -> reference-image -> scene-image")
+    System_Ext(ai, "AI providers", "fal.ai, ElevenLabs, OpenAI — scene/reference/image generation")
+    System_Ext(s3, "S3 object store", "Generated images and reference outputs")
 
-    Rel(actor, app, "<interaction>", "<protocol>")
-    Rel(app, ext, "<interaction>", "<protocol>")
+    Rel(creator, pipeline, "Opens Step 2, confirms cast, triggers/cancels phases", "HTTPS / WS")
+    Rel(pipeline, ai, "Orchestrates generation jobs", "HTTPS via worker")
+    Rel(pipeline, s3, "Persists / reads generated assets", "AWS SDK v3")
 ```
 
 ## 4. Solution strategy
