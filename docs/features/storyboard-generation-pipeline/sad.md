@@ -39,6 +39,7 @@ target_surfaces: [backend-service, worker, web-frontend]  # §4 ADR-0001. Read (
 | PM | Consulted on §10 quality goals and §11 risk severities; owns KPI targets | No |
 
 <!-- Decision overrides (¶4) — populated by the critic resolution loop, empty otherwise. -->
+- **Decision override: OQ-1 deliberately split** — rationale: spec §8 OQ-1 (due "before sdd:design") is resolved in two halves. The *cost-estimate + instrumentation* half is decided now (ADR-0006, instrument-only — satisfies the "before sdd:design" gate); the *credit-deduction ownership* half is deferred to a §11 OQ row due **after the KPI window (~2026-07-12)**, since no credits substrate exists and deduction should land on real estimate-vs-actual data.
 
 ## 2. Constraints
 
@@ -212,7 +213,7 @@ C4Container
      📌 e.g. «author → web: composes draft → web → content API: save». Seed the primary flow(s) here;
      the `sequences` stage then covers every §5 AC (no cap). Never N/A for M+; XS/S keeps ≥1 happy-path flow. -->
 
-> Two seed flows below; the `sequences` stage covers the remaining ACs (cancel/incremental AC-06, skip AC-07, phase-order AC-08/AC-15, reference-below-music AC-09, references-feed/text-only AC-10/AC-11, authorization AC-13, idempotency AC-14). Participants are the §5 containers; messages are semantic (endpoint-level detail arrives at the `api` stage).
+> Two seed flows below; the `sequences` stage covers the remaining ACs (cancel/incremental AC-06, skip AC-07, phase-order AC-08/AC-15, reference-below-music AC-09, references-feed/text-only AC-10/AC-11, authorization AC-13, idempotency AC-14). Participants are the §5 containers (`Web` = web-editor, `Api` = api, `Worker` = media-worker, `Store` = MySQL); messages are semantic (endpoint-level detail arrives at the `api` stage).
 
 **Critical flow 1: full happy-path pipeline (AC-01 → AC-04, AC-10/AC-11)**
 
