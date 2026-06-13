@@ -213,7 +213,7 @@ C4Container
      📌 e.g. «author → web: composes draft → web → content API: save». Seed the primary flow(s) here;
      the `sequences` stage then covers every §5 AC (no cap). Never N/A for M+; XS/S keeps ≥1 happy-path flow. -->
 
-> Two seed flows below; the `sequences` stage covers the remaining ACs (cancel/incremental AC-06, skip AC-07, phase-order AC-08/AC-15, reference-below-music AC-09, references-feed/text-only AC-10/AC-11, authorization AC-13, idempotency AC-14). Participants are the §5 containers (`Web` = web-editor, `Api` = api, `Worker` = media-worker, `Store` = MySQL); messages are semantic (endpoint-level detail arrives at the `api` stage).
+> Two seed flows (1–2) plus the `sequences`-stage flows (3–8) below cover every §5 AC: happy-path AC-01→04 (Flow 1); resume/observer/stuck AC-05/AC-12 (Flow 2); cancel + incremental re-trigger AC-06 (Flow 3); skip AC-07 (Flow 4); phase-order guard AC-08/AC-15 (Flow 5); reference-below-music + idempotent re-confirm AC-09/AC-14 (Flow 6); references-feed/text-only AC-10/AC-11 (Flow 7); authorization deny-and-hide AC-13 (Cross-cutting). Participants are the §5 containers (`Web` = web-editor, `Api` = api, `Worker` = media-worker, `Store` = MySQL; `User`/`Creator` are the actor); messages are semantic (endpoint-level detail arrives at the `api` stage).
 
 **Critical flow 1: full happy-path pipeline (AC-01 → AC-04, AC-10/AC-11)**
 
@@ -280,6 +280,158 @@ sequenceDiagram
     Api-->>Web: state = failed, retry offered
     Web-->>Creator: loader released, failure explained
 ```
+
+### Flow 3: cancel a running phase + incremental re-trigger (AC-06)
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web
+    participant Api
+    participant Store
+    participant Worker
+    Note over Worker: Precondition: a phase is running; some units already finished
+    Creator->>Web: cancels from under the loader
+    Web->>Api: cancel running phase
+    Api->>Store: assert owner; mark phase cancelled; clear active-run; bump version
+    Note over Api,Store: persists phase sub-state = cancelled; per-unit terminal results KEPT
+    Api->>Worker: signal cancel — enqueue no further units
+    Api-->>Web: state = phase idle (partial results kept)
+    Web-->>Creator: loader released; finished results remain
+    Note over Worker: an in-flight unit may finish; no NEW unit is enqueued (<=5s)
+    Creator->>Web: re-triggers the phase
+    Web->>Api: trigger phase
+    Api->>Store: read per-unit terminal-state; claim active-run; bump version
+    Note over Api,Store: persists active-run marker; re-spend skipped for done units
+    alt some units still unfinished
+        Api->>Worker: enqueue only the unfinished units (incremental)
+        Api-->>Web: state = phase running (incremental)
+        Web-->>Creator: loader for the remaining units
+    else every unit already done
+        Api-->>Web: state = completed (nothing to regenerate)
+        Web-->>Creator: phase shown complete
+    end
+    Note over Creator,Web: Postcondition: already-produced units never re-generated, never re-charged
+```
+
+### Flow 4: skip a pending review modal (AC-07)
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web
+    participant Api
+    participant Store
+    Note over Creator,Web: Precondition: a review modal is pending (cast proposal or scene-image offer)
+    Creator->>Web: dismisses the modal (skip)
+    Web->>Api: skip the awaiting-review phase
+    Api->>Store: assert owner; set phase sub-state = skipped; bump version
+    Note over Api,Store: persists sub-state = skipped (distinct from idle — intentional decline, not never-run)
+    Api-->>Web: state = phase skipped; step still triggerable from corner controls
+    Web-->>Creator: modal closed; corner control offers a later re-trigger
+    Note over Creator,Web: Postcondition: a prerequisite check can tell an intentional skip from never-run
+```
+
+### Flow 5: manual trigger blocked by phase order (AC-08, AC-15)
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web
+    participant Api
+    participant Store
+    Note over Creator,Web: Precondition: an earlier phase has not completed (e.g. scenes not yet generated)
+    Creator->>Web: triggers a later phase from the corner controls
+    Web->>Api: trigger phase
+    Api->>Store: assert owner (passes); read prerequisite phase sub-state
+    Store-->>Api: prerequisite not completed/skipped
+    alt later phase triggered before its prerequisite completes (AC-08)
+        Api-->>Web: blocked — earlier phase must complete first
+        Web-->>Creator: plain-language message: phases run in strict order
+    else manual scene-image trigger with zero generated scenes (AC-15)
+        Api-->>Web: blocked — scenes must be generated first
+        Web-->>Creator: plain-language message: generate scenes first
+    end
+    Note over Api,Store: guard rejected before any enqueue — no state mutation, no spend
+```
+
+### Flow 6: confirm cast — reference-below-music ordering + idempotent re-confirm (AC-09, AC-14)
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web
+    participant Api
+    participant Store
+    participant Worker
+    Note over Creator,Web: Precondition: Review cast proposal modal pending with a server-side estimate
+    Creator->>Web: confirms the cast
+    Web->>Api: confirm cast
+    Api->>Store: assert owner; check active-run marker + version (CAS)
+    alt no active run yet (first confirm)
+        Api->>Store: re-validate estimate server-side; create reference blocks below all music; claim active-run; bump version
+        Note over Api,Store: persists reference blocks ordered below max music sort_order (creation-time snapshot, AC-09) + active-run marker
+        Api->>Worker: enqueue reference-image generation (rolling window <=4)
+        Api-->>Web: state = reference-image running
+        Web-->>Creator: loader (reference image generation)
+    else run already exists (double-confirm / second tab — AC-14)
+        Api-->>Web: state = the existing run (no duplicate blocks, no re-spend)
+        Web-->>Creator: converges to the in-progress run
+    end
+    Note over Creator,Web: Postcondition: exactly one reference-block set; below-music ordering is canonical
+```
+
+### Flow 7: scene-image generation — references feed scenes, text-only fallback (AC-10, AC-11)
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web
+    participant Api
+    participant Store
+    participant Worker
+    Note over Creator,Web: Precondition: scene-image offer accepted; scenes have varying reference links
+    Creator->>Web: accepts scene-image generation
+    Web->>Api: accept scene-image generation
+    Api->>Store: assert owner; claim active-run; read each scene's linked references + selected outputs
+    Api->>Worker: enqueue scene-image generation
+    loop each scene (per-unit terminal-state)
+        alt scene has >=1 Ready linked reference (AC-10)
+            Worker->>Store: read selected reference outputs of Ready refs + any attached image
+            Worker->>Worker: generate from scene text + selected reference outputs
+        else no Ready linked reference — none, or only failed/cancelled/skipped (AC-11)
+            Worker->>Worker: generate from scene text prompt alone (+ attached image) — batch not blocked
+        end
+        Worker->>Store: record per-scene terminal result
+        Note over Worker,Store: persists scene-block image on success; a failed scene is left re-triggerable
+    end
+    Worker->>Api: on all scenes terminal, phase completed
+    Api-->>Web: state = completed (failed scenes left without an image)
+    Web-->>Creator: illustrated scenes (text-only where no Ready reference)
+```
+
+### Cross-cutting: authorization deny-and-hide (AC-13)
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Web
+    participant Api
+    participant Store
+    Note over User,Web: Precondition: a signed-in user who is NOT the draft owner
+    User->>Web: attempts read-state / start / cancel / skip / trigger / confirm
+    Web->>Api: pipeline operation on a non-owned draft
+    Api->>Store: ownership filter (assertDraftOwner) — evaluated BEFORE any prerequisite/ordering check
+    Store-->>Api: caller does not own the draft
+    Api-->>Web: deny-and-hide — the same opaque not-found for every operation
+    Web-->>User: draft existence and pipeline state are not revealed
+    Note over Api,Store: no prerequisite-specific message (would leak existence); no state mutation
+```
+
+> **Flags for `design`/`data-model` (sequences stage):**
+> - The cross-cutting authz flow uses a generic `User` actor (a signed-in **non-owner**) — not a new building block, a generic actor distinct from the owning `Creator`; no §5 change needed.
+> - No new participant beyond §5 (`Web`/`Api`/`Store`/`Worker`) and no ADR-worthy decision surfaced — every decision these flows exercise already has an Accepted ADR (0001–0008).
+> - Persist notes for `data-model` indexing: per-unit terminal-state (Flow 3, Flow 7), `skipped` sub-state distinct from `idle` (Flow 4), reference-block `sort_order` below max music + active-run marker + `version` CAS (Flow 6), scene-block image on success / failed-and-re-triggerable (Flow 7).
 
 ## 7. Deployment view
 
