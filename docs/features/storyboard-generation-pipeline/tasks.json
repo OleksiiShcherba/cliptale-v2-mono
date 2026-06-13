@@ -1,0 +1,251 @@
+{
+  "slug": "storyboard-generation-pipeline",
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Create the storyboard_pipeline state table (staged migration)",
+      "layer": "migration",
+      "deps": [],
+      "acs": ["AC-05", "AC-07", "AC-12", "AC-14"],
+      "dod": "Staged migrations/01_create_storyboard_pipeline.{up,down}.sql promote to live 057, apply and revert cleanly against real MySQL; the table has PK(draft_id), the four ENUM(7) phase sub-states, active_run_phase marker, version, phase_started_at/heartbeat_at, cost_estimate/actual_cost and idx_storyboard_pipeline_active_heartbeat.",
+      "files_hint": [
+        "docs/features/storyboard-generation-pipeline/migrations/01_create_storyboard_pipeline.up.sql",
+        "docs/features/storyboard-generation-pipeline/migrations/01_create_storyboard_pipeline.down.sql"
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "Build the shared pipeline transition module (pure)",
+      "layer": "domain",
+      "deps": [],
+      "acs": ["AC-07", "AC-08", "AC-14", "AC-15"],
+      "dod": "A pure module (importable by api + worker) exports the transition table, the phase sub-state lifecycle, the strict phase-order guard, the scenes-required guard and the single-active-run/version-CAS decision; unit tests cover every legal and illegal transition with no DB.",
+      "files_hint": [
+        "packages/project-schema/src/storyboardPipeline/transition.ts"
+      ]
+    },
+    {
+      "id": "T3",
+      "title": "Implement the storyboard_pipeline repository (row + CAS + stuck query)",
+      "layer": "infra",
+      "deps": ["T1", "T2"],
+      "acs": ["AC-05", "AC-12", "AC-14"],
+      "dod": "storyboardPipeline.repository.ts reads/writes the row by draft_id, claims a run via an active_run_phase CAS, bumps version, updates the heartbeat, and runs the over-bound stuck-phase age query; integration tests hit real MySQL.",
+      "files_hint": [
+        "apps/api/src/repositories/storyboardPipeline.repository.ts"
+      ]
+    },
+    {
+      "id": "T4",
+      "title": "Resume read: auto-start scene generation + lazy stuck-release",
+      "layer": "app",
+      "deps": ["T3"],
+      "acs": ["AC-01", "AC-05", "AC-12"],
+      "dod": "getPipelineState returns the projected state, lazily creates the row and auto-starts scene generation on a fresh unplanned draft, and lazy-releases an over-bound running phase to failed; integration tests assert auto-start, resume-to-running/modal, and lazy release.",
+      "files_hint": [
+        "apps/api/src/services/storyboardPipeline.resume.service.ts"
+      ]
+    },
+    {
+      "id": "T5",
+      "title": "Server-side cost estimate compute + re-validate",
+      "layer": "app",
+      "deps": ["T3"],
+      "acs": ["AC-03", "AC-04"],
+      "dod": "The service computes and re-validates the reference-image and scene-image cost estimates server-side and persists cost_estimate; a client-supplied estimate is never trusted; unit tests cover the compute and the re-validation rejection.",
+      "files_hint": [
+        "apps/api/src/services/storyboardPipeline.cost.service.ts"
+      ]
+    },
+    {
+      "id": "T6",
+      "title": "Confirm-cast: create references below music, idempotent run claim",
+      "layer": "app",
+      "deps": ["T4", "T5"],
+      "acs": ["AC-03", "AC-09", "AC-14"],
+      "dod": "confirmCast re-validates the estimate, inserts reference blocks at sort_order > MAX(music.sort_order), claims the run, and enqueues reference-image generation; a repeated confirm returns the existing run with zero duplicate blocks; integration tests assert below-music ordering and idempotency.",
+      "files_hint": [
+        "apps/api/src/services/storyboardPipeline.confirm.service.ts"
+      ]
+    },
+    {
+      "id": "T7",
+      "title": "Trigger phase: order guard, scenes-required guard, incremental re-trigger",
+      "layer": "app",
+      "deps": ["T4"],
+      "acs": ["AC-04", "AC-06", "AC-08", "AC-15"],
+      "dod": "triggerPhase starts/re-triggers a phase, blocks out-of-order (pipeline.phase_out_of_order) and scenes-required (pipeline.scenes_required), accepts the scene-image offer, and re-enqueues only non-terminal units on re-trigger; integration tests assert the guards and that done units are not re-enqueued.",
+      "files_hint": [
+        "apps/api/src/services/storyboardPipeline.trigger.service.ts"
+      ]
+    },
+    {
+      "id": "T8",
+      "title": "Cancel + skip use cases (keep partials, skipped != idle)",
+      "layer": "app",
+      "deps": ["T4"],
+      "acs": ["AC-06", "AC-07"],
+      "dod": "cancelPhase clears the run, enqueues no new units, keeps every done unit and returns idle; skipPhase records skipped distinct from idle and stays re-triggerable; integration tests assert partial-keep and the skipped!=idle distinction.",
+      "files_hint": [
+        "apps/api/src/services/storyboardPipeline.lifecycle.service.ts"
+      ]
+    },
+    {
+      "id": "T9",
+      "title": "Pipeline routes + controller (ownership-before-prerequisite, error codes)",
+      "layer": "ports",
+      "deps": ["T6", "T7", "T8"],
+      "acs": ["AC-13"],
+      "dod": "Routes + controller expose GET state / confirm-cast / trigger / cancel / skip with Zod validation, assert draft ownership before any prerequisite/order check (opaque 404 for non-owners), and map the new pipeline.* codes; controller integration tests assert deny-and-hide and the 422 gate codes.",
+      "files_hint": [
+        "apps/api/src/routes/storyboardPipeline.routes.ts",
+        "apps/api/src/controllers/storyboardPipeline.controller.ts",
+        "apps/api/src/lib/errors.ts"
+      ]
+    },
+    {
+      "id": "T10",
+      "title": "Worker completion-hooks advance phases via the transition module",
+      "layer": "infra",
+      "deps": ["T2", "T3"],
+      "acs": ["AC-02", "AC-03", "AC-04"],
+      "dod": "The scene-plan, cast-extract, reference-image and scene-image jobs record per-unit terminal state and, when all units of a phase are terminal, run the shared transition (version CAS) to advance the phase and publish; integration tests assert scene->reference-data->awaiting-review and per-unit->phase advance.",
+      "files_hint": [
+        "apps/media-worker/src/jobs/storyboardPipelineHooks.ts",
+        "apps/media-worker/src/jobs/storyboardPlan.job.ts",
+        "apps/media-worker/src/jobs/cast-extract.job.ts",
+        "apps/media-worker/src/jobs/ai-generate.referenceWindow.ts"
+      ]
+    },
+    {
+      "id": "T11",
+      "title": "Reaper repeatable job: release stuck phases",
+      "layer": "infra",
+      "deps": ["T3"],
+      "acs": ["AC-12"],
+      "dod": "storyboardPipelineReaper.job.ts is a BullMQ repeatable that marks over-bound running phases failed, sets error_message, clears the run, bumps version and publishes state; an integration test seeds a stuck row and asserts release.",
+      "files_hint": [
+        "apps/media-worker/src/jobs/storyboardPipelineReaper.job.ts"
+      ]
+    },
+    {
+      "id": "T12",
+      "title": "Scene-image generation: references feed scenes + text-only fallback",
+      "layer": "infra",
+      "deps": ["T10"],
+      "acs": ["AC-04", "AC-10", "AC-11"],
+      "dod": "Scene-image generation feeds a scene's Ready linked reference outputs (AC-10) and falls back to text-only when no Ready reference exists (AC-11); a per-scene failure is recorded and the phase completes regardless; integration tests cover both branches and the failure-tolerant completion.",
+      "files_hint": [
+        "apps/media-worker/src/jobs/ai-generate.job.ts",
+        "apps/media-worker/src/jobs/storyboardOpenAIImage.job.ts",
+        "apps/media-worker/src/jobs/referenceSelection.ts"
+      ]
+    },
+    {
+      "id": "T13",
+      "title": "Instrument actual cost + estimate-vs-actual delta",
+      "layer": "infra",
+      "deps": ["T10", "T5"],
+      "acs": ["AC-03", "AC-04"],
+      "dod": "Each expensive-phase run records actual_cost on the pipeline row and emits the estimate-vs-actual delta to telemetry; an integration test asserts actual_cost is persisted and the delta metric is emitted.",
+      "files_hint": [
+        "apps/media-worker/src/jobs/storyboardPipelineHooks.ts",
+        "apps/api/src/services/storyboardPipeline.cost.service.ts"
+      ]
+    },
+    {
+      "id": "T14",
+      "title": "Wire realtime publish + mount routes + register reaper",
+      "layer": "wiring",
+      "deps": ["T9", "T11"],
+      "acs": ["AC-05"],
+      "dod": "Every transition publishes the full projected PipelineState on storyboard.status.updated (version-stamped); the pipeline routes are mounted in the api app and the reaper repeatable is registered in the worker bootstrap; an integration test asserts a transition emits one version-monotonic event.",
+      "files_hint": [
+        "apps/api/src/lib/realtimePublisher.ts",
+        "apps/api/src/index.ts",
+        "apps/media-worker/src/index.ts"
+      ]
+    },
+    {
+      "id": "T15",
+      "title": "usePipelineState hook + retire client orchestration",
+      "layer": "ui",
+      "deps": ["T9"],
+      "acs": ["AC-05"],
+      "dod": "usePipelineState fetches GET state and subscribes to storyboard.status.updated, ignoring any event whose version <= the version held; the useStoryboardPlanGeneration / useStoryboardIllustrations / useCastAutostart hooks and the StoryboardAutomationPhase enum are removed; hook tests assert resume and the version-ignore guard.",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/hooks/usePipelineState.ts",
+        "apps/web-editor/src/features/storyboard/api.ts"
+      ]
+    },
+    {
+      "id": "T16",
+      "title": "BlockingLoader component (full-screen, labelled, cancel)",
+      "layer": "ui",
+      "deps": ["T15"],
+      "acs": ["AC-01", "AC-06", "AC-12"],
+      "dod": "The full-screen blocking loader renders payload.loader_label, exposes a cancel control wired to cancelPhase, and releases when state becomes failed/idle; component tests cover the label render, cancel, and release.",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/BlockingLoader.tsx",
+        "apps/web-editor/src/features/storyboard/components/BlockingLoader.styles.ts"
+      ]
+    },
+    {
+      "id": "T17",
+      "title": "ReviewCastProposalModal (reuse CastConfirmModal)",
+      "layer": "ui",
+      "deps": ["T15"],
+      "acs": ["AC-02", "AC-03", "AC-07"],
+      "dod": "The modal reuses the existing CastConfirmModal primitives, lists each proposed reference with its AI-selected scenes and the reference-image cost estimate, confirms via confirmCast and skips via skipPhase; component tests cover render, confirm and skip.",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/ReviewCastProposalModal.tsx"
+      ]
+    },
+    {
+      "id": "T18",
+      "title": "SceneImageOfferModal (cost estimate, accept/skip)",
+      "layer": "ui",
+      "deps": ["T15"],
+      "acs": ["AC-04", "AC-07"],
+      "dod": "The modal shows the scene-image cost estimate, accepts via triggerPhase(scene_image) and skips via skipPhase; component tests cover accept and skip.",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/SceneImageOfferModal.tsx"
+      ]
+    },
+    {
+      "id": "T19",
+      "title": "StepCorners corner controls + plain-language guard messages",
+      "layer": "ui",
+      "deps": ["T15"],
+      "acs": ["AC-08", "AC-15"],
+      "dod": "The corner controls trigger any phase via triggerPhase and surface the server's plain-language out-of-order / scenes-required messages (reusing ReferenceGateMessage); component tests assert the trigger and the two guard messages.",
+      "files_hint": [
+        "apps/web-editor/src/features/storyboard/components/StepCorners.tsx"
+      ]
+    },
+    {
+      "id": "T20",
+      "title": "End-to-end + resume/authz regression coverage",
+      "layer": "tests",
+      "deps": ["T14", "T16", "T17", "T18", "T19", "T12", "T13"],
+      "acs": ["AC-05", "AC-06", "AC-13"],
+      "dod": "Integration + e2e-through-UI coverage of the full happy path (AC-01->04), resume/observer-tab convergence (AC-05), cancel + incremental re-trigger (AC-06) and authz deny-and-hide (AC-13) is green against real MySQL.",
+      "files_hint": [
+        "apps/api/src/services/storyboardPipeline.e2e.test.ts",
+        "apps/web-editor/src/features/storyboard/__tests__/"
+      ]
+    },
+    {
+      "id": "T21",
+      "title": "Deploy cut-over: migrate in-flight old-flow drafts (OQ-2)",
+      "layer": "docs",
+      "deps": ["T9"],
+      "acs": ["AC-05"],
+      "dod": "A one-time cut-over seeds a storyboard_pipeline row for every in-flight old-flow draft (queued/running Scene planning / Illustration status jobs) and the retired statuses/logic are removed; a dry-run on a dev DB snapshot shows every in-flight draft resolves to a valid pipeline state with no orphaned jobs.",
+      "files_hint": [
+        "apps/api/src/db/cutover/storyboardPipelineBackfill.ts",
+        "docs/features/storyboard-generation-pipeline/migrations/"
+      ]
+    }
+  ]
+}
