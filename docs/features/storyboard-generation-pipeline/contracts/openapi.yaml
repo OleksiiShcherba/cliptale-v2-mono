@@ -1,0 +1,519 @@
+# DERIVED — do not hand-edit field-by-field. Regenerate via `/sdd:api storyboard-generation-pipeline`.
+#   fields + constraints  ← data-model.md  (storyboard_pipeline columns; every property traces to a column)
+#   error responses       ← sad.md §6 sequences (alt-branches: AC-08/13/14/15 + guards)
+#   endpoint list + shape ← spec.md §4 user stories / §5 acceptance criteria
+#
+# DELIBERATE DEVIATIONS FROM THE SDD TEMPLATE (justified in api-sync-report.md — the contract
+# reflects REPO REALITY so the frontend integrates against what actually ships):
+#   1. Error envelope is the repo's `{ error }` (base) + additive `{ error, code, details }` for the
+#      422/429 gate/rate-limit family — NOT the template's `{ code, message, details }`. See
+#      apps/api/src/lib/errors.ts + the central handler in apps/api/src/index.ts.
+#   2. No `/api/v1` prefix — repo paths are resource-first (`/storyboards/:draftId/...`).
+#   3. No client `Idempotency-Key` header — idempotency is server-enforced via the active-run marker
+#      + version CAS (ADR-0007); a double-confirm/double-trigger returns the existing run as 200.
+#   4. Realtime state-convergence is an async event (events.md), reusing the existing
+#      `storyboard.status.updated` channel — not an HTTP polling primitive.
+openapi: 3.1.0
+
+info:
+  title: Storyboard Generation Pipeline API
+  version: 0.1.0
+  description: |
+    Backend-owned, resumable, sequential Step-2 (Video Road Map) pipeline state machine. Replaces the
+    broken frontend-driven orchestration that lost all progress on page close. One server-authoritative
+    state row per draft drives four ordered phases — scene generation → reference-data (cast proposal) →
+    reference-image → scene-image — each behind a full-screen blocking loader or a review modal. The
+    frontend renders whatever the pipeline reports; it never owns generation state. Every transition,
+    cancel, skip and re-trigger is decided and persisted server-side, survives reload, and is read back
+    on every Step-2 open (resume). Real-time state convergence across tabs rides the
+    `storyboard.status.updated` event (see events.md); this HTTP surface is the authoritative read +
+    the command set.
+
+servers:
+  - url: https://api.cliptale.com
+    description: Production
+  - url: http://localhost:4000
+    description: Local
+
+# Every operation requires a bearer token (authMiddleware + aclMiddleware('editor')). No public endpoint.
+security:
+  - BearerAuth: []
+
+paths:
+  /storyboards/{draftId}/pipeline:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    get:
+      summary: Read the pipeline state (resume read); lazily creates + auto-starts scene generation on a fresh unplanned draft
+      description: |
+        The single authoritative answer to "what should the Creator see right now" (AC-05, US-05).
+        p95 ≤ 300 ms (data-model PK lookup). Documented side effects, all idempotent:
+          - **Auto-start (AC-01, Flow 1):** if no state row exists yet for an unplanned draft, the
+            server creates it, claims the active run, and starts scene generation — so opening Step 2
+            begins generation without a button. A repeat open never starts a duplicate run (active-run
+            marker + version CAS, AC-14).
+          - **Lazy stuck-release (AC-12, Flow 2):** a `running` phase whose heartbeat is past the
+            10-min bound is marked `failed` and the loader released on read (the reaper job does the
+            same out-of-band).
+        Returns the same `running` loader or `awaiting_review` modal the Creator left (resume).
+      operationId: getPipelineState
+      responses:
+        "200":
+          description: Current pipeline state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PipelineState" }
+              examples:
+                running:
+                  summary: A phase running behind the blocking loader
+                  value:
+                    draft_id: "11111111-1111-4111-8111-111111111111"
+                    active_phase: "scene"
+                    active_run_phase: "scene"
+                    phases:
+                      scene: { status: "running" }
+                      reference_data: { status: "idle" }
+                      reference_image: { status: "idle" }
+                      scene_image: { status: "idle" }
+                    payload: { loader_label: "scene generation" }
+                    version: 3
+                    cost_estimate: null
+                    error_message: null
+                    updated_at: "2026-06-13T10:00:00.000Z"
+                awaiting_review_cast:
+                  summary: Reference-data done — cast proposal modal pending with its cost estimate
+                  value:
+                    draft_id: "11111111-1111-4111-8111-111111111111"
+                    active_phase: "reference_data"
+                    active_run_phase: null
+                    phases:
+                      scene: { status: "completed" }
+                      reference_data: { status: "awaiting_review" }
+                      reference_image: { status: "idle" }
+                      scene_image: { status: "idle" }
+                    payload:
+                      cast_proposal:
+                        references:
+                          - name: "Test Hero"
+                            kind: "character"
+                            scene_ids: ["22222222-2222-4222-8222-222222222222"]
+                    version: 7
+                    cost_estimate: "12.5000"
+                    error_message: null
+                    updated_at: "2026-06-13T10:05:00.000Z"
+                failed:
+                  summary: Stuck/failed phase released (AC-12) — retry offered
+                  value:
+                    draft_id: "11111111-1111-4111-8111-111111111111"
+                    active_phase: "reference_image"
+                    active_run_phase: null
+                    phases:
+                      scene: { status: "completed" }
+                      reference_data: { status: "completed" }
+                      reference_image: { status: "failed" }
+                      scene_image: { status: "idle" }
+                    payload: null
+                    version: 12
+                    cost_estimate: null
+                    error_message: "Reference image generation made no progress and was released. You can retry."
+                    updated_at: "2026-06-13T10:20:00.000Z"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFoundOpaque" }
+
+  /storyboards/{draftId}/pipeline/confirm-cast:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+    post:
+      summary: Confirm the cast proposal — create reference blocks below music and start reference-image generation
+      description: |
+        Accepts the Review-cast-proposal modal (US-03, AC-03). The server re-validates the
+        reference-image cost estimate server-side (never trusts the client — §6.1, ADR-0006), creates
+        every reference block ordered **below all music blocks** (AC-09, creation-time snapshot), claims
+        the active run, and enqueues reference-image generation (rolling window ≤ 4).
+
+        **Idempotent (AC-14, Flow 6):** a repeated confirm — double-click, retry, or a second tab —
+        does **not** create a duplicate reference-block set or re-spend; it returns the existing run's
+        state as `200`. Idempotency is server-enforced by the active-run marker + version CAS, so no
+        client `Idempotency-Key` header is required.
+
+        The body is **optional**: omit it to confirm the proposal exactly as shown (the server uses the
+        proposal it stored in `payload.cast_proposal`). Send it only to record adjustments to the cast.
+      operationId: confirmCast
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CastConfirmation" }
+            example:
+              references:
+                - name: "Test Hero"
+                  kind: "character"
+                  scene_ids: ["22222222-2222-4222-8222-222222222222"]
+      responses:
+        "200":
+          description: |
+            Reference-image generation running (first confirm) — or the existing run, unchanged, on a
+            duplicate confirm (AC-14).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PipelineState" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFoundOpaque" }
+        "422":
+          description: |
+            Cast cannot be confirmed in the current state — the reference-data phase is not
+            `awaiting_review` (`pipeline.not_awaiting_review`), or the server-side estimate
+            re-validation failed (`pipeline.estimate_revalidation_failed`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GateError" }
+              example:
+                error: "There is no cast proposal awaiting your review for this draft."
+                code: "pipeline.not_awaiting_review"
+                details: { active_phase: "scene" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /storyboards/{draftId}/pipeline/phases/{phase}/trigger:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+      - $ref: "#/components/parameters/Phase"
+    post:
+      summary: Start or re-trigger a phase (corner-control trigger, accept the scene-image offer, or re-trigger after cancel)
+      description: |
+        The generic phase-start command (US-07). Covers:
+          - **Accept the scene-image offer (AC-04):** `phase = scene_image` while it is
+            `awaiting_review` → generates each scene's image (Ready refs feed linked scenes; text-only
+            fallback otherwise — AC-10/AC-11). Completes even if some scenes fail (AC-04).
+          - **Manual (re-)trigger from the corner controls (US-07).**
+          - **Incremental re-trigger after a cancel or partial failure (AC-06):** only the units that
+            did not finish are regenerated; already-produced units are never re-generated or re-charged.
+
+        **Strict phase order (AC-08):** triggering a later phase before its prerequisite has
+        `completed`/`skipped` is blocked. **Prerequisite guard (AC-15):** triggering `scene_image`
+        with zero generated scenes is blocked. Both surface a plain-language `422`.
+
+        **Idempotent (AC-14):** if the phase is already running, the existing run is returned as `200` —
+        no duplicate run is started. Authorization is evaluated **before** any prerequisite/order check
+        (AC-13): a non-owner always receives the opaque `404`, never a prerequisite-specific message.
+      operationId: triggerPhase
+      responses:
+        "200":
+          description: |
+            The phase is running (incremental where applicable) — or already-complete with nothing to
+            regenerate (Flow 3 `else`), or the existing in-flight run on a duplicate trigger (AC-14).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PipelineState" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFoundOpaque" }
+        "422":
+          description: |
+            The phase cannot run yet. `pipeline.phase_out_of_order` — an earlier phase must complete
+            first (AC-08). `pipeline.scenes_required` — scenes must be generated before scene-image
+            generation (AC-15).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GateError" }
+              examples:
+                out_of_order:
+                  value:
+                    error: "Scene generation must finish before you can generate scene images."
+                    code: "pipeline.phase_out_of_order"
+                    details: { phase: "scene_image", blocked_by: "scene" }
+                scenes_required:
+                  value:
+                    error: "Generate scenes first, then you can generate their images."
+                    code: "pipeline.scenes_required"
+                    details: { phase: "scene_image" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /storyboards/{draftId}/pipeline/phases/{phase}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+      - $ref: "#/components/parameters/Phase"
+    post:
+      summary: Cancel a running phase, keeping every result already produced
+      description: |
+        Stops a `running` phase from under the blocking loader (US-06, AC-06, Flow 3): clears the
+        active-run marker, enqueues **no** further units (takes effect ≤ 5 s — an in-flight unit may
+        still finish), **keeps** every per-unit result already produced, and returns the phase to a
+        re-triggerable `idle` state. Cancelling a phase that is not running is an idempotent no-op that
+        returns the current state as `200`.
+      operationId: cancelPhase
+      responses:
+        "200":
+          description: Phase returned to `idle`; partial results kept. (No-op if it was not running.)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PipelineState" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFoundOpaque" }
+
+  /storyboards/{draftId}/pipeline/phases/{phase}/skip:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+      - $ref: "#/components/parameters/Phase"
+    post:
+      summary: Skip a pending review modal — record the phase as `skipped` (distinct from `idle`)
+      description: |
+        Dismisses a pending review modal without running the phase (US-07, AC-07, Flow 4). The phase
+        sub-state becomes `skipped` — **distinct from `idle`** so a prerequisite check can tell an
+        intentional decline from a never-run phase — and stays re-triggerable from the corner controls.
+        Skipping the reference phases means linked scenes later fall back to text-only (AC-11).
+      operationId: skipPhase
+      responses:
+        "200":
+          description: Phase recorded as `skipped`; still triggerable later.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PipelineState" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFoundOpaque" }
+        "422":
+          description: |
+            Nothing to skip — the phase is not `awaiting_review` (`pipeline.not_awaiting_review`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GateError" }
+              example:
+                error: "There is no pending review for this step to skip."
+                code: "pipeline.not_awaiting_review"
+                details: { phase: "scene_image", status: "idle" }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    DraftId:
+      in: path
+      name: draftId
+      required: true
+      description: The generation draft id (owner-gated — AC-13).
+      schema: { type: string, format: uuid }
+    Phase:
+      in: path
+      name: phase
+      required: true
+      description: Which pipeline phase the command targets.
+      schema: { $ref: "#/components/schemas/PhaseName" }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Unauthorized" }
+    NotFoundOpaque:
+      description: |
+        Deny-and-hide (AC-13). Returned identically for a non-existent draft AND for a draft the caller
+        does not own — the same opaque not-found for **every** operation, so a non-owner cannot probe a
+        draft's existence or pipeline state. Authorization is checked before any prerequisite/order
+        guard, so this never leaks a prerequisite-specific message.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Not found" }
+    RateLimited:
+      description: |
+        Per-Creator rate limit on spam re-trigger / re-confirm (§6.1 abuse case). Duplicate runs already
+        collapse to the existing run (AC-14); this caps abusive request rate. Carries `Retry-After`.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/RateLimitError" }
+          example:
+            error: "Too many requests. Please wait before trying again."
+            code: "flow.rate_limited"
+            details: { retry_after_seconds: 30 }
+
+  schemas:
+    # ── Error envelopes (repo reality — apps/api/src/lib/errors.ts) ──────────────────────────────
+    # Base envelope: the central Express handler serializes every typed sentinel to `{ error }`.
+    Error:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error: { type: string, description: "Human-readable reason." }
+
+    # 422 family (GateError extends UnprocessableEntityError): base `{ error }` + additive machine code.
+    # `code` follows the repo's neutral `module.error_name` convention (cf. flow.* / references.*).
+    GateError:
+      type: object
+      required: [error, code]
+      additionalProperties: false
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          pattern: "^[a-z_]+\\.[a-z_]+$"
+          description: |
+            Machine-readable code. NEW codes this feature adds to lib/errors.ts (see api-sync-report.md):
+            pipeline.phase_out_of_order, pipeline.scenes_required, pipeline.not_awaiting_review,
+            pipeline.estimate_revalidation_failed.
+          examples: ["pipeline.phase_out_of_order", "pipeline.scenes_required", "pipeline.not_awaiting_review"]
+        details:
+          type: object
+          description: Optional structured context.
+          additionalProperties: true
+
+    # 429 (RateLimitedError): same shape as GateError; code reuses the existing `flow.rate_limited`.
+    RateLimitError:
+      type: object
+      required: [error, code]
+      additionalProperties: false
+      properties:
+        error: { type: string }
+        code: { type: string, const: "flow.rate_limited" }
+        details:
+          type: object
+          additionalProperties: true
+
+    # ── Domain enums (← data-model.md storyboard_pipeline ENUMs) ─────────────────────────────────
+    PhaseName:
+      type: string
+      description: The four ordered phases (← storyboard_pipeline.active_phase / active_run_phase ENUM).
+      enum: [scene, reference_data, reference_image, scene_image]
+
+    PhaseSubState:
+      type: string
+      description: |
+        Per-phase lifecycle (← storyboard_pipeline.<phase>_status ENUM(7)). `skipped` is distinct
+        from `idle` (intentional decline vs never-run, AC-07); `awaiting_review` = a modal is pending.
+      enum: [idle, running, awaiting_review, completed, cancelled, failed, skipped]
+
+    PhaseStatus:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status: { $ref: "#/components/schemas/PhaseSubState" }
+
+    # ── The state row, projected (← storyboard_pipeline) ─────────────────────────────────────────
+    PipelineState:
+      type: object
+      description: |
+        The resumable, server-authoritative pipeline state — one row per draft, projected for the UI.
+        Internal columns are intentionally NOT exposed: phase_started_at, heartbeat_at (liveness),
+        actual_cost (telemetry-only), created_at (audit). See api-sync-report.md.
+      required: [draft_id, active_phase, active_run_phase, phases, version, updated_at]
+      additionalProperties: false
+      properties:
+        draft_id:
+          type: string
+          format: uuid
+          description: "← draft_id (PK)."
+        active_phase:
+          allOf: [{ $ref: "#/components/schemas/PhaseName" }]
+          description: "Which phase the UI foregrounds (← active_phase)."
+        active_run_phase:
+          oneOf:
+            - { $ref: "#/components/schemas/PhaseName" }
+            - { type: "null" }
+          description: "The phase whose run is in flight, or null when none (← active_run_phase; ADR-0007)."
+        phases:
+          type: object
+          description: Per-phase sub-state, one entry per phase (← the four <phase>_status columns).
+          required: [scene, reference_data, reference_image, scene_image]
+          additionalProperties: false
+          properties:
+            scene: { $ref: "#/components/schemas/PhaseStatus" }
+            reference_data: { $ref: "#/components/schemas/PhaseStatus" }
+            reference_image: { $ref: "#/components/schemas/PhaseStatus" }
+            scene_image: { $ref: "#/components/schemas/PhaseStatus" }
+        payload:
+          oneOf:
+            - { $ref: "#/components/schemas/PipelinePayload" }
+            - { type: "null" }
+          description: "Loader label or pending-modal data (← payload_json). Shape varies by state."
+        version:
+          type: integer
+          minimum: 1
+          description: "Monotonic CAS guard; increments on every transition (← version, ADR-0007)."
+        cost_estimate:
+          oneOf:
+            - { type: string, pattern: "^[0-9]+\\.[0-9]{4}$" }
+            - { type: "null" }
+          description: |
+            Server-computed credit estimate for the current expensive-phase run, shown in the pending
+            modal (← cost_estimate DECIMAL(10,4); serialized as a fixed-scale decimal string to avoid
+            float drift). null outside an awaiting_review expensive phase.
+        error_message:
+          oneOf:
+            - { type: string, maxLength: 512 }
+            - { type: "null" }
+          description: "Plain-language failed-phase text (← error_message VARCHAR(512); AC-12)."
+        updated_at:
+          type: string
+          format: date-time
+          description: "← updated_at (DATETIME(3))."
+
+    # payload_json is opaque JSON in the model; these are the documented variant shapes the UI reads.
+    # The cast_proposal sub-shape has no typed origin in THIS feature's data-model (it derives from the
+    # inherited cast-extraction output) — see api-sync-report.md finding B1 (open).
+    PipelinePayload:
+      type: object
+      additionalProperties: true
+      description: |
+        Discriminated loosely by the active phase + sub-state:
+          - running phase → { loader_label }
+          - reference_data awaiting_review → { cast_proposal } (+ top-level cost_estimate)
+          - scene_image awaiting_review → { scene_image_offer } (+ top-level cost_estimate)
+      properties:
+        loader_label:
+          type: string
+          description: Status label for the blocking loader (e.g. "scene generation").
+        cast_proposal:
+          $ref: "#/components/schemas/CastProposal"
+        scene_image_offer:
+          type: object
+          additionalProperties: true
+          description: Scene-image offer descriptor (count of scenes to illustrate, etc.).
+
+    # ── Cast proposal / confirmation (origin: inherited cast-extraction; see finding B1) ─────────
+    CastProposal:
+      type: object
+      additionalProperties: true
+      required: [references]
+      description: AI-prepared cast preview shown in the Review-cast modal (each reference pre-selects scenes).
+      properties:
+        references:
+          type: array
+          items: { $ref: "#/components/schemas/ProposedReference" }
+
+    ProposedReference:
+      type: object
+      additionalProperties: true
+      required: [name, kind, scene_ids]
+      properties:
+        name:
+          type: string
+          description: "Proposed reference name (← inherited cast extraction; finding B1)."
+        kind:
+          type: string
+          enum: [character, environment]
+          description: "Character or Environment (← CONTEXT glossary)."
+        scene_ids:
+          type: array
+          description: "AI-selected scene blocks for this reference (← storyboard_blocks.id)."
+          items: { type: string, format: uuid }
+
+    CastConfirmation:
+      type: object
+      additionalProperties: false
+      description: |
+        Optional confirm-cast body. Omit entirely to confirm the proposal as shown. When present, it
+        records the Creator's adjusted cast. Shape mirrors CastProposal.references — its typed origin
+        is the inherited cast-extraction contract, not this feature's data-model (finding B1, open).
+      properties:
+        references:
+          type: array
+          items: { $ref: "#/components/schemas/ProposedReference" }
