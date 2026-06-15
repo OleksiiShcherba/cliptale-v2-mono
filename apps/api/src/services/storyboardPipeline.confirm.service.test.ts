@@ -266,6 +266,11 @@ describe('confirmCast — references below music + idempotent run claim', () => 
     // Run claimed.
     expect(result.activeRunPhase).toBe('reference_image');
     expect(result.referenceImageStatus).toBe('running');
+    // Live-flow regression: confirming the cast resolves the reference_data
+    // review to 'completed' in the same CAS. Without it reference_data stays
+    // 'awaiting_review' and the scene_image order-guard later blocks the
+    // offer-accept (AC-03/AC-04).
+    expect(result.referenceDataStatus).toBe('completed');
 
     // Blocks created.
     expect(await countReferenceBlocks(draftId)).toBe(2);
@@ -276,6 +281,12 @@ describe('confirmCast — references below music + idempotent run claim', () => 
     expect(refBlocks).toHaveLength(2);
     for (const b of refBlocks) {
       expect(b.sortOrder).toBeGreaterThan(maxMusic);
+      // Live-flow regression: each enqueued block MUST be claimed to 'running'.
+      // The worker's rolling-window completion hook (onReferenceBlockJobComplete)
+      // updates only WHERE window_status='running'; if confirm leaves the block
+      // 'pending', the hook no-ops, the block never reaches terminal, and the
+      // reaper eventually fails the whole reference_image phase (AC-03).
+      expect(b.windowStatus).toBe('running');
     }
 
     // Enqueued at least one reference-image job.

@@ -538,3 +538,43 @@ describe('triggerPhase — incremental re-trigger of reference_image (AC-06)', (
     expect(calls.length).toBe(1); // only the pending block
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F5 (AC-07) — corner re-trigger of scene / reference_data MUST enqueue a worker job
+// (previously these claimed the run but enqueued nothing → the phase hung running).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('triggerPhase — re-trigger scene / reference_data enqueues a worker job (F5, AC-07)', () => {
+  it('re-trigger scene → claims run and enqueues a storyboard-plan job', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    await insertPipelineRow({ draftId }); // scene idle, no active run
+
+    const result = await triggerPhase({ draftId, userId: OWNER_ID, phase: 'scene' });
+
+    expect(result.sceneStatus).toBe('running');
+    expect(result.activeRunPhase).toBe('scene');
+    const jobNames = mockQueueAdd.mock.calls.map((c) => c[0]);
+    expect(jobNames).toContain('storyboard-plan');
+  });
+
+  it('re-trigger reference_data (scenes exist) → claims run and enqueues a cast-extract job', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    await insertPipelineRow({ draftId });
+    await seedSceneBlocks(draftId, 2);
+    // Advance scene → completed so reference_data is the next runnable phase.
+    const row = (await getPipelineByDraftId(draftId))!;
+    await casUpdateState({
+      draftId,
+      currentVersion: row.version,
+      phase: 'scene',
+      status: 'completed',
+      activePhase: 'reference_data',
+    });
+
+    const result = await triggerPhase({ draftId, userId: OWNER_ID, phase: 'reference_data' });
+
+    expect(result.referenceDataStatus).toBe('running');
+    expect(result.activeRunPhase).toBe('reference_data');
+    const jobNames = mockQueueAdd.mock.calls.map((c) => c[0]);
+    expect(jobNames).toContain('cast-extract');
+  });
+});

@@ -41,6 +41,9 @@ import { pool } from '@/db/connection.js';
 import { GateError, NotFoundError } from '@/lib/errors.js';
 import { aiGenerateQueue } from '@/queues/bullmq.js';
 import { enqueueStoryboardOpenAIImage } from '@/queues/jobs/enqueue-storyboard-openai-image.js';
+import { enqueueStoryboardPlan } from '@/queues/jobs/enqueue-storyboard-plan.js';
+import { enqueueCastExtract } from '@/queues/jobs/enqueue-cast-extract.js';
+import { createCastExtractionJob } from '@/repositories/storyboardReference.repository.js';
 import {
   checkPhaseOrder,
   checkScenesRequired,
@@ -367,9 +370,21 @@ export async function triggerPhase(params: TriggerPhaseParams): Promise<TriggerP
     enqueuedCount = await enqueueNonTerminalReferenceBlocks(draftId, userId);
   } else if (phase === 'scene_image') {
     enqueuedCount = await enqueueNonTerminalSceneIllustrations(draftId, userId);
+  } else if (phase === 'scene') {
+    // F5 (AC-07): a corner re-trigger of the scene phase must enqueue the plan job
+    // itself. Only the AUTO-START path (resume.service) enqueued it before, so a manual
+    // re-trigger previously claimed scene='running' with NO worker job and hung until the
+    // reaper. Mirror the auto-start enqueue here.
+    await enqueueStoryboardPlan({ jobId: randomUUID(), draftId, userId });
+  } else if (phase === 'reference_data') {
+    // F5 (AC-07): a corner re-trigger of reference_data re-runs cast extraction. Persist a
+    // fresh job row, then enqueue — same shape the worker uses after scene completion. (A
+    // re-trigger intentionally starts a NEW extraction; we do not reuse the idempotent
+    // startExtraction path, which would converge on the prior completed job and enqueue nothing.)
+    const castJobId = randomUUID();
+    await createCastExtractionJob({ id: castJobId, draftId, userId });
+    await enqueueCastExtract({ jobId: castJobId, draftId, userId });
   }
-  // For 'scene' and 'reference_data', the worker enqueues sub-jobs from the queue
-  // job itself (enqueue-storyboard-plan / cast-extraction); no per-unit enqueue here.
 
   // 8. All-done short-circuit (Flow 3 `else`): if every unit was already terminal,
   //    advance directly to 'completed' without having enqueued anything.

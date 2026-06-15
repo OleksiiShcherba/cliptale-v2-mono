@@ -179,6 +179,25 @@ export async function skipPhase(params: LifecyclePhaseParams): Promise<Lifecycle
     activeRunPhase: null,
   });
 
+  // 3b. F6 (AC-07/AC-11): skipping the cast proposal declines references entirely, so
+  //     the reference_image phase has nothing to generate. Cascade it to `skipped` too
+  //     (only when it never ran — still `idle`) so the downstream scene_image order guard
+  //     (prerequisitesOf → isPhaseResolved) is satisfied and the Creator can trigger Scene
+  //     Images directly (text-only, AC-11) without first triggering an empty Ref Images
+  //     phase. reference_image stays re-triggerable later (skipped → running).
+  if (phase === 'reference_data') {
+    const afterSkip = (await getPipelineByDraftId(draftId))!;
+    if (phaseStatusOf(afterSkip, 'reference_image') === 'idle') {
+      await casUpdateState({
+        draftId,
+        currentVersion: afterSkip.version,
+        phase: 'reference_image',
+        status: 'skipped',
+        activeRunPhase: null,
+      });
+    }
+  }
+
   // 4. Return the fresh state after the update.
   const updated = await getPipelineByDraftId(draftId);
   return updated!;

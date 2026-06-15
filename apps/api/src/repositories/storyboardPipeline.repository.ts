@@ -154,13 +154,25 @@ export async function claimRun(params: {
   draftId: string;
   phase: PipelinePhase;
   currentVersion: number;
+  /**
+   * Optionally resolve a just-reviewed prior phase to 'completed' in the SAME
+   * atomic CAS. Used by confirm-cast: confirming the cast proposal concludes the
+   * `reference_data` review (awaiting_review → completed) AT THE SAME TIME it
+   * claims the `reference_image` run. Without this the prior phase stays
+   * `awaiting_review` forever and the downstream scene_image order-guard
+   * (prerequisitesOf → isPhaseResolved) blocks the offer-accept (AC-03/AC-04).
+   * The column is resolved from the PHASE_STATUS_COLUMN whitelist (no injection).
+   */
+  alsoComplete?: PipelinePhase;
 }): Promise<number> {
   const statusColumn = PHASE_STATUS_COLUMN[params.phase];
+  const alsoColumn = params.alsoComplete ? PHASE_STATUS_COLUMN[params.alsoComplete] : null;
   const [result] = await pool.execute<ResultSetHeader>(
     `UPDATE storyboard_pipeline
         SET active_run_phase = ?,
             active_phase = ?,
             ${statusColumn} = 'running',
+            ${alsoColumn ? `${alsoColumn} = 'completed',` : ''}
             phase_started_at = NOW(3),
             heartbeat_at = NOW(3),
             version = version + 1,

@@ -325,6 +325,10 @@ describe('skipPhase (AC-07)', () => {
     expect(result.referenceDataStatus).toBe('skipped');
     expect(result.activeRunPhase).toBeNull();
     expect(result.version).toBeGreaterThan(before.version);
+    // F6 (AC-07/AC-11): skipping the cast cascades reference_image → skipped (it was idle),
+    // so the scene_image order guard is satisfied and Scene Images is directly triggerable
+    // (text-only) without first triggering an empty Ref Images phase.
+    expect(result.referenceImageStatus).toBe('skipped');
   });
 
   it('skipped is DISTINCT from idle — isPhaseResolved(skipped) is true, isPhaseResolved(idle) is false (AC-07)', () => {

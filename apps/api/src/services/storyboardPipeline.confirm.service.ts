@@ -210,6 +210,11 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmCas
     draftId,
     phase: 'reference_image',
     currentVersion: row.version,
+    // Confirming the cast concludes the reference_data review: resolve it to
+    // 'completed' in the SAME atomic CAS as the reference_image claim. Otherwise
+    // reference_data stays 'awaiting_review' and the scene_image order-guard
+    // (prerequisitesOf → isPhaseResolved) rejects the offer-accept (AC-03/AC-04).
+    alsoComplete: 'reference_data',
   });
   if (claimed === 0) {
     // Lost the race to a concurrent confirm (double-confirm / second tab, AC-14).
@@ -263,8 +268,15 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmCas
        VALUES (?, ?, ?, ?, ?, ?)`,
       [jobId, userId, REFERENCE_DEFAULT_MODEL_ID, REFERENCE_DEFAULT_CAPABILITY, prompt, JSON.stringify(options)],
     );
+    // Claim the block to 'running' alongside first_job_id (mirrors the shipped
+    // storyboardReference.confirm.service). The block was inserted 'pending';
+    // claiming it here is REQUIRED so the worker's rolling-window completion hook
+    // (onReferenceBlockJobComplete, guarded WHERE window_status='running') matches
+    // and advances the block to terminal. Without the claim the block stays
+    // 'pending' forever, reference_image never reaches all-terminal, and the
+    // reaper eventually fails the whole phase (AC-03).
     await pool.execute(
-      `UPDATE storyboard_reference_blocks SET first_job_id = ? WHERE id = ?`,
+      `UPDATE storyboard_reference_blocks SET first_job_id = ?, window_status = 'running' WHERE id = ?`,
       [jobId, blockId],
     );
     await aiGenerateQueue.add('ai-generate', {

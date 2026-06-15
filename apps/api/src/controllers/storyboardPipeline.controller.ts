@@ -34,6 +34,7 @@ import * as resumeService from '@/services/storyboardPipeline.resume.service.js'
 import * as confirmService from '@/services/storyboardPipeline.confirm.service.js';
 import * as triggerService from '@/services/storyboardPipeline.trigger.service.js';
 import * as lifecycleService from '@/services/storyboardPipeline.lifecycle.service.js';
+import { publishStoryboardStatusUpdated } from '@/lib/realtimePublisher.js';
 import type { StoryboardPipelineRow } from '@/repositories/storyboardPipeline.repository.js';
 
 // ── Zod schemas ───────────────────────────────────────────────────────────────
@@ -70,6 +71,29 @@ const confirmCastBodySchema = z
  */
 function mapStateToWire(row: StoryboardPipelineRow): Record<string, unknown> {
   return projectPipelineState(row) as unknown as Record<string, unknown>;
+}
+
+/**
+ * Respond with the wire state AND publish it on `storyboard.status.updated` so the
+ * LIVE client (the acting tab + every observer tab, AC-05) converges immediately —
+ * without waiting for the next worker-published transition or a manual reload.
+ *
+ * Creator actions (confirm / trigger / cancel / skip) mutate the pipeline row but the
+ * client's usePipelineState only learns of changes through realtime snapshots; without
+ * this publish a cancel leaves the BlockingLoader visibly stuck (AC-06) and a skip never
+ * updates the modal/loader until reload. The payload is the SAME projected shape as the
+ * resume read and the worker publisher, so applyIfNewer's version guard orders it safely.
+ * Best-effort: a publish failure never blocks the HTTP response.
+ */
+async function respondWithState(
+  res: Response,
+  userId: string,
+  draftId: string,
+  row: StoryboardPipelineRow,
+): Promise<void> {
+  const wire = mapStateToWire(row);
+  await publishStoryboardStatusUpdated({ userId, draftId, payload: wire });
+  res.json(wire);
 }
 
 /** Parse + validate the :draftId param, throwing ValidationError on a bad shape. */
@@ -146,7 +170,7 @@ export async function confirmCast(
       userId,
       clientEstimate: parsed.data.cost_estimate ?? null,
     });
-    res.json(mapStateToWire(row));
+    await respondWithState(res, userId, draftId, row);
   } catch (err) {
     next(err);
   }
@@ -173,7 +197,7 @@ export async function triggerPhase(
     const userId = req.user!.userId;
 
     const row = await triggerService.triggerPhase({ draftId, userId, phase });
-    res.json(mapStateToWire(row));
+    await respondWithState(res, userId, draftId, row);
   } catch (err) {
     next(err);
   }
@@ -198,7 +222,7 @@ export async function cancelPhase(
     const userId = req.user!.userId;
 
     const row = await lifecycleService.cancelPhase({ draftId, userId, phase });
-    res.json(mapStateToWire(row));
+    await respondWithState(res, userId, draftId, row);
   } catch (err) {
     next(err);
   }
@@ -224,7 +248,7 @@ export async function skipPhase(
     const userId = req.user!.userId;
 
     const row = await lifecycleService.skipPhase({ draftId, userId, phase });
-    res.json(mapStateToWire(row));
+    await respondWithState(res, userId, draftId, row);
   } catch (err) {
     next(err);
   }
