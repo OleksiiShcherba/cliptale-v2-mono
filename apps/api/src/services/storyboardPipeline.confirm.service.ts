@@ -192,10 +192,17 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmCas
 
   // 5. Re-validate the estimate server-side BEFORE any write (§6.1; never trust
   //    the client). A mismatch throws and mutates nothing.
+  //    Contract (openapi confirm): the body is OPTIONAL — omitting cost_estimate
+  //    means "confirm the proposal exactly as shown". In that case the server
+  //    estimate IS the shown estimate (G3 persists the same value at proposal
+  //    time), so there is nothing to reject: accept as-shown. A SUPPLIED estimate
+  //    is still re-validated and a mismatch (tampered/stale) throws.
   const serverEstimate = await computeReferenceImageEstimate({
     referenceCount: entries.length,
   });
-  revalidateEstimate({ serverEstimate, clientEstimate });
+  if (clientEstimate != null) {
+    revalidateEstimate({ serverEstimate, clientEstimate });
+  }
 
   // 6. Claim the reference_image run via the active_run_phase CAS (ADR-0007).
   //    This is the single idempotency primitive — only the winner proceeds.

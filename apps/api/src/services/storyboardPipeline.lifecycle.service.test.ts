@@ -355,4 +355,33 @@ describe('skipPhase (AC-07)', () => {
     // reference_data starts as idle — must NOT be resolved
     expect(isPhaseResolved(row.referenceDataStatus)).toBe(false);
   });
+
+  // ── Review fix G4 — skip precondition (contract pipeline.not_awaiting_review) ──
+
+  it('REJECTS skip on a never-run (idle) phase — does NOT mark it skipped (AC-07 contract)', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    await insertPipelineRow({ draftId });
+    // reference_data is `idle` (never run) — skipping it would corrupt the AC-08
+    // skipped≠idle distinction, so the contract requires a 422 reject.
+    await expect(
+      skipPhase({ draftId, userId: OWNER_ID, phase: 'reference_data' }),
+    ).rejects.toMatchObject({ code: 'pipeline.not_awaiting_review' });
+
+    const after = (await getPipelineByDraftId(draftId))!;
+    expect(after.referenceDataStatus).toBe('idle'); // unchanged
+  });
+
+  it('REJECTS skip on a running phase (contract pipeline.not_awaiting_review)', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    await insertPipelineRow({ draftId, sceneStatus: 'running' });
+    const row = (await getPipelineByDraftId(draftId))!;
+    expect(row.sceneStatus).toBe('running');
+
+    await expect(
+      skipPhase({ draftId, userId: OWNER_ID, phase: 'scene' }),
+    ).rejects.toMatchObject({ code: 'pipeline.not_awaiting_review' });
+
+    const after = (await getPipelineByDraftId(draftId))!;
+    expect(after.sceneStatus).toBe('running'); // unchanged
+  });
 });

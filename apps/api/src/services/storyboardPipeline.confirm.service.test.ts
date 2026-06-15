@@ -321,6 +321,48 @@ describe('confirmCast — references below music + idempotent run claim', () => 
     expect(row!.activeRunPhase).toBeNull(); // run not claimed
   });
 
+  // ── Review fix G5 — no-body "confirm as shown" (openapi: cost_estimate optional) ──
+
+  it('AC-03: confirm with NO client estimate (confirm-as-shown) succeeds against the server estimate', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    await seedSceneAndMusic(draftId, [2]);
+    await seedCastProposal(draftId, OWNER_ID, [
+      { type: 'character', name: 'Hero' },
+      { type: 'character', name: 'Sidekick' },
+    ]);
+    await arrangeAwaitingReview(draftId, '0.1000');
+
+    // No cost_estimate in the body → null reaches the service (the documented
+    // "omit it to confirm the proposal exactly as shown" path). Must NOT 422.
+    const result = await confirmCast({ draftId, userId: OWNER_ID, clientEstimate: null });
+
+    expect(await countReferenceBlocks(draftId)).toBe(2); // blocks created
+    expect(result.activeRunPhase).toBe('reference_image'); // run claimed
+  });
+
+  // ── Review fix MIN-4 — CONCURRENT double-confirm (the second-tab race) ──
+
+  it('AC-14: concurrent double-confirm (Promise.all) creates exactly ONE block set', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    await seedSceneAndMusic(draftId, [3]);
+    await seedCastProposal(draftId, OWNER_ID, [
+      { type: 'character', name: 'Hero' },
+      { type: 'character', name: 'Sidekick' },
+    ]);
+    await arrangeAwaitingReview(draftId, '0.1000');
+
+    // Fire two confirms simultaneously — the active_run_phase CAS must let only
+    // one win; the loser converges to the existing run, no duplicate blocks.
+    const [a, b] = await Promise.all([
+      confirmCast({ draftId, userId: OWNER_ID, clientEstimate: '0.1000' }),
+      confirmCast({ draftId, userId: OWNER_ID, clientEstimate: '0.1000' }),
+    ]);
+
+    expect(await countReferenceBlocks(draftId)).toBe(2); // exactly one set, not four
+    expect(a.activeRunPhase).toBe('reference_image');
+    expect(b.activeRunPhase).toBe('reference_image');
+  });
+
   it('AC-10: confirmCast creates storyboard_reference_scene_links from proposal scene_block_ids', async () => {
     const draftId = await seedDraft(OWNER_ID);
     const { sceneA, sceneB } = await seedSceneAndMusic(draftId, [4]);

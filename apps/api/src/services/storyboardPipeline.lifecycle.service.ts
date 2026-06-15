@@ -29,13 +29,45 @@
 import type { RowDataPacket } from 'mysql2/promise';
 
 import { pool } from '@/db/connection.js';
-import { NotFoundError } from '@/lib/errors.js';
-import { type PipelinePhase } from '@ai-video-editor/project-schema';
+import { GateError, NotFoundError } from '@/lib/errors.js';
+import { type PhaseStatus, type PipelinePhase } from '@ai-video-editor/project-schema';
 import {
   getPipelineByDraftId,
   casUpdateState,
   type StoryboardPipelineRow,
 } from '@/repositories/storyboardPipeline.repository.js';
+
+/**
+ * Raised when `skipPhase` is called on a phase that is NOT `awaiting_review`
+ * (contracts/openapi.yaml skip → 422 `pipeline.not_awaiting_review`). Skip is only
+ * the act of dismissing a pending review modal; a never-run (`idle`) or in-flight
+ * (`running`) phase must NOT be silently marked `skipped` — that would corrupt the
+ * AC-08 prerequisite distinction (intentional skip vs. never-run).
+ */
+export class NotAwaitingReviewError extends GateError {
+  constructor(details: { phase: PipelinePhase; status: PhaseStatus }) {
+    super(
+      `Phase "${details.phase}" is not awaiting review (it is "${details.status}"), so it cannot be skipped.`,
+      'pipeline.not_awaiting_review',
+      details,
+    );
+    this.name = 'NotAwaitingReviewError';
+  }
+}
+
+/** The phase sub-state column for one phase, read off the projected row. */
+function phaseStatusOf(row: StoryboardPipelineRow, phase: PipelinePhase): PhaseStatus {
+  switch (phase) {
+    case 'scene':
+      return row.sceneStatus;
+    case 'reference_data':
+      return row.referenceDataStatus;
+    case 'reference_image':
+      return row.referenceImageStatus;
+    case 'scene_image':
+      return row.sceneImageStatus;
+  }
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -125,6 +157,16 @@ export async function skipPhase(params: LifecyclePhaseParams): Promise<Lifecycle
   const row = await getPipelineByDraftId(draftId);
   if (row === null) {
     throw new NotFoundError(`Draft not found`);
+  }
+
+  // 2b. Precondition (contract `pipeline.not_awaiting_review`): skip is ONLY the
+  //     dismissal of a pending review modal. A phase that is not `awaiting_review`
+  //     must not be flipped to `skipped` — otherwise a never-run (`idle`) phase
+  //     would be mis-recorded as an intentional decline, breaking the AC-08
+  //     prerequisite distinction (skipped ≠ idle).
+  const currentStatus = phaseStatusOf(row, phase);
+  if (currentStatus !== 'awaiting_review') {
+    throw new NotAwaitingReviewError({ phase, status: currentStatus });
   }
 
   // 3. CAS update: phase → skipped, clear run marker, bump version (ADR-0007).

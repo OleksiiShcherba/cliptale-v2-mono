@@ -12,16 +12,16 @@
  *      'failed' and clear the active-run marker before returning (AC-12, ADR-0005).
  *   4. Return the current row projection (AC-05 resume).
  *
- * The stuck-phase bound is read from APP_PIPELINE_STUCK_PHASE_BOUND_MINUTES
- * (config convention: process.env only via config.ts). Since that key is not
- * yet in config.ts, we default to 10 min inline and document that the config
- * key should be added (see SAD §8 — configurable via APP_*).
+ * The stuck-phase bound is read from config (APP_PIPELINE_STUCK_PHASE_BOUND_MINUTES,
+ * resolved in config.ts — the ONLY file allowed to read process.env per the repo
+ * convention; see SAD §8 — configurable via APP_*).
  */
 
 import { randomUUID } from 'node:crypto';
 
 import type { RowDataPacket } from 'mysql2/promise';
 
+import { config } from '@/config.js';
 import { pool } from '@/db/connection.js';
 import { NotFoundError } from '@/lib/errors.js';
 import { enqueueStoryboardPlan } from '@/queues/jobs/enqueue-storyboard-plan.js';
@@ -36,16 +36,8 @@ import {
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-/**
- * Default stuck-phase bound in minutes (ADR-0005, spec §6 NFR).
- * Configurable: APP_PIPELINE_STUCK_PHASE_BOUND_MINUTES (add to config.ts when
- * the key is needed in other modules — today it is only read here).
- */
-const STUCK_PHASE_BOUND_MINUTES: number = (() => {
-  const raw = process.env['APP_PIPELINE_STUCK_PHASE_BOUND_MINUTES'];
-  const parsed = raw ? parseInt(raw, 10) : NaN;
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
-})();
+/** Stuck-phase bound in minutes (ADR-0005, spec §6 NFR) — resolved in config.ts. */
+const STUCK_PHASE_BOUND_MINUTES: number = config.storyboardPipeline.stuckPhaseBoundMinutes;
 
 // ── Domain type ───────────────────────────────────────────────────────────────
 

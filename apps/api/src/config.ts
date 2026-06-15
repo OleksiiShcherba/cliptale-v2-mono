@@ -25,6 +25,7 @@ const envSchema = z.object({
   APP_FRONTEND_URL: z.string().default('http://localhost:5173'),
   APP_FAL_KEY: z.string().min(1),
   APP_ELEVENLABS_API_KEY: z.string().min(1),
+  APP_PIPELINE_STUCK_PHASE_BOUND_MINUTES: z.string().default('10'),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -82,5 +83,16 @@ export const config = {
   },
   elevenlabs: {
     apiKey: env.APP_ELEVENLABS_API_KEY,
+  },
+  storyboardPipeline: {
+    /**
+     * Stuck-phase release bound in minutes (ADR-0005, spec §6 NFR). A running phase
+     * whose heartbeat is older than this is lazily released to `failed` on the next
+     * state read. Falls back to 10 when the env value is non-numeric / ≤ 0.
+     */
+    stuckPhaseBoundMinutes: (() => {
+      const parsed = parseInt(env.APP_PIPELINE_STUCK_PHASE_BOUND_MINUTES, 10);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
+    })(),
   },
 } as const;
