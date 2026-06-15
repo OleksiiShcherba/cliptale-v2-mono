@@ -6,7 +6,7 @@ import type { Edge as FlowEdge, Node, NodeMouseHandler } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { fetchDraft } from '@/features/generate-wizard/api';
-import { startCastExtraction, confirmCast, retryReferenceBlockGeneration, updateReferenceBlock, saveReferenceSceneLinks, getLatestCastExtraction, cancelPhase, confirmPipelineCast, skipPhase } from '@/features/storyboard/api';
+import { startCastExtraction, confirmCast, retryReferenceBlockGeneration, updateReferenceBlock, saveReferenceSceneLinks, getLatestCastExtraction, cancelPhase, confirmPipelineCast, skipPhase, triggerPhase } from '@/features/storyboard/api';
 import { useAddBlock } from '@/features/storyboard/hooks/useAddBlock';
 import { useAddMusicBlock } from '@/features/storyboard/hooks/useAddMusicBlock';
 import { useHandleAddFromLibrary } from '@/features/storyboard/hooks/useHandleAddFromLibrary';
@@ -44,6 +44,7 @@ import { MusicBlockModal } from './MusicBlockModal';
 import { SceneModal } from './SceneModal';
 import { CastConfirmModal } from './CastConfirmModal';
 import { ReviewCastProposalModal } from './ReviewCastProposalModal';
+import { SceneImageOfferModal } from './SceneImageOfferModal';
 import type { CastExtractionJob, CastProposalEntry } from './CastConfirmModal';
 import { ReferenceDetailsModal } from './ReferenceDetailsModal';
 import { StoryboardBulkStreamUrlProvider } from './SceneBlockNode.mediaThumbnail';
@@ -563,7 +564,20 @@ export function StoryboardPage(): React.ReactElement {
             });
           }}
         />
-        {/* T18 review modals — plug in here once implemented */}
+        {/* T18 SceneImageOfferModal */}
+        <SceneImageOfferModal
+          state={pipelineState}
+          onAccept={() => {
+            void triggerPhase(safeDraftId, 'scene_image').catch((err: unknown) => {
+              console.error('triggerPhase scene_image failed', err);
+            });
+          }}
+          onSkip={() => {
+            void skipPhase(safeDraftId, 'scene_image').catch((err: unknown) => {
+              console.error('skipPhase scene_image failed', err);
+            });
+          }}
+        />
         {/* T19 StepCorners — plug in here once implemented */}
         <StoryboardPageFooter isNextDisabled={effectiveIsStep3Disabled || isMusicBlockingStep3} onBack={handleBack} onNext={handleNext} />
         {editingBlock !== null && (
