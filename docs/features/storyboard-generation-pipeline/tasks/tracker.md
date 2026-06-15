@@ -24,7 +24,7 @@
 | T17 | ReviewCastProposalModal (reuse CastConfirmModal) | ui | Frontend | M | T15 | done |
 | T18 | SceneImageOfferModal | ui | Frontend | S | T15 | done |
 | T19 | StepCorners corner controls + guard messages | ui | Frontend | M | T15 | done |
-| T20 | End-to-end + resume/authz regression coverage | tests | Backend + Frontend | M | T14, T16, T17, T18, T19, T12, T13 | todo |
-| T21 | Deploy cut-over: migrate in-flight old-flow drafts (OQ-2) | docs | Tech Lead | M | T9 | todo |
+| T20 | End-to-end + resume/authz regression coverage | tests | Backend + Frontend | M | T14, T16, T17, T18, T19, T12, T13 | done |
+| T21 | Deploy cut-over: migrate in-flight old-flow drafts (OQ-2) | docs | Tech Lead | M | T9 | done |
 
 **Total:** 21 tasks, ~18.5 person-days.
