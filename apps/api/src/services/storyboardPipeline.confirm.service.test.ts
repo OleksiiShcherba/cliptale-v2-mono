@@ -125,7 +125,7 @@ async function seedSceneAndMusic(
 async function seedCastProposal(
   draftId: string,
   userId: string,
-  cast: Array<{ type: 'character' | 'environment'; name: string; description?: string }>,
+  cast: Array<{ type: 'character' | 'environment'; name: string; description?: string; scene_block_ids?: string[] }>,
 ): Promise<void> {
   await conn.execute(
     `INSERT INTO storyboard_cast_extraction_jobs (id, draft_id, user_id, status, proposal_json, completed_at)
@@ -139,11 +139,39 @@ async function seedCastProposal(
           type: c.type,
           name: c.name,
           description: c.description ?? '',
-          scene_block_ids: [],
+          scene_block_ids: c.scene_block_ids ?? [],
         })),
       }),
     ],
   );
+}
+
+async function countReferenceSceneLinks(referenceBlockId: string): Promise<number> {
+  const [rows] = await conn.execute<RowDataPacket[]>(
+    `SELECT COUNT(*) AS cnt FROM storyboard_reference_scene_links WHERE reference_block_id = ?`,
+    [referenceBlockId],
+  );
+  return Number((rows[0] as { cnt: number }).cnt);
+}
+
+async function getReferenceBlockIdsByDraftId(draftId: string): Promise<string[]> {
+  const [rows] = await conn.execute<RowDataPacket[]>(
+    `SELECT id FROM storyboard_reference_blocks WHERE draft_id = ? ORDER BY sort_order`,
+    [draftId],
+  );
+  return (rows as Array<{ id: string }>).map((r) => r.id);
+}
+
+async function getSceneLinksForDraft(draftId: string): Promise<Array<{ reference_block_id: string; scene_block_id: string }>> {
+  const [rows] = await conn.execute<RowDataPacket[]>(
+    `SELECT srsl.reference_block_id, srsl.scene_block_id
+       FROM storyboard_reference_scene_links srsl
+       JOIN storyboard_reference_blocks srb ON srb.id = srsl.reference_block_id
+      WHERE srb.draft_id = ?
+      ORDER BY srsl.reference_block_id, srsl.scene_block_id`,
+    [draftId],
+  );
+  return rows as Array<{ reference_block_id: string; scene_block_id: string }>;
 }
 
 async function countReferenceBlocks(draftId: string): Promise<number> {
@@ -291,6 +319,56 @@ describe('confirmCast — references below music + idempotent run claim', () => 
     expect(await countReferenceBlocks(draftId)).toBe(0);
     const row = await getPipelineByDraftId(draftId);
     expect(row!.activeRunPhase).toBeNull(); // run not claimed
+  });
+
+  it('AC-10: confirmCast creates storyboard_reference_scene_links from proposal scene_block_ids', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    const { sceneA, sceneB } = await seedSceneAndMusic(draftId, [4]);
+    // Each cast entry carries the scene blocks it covers.
+    await seedCastProposal(draftId, OWNER_ID, [
+      { type: 'character',    name: 'Hero',   scene_block_ids: [sceneA, sceneB] },
+      { type: 'environment',  name: 'Forest', scene_block_ids: [sceneB] },
+    ]);
+    await arrangeAwaitingReview(draftId, '0.1000');
+
+    await confirmCast({ draftId, userId: OWNER_ID, clientEstimate: '0.1000' });
+
+    // Two reference blocks must exist.
+    const refBlockIds = await getReferenceBlockIdsByDraftId(draftId);
+    expect(refBlockIds).toHaveLength(2);
+
+    const [heroBlockId, forestBlockId] = refBlockIds as [string, string];
+
+    // Hero → sceneA + sceneB (2 links).
+    expect(await countReferenceSceneLinks(heroBlockId!)).toBe(2);
+    // Forest → sceneB only (1 link).
+    expect(await countReferenceSceneLinks(forestBlockId!)).toBe(1);
+
+    // The full link set is correct.
+    const links = await getSceneLinksForDraft(draftId);
+    expect(links).toHaveLength(3);
+    expect(links.map((l) => l.scene_block_id).sort()).toEqual(
+      [sceneA, sceneB, sceneB].sort(),
+    );
+  });
+
+  it('AC-10/AC-14: repeated confirm does NOT duplicate reference→scene links', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    const { sceneA } = await seedSceneAndMusic(draftId, [2]);
+    await seedCastProposal(draftId, OWNER_ID, [
+      { type: 'character', name: 'Hero', scene_block_ids: [sceneA] },
+    ]);
+    await arrangeAwaitingReview(draftId, '0.0500');
+
+    // First confirm — creates the block + link.
+    await confirmCast({ draftId, userId: OWNER_ID, clientEstimate: '0.0500' });
+    const linksAfterFirst = await getSceneLinksForDraft(draftId);
+    expect(linksAfterFirst).toHaveLength(1);
+
+    // Second confirm (idempotency) — must NOT add duplicate links.
+    await confirmCast({ draftId, userId: OWNER_ID, clientEstimate: '0.0500' });
+    const linksAfterSecond = await getSceneLinksForDraft(draftId);
+    expect(linksAfterSecond).toHaveLength(1); // unchanged
   });
 
   it('AC-13: a non-owner is denied (NotFoundError) and creates nothing', async () => {

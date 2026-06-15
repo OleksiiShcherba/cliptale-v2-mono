@@ -69,6 +69,8 @@ type ProposalCastEntry = {
   castType: 'character' | 'environment';
   name: string;
   description: string | null;
+  /** Scene-block UUIDs this reference covers (from the proposal; may be empty). */
+  sceneBlockIds: string[];
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -97,12 +99,15 @@ function parseProposalEntries(proposalJson: unknown): ProposalCastEntry[] {
   const entries: ProposalCastEntry[] = [];
   for (const raw of cast) {
     if (raw === null || typeof raw !== 'object') continue;
-    const r = raw as { type?: unknown; name?: unknown; description?: unknown };
+    const r = raw as { type?: unknown; name?: unknown; description?: unknown; scene_block_ids?: unknown };
     const castType = r.type === 'environment' ? 'environment' : 'character';
     const name = typeof r.name === 'string' && r.name.trim() ? r.name : 'Untitled';
     const description =
       typeof r.description === 'string' && r.description.trim() ? r.description : null;
-    entries.push({ castType, name, description });
+    const sceneBlockIds = Array.isArray(r.scene_block_ids)
+      ? (r.scene_block_ids as unknown[]).filter((id): id is string => typeof id === 'string')
+      : [];
+    entries.push({ castType, name, description, sceneBlockIds });
   }
   return entries;
 }
@@ -208,6 +213,10 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmCas
 
   // 7. Create every reference block below all music blocks (AC-09, snapshot).
   //    sort_order starts just past MAX(music.sort_order); blocks created 'pending'.
+  //    Immediately after each block, insert its storyboard_reference_scene_links
+  //    rows from the proposal entry's scene_block_ids (AC-10 prep for T12).
+  //    Only scene blocks that exist for this draft are linked (bad ids are skipped
+  //    to prevent FK violations from stale proposal data — the FK would rollback).
   const baseSort = (await maxMusicSortOrder(draftId)) + 1;
   type CreatedBlock = { blockId: string; entry: ProposalCastEntry };
   const created: CreatedBlock[] = [];
@@ -220,6 +229,16 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmCas
        VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
       [blockId, draftId, entry.castType, entry.name, entry.description, baseSort + i],
     );
+    // Insert reference → scene links (AC-10; matches shipped insert shape from
+    // storyboardReference.confirm.service / migration 054).
+    for (const sceneBlockId of entry.sceneBlockIds) {
+      await pool.execute(
+        `INSERT IGNORE INTO storyboard_reference_scene_links
+           (reference_block_id, scene_block_id)
+         VALUES (?, ?)`,
+        [blockId, sceneBlockId],
+      );
+    }
     created.push({ blockId, entry });
   }
 
