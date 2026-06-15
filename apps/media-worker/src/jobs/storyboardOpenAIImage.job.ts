@@ -71,6 +71,14 @@ export type StoryboardOpenAIImageJobDeps = {
   storyboardSceneRepo?: StoryboardSceneRepo;
   /** Optional: when present, enforces the reference boundary (AC-09) for scene jobs. */
   sceneReferenceSelectionRepo?: SceneReferenceSelectionRepo;
+  /**
+   * Optional best-effort scene-image phase-completion hook (AC-04, T12). When wired,
+   * it is invoked at every scene-image job completion point (success OR failure): once
+   * EVERY scene-illustration job for the draft is terminal (ready/failed) it advances
+   * scene_image → completed via version CAS. A failed scene is terminal and does NOT
+   * fail the phase. Absent in unit tests (backward-compatible no-op).
+   */
+  onSceneImagesAllTerminal?: (params: { pool: Pool; draftId: string }) => Promise<void>;
 };
 
 function sanitizeStoryboardImageError(error: unknown): string {
@@ -308,6 +316,10 @@ export async function processStoryboardOpenAIImageJob(
       outputFileId: fileId,
     });
     await publishAiGenerationJobStatus({ pool: deps.pool, jobId: payload.jobId });
+
+    // AC-04: scene-image phase-completion. Best-effort — once every scene-illustration
+    // job is terminal, advance scene_image → completed. Never fails the job.
+    await maybeAdvanceSceneImagePhase(payload, deps);
   } catch (error) {
     const message = sanitizeStoryboardImageError(error);
     if (isFinalBullMqAttempt(job)) {
@@ -318,7 +330,29 @@ export async function processStoryboardOpenAIImageJob(
       }
       await deps.storyboardSceneRepo?.markFailed(payload.jobId, message);
       await publishAiGenerationJobStatus({ pool: deps.pool, jobId: payload.jobId });
+
+      // AC-04: a failed scene is terminal — the phase still completes when this was
+      // the last non-terminal scene. Best-effort, only on the final attempt.
+      await maybeAdvanceSceneImagePhase(payload, deps);
     }
     throw error;
+  }
+}
+
+/**
+ * Best-effort scene-image phase-completion (AC-04). For scene jobs only: invokes the
+ * wired phase-completion hook, which advances scene_image → completed once every
+ * scene-illustration job for the draft is terminal. Swallows hook errors so the
+ * outcome of the scene job itself is never affected by a phase-advance failure.
+ */
+async function maybeAdvanceSceneImagePhase(
+  payload: StoryboardOpenAIImageJobPayload,
+  deps: StoryboardOpenAIImageJobDeps,
+): Promise<void> {
+  if (payload.kind !== 'scene' || !deps.onSceneImagesAllTerminal) return;
+  try {
+    await deps.onSceneImagesAllTerminal({ pool: deps.pool, draftId: payload.draftId });
+  } catch {
+    // best-effort: the reaper (T11) owns whole-phase stalls.
   }
 }

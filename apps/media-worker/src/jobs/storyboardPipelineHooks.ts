@@ -43,6 +43,9 @@ const PHASE_STATUS_COLUMN: Record<PipelinePhase, string> = {
 /** Reference-block window states that count as terminal for phase-advance (AC-03). */
 const TERMINAL_WINDOW_STATUSES = ['done', 'failed', 'skipped'] as const;
 
+/** Scene-illustration job states that count as terminal for scene-image phase-advance (AC-04). */
+const TERMINAL_SCENE_ILLUSTRATION_STATUSES = ['ready', 'failed'] as const;
+
 type CurrentStateRow = RowDataPacket & {
   version: number;
   scene_status: PhaseStatus;
@@ -221,5 +224,58 @@ export async function onReferenceImagesAllTerminal(params: {
     ],
     activeRunPhase: null,
     ...(params.sceneImageOffer !== undefined ? { payloadJson: params.sceneImageOffer } : {}),
+  });
+}
+
+/** True when every scene-illustration job for the draft is terminal (ready / failed). */
+async function areAllSceneImagesTerminal(pool: Pool, draftId: string): Promise<boolean> {
+  const [rows] = await pool.execute<Array<RowDataPacket & { total: number; non_terminal: number }>>(
+    `SELECT COUNT(*) AS total,
+            COUNT(CASE WHEN status NOT IN (?, ?) THEN 1 END) AS non_terminal
+       FROM storyboard_scene_illustration_jobs
+      WHERE draft_id = ?`,
+    [...TERMINAL_SCENE_ILLUSTRATION_STATUSES, draftId],
+  );
+  const row = rows[0]!;
+  const total = Number(row.total);
+  const nonTerminal = Number(row.non_terminal);
+  // No scene-illustration jobs at all → nothing to advance (don't complete a phase
+  // that never had units). With jobs, advance only when every one is terminal.
+  return total > 0 && nonTerminal === 0;
+}
+
+/**
+ * AC-04 — scene-image completion point: when EVERY scene-illustration job for the draft
+ * has reached a terminal status (`ready` / `failed`), mark scene_image `completed`. A
+ * scene that FAILED still counts as terminal — the phase completes regardless (failure-
+ * tolerant; the failed scene is left without an image and stays individually re-triggerable,
+ * and the whole-phase stall is the reaper's job, T11). No-op while any scene-illustration
+ * job is still queued/running, or if the CAS loses the race / the phase already advanced.
+ *
+ * This is the scene-image mirror of onReferenceImagesAllTerminal: a best-effort advance
+ * called at every scene-image job completion point (success OR failure). Idempotent on
+ * redelivery via the version CAS.
+ */
+export async function onSceneImagesAllTerminal(params: {
+  pool: Pool;
+  draftId: string;
+}): Promise<void> {
+  const { pool, draftId } = params;
+
+  if (!(await areAllSceneImagesTerminal(pool, draftId))) return;
+
+  const state = await readState(pool, draftId);
+  if (!state) return;
+
+  // running → completed must be a legal scene_image transition (idempotent: a second
+  // delivery sees scene_image already `completed` and this gate no-ops).
+  if (!canTransition(state.scene_image_status, 'completed')) return;
+
+  await casAdvance(pool, {
+    draftId,
+    currentVersion: state.version,
+    activePhase: 'scene_image',
+    phaseSets: [{ phase: 'scene_image', status: 'completed' }],
+    activeRunPhase: null,
   });
 }

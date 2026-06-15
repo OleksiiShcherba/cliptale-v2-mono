@@ -14,6 +14,7 @@ import type {
 } from '@/jobs/storyboardOpenAIImage.job.js';
 import type { ReferenceBlock, ReferenceOutput } from '@/jobs/referenceSelection.js';
 import type { CastExtractJobRepository } from '@/jobs/cast-extract.job.js';
+import { onSceneImagesAllTerminal } from '@/jobs/storyboardPipelineHooks.js';
 
 export const filesRepo: FilesRepo = {
   async createFile(params: CreateFileParams): Promise<string> {
@@ -227,8 +228,9 @@ export const sceneReferenceSelectionRepo: SceneReferenceSelectionRepo = {
     const [blockRows] = await pool.query<Array<{
       id: string;
       flow_id: string | null;
+      window_status: 'pending' | 'running' | 'done' | 'failed' | null;
     } & RowDataPacket>>(
-      `SELECT id, flow_id
+      `SELECT id, flow_id, window_status
          FROM storyboard_reference_blocks
         WHERE draft_id = ?
         ORDER BY sort_order ASC`,
@@ -314,6 +316,8 @@ export const sceneReferenceSelectionRepo: SceneReferenceSelectionRepo = {
       linkedSceneIds: linksByBlock.get(block.id) ?? [],
       outputs: block.flow_id !== null ? (outputsByFlowId.get(block.flow_id) ?? []) : [],
       primaryStarFileId: primaryStarByBlock.get(block.id),
+      // AC-10/AC-11 readiness gate: only window_status='done' blocks feed scenes.
+      windowStatus: block.window_status,
     }));
   },
 };
@@ -444,5 +448,7 @@ export function buildStoryboardOpenAIImageJobDeps(
     aiGenerationJobRepo: storyboardAiGenerationJobRepo,
     storyboardSceneRepo: storyboardIllustrationRepo,
     sceneReferenceSelectionRepo,
+    // AC-04 (T12): best-effort scene-image phase-completion advance after each scene job.
+    onSceneImagesAllTerminal,
   };
 }

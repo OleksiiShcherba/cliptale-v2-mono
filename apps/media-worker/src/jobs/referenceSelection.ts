@@ -30,7 +30,29 @@ export type ReferenceBlock = {
    * usability against outputs before honouring it.
    */
   primaryStarFileId?: string;
+  /**
+   * Rolling-window readiness of the block (storyboard_reference_blocks.window_status):
+   *   'done' = Ready (the only state that feeds scenes — AC-10).
+   *   'failed' / 'pending' / 'running' = NOT Ready → treated as no reference (AC-11).
+   *   null / undefined = manually-managed block: not gated (its curated outputs
+   *     themselves represent readiness — backward-compatible).
+   */
+  windowStatus?: 'pending' | 'running' | 'done' | 'failed' | null;
 };
+
+/**
+ * AC-10 / AC-11 readiness gate. A linked reference block feeds a scene ONLY when it
+ * is "Ready". Ready = window_status 'done'. A non-Ready terminal/in-progress state
+ * ('failed' / 'pending' / 'running') means the link is treated as no reference
+ * (text-only fallback). A null/undefined window_status is a manually-managed block
+ * and is NOT gated (its curated outputs already represent readiness).
+ */
+function isReferenceReady(block: ReferenceBlock): boolean {
+  if (block.windowStatus === undefined || block.windowStatus === null) {
+    return true; // manual block — ungated, backward-compatible
+  }
+  return block.windowStatus === 'done';
+}
 
 // ---------------------------------------------------------------------------
 // selectSceneReferences (AC-05, AC-06, AC-06b; ADR-0003)
@@ -61,6 +83,10 @@ export function selectSceneReferences(
   );
 
   return linkedBlocks.flatMap((block): string[] => {
+    // AC-11: a link to a non-Ready block is treated as no reference (text-only).
+    if (!isReferenceReady(block)) {
+      return [];
+    }
     if (block.outputs.length === 0) {
       return [];
     }

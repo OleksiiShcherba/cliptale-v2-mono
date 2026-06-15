@@ -67,8 +67,15 @@ function makeBlockV2(
   linkedScenes: string[],
   outputs: ReferenceOutput[],
   primaryStarFileId?: string,
+  windowStatus?: 'pending' | 'running' | 'done' | 'failed' | null,
 ): ReferenceBlock {
-  return { id, linkedSceneIds: linkedScenes, outputs, primaryStarFileId } as unknown as ReferenceBlock;
+  return {
+    id,
+    linkedSceneIds: linkedScenes,
+    outputs,
+    primaryStarFileId,
+    ...(windowStatus !== undefined ? { windowStatus } : {}),
+  } as unknown as ReferenceBlock;
 }
 
 // ===========================================================================
@@ -241,6 +248,102 @@ describe('selectSceneReferences — T7 output-based single selection (AC-05/AC-0
     } as never);
 
     expect(result).toHaveLength(0);
+  });
+});
+
+// ===========================================================================
+// T12 — Ready gate (AC-10 / AC-11): a linked block is a usable reference ONLY
+// when its window_status is "Ready" (= 'done'). A link to a non-Ready block
+// (failed / pending / running) contributes NO output → the scene falls back to
+// text-only (AC-11). A NULL/undefined window_status (manual block) stays usable
+// for backward compatibility (the curated outputs themselves represent readiness).
+// ===========================================================================
+
+describe('selectSceneReferences — T12 Ready gate (AC-10/AC-11)', () => {
+  // AC-10: a Ready (window_status='done') linked block feeds its selected output.
+  it('AC-10 ready feeds: a linked Ready block (window_status=done) contributes its selected output', () => {
+    const readyBlock = makeBlockV2(
+      BLOCK_A,
+      [SCENE_X],
+      [{ fileId: FILE_1, createdAt: T_NEW }],
+      undefined,
+      'done',
+    );
+
+    const result = selectSceneReferences({
+      sceneId: SCENE_X,
+      allBlocks: [readyBlock],
+    } as never);
+
+    expect(result).toEqual([FILE_1]);
+  });
+
+  // AC-11: a linked block that FAILED is treated as no reference → no output.
+  it('AC-11 non-ready failed: a linked failed block contributes NO output (treated as no reference)', () => {
+    const failedBlock = makeBlockV2(
+      BLOCK_A,
+      [SCENE_X],
+      [{ fileId: FILE_1, createdAt: T_NEW }], // stray output, but block is NOT Ready
+      undefined,
+      'failed',
+    );
+
+    const result = selectSceneReferences({
+      sceneId: SCENE_X,
+      allBlocks: [failedBlock],
+    } as never);
+
+    expect(result).toHaveLength(0);
+  });
+
+  // AC-11: a linked block still pending/running is treated as no reference.
+  it('AC-11 non-ready pending/running: linked pending or running blocks contribute NO output', () => {
+    const pendingBlock = makeBlockV2(
+      BLOCK_A,
+      [SCENE_X],
+      [{ fileId: FILE_1, createdAt: T_NEW }],
+      undefined,
+      'pending',
+    );
+    const runningBlock = makeBlockV2(
+      BLOCK_B,
+      [SCENE_X],
+      [{ fileId: FILE_2, createdAt: T_NEW }],
+      undefined,
+      'running',
+    );
+
+    const result = selectSceneReferences({
+      sceneId: SCENE_X,
+      allBlocks: [pendingBlock, runningBlock],
+    } as never);
+
+    expect(result).toHaveLength(0);
+  });
+
+  // AC-11: mixed — only the Ready block feeds; the failed sibling contributes nothing.
+  it('AC-11 mixed: only the Ready linked block feeds; a failed linked sibling is ignored', () => {
+    const readyBlock = makeBlockV2(
+      BLOCK_A,
+      [SCENE_X],
+      [{ fileId: FILE_1, createdAt: T_NEW }],
+      undefined,
+      'done',
+    );
+    const failedBlock = makeBlockV2(
+      BLOCK_B,
+      [SCENE_X],
+      [{ fileId: FILE_2, createdAt: T_NEW }],
+      undefined,
+      'failed',
+    );
+
+    const result = selectSceneReferences({
+      sceneId: SCENE_X,
+      allBlocks: [readyBlock, failedBlock],
+    } as never);
+
+    expect(result).toEqual([FILE_1]);
   });
 });
 
