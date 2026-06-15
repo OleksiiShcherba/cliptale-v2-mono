@@ -121,3 +121,25 @@ export type {
   FlowEdge,
   FlowCanvas,
 } from './schemas/flowCanvas.schema.js';
+export {
+  PIPELINE_PHASES,
+  PHASE_STATUSES,
+  PHASE_STATUS_TRANSITIONS,
+  PIPELINE_GUARD_CODES,
+  pipelinePhaseSchema,
+  phaseStatusSchema,
+  canTransition,
+  isPhaseResolved,
+  prerequisitesOf,
+  checkPhaseOrder,
+  checkScenesRequired,
+  decideRunClaim,
+} from './storyboardPipeline/transition.js';
+export type {
+  PipelinePhase,
+  PhaseStatus,
+  PipelinePhaseStatuses,
+  PipelineGuardCode,
+  GuardResult,
+  RunClaimDecision,
+} from './storyboardPipeline/transition.js';
