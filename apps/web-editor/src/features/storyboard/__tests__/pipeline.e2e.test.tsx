@@ -71,7 +71,7 @@ type SubscriptionHandlers = {
 
 const mocks = vi.hoisted(() => ({
   getPipelineState: vi.fn<[string], Promise<PipelineState>>(),
-  confirmPipelineCast: vi.fn<[string, ({ references?: unknown[] } | undefined)?], Promise<PipelineState>>(),
+  confirmPipelineCast: vi.fn<[string], Promise<PipelineState>>(),
   triggerPhase: vi.fn<[string, PhaseName], Promise<PipelineState>>(),
   cancelPhase: vi.fn<[string, PhaseName], Promise<PipelineState>>(),
   skipPhase: vi.fn<[string, PhaseName], Promise<PipelineState>>(),

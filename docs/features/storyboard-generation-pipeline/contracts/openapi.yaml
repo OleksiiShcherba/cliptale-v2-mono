@@ -510,10 +510,9 @@ components:
       type: object
       additionalProperties: false
       description: |
-        Optional confirm-cast body. Omit entirely to confirm the proposal as shown. When present, it
-        records the Creator's adjusted cast. Shape mirrors CastProposal.references — its typed origin
-        is the inherited cast-extraction contract, not this feature's data-model (finding B1, open).
-      properties:
-        references:
-          type: array
-          items: { $ref: "#/components/schemas/ProposedReference" }
+        Confirm-cast body. The cast is confirmed exactly **as shown** — there is no client-supplied
+        payload: omit the body (or send `{}`). The proposed reference set is the one the server
+        persisted at proposal time; the client neither edits it nor echoes the cost estimate back
+        (review r4 F2 — cast adjustment is not in scope; AC-03 is confirm-as-shown, ADR-0006). The
+        server re-validates the estimate it computed; any client-sent figure is defensively ignored.
+      properties: {}

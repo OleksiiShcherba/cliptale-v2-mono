@@ -46,13 +46,15 @@ const draftIdSchema = z.string().min(1);
 
 /**
  * Optional confirm-cast body (openapi.yaml#/components/schemas/CastConfirmation).
- * Omit it entirely to confirm the proposal as shown. `cost_estimate` is the estimate
- * the Creator was shown — re-validated server-side (never trusted, §6.1, ADR-0006).
+ * The cast is confirmed as shown — omit the body (or send `{}`). The only field the
+ * server reads is `cost_estimate`, a DEFENSIVE re-validation input: when a (tampered/
+ * stale) client supplies it, the server re-validates against its own computed estimate
+ * and rejects a mismatch (never trusted, §6.1, ADR-0006). There is no cast-adjustment
+ * payload — `references` was removed as a dead no-op (review r4 F2).
  */
 const confirmCastBodySchema = z
   .object({
     cost_estimate: z.string().nullable().optional(),
-    references: z.array(z.unknown()).optional(),
   })
   .passthrough();
 
