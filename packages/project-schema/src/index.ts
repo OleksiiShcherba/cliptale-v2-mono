@@ -149,3 +149,13 @@ export type {
   PipelineStateRow,
   PipelinePhaseState,
 } from './storyboardPipeline/projection.js';
+export { buildStoryboardLayout, StoryboardLayoutError } from './storyboardLayout/buildStoryboardLayout.js';
+export type {
+  StoryboardLayout,
+  StoryboardLayoutBlock,
+  StoryboardLayoutBlockType,
+  StoryboardLayoutMediaItem,
+  StoryboardLayoutEdge,
+  StoryboardLayoutMusicBlock,
+  BuildStoryboardLayoutParams,
+} from './storyboardLayout/buildStoryboardLayout.js';

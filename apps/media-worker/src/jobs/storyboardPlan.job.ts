@@ -80,6 +80,19 @@ export type StoryboardPlanJobDeps = {
    * worker owns its own queue producer (the entrypoint wires the real implementation).
    */
   enqueueCastExtraction?: (params: { draftId: string; userId: string }) => Promise<void>;
+  /**
+   * Materialize the completed plan into storyboard scene blocks (r6-F1, AC-02).
+   * The pipeline is backend-owned (the client no longer applies the plan), so the
+   * worker must record scene blocks here — BEFORE the transition advances to
+   * reference-data — otherwise cast-extraction races an empty scene set and prunes
+   * every reference's `scene_ids` to []. Injected for testability + the worker
+   * owns its own DB writer (the entrypoint wires the real implementation).
+   */
+  materializeScenePlan?: (params: {
+    draftId: string;
+    userId: string;
+    plan: StoryboardPlan;
+  }) => Promise<void>;
 };
 
 export class StoryboardPlanJobPayloadValidationError extends Error {
@@ -296,12 +309,19 @@ export async function processStoryboardPlanJob(
     // produced (B1 review fix — only the CAS winner enqueues, exactly once). Best-effort:
     // a hook/enqueue failure must not fail the scene job.
     try {
+      // SAD §6 Flow 1: "record scene blocks, run transition" — materialize the
+      // plan into scene blocks BEFORE advancing, so the cast-extraction the advance
+      // enqueues reads real scene ids (r6-F1, AC-02). A materialization failure
+      // aborts the advance: never let cast-extract race an unmaterialized plan.
+      if (deps.materializeScenePlan) {
+        await deps.materializeScenePlan({ draftId, userId, plan });
+      }
       const advanced = await onSceneGenerationComplete({ pool: deps.pool, draftId });
       if (advanced && deps.enqueueCastExtraction) {
         await deps.enqueueCastExtraction({ draftId, userId });
       }
     } catch (hookError) {
-      console.error('[storyboardPlan] pipeline advance/enqueue hook failed:', hookError);
+      console.error('[storyboardPlan] pipeline materialize/advance/enqueue hook failed:', hookError);
     }
 
     return plan;

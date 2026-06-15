@@ -25,6 +25,7 @@ import { processEnhancePromptJob } from '@/jobs/enhancePrompt.job.js';
 import { processStoryboardOpenAIImageJob } from '@/jobs/storyboardOpenAIImage.job.js';
 import { routeStoryboardPlanQueueJob } from '@/jobs/storyboardPlanQueue.processor.js';
 import { enqueueCastExtraction } from '@/jobs/enqueueCastExtraction.js';
+import { materializeScenePlanBlocks } from '@/jobs/materializeScenePlan.js';
 import { reaperJobProcessor } from '@/jobs/storyboardPipelineReaper.job.js';
 import {
   aiGenerationJobRepo,
@@ -182,6 +183,9 @@ const storyboardPlanWorker = new Worker(
       pool,
       enqueueCastExtraction: (params) =>
         enqueueCastExtraction(params, { pool, queue: storyboardPlanQueue }).then(() => undefined),
+      // r6-F1: record scene blocks before the transition advances, so cast-extraction
+      // reads real scene ids (SAD §6 Flow 1).
+      materializeScenePlan: (params) => materializeScenePlanBlocks(pool, params),
     }),
   { connection, concurrency: 1 },
 );

@@ -827,4 +827,64 @@ describe('processStoryboardPlanJob', () => {
       expect(result).toEqual(makeValidPlan()); // job still succeeds
     });
   });
+
+  describe('scene-block materialization (r6-F1, AC-02)', () => {
+    const advanceHook = onSceneGenerationComplete as ReturnType<typeof vi.fn>;
+
+    it('materializes scene blocks AFTER markCompleted and BEFORE advancing the pipeline', async () => {
+      advanceHook.mockResolvedValueOnce(true);
+      const materializeScenePlan = vi.fn().mockResolvedValue(undefined);
+      const enqueueCastExtraction = vi.fn().mockResolvedValue(undefined);
+      const repository = makeRepository();
+      const openai = makeOpenAiMock(JSON.stringify(makeValidPlan()));
+      const resolveContext = vi.fn(async () => makeContext());
+
+      await processStoryboardPlanJob(makeJob(), {
+        openai,
+        pool,
+        repository,
+        resolveContext,
+        materializeScenePlan,
+        enqueueCastExtraction,
+      });
+
+      expect(materializeScenePlan).toHaveBeenCalledTimes(1);
+      expect(materializeScenePlan).toHaveBeenCalledWith({
+        draftId: DRAFT_ID,
+        userId: USER_ID,
+        plan: makeValidPlan(),
+      });
+
+      const markCompletedOrder = (repository.markCompleted as ReturnType<typeof vi.fn>).mock
+        .invocationCallOrder[0]!;
+      const materializeOrder = materializeScenePlan.mock.invocationCallOrder[0]!;
+      const advanceOrder = advanceHook.mock.invocationCallOrder[0]!;
+      // record scene blocks, THEN run the transition (SAD §6 Flow 1).
+      expect(markCompletedOrder).toBeLessThan(materializeOrder);
+      expect(materializeOrder).toBeLessThan(advanceOrder);
+    });
+
+    it('does NOT advance or enqueue cast extraction when materialization fails', async () => {
+      advanceHook.mockResolvedValueOnce(true);
+      const materializeScenePlan = vi.fn().mockRejectedValue(new Error('write failed'));
+      const enqueueCastExtraction = vi.fn().mockResolvedValue(undefined);
+      const openai = makeOpenAiMock(JSON.stringify(makeValidPlan()));
+      const resolveContext = vi.fn(async () => makeContext());
+
+      const result = await processStoryboardPlanJob(makeJob(), {
+        openai,
+        pool,
+        repository: makeRepository(),
+        resolveContext,
+        materializeScenePlan,
+        enqueueCastExtraction,
+      });
+
+      // A materialization failure must NOT let cast-extract race an empty scene set.
+      expect(advanceHook).not.toHaveBeenCalled();
+      expect(enqueueCastExtraction).not.toHaveBeenCalled();
+      // Best-effort: the plan job itself still succeeds (phase stays running for retry/reaper).
+      expect(result).toEqual(makeValidPlan());
+    });
+  });
 });

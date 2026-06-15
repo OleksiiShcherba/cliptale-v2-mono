@@ -12,7 +12,7 @@
  */
 import type { Job } from 'bullmq';
 import type { Pool } from 'mysql2/promise';
-import type { StoryboardPlanJobPayload } from '@ai-video-editor/project-schema';
+import type { StoryboardPlan, StoryboardPlanJobPayload } from '@ai-video-editor/project-schema';
 
 import {
   processStoryboardPlanJob,
@@ -36,6 +36,16 @@ export type StoryboardPlanQueueClients = {
    * Optional so existing callers/tests still compile; the entrypoint wires the real one.
    */
   enqueueCastExtraction?: (params: { draftId: string; userId: string }) => Promise<void>;
+  /**
+   * Materialize the completed plan into scene blocks before the transition advances
+   * (r6-F1, AC-02). Optional so existing callers/tests still compile; the entrypoint
+   * wires the real one.
+   */
+  materializeScenePlan?: (params: {
+    draftId: string;
+    userId: string;
+    plan: StoryboardPlan;
+  }) => Promise<void>;
 };
 
 /**
@@ -58,5 +68,6 @@ export function routeStoryboardPlanQueueJob(
     openai: clients.openai,
     pool: clients.pool,
     enqueueCastExtraction: clients.enqueueCastExtraction,
+    materializeScenePlan: clients.materializeScenePlan,
   });
 }
