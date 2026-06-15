@@ -197,6 +197,11 @@ export function StoryboardIllustrationControls({
   // Suppress the inline alert role when a structured gate error message is shown
   // elsewhere in the page — prevents duplicate role="alert" elements (AC-02).
   const suppressInlineAlert = status === 'failed' && hasStructuredGateError;
+  // AC-12 (review r4 F1): a co-located Retry on a genuine whole-phase scene-image
+  // failure — wired to onRegenerate (→ triggerPhase('scene_image')), mirroring the
+  // scene-phase control. NOT shown for a structured gate error (a prerequisite block,
+  // AC-08/AC-15), whose dedicated guard message + corner controls drive the retry.
+  const showRetry = status === 'failed' && !hasStructuredGateError;
 
   return (
     <div
@@ -224,6 +229,16 @@ export function StoryboardIllustrationControls({
           onRegenerate={() => onRegenerate?.()}
           onHide={() => onHide?.()}
         />
+      )}
+      {showRetry && (
+        <button
+          type="button"
+          style={s.button}
+          onClick={() => onRegenerate?.()}
+          data-testid="storyboard-illustration-retry-button"
+        >
+          Retry
+        </button>
       )}
     </div>
   );

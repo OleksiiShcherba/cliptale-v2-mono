@@ -176,3 +176,43 @@ describe('StoryboardPlanControls — status menu mounting (AC-06, AC-09)', () =>
     expect(onHide).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('StoryboardIllustrationControls — failed-phase retry (AC-12, review r4 F1)', () => {
+  it('renders a co-located Retry on a failed scene-image phase wired to onRegenerate (triggerPhase scene_image)', () => {
+    const onRegenerate = vi.fn();
+    render(
+      <StoryboardIllustrationControls
+        status="failed" phase="scene" error="Scene image generation failed."
+        isOwner onRegenerate={onRegenerate} onHide={vi.fn()}
+      />,
+    );
+    const retry = screen.getByTestId('storyboard-illustration-retry-button');
+    expect(retry).toBeTruthy();
+    fireEvent.click(retry);
+    expect(onRegenerate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT render the Retry button when a structured gate error is shown elsewhere (prerequisite block, not a phase failure)', () => {
+    render(
+      <StoryboardIllustrationControls
+        status="failed" phase="scene" error={null}
+        hasStructuredGateError
+        isOwner onRegenerate={vi.fn()} onHide={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId('storyboard-illustration-retry-button')).toBeNull();
+  });
+
+  it('does NOT render the Retry button on non-failed illustration states', () => {
+    for (const status of ['idle', 'queued', 'running', 'completed'] as const) {
+      const { unmount } = render(
+        <StoryboardIllustrationControls
+          status={status} phase="scene" error={null}
+          isOwner onRegenerate={vi.fn()} onHide={vi.fn()}
+        />,
+      );
+      expect(screen.queryByTestId('storyboard-illustration-retry-button')).toBeNull();
+      unmount();
+    }
+  });
+});
