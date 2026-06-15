@@ -1,7 +1,9 @@
 /**
  * One-time cut-over backfill: seeds a storyboard_pipeline row for every
- * in-flight old-flow draft (queued/running Scene planning /
- * Illustration status jobs) that does not yet have a pipeline row.
+ * migratable old-flow draft that does not yet have a pipeline row —
+ * a queued/running plan / cast / reference / illustration job, a cast
+ * proposal awaiting review, or a Step-2 draft whose scenes are already
+ * generated (seeded `scene completed`, see review r3 F1).
  *
  * storyboard-generation-pipeline T21
  */
@@ -31,9 +33,23 @@ export interface BackfillReport {
 
 /**
  * Finds all generation_drafts that:
- *   a) have at least one in-flight old-flow signal (plan job, cast extraction,
- *      scene illustration job, or generation_drafts.status = 'step2'), AND
+ *   a) have at least one MIGRATABLE old-flow signal, AND
  *   b) do NOT yet have a storyboard_pipeline row.
+ *
+ * Migratable signals (OQ-2 = "in-flight old-flow drafts"):
+ *   - a queued/running plan, cast-extraction, reference-image or scene-illustration
+ *     job (genuinely in-flight work the new pipeline must reflect), OR
+ *   - a completed cast extraction with a proposal awaiting review, OR
+ *   - a draft parked on Step-2 (status='step2') **that already has generated scene
+ *     blocks** — its scene phase is done; we seed it `scene completed` so resume
+ *     returns it healthy instead of re-planning it (lazy-create auto-starts scenes
+ *     only when no row exists). A step2 draft with NO scenes is NOT migratable here:
+ *     it has no in-flight work, and resume lazy-create auto-starts its scene gen.
+ *
+ * The bare `status='step2'` predicate was REMOVED (review r3, F1): step2 is the
+ * normal status for ANY draft parked on Step-2, so it over-seeded every idle/finished
+ * draft as scene/running — throwing the owner behind a phantom scene-gen loader that
+ * the reaper then failed at the 10-min bound.
  *
  * Also separately counts drafts that DO have a pipeline row (skipped).
  */
@@ -52,7 +68,10 @@ const SCAN_SQL = `
     MAX(CASE WHEN ce.status IN ('queued','running') THEN 1 ELSE 0 END) AS has_cast_running,
 
     -- plan_job signal
-    MAX(CASE WHEN pj.status IN ('queued','running') THEN 1 ELSE 0 END) AS has_plan_active
+    MAX(CASE WHEN pj.status IN ('queued','running') THEN 1 ELSE 0 END) AS has_plan_active,
+
+    -- generated-scene signal (a step2 draft with scenes = scene phase already done)
+    MAX(CASE WHEN scn.id IS NOT NULL THEN 1 ELSE 0 END) AS has_scenes
 
   FROM generation_drafts d
 
@@ -61,6 +80,7 @@ const SCAN_SQL = `
   LEFT JOIN storyboard_reference_blocks        rb ON rb.draft_id = d.id
   LEFT JOIN storyboard_cast_extraction_jobs    ce ON ce.draft_id = d.id
   LEFT JOIN storyboard_plan_jobs               pj ON pj.draft_id = d.id
+  LEFT JOIN storyboard_blocks                  scn ON scn.draft_id = d.id AND scn.block_type = 'scene'
 
   WHERE sp.draft_id IS NULL
     AND (
@@ -69,7 +89,7 @@ const SCAN_SQL = `
       OR ce.status IN ('queued','running')
       OR (ce.status = 'completed' AND ce.proposal_json IS NOT NULL)
       OR pj.status IN ('queued','running')
-      OR d.status = 'step2'
+      OR (d.status = 'step2' AND scn.id IS NOT NULL)
     )
 
   GROUP BY d.id
@@ -84,7 +104,7 @@ const SKIP_COUNT_SQL = `
     OR EXISTS (SELECT 1 FROM storyboard_reference_blocks rb WHERE rb.draft_id = d.id AND rb.window_status IN ('pending','running'))
     OR EXISTS (SELECT 1 FROM storyboard_cast_extraction_jobs ce WHERE ce.draft_id = d.id AND (ce.status IN ('queued','running') OR (ce.status = 'completed' AND ce.proposal_json IS NOT NULL)))
     OR EXISTS (SELECT 1 FROM storyboard_plan_jobs pj WHERE pj.draft_id = d.id AND pj.status IN ('queued','running'))
-    OR d.status = 'step2'
+    OR (d.status = 'step2' AND EXISTS (SELECT 1 FROM storyboard_blocks b WHERE b.draft_id = d.id AND b.block_type = 'scene'))
   )
 `;
 
@@ -97,6 +117,7 @@ type ScanRow = RowDataPacket & {
   has_cast_awaiting: number;
   has_cast_running: number;
   has_plan_active: number;
+  has_scenes: number;
 };
 
 function mapToEntry(row: ScanRow): BackfillEntry {
@@ -156,12 +177,28 @@ function mapToEntry(row: ScanRow): BackfillEntry {
     };
   }
 
-  // 5. plan job queued/running (or step2 with no scenes) → scene phase
+  // 5. plan job queued/running → scene phase still in progress (loader + heartbeat;
+  //    a real job is running, so the reaper bound is meaningful).
+  if (row.has_plan_active) {
+    return {
+      draftId,
+      activePhase: 'scene',
+      activeRunPhase: 'scene',
+      sceneStatus: 'running',
+      referenceDataStatus: 'idle',
+      referenceImageStatus: 'idle',
+      sceneImageStatus: 'idle',
+    };
+  }
+
+  // 6. step2 draft whose scenes are already generated, no active job (F1) → scene
+  //    COMPLETED with no active run, so resume returns it healthy (no phantom loader,
+  //    no reaper kill) and the Creator can trigger the next phase from the corners.
   return {
     draftId,
     activePhase: 'scene',
-    activeRunPhase: 'scene',
-    sceneStatus: 'running',
+    activeRunPhase: null,
+    sceneStatus: 'completed',
     referenceDataStatus: 'idle',
     referenceImageStatus: 'idle',
     sceneImageStatus: 'idle',

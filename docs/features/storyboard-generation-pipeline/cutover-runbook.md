@@ -1,9 +1,31 @@
 # T21 Cut-over Runbook — storyboard_pipeline backfill
 
-One-time operation: seeds a `storyboard_pipeline` row for every in-flight
-old-flow draft that has a `storyboard_plan_jobs`, `storyboard_cast_extraction_jobs`,
-or `storyboard_scene_illustration_jobs` row in `queued`/`running` status (or a
-completed cast extraction with a non-null `proposal_json`), and no pipeline row yet.
+One-time operation: seeds a `storyboard_pipeline` row for every migratable
+old-flow draft that has no pipeline row yet —
+- a `storyboard_plan_jobs`, `storyboard_cast_extraction_jobs`,
+  `storyboard_scene_illustration_jobs`, or `storyboard_reference_blocks` row in
+  `queued`/`running`/`pending` status, or a completed cast extraction with a
+  non-null `proposal_json`; **or**
+- a draft parked on Step-2 (`status='step2'`) **that already has generated `scene`
+  blocks** — seeded `scene completed` (no active run), so resume returns it healthy.
+
+> **F1 (review r3):** the bare `status='step2'` predicate was removed. `step2` is the
+> normal status for ANY draft on the Step-2 screen, so the old scan over-seeded every
+> idle/finished draft as `scene running` — throwing the Creator behind a phantom
+> scene-gen loader the reaper then failed at the 10-min bound. Only step2 drafts with
+> generated scenes are now migratable (as `scene completed`); a step2 draft with **no**
+> scenes is left for resume lazy-create to auto-start.
+>
+> **Dev-DB cleanup (one-time):** the first dev apply (pre-F1) seeded ~158 `step2`
+> drafts as `scene/running`. Re-running the backfill will NOT fix them (`INSERT IGNORE`
+> skips existing rows). Delete the bad rows before/after re-applying:
+> ```sql
+> DELETE sp FROM storyboard_pipeline sp
+> WHERE sp.active_run_phase = 'scene' AND sp.scene_status = 'running'
+>   AND NOT EXISTS (SELECT 1 FROM storyboard_plan_jobs pj
+>                   WHERE pj.draft_id = sp.draft_id AND pj.status IN ('queued','running'));
+> ```
+> Prod has not been backfilled yet, so prod is unaffected.
 
 ## Prerequisites
 
@@ -69,6 +91,8 @@ WHERE sp.draft_id IS NULL
                WHERE si.draft_id = d.id AND si.status IN ('queued','running'))
     OR EXISTS (SELECT 1 FROM storyboard_reference_blocks rb
                WHERE rb.draft_id = d.id AND rb.window_status IN ('pending','running'))
+    OR (d.status = 'step2' AND EXISTS (SELECT 1 FROM storyboard_blocks b
+               WHERE b.draft_id = d.id AND b.block_type = 'scene'))
   );
 -- Expected: 0 rows.
 ```

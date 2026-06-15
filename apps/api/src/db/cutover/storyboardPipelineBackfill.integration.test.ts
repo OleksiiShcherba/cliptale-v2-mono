@@ -48,9 +48,19 @@ const DRAFT_CASTRUN  = `${PREFIX}-castr-0002`;   // cast_extraction running → 
 const DRAFT_CASTAWT  = `${PREFIX}-casta-0003`;   // cast_extraction completed with proposal_json → awaiting_review
 const DRAFT_IMGRUN   = `${PREFIX}-imgr-00004`;   // scene_illustration queued/running → scene_image running
 const DRAFT_ALREADY  = `${PREFIX}-alrdy-0005`;   // already has a storyboard_pipeline row → skipped
+// F1 regression — a draft parked on Step-2 (status='step2') with scenes ALREADY
+// generated and NO active job. Must NOT be mis-seeded as scene/running (which would
+// throw the owner behind a phantom scene-gen loader → reaper-failed at 10 min).
+const DRAFT_S2DONE   = `${PREFIX}-s2done-006`;   // step2 + scenes + no job → scene COMPLETED, no run
+// F1 regression — a draft parked on Step-2 with NO scenes and NO active job. It is
+// not "in-flight" (OQ-2 = queued/running jobs); resume lazy-create auto-starts it,
+// so the backfill must NOT seed it at all.
+const DRAFT_S2EMPTY  = `${PREFIX}-s2empt-007`;   // step2 + no scenes + no job → not backfilled
 
-const ALL_DRAFT_IDS = [DRAFT_SCENE, DRAFT_CASTRUN, DRAFT_CASTAWT, DRAFT_IMGRUN, DRAFT_ALREADY];
+const ALL_DRAFT_IDS = [DRAFT_SCENE, DRAFT_CASTRUN, DRAFT_CASTAWT, DRAFT_IMGRUN, DRAFT_ALREADY, DRAFT_S2DONE, DRAFT_S2EMPTY];
 const IN_FLIGHT_DRAFT_IDS = [DRAFT_SCENE, DRAFT_CASTRUN, DRAFT_CASTAWT, DRAFT_IMGRUN];
+// Drafts the backfill should INSERT a row for: the 4 in-flight + the parked-with-scenes one.
+const SEEDED_DRAFT_IDS = [...IN_FLIGHT_DRAFT_IDS, DRAFT_S2DONE];
 
 // Seed user reused across all drafts — INSERT IGNORE so the user persists
 // across parallel test runs without collision.
@@ -169,7 +179,9 @@ beforeAll(async () => {
   );
   await conn.execute(`SET FOREIGN_KEY_CHECKS = 1`);
 
-  // Scenario 5 — DRAFT_ALREADY: pre-existing storyboard_pipeline row.
+  // Scenario 5 — DRAFT_ALREADY: pre-existing storyboard_pipeline row + an in-flight
+  // plan job (so it is a genuine "in-flight but already seeded" → skipped fixture,
+  // independent of the retired bare status='step2' predicate).
   await conn.execute(
     `INSERT IGNORE INTO storyboard_pipeline
        (draft_id, active_phase, active_run_phase,
@@ -177,6 +189,27 @@ beforeAll(async () => {
      VALUES (?, 'scene', NULL, 'completed', 'idle', 'idle', 'idle')`,
     [DRAFT_ALREADY],
   );
+  await conn.execute(
+    `INSERT IGNORE INTO storyboard_plan_jobs
+       (job_id, draft_id, user_id, status, model, prompt_snapshot_json)
+     VALUES (?, ?, ?, 'running', 'gpt-cutover-test', ?)`,
+    [
+      `${PREFIX}-plan-job-0005`,
+      DRAFT_ALREADY,
+      SEED_USER_ID,
+      JSON.stringify({ text: 'cutover test' }),
+    ],
+  );
+
+  // Scenario 6 — DRAFT_S2DONE: status='step2', scenes already generated, NO active job.
+  // (F1) Must map to scene COMPLETED / no active run — NOT scene running.
+  await conn.execute(
+    `INSERT IGNORE INTO storyboard_blocks (id, draft_id, block_type, name, prompt, sort_order)
+     VALUES (?, ?, 'scene', 'Backfilled scene', 'a scene that already exists', 1)`,
+    [`${PREFIX}-block-s2done-006`, DRAFT_S2DONE],
+  );
+
+  // Scenario 7 — DRAFT_S2EMPTY: status='step2', NO scenes, NO active job — left as-is.
 });
 
 // ── Teardown ──────────────────────────────────────────────────────────────────
@@ -200,6 +233,10 @@ afterAll(async () => {
   );
   await conn.query(
     `DELETE FROM storyboard_plan_jobs WHERE draft_id IN (${ph})`,
+    ALL_DRAFT_IDS,
+  );
+  await conn.query(
+    `DELETE FROM storyboard_blocks WHERE draft_id IN (${ph})`,
     ALL_DRAFT_IDS,
   );
   await conn.query(
@@ -273,6 +310,25 @@ describe('T21 — backfillStoryboardPipeline (cut-over)', () => {
       const count = await countPipelineRows(IN_FLIGHT_DRAFT_IDS);
       expect(count).toBe(0);
     });
+
+    // F1 regression — a parked step2 draft WITH scenes and no active job must map
+    // to scene COMPLETED with no active run, never scene/running (no phantom loader).
+    it('maps a step2-with-scenes draft (no active job) to scene completed, NOT scene running', async () => {
+      const report = await backfillStoryboardPipeline(pool, { dryRun: true });
+      const entry = report.entries.find((e) => e.draftId === DRAFT_S2DONE);
+      expect(entry).toBeDefined();
+      expect(entry!.activePhase).toBe('scene');
+      expect(entry!.activeRunPhase).toBeNull();
+      expect(entry!.sceneStatus).toBe('completed');
+    });
+
+    // F1 regression — a parked step2 draft with NO scenes and no active job is not
+    // "in-flight"; resume lazy-create handles it. The backfill must not examine it.
+    it('does NOT examine a step2 draft with no scenes and no active job', async () => {
+      const report = await backfillStoryboardPipeline(pool, { dryRun: true });
+      const entry = report.entries.find((e) => e.draftId === DRAFT_S2EMPTY);
+      expect(entry).toBeUndefined();
+    });
   });
 
   /**
@@ -280,10 +336,27 @@ describe('T21 — backfillStoryboardPipeline (cut-over)', () => {
    * with the expected column values.
    */
   describe('apply seeds valid rows', () => {
-    it('seeds exactly 4 rows (one per in-flight draft) and skips the already-seeded one', async () => {
+    it('seeds exactly 5 rows (4 in-flight + the parked-with-scenes draft) and skips the already-seeded one', async () => {
       const report = await backfillStoryboardPipeline(pool, { dryRun: false });
-      expect(report.seeded).toBe(4);
+      expect(report.seeded).toBe(5);
       expect(report.skipped).toBeGreaterThanOrEqual(1);
+    });
+
+    // F1 regression — the parked step2-with-scenes draft is seeded as scene COMPLETED
+    // with no active run, so resume returns it healthy (no phantom loader, no reaper kill).
+    it('DRAFT_S2DONE row has scene_status=completed and active_run_phase=NULL', async () => {
+      await backfillStoryboardPipeline(pool, { dryRun: false });
+      const row = await getPipelineRow(DRAFT_S2DONE);
+      expect(row).not.toBeNull();
+      expect(row!['scene_status']).toBe('completed');
+      expect(row!['active_run_phase']).toBeNull();
+    });
+
+    // F1 regression — the parked step2-with-no-scenes draft is never seeded.
+    it('does NOT seed a storyboard_pipeline row for the no-scenes parked draft', async () => {
+      await backfillStoryboardPipeline(pool, { dryRun: false });
+      const row = await getPipelineRow(DRAFT_S2EMPTY);
+      expect(row).toBeNull();
     });
 
     it('DRAFT_SCENE row has active_phase=scene, active_run_phase=scene, scene_status=running', async () => {
