@@ -12,11 +12,18 @@ import { renderHook } from '@testing-library/react';
 // Mock usePipelineState so tests are fully synchronous and server-free.
 vi.mock('./usePipelineState');
 
+// Spy the pipeline API so the retry/regenerate actions can be asserted.
+vi.mock('@/features/storyboard/api', () => ({
+  triggerPhase: vi.fn(() => Promise.resolve()),
+}));
+
 import { usePipelineState } from './usePipelineState';
+import { triggerPhase } from '@/features/storyboard/api';
 import type { PipelineState } from '@/features/storyboard/api';
 import { useStoryboardGenerationFlow } from './useStoryboardGenerationFlow';
 
 const mockUsePipelineState = vi.mocked(usePipelineState);
+const mockTriggerPhase = vi.mocked(triggerPhase);
 
 /** Build a minimal PipelineState with explicit phase statuses. */
 function makePipelineState(
@@ -196,6 +203,32 @@ describe('useStoryboardGenerationFlow — null pipeline state (loading)', () => 
     expect(result.current.illustrationGeneration.status).toBe('idle');
     expect(result.current.isPlanBlocking).toBe(false);
     expect(result.current.isGenerationBlocking).toBe(false);
+  });
+});
+
+describe('useStoryboardGenerationFlow — retry/regenerate actions (F3, AC-12)', () => {
+  it('planGeneration.retry() triggers the scene phase', async () => {
+    mockUsePipelineState.mockReturnValue({
+      state: makePipelineState('failed', 'idle'),
+    });
+
+    const { result } = renderHook(() => useStoryboardGenerationFlow(HOOK_ARGS));
+
+    await result.current.planGeneration.retry();
+
+    expect(mockTriggerPhase).toHaveBeenCalledWith('draft-test', 'scene');
+  });
+
+  it('illustrationGeneration.start() triggers the scene_image phase', async () => {
+    mockUsePipelineState.mockReturnValue({
+      state: makePipelineState('completed', 'failed'),
+    });
+
+    const { result } = renderHook(() => useStoryboardGenerationFlow(HOOK_ARGS));
+
+    await result.current.illustrationGeneration.start();
+
+    expect(mockTriggerPhase).toHaveBeenCalledWith('draft-test', 'scene_image');
   });
 });
 

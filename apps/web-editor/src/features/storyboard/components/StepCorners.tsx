@@ -30,8 +30,13 @@ const PHASE_LABELS: Record<Phase, string> = {
   scene_image: 'Scene Images',
 };
 
-export function StepCorners({ draftId }: StepCornersProps): React.ReactElement {
+export function StepCorners({ draftId, state }: StepCornersProps): React.ReactElement {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // F7: while a phase is actively running the server would reject any new trigger
+  // (single-active-run, AC-14); disable the corners so the Creator isn't invited to
+  // click a control that can only fail.
+  const isPhaseRunning = state?.active_run_phase != null;
 
   function handleTrigger(phase: Phase) {
     triggerPhase(draftId, phase)
@@ -54,15 +59,16 @@ export function StepCorners({ draftId }: StepCornersProps): React.ReactElement {
           <button
             key={phase}
             data-testid={`step-corner-trigger-${phase}`}
+            disabled={isPhaseRunning}
             onClick={() => handleTrigger(phase)}
             style={{
               fontSize: 11,
               padding: '2px 8px',
-              cursor: 'pointer',
+              cursor: isPhaseRunning ? 'default' : 'pointer',
               borderRadius: 4,
               border: '1px solid #555',
               background: 'transparent',
-              color: '#ccc',
+              color: isPhaseRunning ? '#666' : '#ccc',
               fontFamily: 'Inter, sans-serif',
             }}
           >

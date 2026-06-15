@@ -708,11 +708,15 @@ export async function getPipelineState(draftId: string): Promise<PipelineState> 
 /**
  * Confirms the cast proposal, transitioning the pipeline past the cast-review gate.
  *
- * Maps to POST /storyboards/:draftId/pipeline/confirm-cast.
+ * Maps to POST /storyboards/:draftId/pipeline/confirm-cast. The body is optional and,
+ * per the `CastConfirmation` contract, carries ONLY adjusted `references` — confirm
+ * as shown by omitting it. The cost estimate is NEVER sent from the client (review r3
+ * F5 / ADR-0006): the server recomputes and re-validates it against the persisted
+ * estimate at charge time, so a client-supplied figure is neither trusted nor needed.
  */
 export async function confirmPipelineCast(
   draftId: string,
-  body?: { cost_estimate?: string | null },
+  body?: { references?: unknown[] },
 ): Promise<PipelineState> {
   const res = await apiClient.post(`/storyboards/${draftId}/pipeline/confirm-cast`, body ?? {});
   if (!res.ok) {

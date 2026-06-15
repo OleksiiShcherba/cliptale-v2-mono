@@ -71,7 +71,7 @@ type SubscriptionHandlers = {
 
 const mocks = vi.hoisted(() => ({
   getPipelineState: vi.fn<[string], Promise<PipelineState>>(),
-  confirmPipelineCast: vi.fn<[string, { cost_estimate: string | null }], Promise<PipelineState>>(),
+  confirmPipelineCast: vi.fn<[string, ({ references?: unknown[] } | undefined)?], Promise<PipelineState>>(),
   triggerPhase: vi.fn<[string, PhaseName], Promise<PipelineState>>(),
   cancelPhase: vi.fn<[string, PhaseName], Promise<PipelineState>>(),
   skipPhase: vi.fn<[string, PhaseName], Promise<PipelineState>>(),
@@ -137,9 +137,8 @@ function PipelineHarness({ draftId }: { draftId: string }): React.ReactElement {
       <ReviewCastProposalModal
         state={state}
         onConfirm={() => {
-          void mocks.confirmPipelineCast(draftId, {
-            cost_estimate: state?.cost_estimate ?? null,
-          });
+          // Confirm as shown — no client body (review r3 F5 / ADR-0006).
+          void mocks.confirmPipelineCast(draftId);
         }}
         onSkip={() => {
           void mocks.skipPhase(draftId, 'reference_data');
@@ -356,9 +355,8 @@ describe('Scenario 1 — happy path AC-01→04 through the rendered UI', () => {
 
     await waitFor(() => {
       expect(mocks.confirmPipelineCast).toHaveBeenCalledTimes(1);
-      expect(mocks.confirmPipelineCast).toHaveBeenCalledWith(DRAFT_ID, {
-        cost_estimate: '1.00 credit',
-      });
+      // F5: the client sends NO cost estimate — confirm as shown, server re-validates.
+      expect(mocks.confirmPipelineCast).toHaveBeenCalledWith(DRAFT_ID);
     });
   });
 

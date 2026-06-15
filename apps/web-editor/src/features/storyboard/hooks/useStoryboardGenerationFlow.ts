@@ -29,8 +29,11 @@
  *   skipped         → completed
  *   failed          → failed
  *
- * T16–T19 UI components are NOT wired here; mount-point comments are left
- * in StoryboardPageWorkspace where the real components will plug in.
+ * The T16–T19 pipeline UI components (BlockingLoader, the two review modals,
+ * StepCorners) are mounted in StoryboardPage; this hook only derives the
+ * legacy plan/illustration status objects the surviving status-block controls
+ * consume, and exposes retry/regenerate actions that re-trigger the pipeline
+ * phase server-side (review r3 F3, AC-12).
  */
 
 import type React from 'react';
@@ -38,6 +41,7 @@ import type React from 'react';
 import type { Edge as FlowEdge, Node } from '@xyflow/react';
 
 import type { StoryboardPlanGenerationStatus, StoryboardIllustrationLifecycleStatus, StoryboardIllustrationLifecyclePhase } from '@/features/storyboard/types';
+import { triggerPhase } from '@/features/storyboard/api';
 import type { PhaseStatus } from '@/features/storyboard/api';
 
 import type { UseStoryboardPlanGenerationResult } from './useStoryboardPlanGeneration';
@@ -112,13 +116,24 @@ export function useStoryboardGenerationFlow({
   const isGenerationBlocking = isPlanBlocking || illustrationStatus === 'running';
   const isStep3Disabled = isGenerationBlocking;
 
+  // AC-12: retry/regenerate re-trigger the phase server-side via the pipeline API.
+  // The pipeline is backend-authoritative, so these just POST the trigger and let
+  // the realtime/resume state drive the UI back out of `failed`.
+  const triggerScene = async (): Promise<null> => {
+    await triggerPhase(draftId, 'scene');
+    return null;
+  };
+  const triggerSceneImage = async (): Promise<void> => {
+    await triggerPhase(draftId, 'scene_image');
+  };
+
   const planGeneration: UseStoryboardPlanGenerationResult = {
     status: planStatus,
     jobId: null,
     error: state?.error_message ?? null,
     canvasState: null,
-    start: async () => null,
-    retry: async () => null,
+    start: triggerScene,
+    retry: triggerScene,
     reset: () => {},
   };
 
@@ -130,7 +145,7 @@ export function useStoryboardGenerationFlow({
     items: [],
     byBlockId: new Map(),
     isBlocking: illustrationStatus === 'running',
-    start: async () => {},
+    start: triggerSceneImage,
     retryBlock: async () => {},
     refresh: async () => [],
   };

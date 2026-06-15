@@ -38,6 +38,7 @@ import { setSelectedBlock, useStoryboardStore } from '@/features/storyboard/stor
 import type { StoryboardSidebarTab, SceneBlockNodeData, ReferenceBlockNodeData } from '@/features/storyboard/types';
 import { hasUnresolvedStep3Music } from '@/features/storyboard/utils/storyboardMusicStep3Gate';
 import { BlockingLoader } from './BlockingLoader';
+import { PipelineFailureBanner } from './PipelineFailureBanner';
 import { CheckpointCaptureOverlay } from './CheckpointCaptureOverlay';
 import { CheckpointCountdownBar } from './CheckpointCountdownBar';
 import { MusicBlockModal } from './MusicBlockModal';
@@ -551,11 +552,16 @@ export function StoryboardPage(): React.ReactElement {
             });
           }}
         />
+        {/* F2 (AC-12): reference-phase failures have no status-block control of their
+            own — surface what failed + a retry. */}
+        <PipelineFailureBanner draftId={safeDraftId} state={pipelineState} />
         {/* T17 ReviewCastProposalModal */}
         <ReviewCastProposalModal
           state={pipelineState}
           onConfirm={() => {
-            void confirmPipelineCast(safeDraftId, { cost_estimate: pipelineState?.cost_estimate ?? null }).catch((err: unknown) => {
+            // Confirm as shown — no client body. The server re-validates the estimate
+            // against the persisted value (review r3 F5 / ADR-0006).
+            void confirmPipelineCast(safeDraftId).catch((err: unknown) => {
               console.error('confirmPipelineCast failed', err);
             });
           }}

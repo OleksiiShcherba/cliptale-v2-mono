@@ -127,6 +127,12 @@ function emitPipelineEvent(state: PipelineState): void {
   });
 }
 
+function emitReconnect(): void {
+  act(() => {
+    mocks.mockDraftSubscriptionHandlers.at(-1)?.onReconnect?.();
+  });
+}
+
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -235,5 +241,63 @@ describe('usePipelineState — ignore-stale guard (AC-05 negative path)', () => 
     // state must be unchanged
     expect(result.current.state?.version).toBe(5);
     expect(result.current.state?.active_phase).toBe('reference_data');
+  });
+});
+
+describe('usePipelineState — reconnect re-fetch (F4, AC-05 / resume-freshness)', () => {
+  it('re-fetches GET state on realtime reconnect and applies the fresher snapshot', async () => {
+    // Mount: fetch version 5.
+    mocks.mockGetPipelineState.mockResolvedValue(
+      makePipelineState({ version: 5, active_phase: 'scene' }),
+    );
+
+    const { result } = renderHook(() => usePipelineState(DRAFT_ID));
+
+    await waitFor(() => {
+      expect(result.current.state?.version).toBe(5);
+    });
+    expect(mocks.mockGetPipelineState).toHaveBeenCalledTimes(1);
+
+    // While the socket was dropped the backend advanced to version 8. On reconnect
+    // the hook must re-GET the snapshot (a non-replaying resubscribe delivers no
+    // missed events) and converge to the true state.
+    mocks.mockGetPipelineState.mockResolvedValue(
+      makePipelineState({ version: 8, active_phase: 'reference_data' }),
+    );
+
+    emitReconnect();
+
+    await waitFor(() => {
+      expect(result.current.state?.version).toBe(8);
+    });
+    expect(mocks.mockGetPipelineState).toHaveBeenCalledTimes(2);
+    expect(result.current.state?.active_phase).toBe('reference_data');
+  });
+
+  it('does not regress to an older snapshot if the reconnect re-fetch is stale', async () => {
+    mocks.mockGetPipelineState.mockResolvedValue(
+      makePipelineState({ version: 7, active_phase: 'reference_image' }),
+    );
+
+    const { result } = renderHook(() => usePipelineState(DRAFT_ID));
+    await waitFor(() => {
+      expect(result.current.state?.version).toBe(7);
+    });
+
+    // A realtime event advances to version 9 before the reconnect fires.
+    emitPipelineEvent(makePipelineState({ version: 9, active_phase: 'scene_image' }));
+    expect(result.current.state?.version).toBe(9);
+
+    // Reconnect re-fetch returns a stale snapshot (version 7) — must be ignored.
+    mocks.mockGetPipelineState.mockResolvedValue(
+      makePipelineState({ version: 7, active_phase: 'reference_image' }),
+    );
+    emitReconnect();
+
+    await waitFor(() => {
+      expect(mocks.mockGetPipelineState).toHaveBeenCalledTimes(2);
+    });
+    expect(result.current.state?.version).toBe(9);
+    expect(result.current.state?.active_phase).toBe('scene_image');
   });
 });

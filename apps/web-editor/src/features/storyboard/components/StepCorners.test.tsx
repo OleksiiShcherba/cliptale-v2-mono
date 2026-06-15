@@ -172,6 +172,33 @@ describe('StepCorners — T19 AC: trigger and guard messages', () => {
     expect(alert.textContent).toMatch(/earlier step/i);
   });
 
+  it('disables the corner trigger buttons while a phase is actively running (F7)', () => {
+    const runningState = {
+      ...FAKE_PIPELINE_STATE,
+      active_run_phase: 'scene' as const,
+      phases: {
+        ...FAKE_PIPELINE_STATE.phases,
+        scene: { status: 'running' as const },
+      },
+    };
+
+    render(<StepCorners draftId={DRAFT_ID} state={runningState} />);
+
+    const sceneBtn = screen.getByTestId('step-corner-trigger-scene') as HTMLButtonElement;
+    const refDataBtn = screen.getByTestId('step-corner-trigger-reference_data') as HTMLButtonElement;
+    expect(sceneBtn.disabled).toBe(true);
+    expect(refDataBtn.disabled).toBe(true);
+
+    fireEvent.click(sceneBtn);
+    expect(mockTriggerPhase).not.toHaveBeenCalled();
+  });
+
+  it('keeps the corner trigger buttons enabled when no phase is running', () => {
+    render(<StepCorners draftId={DRAFT_ID} state={FAKE_PIPELINE_STATE} />);
+    const sceneBtn = screen.getByTestId('step-corner-trigger-scene') as HTMLButtonElement;
+    expect(sceneBtn.disabled).toBe(false);
+  });
+
   it('surfaces the scenes-required server message in a role="alert" region when triggerPhase rejects with scenes_required', async () => {
     const { GateError } = await import('@/features/storyboard/api');
 
