@@ -6,7 +6,7 @@ import type { Edge as FlowEdge, Node, NodeMouseHandler } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { fetchDraft } from '@/features/generate-wizard/api';
-import { startCastExtraction, confirmCast, retryReferenceBlockGeneration, updateReferenceBlock, saveReferenceSceneLinks, getLatestCastExtraction } from '@/features/storyboard/api';
+import { startCastExtraction, confirmCast, retryReferenceBlockGeneration, updateReferenceBlock, saveReferenceSceneLinks, getLatestCastExtraction, cancelPhase } from '@/features/storyboard/api';
 import { useAddBlock } from '@/features/storyboard/hooks/useAddBlock';
 import { useAddMusicBlock } from '@/features/storyboard/hooks/useAddMusicBlock';
 import { useHandleAddFromLibrary } from '@/features/storyboard/hooks/useHandleAddFromLibrary';
@@ -37,6 +37,7 @@ import { storyboardHistoryStore, initHistoryStore, destroyHistoryStore } from '@
 import { setSelectedBlock, useStoryboardStore } from '@/features/storyboard/store/storyboard-store';
 import type { StoryboardSidebarTab, SceneBlockNodeData, ReferenceBlockNodeData } from '@/features/storyboard/types';
 import { hasUnresolvedStep3Music } from '@/features/storyboard/utils/storyboardMusicStep3Gate';
+import { BlockingLoader } from './BlockingLoader';
 import { CheckpointCaptureOverlay } from './CheckpointCaptureOverlay';
 import { CheckpointCountdownBar } from './CheckpointCountdownBar';
 import { MusicBlockModal } from './MusicBlockModal';
@@ -539,22 +540,14 @@ export function StoryboardPage(): React.ReactElement {
           </div>
         ) : null}
         {/* T16 BlockingLoader — mounts here when pipelineState?.active_run_phase != null */}
-        {pipelineState?.active_run_phase != null && (
-          <div
-            role="status"
-            aria-live="polite"
-            style={{
-              position: 'fixed', inset: 0, zIndex: 9999,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: 'rgba(0,0,0,0.55)',
-            }}
-            data-testid="pipeline-blocking-loader"
-          >
-            <span style={{ color: '#fff', fontSize: 18, fontWeight: 600 }}>
-              {pipelineState.active_run_phase}
-            </span>
-          </div>
-        )}
+        <BlockingLoader
+          state={pipelineState}
+          onCancel={(phase) => {
+            void cancelPhase(safeDraftId, phase).catch((err: unknown) => {
+              console.error('cancelPhase failed', err);
+            });
+          }}
+        />
         {/* T17/T18 review modals — plug in here once implemented */}
         {/* T19 StepCorners — plug in here once implemented */}
         <StoryboardPageFooter isNextDisabled={effectiveIsStep3Disabled || isMusicBlockingStep3} onBack={handleBack} onNext={handleNext} />
