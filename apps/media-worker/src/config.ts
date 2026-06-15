@@ -1,23 +1,47 @@
 import { z } from 'zod';
 
-const envSchema = z.object({
-  APP_REDIS_URL: z.string().url(),
-  APP_OPENAI_API_KEY: z.string().min(1),
-  APP_FAL_KEY: z.string().min(1),
-  APP_ELEVENLABS_API_KEY: z.string().min(1),
-  APP_S3_BUCKET: z.string().min(1),
-  APP_S3_ENDPOINT: z.string().optional(),
-  APP_S3_REGION: z.string().default('us-east-1'),
-  APP_S3_ACCESS_KEY_ID: z.string().min(1),
-  APP_S3_SECRET_ACCESS_KEY: z.string().min(1),
-  APP_DB_HOST: z.string().min(1),
-  APP_DB_PORT: z.string().default('3306'),
-  APP_DB_NAME: z.string().default('cliptale'),
-  APP_DB_USER: z.string().default('cliptale'),
-  APP_DB_PASSWORD: z.string().min(1),
-  /** Storyboard-pipeline reaper sweep interval, in milliseconds (T14, ADR-0005). */
-  APP_STORYBOARD_PIPELINE_REAPER_INTERVAL_MS: z.string().default('60000'),
-});
+const envSchema = z
+  .object({
+    APP_REDIS_URL: z.string().url(),
+    // Provider keys are optional ONLY in test mode (AI_GENERATION_STATE=test);
+    // the superRefine below requires them in real mode.
+    APP_OPENAI_API_KEY: z.string().default(''),
+    APP_FAL_KEY: z.string().default(''),
+    APP_ELEVENLABS_API_KEY: z.string().default(''),
+    APP_S3_BUCKET: z.string().min(1),
+    APP_S3_ENDPOINT: z.string().optional(),
+    APP_S3_REGION: z.string().default('us-east-1'),
+    APP_S3_ACCESS_KEY_ID: z.string().min(1),
+    APP_S3_SECRET_ACCESS_KEY: z.string().min(1),
+    APP_DB_HOST: z.string().min(1),
+    APP_DB_PORT: z.string().default('3306'),
+    APP_DB_NAME: z.string().default('cliptale'),
+    APP_DB_USER: z.string().default('cliptale'),
+    APP_DB_PASSWORD: z.string().min(1),
+    /** Storyboard-pipeline reaper sweep interval, in milliseconds (T14, ADR-0005). */
+    APP_STORYBOARD_PIPELINE_REAPER_INTERVAL_MS: z.string().default('60000'),
+    /**
+     * AI generation mode (test seam).
+     *  - 'real' (default): storyboard image (OpenAI) and fal.ai video/image jobs
+     *    call the live providers.
+     *  - 'test': those jobs short-circuit to bundled local test assets — no
+     *    provider API call, no provider API key required. Audio/transcription
+     *    are unaffected.
+     */
+    AI_GENERATION_STATE: z.enum(['real', 'test']).default('real'),
+  })
+  .superRefine((env, ctx) => {
+    if (env.AI_GENERATION_STATE === 'test') return;
+    for (const key of ['APP_OPENAI_API_KEY', 'APP_FAL_KEY', 'APP_ELEVENLABS_API_KEY'] as const) {
+      if (!env[key]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required when AI_GENERATION_STATE is not "test"`,
+        });
+      }
+    }
+  });
 
 const parsed = envSchema.safeParse(process.env);
 
@@ -58,5 +82,9 @@ export const config = {
   },
   storyboardPipeline: {
     reaperIntervalMs: Number(env.APP_STORYBOARD_PIPELINE_REAPER_INTERVAL_MS),
+  },
+  aiGeneration: {
+    /** 'real' calls live providers; 'test' returns bundled local test assets. */
+    state: env.AI_GENERATION_STATE,
   },
 } as const;

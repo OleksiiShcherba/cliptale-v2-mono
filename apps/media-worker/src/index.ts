@@ -33,6 +33,10 @@ import {
   storyboardIllustrationRepo,
   buildStoryboardOpenAIImageJobDeps,
 } from '@/jobs/workerRepositories.js';
+import {
+  createTestFalClient,
+  createTestOpenAIImageClient,
+} from '@/lib/test-generation/testClients.js';
 
 const QUEUE_MEDIA_INGEST = 'media-ingest';
 const QUEUE_TRANSCRIPTION = 'transcription';
@@ -45,7 +49,24 @@ const STORYBOARD_PIPELINE_REAPER_JOB_NAME = 'storyboard-pipeline-reaper-sweep';
 
 const connection = { url: config.redis.url };
 
-const openaiClient = new OpenAI({ apiKey: config.openai.apiKey });
+// Test seam (AI_GENERATION_STATE=test): storyboard image (OpenAI) and fal.ai
+// video/image jobs are wired with local stub clients that return bundled test
+// assets instead of calling the real providers. Audio/transcription/enhance
+// keep the real OpenAI/ElevenLabs clients.
+const isTestGeneration = config.aiGeneration.state === 'test';
+if (isTestGeneration) {
+  console.log('[media-worker] AI_GENERATION_STATE=test — image/video jobs return local test assets (no provider calls)');
+}
+
+// Empty key fallback keeps the real OpenAI client constructible in test mode
+// (it is only used by transcription/enhance there); storyboard images use the
+// stub below so the placeholder key is never sent to OpenAI.
+const openaiClient = new OpenAI({ apiKey: config.openai.apiKey || 'test-mode-no-key' });
+
+const storyboardImageOpenAI = isTestGeneration ? createTestOpenAIImageClient() : openaiClient;
+const falClient = isTestGeneration
+  ? createTestFalClient()
+  : { submitFalJob, getFalJobStatus };
 
 // Worker-side producer for media-ingest — used by the ai-generate handler to
 // hand off newly written assets to FFprobe so they get duration/fps/thumbnail.
@@ -116,7 +137,7 @@ const aiGenerateWorker = new Worker<AiGenerateJobPayload>(
     pool,
     bucket: config.s3.bucket,
     falKey: config.fal.key,
-    fal: { submitFalJob, getFalJobStatus },
+    fal: falClient,
     elevenlabsKey: config.elevenlabs.apiKey,
     elevenlabs: { textToSpeech, voiceClone, speechToSpeech, createMusicCompositionPlan, musicGeneration },
     ingestQueue: mediaIngestQueue,
@@ -209,7 +230,7 @@ console.log('[media-worker] Listening for jobs on queue:', QUEUE_STORYBOARD_PLAN
 const storyboardOpenAIImageWorker = new Worker<StoryboardOpenAIImageJobPayload>(
   QUEUE_STORYBOARD_OPENAI_IMAGE,
   (job) => processStoryboardOpenAIImageJob(job, buildStoryboardOpenAIImageJobDeps({
-    openai: openaiClient,
+    openai: storyboardImageOpenAI,
     s3: s3Client,
     bucket: config.s3.bucket,
   })),

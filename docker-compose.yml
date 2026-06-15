@@ -116,6 +116,7 @@ services:
       APP_OPENAI_API_KEY: ${APP_OPENAI_API_KEY}
       APP_FAL_KEY: ${APP_FAL_KEY}
       APP_ELEVENLABS_API_KEY: ${APP_ELEVENLABS_API_KEY}
+      AI_GENERATION_STATE: ${AI_GENERATION_STATE:-real}
     volumes:
       - ./apps/media-worker/src:/app/apps/media-worker/src
       - ./packages/project-schema:/app/packages/project-schema
