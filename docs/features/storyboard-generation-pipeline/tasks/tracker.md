@@ -19,11 +19,11 @@
 | T12 | Scene-image: refs feed scenes + text-only fallback | infra | Backend | M | T10 | done |
 | T13 | Instrument actual cost + estimate-vs-actual delta | infra | Backend | S | T10, T5 | done |
 | T14 | Wire realtime publish + mount routes + register reaper | wiring | Backend | S | T9, T11 | done |
-| T15 | usePipelineState hook + retire client orchestration | ui | Frontend | M | T9 | todo |
-| T16 | BlockingLoader component | ui | Frontend | S | T15 | todo |
-| T17 | ReviewCastProposalModal (reuse CastConfirmModal) | ui | Frontend | M | T15 | todo |
-| T18 | SceneImageOfferModal | ui | Frontend | S | T15 | todo |
-| T19 | StepCorners corner controls + guard messages | ui | Frontend | M | T15 | todo |
+| T15 | usePipelineState hook + retire client orchestration | ui | Frontend | M | T9 | done |
+| T16 | BlockingLoader component | ui | Frontend | S | T15 | done |
+| T17 | ReviewCastProposalModal (reuse CastConfirmModal) | ui | Frontend | M | T15 | done |
+| T18 | SceneImageOfferModal | ui | Frontend | S | T15 | done |
+| T19 | StepCorners corner controls + guard messages | ui | Frontend | M | T15 | done |
 | T20 | End-to-end + resume/authz regression coverage | tests | Backend + Frontend | M | T14, T16, T17, T18, T19, T12, T13 | todo |
 | T21 | Deploy cut-over: migrate in-flight old-flow drafts (OQ-2) | docs | Tech Lead | M | T9 | todo |
 
