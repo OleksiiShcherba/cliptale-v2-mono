@@ -1,0 +1,225 @@
+/**
+ * storyboardPipelineHooks.ts — Worker completion-hooks that advance the pipeline
+ * phase via the shared transition module (T10, ADR-0003).
+ *
+ * The media-worker owns its OWN db pool (apps/media-worker/src/lib/db.ts) and writes
+ * the single `storyboard_pipeline` row DIRECTLY under a version CAS (ADR-0002, ADR-0007).
+ * It does NOT import the api repositories. The pure transition module
+ * (@ai-video-editor/project-schema) decides legality (canTransition); this module
+ * performs the CAS write, mirroring the shape of apps/api/src/repositories/
+ * storyboardPipeline.repository.ts (casUpdateState).
+ *
+ * Each hook runs at a worker completion point (Flow 1, sad.md §6):
+ *   - onSceneGenerationComplete    — scene → completed, advance to reference_data running.
+ *   - onCastProposalReady          — reference_data → awaiting_review (Review-cast modal).
+ *   - onReferenceImagesAllTerminal — when EVERY reference block is terminal (done/failed),
+ *                                    reference_image → completed, scene_image → awaiting_review
+ *                                    (scene-image offer). A failed reference is still terminal:
+ *                                    the phase advances regardless (AC-03 failure-tolerant).
+ *
+ * Every advance is a version CAS: read current version, decide via the transition module,
+ * UPDATE ... WHERE draft_id = ? AND version = ?. affectedRows 0 = stale/lost-race → no-op
+ * (idempotent on job redelivery).
+ */
+
+import {
+  canTransition,
+  type PhaseStatus,
+  type PipelinePhase,
+} from '@ai-video-editor/project-schema';
+import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+
+// TODO(T14): the dedicated pipeline-state realtime publisher is wired in T14. Until
+// then advancing the row is sufficient; T14 adds a best-effort publish after each CAS.
+
+/** Whitelisted phase → status-column map (keeps dynamic column names injection-safe). */
+const PHASE_STATUS_COLUMN: Record<PipelinePhase, string> = {
+  scene: 'scene_status',
+  reference_data: 'reference_data_status',
+  reference_image: 'reference_image_status',
+  scene_image: 'scene_image_status',
+};
+
+/** Reference-block window states that count as terminal for phase-advance (AC-03). */
+const TERMINAL_WINDOW_STATUSES = ['done', 'failed', 'skipped'] as const;
+
+type CurrentStateRow = RowDataPacket & {
+  version: number;
+  scene_status: PhaseStatus;
+  reference_data_status: PhaseStatus;
+  reference_image_status: PhaseStatus;
+  scene_image_status: PhaseStatus;
+};
+
+type PhaseSetItem = { phase: PipelinePhase; status: PhaseStatus };
+
+/** Read the columns the hooks reason over for one draft. */
+async function readState(pool: Pool, draftId: string): Promise<CurrentStateRow | null> {
+  const [rows] = await pool.execute<CurrentStateRow[]>(
+    `SELECT version, scene_status, reference_data_status,
+            reference_image_status, scene_image_status
+       FROM storyboard_pipeline
+      WHERE draft_id = ?`,
+    [draftId],
+  );
+  return rows.length > 0 ? rows[0]! : null;
+}
+
+/**
+ * Apply a phase advance under a version CAS (ADR-0007), mirroring the api repository's
+ * casUpdateState shape. Sets each supplied phase sub-state, foregrounds `activePhase`,
+ * sets/clears the active-run marker, bumps the version, refreshes the heartbeat.
+ * Returns affectedRows: 1 = applied, 0 = stale version (caller no-ops).
+ */
+async function casAdvance(
+  pool: Pool,
+  params: {
+    draftId: string;
+    currentVersion: number;
+    activePhase: PipelinePhase;
+    phaseSets: PhaseSetItem[];
+    activeRunPhase: PipelinePhase | null;
+    payloadJson?: unknown;
+  },
+): Promise<number> {
+  const sets: string[] = [
+    'version = version + 1',
+    'heartbeat_at = NOW(3)',
+    'active_phase = ?',
+    'active_run_phase = ?',
+  ];
+  const values: Array<string | number | null> = [params.activePhase, params.activeRunPhase];
+
+  for (const item of params.phaseSets) {
+    sets.push(`${PHASE_STATUS_COLUMN[item.phase]} = ?`);
+    values.push(item.status);
+  }
+
+  if (params.payloadJson !== undefined) {
+    sets.push('payload_json = ?');
+    values.push(params.payloadJson === null ? null : JSON.stringify(params.payloadJson));
+  }
+
+  const [result] = await pool.execute<ResultSetHeader>(
+    `UPDATE storyboard_pipeline
+        SET ${sets.join(',\n            ')}
+      WHERE draft_id = ?
+        AND version = ?`,
+    [...values, params.draftId, params.currentVersion],
+  );
+  return result.affectedRows;
+}
+
+/**
+ * AC-02 — scene generation completed: mark scene `completed` and advance to
+ * reference-data `running` (the next phase begins behind the loader). Legality
+ * checked via the shared transition module. No-op if scene is not `running`
+ * (idempotent on redelivery) or the CAS loses the race.
+ */
+export async function onSceneGenerationComplete(params: {
+  pool: Pool;
+  draftId: string;
+}): Promise<void> {
+  const { pool, draftId } = params;
+  const state = await readState(pool, draftId);
+  if (!state) return;
+
+  // running → completed must be legal, and idle → running for the next phase.
+  if (!canTransition(state.scene_status, 'completed')) return;
+  if (!canTransition(state.reference_data_status, 'running')) return;
+
+  await casAdvance(pool, {
+    draftId,
+    currentVersion: state.version,
+    activePhase: 'reference_data',
+    phaseSets: [
+      { phase: 'scene', status: 'completed' },
+      { phase: 'reference_data', status: 'running' },
+    ],
+    activeRunPhase: 'reference_data',
+  });
+}
+
+/**
+ * AC-02 — cast proposal ready: advance reference-data to `awaiting_review` (the
+ * Review-cast modal pending). Releases the active-run marker for review. No-op if
+ * reference-data is not `running` or the CAS loses the race.
+ */
+export async function onCastProposalReady(params: {
+  pool: Pool;
+  draftId: string;
+}): Promise<void> {
+  const { pool, draftId } = params;
+  const state = await readState(pool, draftId);
+  if (!state) return;
+
+  if (!canTransition(state.reference_data_status, 'awaiting_review')) return;
+
+  await casAdvance(pool, {
+    draftId,
+    currentVersion: state.version,
+    activePhase: 'reference_data',
+    phaseSets: [{ phase: 'reference_data', status: 'awaiting_review' }],
+    activeRunPhase: null,
+  });
+}
+
+/** True when no reference block for the draft is still pending/running (all terminal). */
+async function areAllReferenceBlocksTerminal(pool: Pool, draftId: string): Promise<boolean> {
+  const [rows] = await pool.execute<Array<RowDataPacket & { total: number; non_terminal: number }>>(
+    `SELECT COUNT(*) AS total,
+            COUNT(CASE WHEN window_status NOT IN (?, ?, ?) THEN 1 END) AS non_terminal
+       FROM storyboard_reference_blocks
+      WHERE draft_id = ?`,
+    [...TERMINAL_WINDOW_STATUSES, draftId],
+  );
+  const row = rows[0]!;
+  const total = Number(row.total);
+  const nonTerminal = Number(row.non_terminal);
+  // No blocks at all → nothing to wait on (treat as not-terminal: don't advance a
+  // phase that never had units). With blocks, advance only when every one is terminal.
+  return total > 0 && nonTerminal === 0;
+}
+
+/**
+ * AC-03 — reference-image completion point: when EVERY reference block has reached a
+ * terminal window_status (done / failed / skipped), mark reference_image `completed`
+ * and advance scene_image to `awaiting_review` (the scene-image offer). A reference
+ * that FAILED still counts as terminal — the phase advances regardless (failure-
+ * tolerant; the reaper owns whole-phase stalls, T11). No-op while any block is still
+ * pending/running, or if the CAS loses the race / phase already advanced.
+ *
+ * `sceneImageOffer` is an optional minimal scene-image offer payload; the full modal
+ * data (estimate plumbing) is finalized in the UI/cost tasks.
+ */
+export async function onReferenceImagesAllTerminal(params: {
+  pool: Pool;
+  draftId: string;
+  sceneImageOffer?: unknown;
+}): Promise<void> {
+  const { pool, draftId } = params;
+
+  if (!(await areAllReferenceBlocksTerminal(pool, draftId))) return;
+
+  const state = await readState(pool, draftId);
+  if (!state) return;
+
+  // Gate on the FINISHING phase's legal transition (running → completed). Setting
+  // scene_image to `awaiting_review` is presenting the next-phase OFFER (not a
+  // scene_image sub-state transition) — a direct write, matching the api precedent
+  // (storyboardPipeline.trigger.service: reference_image→completed then
+  // scene_image→awaiting_review via casUpdateState, no idle→awaiting_review gate).
+  if (!canTransition(state.reference_image_status, 'completed')) return;
+
+  await casAdvance(pool, {
+    draftId,
+    currentVersion: state.version,
+    activePhase: 'scene_image',
+    phaseSets: [
+      { phase: 'reference_image', status: 'completed' },
+      { phase: 'scene_image', status: 'awaiting_review' },
+    ],
+    activeRunPhase: null,
+    ...(params.sceneImageOffer !== undefined ? { payloadJson: params.sceneImageOffer } : {}),
+  });
+}

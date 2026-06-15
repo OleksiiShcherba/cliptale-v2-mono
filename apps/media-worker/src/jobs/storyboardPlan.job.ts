@@ -26,6 +26,7 @@ import {
   type StoryboardPlanJobRepository,
 } from './storyboardPlan.repository.js';
 import { publishStoryboardPlanStatus } from '@/lib/realtime.js';
+import { onSceneGenerationComplete } from './storyboardPipelineHooks.js';
 import {
   parseStoryboardPlanJson,
   StoryboardPlanOutputParseError,
@@ -281,6 +282,15 @@ export async function processStoryboardPlanJob(
       mediaContext: toPersistedStoryboardPlanMediaContext(context),
     });
     await publishStoryboardPlanStatus({ pool: deps.pool, jobId });
+
+    // T10 completion-hook (ADR-0003, AC-02): scene generation finished — advance the
+    // pipeline phase (scene → completed, reference_data → running) via the shared
+    // transition module. Best-effort: a hook failure must not fail the scene job.
+    try {
+      await onSceneGenerationComplete({ pool: deps.pool, draftId });
+    } catch (hookError) {
+      console.error('[storyboardPlan] pipeline advance hook failed:', hookError);
+    }
 
     return plan;
   } catch (error) {

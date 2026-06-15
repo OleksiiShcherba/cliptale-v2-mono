@@ -11,6 +11,7 @@ import type { Pool } from 'mysql2/promise';
 import { z } from 'zod';
 
 import { publishCastExtractionStatus } from '@/lib/realtime.js';
+import { onCastProposalReady } from './storyboardPipelineHooks.js';
 
 // ---------------------------------------------------------------------------
 // Flow pricing — mirrors apps/api/src/lib/flow-pricing.ts (ADR-0005 / AC-11).
@@ -379,6 +380,15 @@ export async function processCastExtractJob(
     // Persist completion
     await repository.markCompleted({ jobId, proposal: trimmedProposal, aggregateEstimateCredits, overflow });
     await publishCastExtractionStatus({ pool, jobId });
+
+    // T10 completion-hook (ADR-0003, AC-02): the cast proposal is ready — advance
+    // reference-data to awaiting_review (the Review-cast modal pending) via the shared
+    // transition module. Best-effort: a hook failure must not fail the cast job.
+    try {
+      await onCastProposalReady({ pool, draftId });
+    } catch (hookError) {
+      console.error('[cast-extract] pipeline advance hook failed:', hookError);
+    }
 
     return { cast: trimmedProposal.cast, overflow };
   } catch (error) {

@@ -14,6 +14,7 @@ import type { Pool, RowDataPacket } from 'mysql2/promise';
 import type { Queue } from 'bullmq';
 
 import { publishReferenceBlockStatus } from '@/lib/realtime.js';
+import { onReferenceImagesAllTerminal } from './storyboardPipelineHooks.js';
 
 export type ReferenceWindowHookParams = {
   jobId:        string;
@@ -173,7 +174,19 @@ export async function onReferenceBlockJobComplete(
 
   const rows = (pendingRows ?? []) as NextPendingRow[];
   if (rows.length === 0) {
-    return; // No more pending blocks — window is complete.
+    // No more pending blocks — the rolling window is complete. T10 completion-hook
+    // (ADR-0003, AC-03): when EVERY reference block is terminal (done/failed — a
+    // failed reference is still terminal, failure-tolerant), advance reference_image
+    // → completed and present the scene-image offer (scene_image → awaiting_review)
+    // via the shared transition module. Best-effort: a hook failure must not fail the
+    // generation job. (A running/pending block elsewhere → the hook self-guards and
+    // no-ops.)
+    try {
+      await onReferenceImagesAllTerminal({ pool, draftId });
+    } catch (hookError) {
+      console.error('[referenceWindow] pipeline advance hook failed:', hookError);
+    }
+    return;
   }
 
   const next = rows[0]!;
