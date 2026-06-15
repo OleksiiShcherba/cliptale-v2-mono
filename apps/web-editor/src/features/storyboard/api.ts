@@ -662,6 +662,143 @@ async function postWithIdempotencyKey(path: string, body: unknown): Promise<Resp
   });
 }
 
+// ── Pipeline API (storyboard-generation-pipeline T15) ─────────────────────────
+
+/** Wire shape for a single pipeline phase. */
+export type PhaseStatus =
+  | 'idle'
+  | 'queued'
+  | 'running'
+  | 'awaiting_review'
+  | 'completed'
+  | 'skipped'
+  | 'failed';
+
+export type PhaseName = 'scene' | 'reference_data' | 'reference_image' | 'scene_image';
+
+/**
+ * The full pipeline state DTO returned by GET /storyboards/:draftId/pipeline
+ * and all pipeline action endpoints (snake_case wire shape).
+ */
+export interface PipelineState {
+  draft_id: string;
+  active_phase: PhaseName;
+  active_run_phase: PhaseName | null;
+  phases: Record<PhaseName, { status: PhaseStatus }>;
+  payload: unknown | null;
+  version: number;
+  cost_estimate: string | null;
+  error_message: string | null;
+  updated_at: string | null;
+}
+
+/**
+ * Fetches the current pipeline state for a draft.
+ *
+ * Maps to GET /storyboards/:draftId/pipeline.
+ */
+export async function getPipelineState(draftId: string): Promise<PipelineState> {
+  const res = await apiClient.get(`/storyboards/${draftId}/pipeline`);
+  if (!res.ok) {
+    throw new Error(`GET /storyboards/${draftId}/pipeline failed: ${res.status}`);
+  }
+  return res.json() as Promise<PipelineState>;
+}
+
+/**
+ * Confirms the cast proposal, transitioning the pipeline past the cast-review gate.
+ *
+ * Maps to POST /storyboards/:draftId/pipeline/confirm-cast.
+ */
+export async function confirmPipelineCast(
+  draftId: string,
+  body?: { cost_estimate?: string | null },
+): Promise<PipelineState> {
+  const res = await apiClient.post(`/storyboards/${draftId}/pipeline/confirm-cast`, body ?? {});
+  if (!res.ok) {
+    if (res.status === 422) {
+      const parsed = await res.json().catch(() => null) as {
+        error?: string; code?: string; details?: GateErrorDetails;
+      } | null;
+      if (parsed?.code && parsed.details) {
+        throw new GateError(
+          parsed.error ?? `POST /storyboards/${draftId}/pipeline/confirm-cast failed: 422`,
+          parsed.code,
+          parsed.details,
+        );
+      }
+    }
+    throw new Error(`POST /storyboards/${draftId}/pipeline/confirm-cast failed: ${res.status}`);
+  }
+  return res.json() as Promise<PipelineState>;
+}
+
+/**
+ * Triggers a pipeline phase manually.
+ *
+ * Maps to POST /storyboards/:draftId/pipeline/phases/:phase/trigger.
+ */
+export async function triggerPhase(draftId: string, phase: PhaseName): Promise<PipelineState> {
+  const res = await apiClient.post(
+    `/storyboards/${draftId}/pipeline/phases/${phase}/trigger`,
+    {},
+  );
+  if (!res.ok) {
+    if (res.status === 422) {
+      const parsed = await res.json().catch(() => null) as {
+        error?: string; code?: string; details?: GateErrorDetails;
+      } | null;
+      if (parsed?.code && parsed.details) {
+        throw new GateError(
+          parsed.error ?? `POST /storyboards/${draftId}/pipeline/phases/${phase}/trigger failed: 422`,
+          parsed.code,
+          parsed.details,
+        );
+      }
+    }
+    throw new Error(
+      `POST /storyboards/${draftId}/pipeline/phases/${phase}/trigger failed: ${res.status}`,
+    );
+  }
+  return res.json() as Promise<PipelineState>;
+}
+
+/**
+ * Cancels a running pipeline phase.
+ *
+ * Maps to POST /storyboards/:draftId/pipeline/phases/:phase/cancel.
+ */
+export async function cancelPhase(draftId: string, phase: PhaseName): Promise<PipelineState> {
+  const res = await apiClient.post(
+    `/storyboards/${draftId}/pipeline/phases/${phase}/cancel`,
+    {},
+  );
+  if (!res.ok) {
+    throw new Error(
+      `POST /storyboards/${draftId}/pipeline/phases/${phase}/cancel failed: ${res.status}`,
+    );
+  }
+  return res.json() as Promise<PipelineState>;
+}
+
+/**
+ * Skips a pipeline phase.
+ *
+ * Maps to POST /storyboards/:draftId/pipeline/phases/:phase/skip.
+ */
+export async function skipPhase(draftId: string, phase: PhaseName): Promise<PipelineState> {
+  const res = await apiClient.post(
+    `/storyboards/${draftId}/pipeline/phases/${phase}/skip`,
+    {},
+  );
+  if (!res.ok) {
+    throw new Error(
+      `POST /storyboards/${draftId}/pipeline/phases/${phase}/skip failed: ${res.status}`,
+    );
+  }
+  return res.json() as Promise<PipelineState>;
+}
+
 // ── Cast extraction API (storyboard-reference-flows T17) ──────────────────────
 
 /**

@@ -1,12 +1,25 @@
-import { useEffect } from 'react';
+/**
+ * useStoryboardGenerationFlow — T15 rewire: delegates to usePipelineState.
+ *
+ * The old client-side orchestration (useStoryboardPlanGeneration +
+ * useStoryboardIllustrations) has been retired. This hook now derives
+ * compatible plan/illustration status objects from the server-side pipeline
+ * state so that StoryboardPageWorkspace keeps its existing prop interface
+ * without changes.
+ *
+ * T16–T19 UI components are NOT wired here; mount-point comments are left
+ * in StoryboardPageWorkspace where the real components will plug in.
+ */
+
 import type React from 'react';
 
 import type { Edge as FlowEdge, Node } from '@xyflow/react';
 
-import type { SceneBlockNodeData } from '@/features/storyboard/types';
+import type { StoryboardPlanGenerationStatus, StoryboardIllustrationLifecycleStatus, StoryboardIllustrationLifecyclePhase } from '@/features/storyboard/types';
 
-import { useStoryboardIllustrations } from './useStoryboardIllustrations';
-import { useStoryboardPlanGeneration } from './useStoryboardPlanGeneration';
+import type { UseStoryboardPlanGenerationResult } from './useStoryboardPlanGeneration';
+import type { UseStoryboardIllustrationsResult } from './useStoryboardIllustrations';
+import { usePipelineState } from './usePipelineState';
 
 interface UseStoryboardGenerationFlowArgs {
   draftId: string;
@@ -20,75 +33,68 @@ interface UseStoryboardGenerationFlowArgs {
   reloadStoryboard: () => Promise<void>;
 }
 
+/** Derive a plan-generation status from the pipeline's active_run_phase. */
+function derivePlanStatus(activeRunPhase: string | null): StoryboardPlanGenerationStatus {
+  if (activeRunPhase === 'cast_extraction' || activeRunPhase === 'cast_review') return 'idle';
+  if (activeRunPhase === 'scene_planning') return 'running';
+  if (activeRunPhase === 'scene_illustration') return 'completed';
+  return 'idle';
+}
+
+/** Derive an illustration lifecycle status from the pipeline's active_run_phase. */
+function deriveIllustrationStatus(activeRunPhase: string | null): StoryboardIllustrationLifecycleStatus {
+  if (activeRunPhase === 'scene_illustration') return 'running';
+  return 'idle';
+}
+
+/** Derive an illustration lifecycle phase. */
+function deriveIllustrationPhase(activeRunPhase: string | null): StoryboardIllustrationLifecyclePhase {
+  if (activeRunPhase === 'scene_illustration') return 'scene';
+  return 'idle';
+}
+
 export function useStoryboardGenerationFlow({
   draftId,
-  nodes,
-  isLoading,
-  error,
-  autoStartedPlanDraftRef,
-  setNodes,
-  setEdges,
-  removeNode,
-  reloadStoryboard,
 }: UseStoryboardGenerationFlowArgs) {
-  const planGeneration = useStoryboardPlanGeneration(draftId, { onRemoveNode: removeNode });
-  const illustrationGeneration = useStoryboardIllustrations(draftId, { onStoryboardUpdated: reloadStoryboard });
-  const isPlanBlocking = (
-    planGeneration.status === 'queued'
-    || planGeneration.status === 'running'
-    || planGeneration.status === 'applying'
-  );
-  const isGenerationBlocking = isPlanBlocking || illustrationGeneration.isBlocking;
+  const { state } = usePipelineState(draftId);
+
+  const activeRunPhase = state?.active_run_phase ?? null;
+
+  const planStatus = derivePlanStatus(activeRunPhase);
+  const illustrationStatus = deriveIllustrationStatus(activeRunPhase);
+  const illustrationPhase = deriveIllustrationPhase(activeRunPhase);
+
+  const isPlanBlocking =
+    planStatus === 'queued' || planStatus === 'running' || planStatus === 'applying';
+
+  const isGenerationBlocking = isPlanBlocking || illustrationStatus === 'running';
   const isStep3Disabled = isGenerationBlocking;
 
-  useEffect(() => {
-    if (!planGeneration.canvasState || planGeneration.status !== 'completed') return;
-    setNodes(planGeneration.canvasState.nodes);
-    setEdges(planGeneration.canvasState.edges);
-  }, [planGeneration.canvasState, planGeneration.status, setEdges, setNodes]);
+  const planGeneration: UseStoryboardPlanGenerationResult = {
+    status: planStatus,
+    jobId: null,
+    error: state?.error_message ?? null,
+    canvasState: null,
+    start: async () => null,
+    retry: async () => null,
+    reset: () => {},
+  };
 
-  useEffect(() => {
-    if (planGeneration.status !== 'completed') return;
-    void illustrationGeneration.start();
-  }, [illustrationGeneration.start, planGeneration.status]);
-
-  useEffect(() => {
-    setNodes((prev) => {
-      let changed = false;
-      const next = prev.map((node) => {
-        if (node.type !== 'scene-block') return node;
-        const data = node.data as SceneBlockNodeData;
-        const illustration = illustrationGeneration.byBlockId.get(node.id);
-        if (
-          data.illustration === illustration
-          && data.onRetryIllustration === illustrationGeneration.retryBlock
-        ) {
-          return node;
-        }
-        changed = true;
-        return {
-          ...node,
-          data: { ...data, illustration, onRetryIllustration: illustrationGeneration.retryBlock },
-        };
-      });
-      return changed ? next : prev;
-    });
-  }, [illustrationGeneration.byBlockId, illustrationGeneration.retryBlock, nodes, setNodes]);
-
-  useEffect(() => {
-    if (!draftId || isLoading || error) return;
-    if (planGeneration.status !== 'idle') return;
-    if (autoStartedPlanDraftRef.current === draftId) return;
-    if (nodes.length !== 2) return;
-
-    const nodeTypes = new Set(nodes.map((node) => node.type));
-    if (!nodeTypes.has('start') || !nodeTypes.has('end')) return;
-
-    autoStartedPlanDraftRef.current = draftId;
-    void planGeneration.start();
-  }, [autoStartedPlanDraftRef, draftId, error, isLoading, nodes, planGeneration]);
+  const illustrationGeneration: UseStoryboardIllustrationsResult = {
+    status: illustrationStatus,
+    phase: illustrationPhase,
+    error: state?.error_message ?? null,
+    gateError: null,
+    items: [],
+    byBlockId: new Map(),
+    isBlocking: illustrationStatus === 'running',
+    start: async () => {},
+    retryBlock: async () => {},
+    refresh: async () => [],
+  };
 
   return {
+    pipelineState: state,
     planGeneration,
     illustrationGeneration,
     isPlanBlocking,

@@ -1,8 +1,7 @@
 import { useMemo } from 'react';
 import type { Node } from '@xyflow/react';
 
-import type { UseStoryboardIllustrationsResult } from '@/features/storyboard/hooks/useStoryboardIllustrations';
-import type { SceneBlockNodeData } from '@/features/storyboard/types';
+import type { StoryboardIllustrationStatusItem, SceneBlockNodeData } from '@/features/storyboard/types';
 import { useBulkFileStreamUrls } from '@/shared/hooks/useBulkFileStreamUrls';
 
 interface StoryboardBulkStreamUrlState {
@@ -14,7 +13,7 @@ interface StoryboardBulkStreamUrlState {
 
 export function useStoryboardPageBulkStreamUrls(
   nodes: Node[],
-  illustrationGeneration: Pick<UseStoryboardIllustrationsResult, 'items'>,
+  illustrationGeneration: { items: StoryboardIllustrationStatusItem[] },
 ): StoryboardBulkStreamUrlState {
   const fileIds = useMemo(() => {
     const ids = new Set<string>();

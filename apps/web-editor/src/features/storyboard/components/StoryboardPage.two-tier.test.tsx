@@ -46,7 +46,11 @@ const {
 });
 
 vi.mock('@/features/storyboard/api', () => ({
-  // useCastAutostart (mounted by StoryboardPage) calls these on mount.
+  // T15: usePipelineState (via useStoryboardGenerationFlow) calls this.
+  getPipelineState: vi.fn().mockResolvedValue({
+    draft_id: 'test-draft-2tier', active_phase: 'cast_extraction', active_run_phase: null,
+    phases: {}, payload: null, version: 1, cost_estimate: null, error_message: null, updated_at: null,
+  }),
   getLatestCastExtraction: vi.fn().mockResolvedValue(null),
   startCastExtraction: vi.fn().mockResolvedValue({ jobId: 'cast-auto', status: 'queued' }),
   saveStoryboard: mockSaveStoryboard,
@@ -59,6 +63,11 @@ vi.mock('@/features/storyboard/api', () => ({
   fetchStoryboardMusic: vi.fn().mockResolvedValue({ items: [] }),
   updateStoryboardMusicBlock: vi.fn().mockResolvedValue({}),
   generateStoryboardMusicBlock: vi.fn().mockResolvedValue({ items: [] }),
+}));
+
+// T15: usePipelineState subscribes to realtime events.
+vi.mock('@/shared/hooks/useRealtimeSubscription', () => ({
+  useDraftStoryboardStatusSubscription: vi.fn(),
 }));
 
 vi.mock('@/features/settings/api', () => ({

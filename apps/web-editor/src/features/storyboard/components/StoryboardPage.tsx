@@ -6,7 +6,7 @@ import type { Edge as FlowEdge, Node, NodeMouseHandler } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { fetchDraft } from '@/features/generate-wizard/api';
-import { startCastExtraction, confirmCast, retryReferenceBlockGeneration, updateReferenceBlock, saveReferenceSceneLinks } from '@/features/storyboard/api';
+import { startCastExtraction, confirmCast, retryReferenceBlockGeneration, updateReferenceBlock, saveReferenceSceneLinks, getLatestCastExtraction } from '@/features/storyboard/api';
 import { useAddBlock } from '@/features/storyboard/hooks/useAddBlock';
 import { useAddMusicBlock } from '@/features/storyboard/hooks/useAddMusicBlock';
 import { useHandleAddFromLibrary } from '@/features/storyboard/hooks/useHandleAddFromLibrary';
@@ -14,7 +14,7 @@ import { useStoryboardCanvas, REFERENCE_BLOCK_Y_OFFSET } from '@/features/storyb
 import { useHandleAddBlock } from '@/features/storyboard/hooks/useHandleAddBlock';
 import { useHandleRestore } from '@/features/storyboard/hooks/useHandleRestore';
 import { useSceneModal } from '@/features/storyboard/hooks/useSceneModal';
-import { useCastAutostart, castExtractionQueryKey } from '@/features/storyboard/hooks/useCastAutostart';
+import { castExtractionQueryKey } from '@/features/storyboard/hooks/useCastAutostart';
 import { useStoryboardHistorySeed } from '@/features/storyboard/hooks/useStoryboardHistorySeed';
 import { useStoryboardAutosave } from '@/features/storyboard/hooks/useStoryboardAutosave';
 import {
@@ -143,13 +143,18 @@ export function StoryboardPage(): React.ReactElement {
   }, [reload]);
 
   // ── Cast extraction (AC-01, AC-05, AC-07) ─────────────────────────────────
-  // useCastAutostart owns the lifecycle: entering Step 2 auto-starts the free
-  // extraction (silently, no modal forced open), re-entry starts nothing new,
-  // and its single query (['cast-extraction', draftId]) is the source of truth
-  // the manual control surfaces. Polling lives in the hook and stops on terminal.
+  // T15: useCastAutostart retired. Cast extraction is now driven by the
+  // server-side pipeline (usePipelineState in useStoryboardGenerationFlow).
+  // The manual control (handleStartCastExtraction) and CastConfirmModal are
+  // retained as-is; the query below fetches any existing extraction on demand.
   const [castModalOpen, setCastModalOpen] = useState(false);
   const [hasExistingReferenceBlocks, setHasExistingReferenceBlocks] = useState(false);
-  const castExtractionQuery = useCastAutostart(safeDraftId);
+  const castExtractionQuery = useQuery({
+    queryKey: castExtractionQueryKey(safeDraftId),
+    queryFn: () => getLatestCastExtraction(safeDraftId),
+    enabled: safeDraftId !== '',
+    staleTime: 30_000,
+  });
   const castExtraction = castExtractionQuery.data ?? null;
 
   // The manual control always opens the modal and surfaces the existing
@@ -196,6 +201,7 @@ export function StoryboardPage(): React.ReactElement {
     reloadStoryboard,
   });
   const {
+    pipelineState,
     planGeneration,
     illustrationGeneration,
     isPlanBlocking,
@@ -532,6 +538,25 @@ export function StoryboardPage(): React.ReactElement {
             {illustrationGateError}
           </div>
         ) : null}
+        {/* T16 BlockingLoader — mounts here when pipelineState?.active_run_phase != null */}
+        {pipelineState?.active_run_phase != null && (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              position: 'fixed', inset: 0, zIndex: 9999,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'rgba(0,0,0,0.55)',
+            }}
+            data-testid="pipeline-blocking-loader"
+          >
+            <span style={{ color: '#fff', fontSize: 18, fontWeight: 600 }}>
+              {pipelineState.active_run_phase}
+            </span>
+          </div>
+        )}
+        {/* T17/T18 review modals — plug in here once implemented */}
+        {/* T19 StepCorners — plug in here once implemented */}
         <StoryboardPageFooter isNextDisabled={effectiveIsStep3Disabled || isMusicBlockingStep3} onBack={handleBack} onNext={handleNext} />
         {editingBlock !== null && (
           <SceneModal

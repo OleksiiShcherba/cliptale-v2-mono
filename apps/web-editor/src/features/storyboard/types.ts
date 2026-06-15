@@ -102,24 +102,7 @@ export type StoryboardIllustrationStatusItem = {
   errorMessage: string | null;
 };
 
-export type StoryboardAutomationPhase =
-  | 'idle'
-  | 'planning'
-  | 'generating_scene_illustrations'
-  | 'ready'
-  | 'failed';
-
-/** Runtime guard array — mirrors the revised StoryboardAutomationPhase union (AC-08). */
-export const VALID_AUTOMATION_PHASES = [
-  'idle',
-  'planning',
-  'generating_scene_illustrations',
-  'ready',
-  'failed',
-] as const;
-
 export type StoryboardAutomationStatus = {
-  phase: StoryboardAutomationPhase;
   planningJobId: string | null;
   errorMessage: string | null;
 };
