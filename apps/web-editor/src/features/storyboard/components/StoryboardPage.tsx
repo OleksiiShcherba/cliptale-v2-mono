@@ -6,7 +6,7 @@ import type { Edge as FlowEdge, Node, NodeMouseHandler } from '@xyflow/react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { fetchDraft } from '@/features/generate-wizard/api';
-import { startCastExtraction, confirmCast, retryReferenceBlockGeneration, updateReferenceBlock, saveReferenceSceneLinks, getLatestCastExtraction, cancelPhase } from '@/features/storyboard/api';
+import { startCastExtraction, confirmCast, retryReferenceBlockGeneration, updateReferenceBlock, saveReferenceSceneLinks, getLatestCastExtraction, cancelPhase, confirmPipelineCast, skipPhase } from '@/features/storyboard/api';
 import { useAddBlock } from '@/features/storyboard/hooks/useAddBlock';
 import { useAddMusicBlock } from '@/features/storyboard/hooks/useAddMusicBlock';
 import { useHandleAddFromLibrary } from '@/features/storyboard/hooks/useHandleAddFromLibrary';
@@ -43,6 +43,7 @@ import { CheckpointCountdownBar } from './CheckpointCountdownBar';
 import { MusicBlockModal } from './MusicBlockModal';
 import { SceneModal } from './SceneModal';
 import { CastConfirmModal } from './CastConfirmModal';
+import { ReviewCastProposalModal } from './ReviewCastProposalModal';
 import type { CastExtractionJob, CastProposalEntry } from './CastConfirmModal';
 import { ReferenceDetailsModal } from './ReferenceDetailsModal';
 import { StoryboardBulkStreamUrlProvider } from './SceneBlockNode.mediaThumbnail';
@@ -548,7 +549,21 @@ export function StoryboardPage(): React.ReactElement {
             });
           }}
         />
-        {/* T17/T18 review modals — plug in here once implemented */}
+        {/* T17 ReviewCastProposalModal */}
+        <ReviewCastProposalModal
+          state={pipelineState}
+          onConfirm={() => {
+            void confirmPipelineCast(safeDraftId, { cost_estimate: pipelineState?.cost_estimate ?? null }).catch((err: unknown) => {
+              console.error('confirmPipelineCast failed', err);
+            });
+          }}
+          onSkip={() => {
+            void skipPhase(safeDraftId, 'reference_data').catch((err: unknown) => {
+              console.error('skipPhase failed', err);
+            });
+          }}
+        />
+        {/* T18 review modals — plug in here once implemented */}
         {/* T19 StepCorners — plug in here once implemented */}
         <StoryboardPageFooter isNextDisabled={effectiveIsStep3Disabled || isMusicBlockingStep3} onBack={handleBack} onNext={handleNext} />
         {editingBlock !== null && (
