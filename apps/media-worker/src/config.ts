@@ -15,6 +15,8 @@ const envSchema = z.object({
   APP_DB_NAME: z.string().default('cliptale'),
   APP_DB_USER: z.string().default('cliptale'),
   APP_DB_PASSWORD: z.string().min(1),
+  /** Storyboard-pipeline reaper sweep interval, in milliseconds (T14, ADR-0005). */
+  APP_STORYBOARD_PIPELINE_REAPER_INTERVAL_MS: z.string().default('60000'),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -53,5 +55,8 @@ export const config = {
     name: env.APP_DB_NAME,
     user: env.APP_DB_USER,
     password: env.APP_DB_PASSWORD,
+  },
+  storyboardPipeline: {
+    reaperIntervalMs: Number(env.APP_STORYBOARD_PIPELINE_REAPER_INTERVAL_MS),
   },
 } as const;

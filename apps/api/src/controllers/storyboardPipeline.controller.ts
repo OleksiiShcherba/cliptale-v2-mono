@@ -27,6 +27,7 @@
 
 import { z } from 'zod';
 import type { Request, Response, NextFunction } from 'express';
+import { projectPipelineState } from '@ai-video-editor/project-schema';
 
 import { ValidationError } from '@/lib/errors.js';
 import * as resumeService from '@/services/storyboardPipeline.resume.service.js';
@@ -59,32 +60,14 @@ const confirmCastBodySchema = z
 
 /**
  * Project a StoryboardPipelineRow (service/repo camelCase) to the contract
- * `PipelineState` (openapi.yaml). Internal columns (phase_started_at, heartbeat_at,
- * actual_cost, created_at) are intentionally NOT exposed (api-sync-report.md).
+ * `PipelineState` (openapi.yaml) via the SHARED pure projection
+ * (@ai-video-editor/project-schema, T14/ADR-0004) — the SAME function the media-worker
+ * realtime publisher uses, so resume reads and realtime events carry an identical shape.
+ * Internal columns (phase_started_at, heartbeat_at, actual_cost, created_at) are
+ * intentionally NOT exposed (api-sync-report.md).
  */
 function mapStateToWire(row: StoryboardPipelineRow): Record<string, unknown> {
-  return {
-    draft_id: row.draftId,
-    active_phase: row.activePhase,
-    active_run_phase: row.activeRunPhase,
-    phases: {
-      scene: { status: row.sceneStatus },
-      reference_data: { status: row.referenceDataStatus },
-      reference_image: { status: row.referenceImageStatus },
-      scene_image: { status: row.sceneImageStatus },
-    },
-    payload: row.payloadJson ?? null,
-    version: row.version,
-    cost_estimate: row.costEstimate ?? null,
-    error_message: row.errorMessage ?? null,
-    updated_at: toIso(row.updatedAt),
-  };
-}
-
-function toIso(v: Date | string | null | undefined): string | null {
-  if (!v) return null;
-  if (v instanceof Date) return v.toISOString();
-  return v;
+  return projectPipelineState(row) as unknown as Record<string, unknown>;
 }
 
 /** Parse + validate the :draftId param, throwing ValidationError on a bad shape. */

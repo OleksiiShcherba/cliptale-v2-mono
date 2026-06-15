@@ -143,3 +143,9 @@ export type {
   GuardResult,
   RunClaimDecision,
 } from './storyboardPipeline/transition.js';
+export { projectPipelineState } from './storyboardPipeline/projection.js';
+export type {
+  PipelineState,
+  PipelineStateRow,
+  PipelinePhaseState,
+} from './storyboardPipeline/projection.js';

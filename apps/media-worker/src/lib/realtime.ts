@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 
 import {
   REALTIME_REDIS_CHANNEL,
+  projectPipelineState,
+  type PipelinePhase,
+  type PhaseStatus,
   type RealtimeAiJobEvent,
   type RealtimeStoryboardEvent,
 } from '@ai-video-editor/project-schema';
@@ -125,6 +128,82 @@ export async function publishStoryboardPlanStatus(params: {
       plan: row.plan_json,
       errorMessage: row.error_message,
     },
+  });
+}
+
+type PipelineStateRealtimeRow = RowDataPacket & {
+  draft_id: string;
+  user_id: string;
+  active_phase: PipelinePhase;
+  active_run_phase: PipelinePhase | null;
+  scene_status: PhaseStatus;
+  reference_data_status: PhaseStatus;
+  reference_image_status: PhaseStatus;
+  scene_image_status: PhaseStatus;
+  payload_json: unknown | null;
+  version: number;
+  cost_estimate: string | null;
+  error_message: string | null;
+  updated_at: Date | string | null;
+};
+
+/**
+ * Publish the FULL projected pipeline state on `storyboard.status.updated` after a CAS
+ * transition (AC-05, ADR-0004). Re-reads the authoritative row + owning user, projects it
+ * via the SHARED pure projection (the same one the api controller uses), and emits the
+ * version-stamped state so observer tabs converge and can ignore any stale (lower-version)
+ * event. Best-effort: every failure is swallowed so a publish never fails a job.
+ */
+export async function publishPipelineState(params: {
+  pool: Pool;
+  draftId: string;
+}): Promise<void> {
+  if (typeof params.pool.query !== 'function') return;
+
+  let row: PipelineStateRealtimeRow | undefined;
+  try {
+    const [rows] = await params.pool.query<PipelineStateRealtimeRow[]>(
+      `SELECT sp.draft_id, gd.user_id, sp.active_phase, sp.active_run_phase,
+              sp.scene_status, sp.reference_data_status, sp.reference_image_status,
+              sp.scene_image_status, sp.payload_json, sp.version,
+              CAST(sp.cost_estimate AS CHAR) AS cost_estimate,
+              sp.error_message, sp.updated_at
+         FROM storyboard_pipeline sp
+         JOIN generation_drafts gd ON gd.id = sp.draft_id
+        WHERE sp.draft_id = ?`,
+      [params.draftId],
+    );
+    row = rows[0];
+  } catch {
+    return;
+  }
+  if (!row) return;
+
+  const state = projectPipelineState({
+    draftId: row.draft_id,
+    activePhase: row.active_phase,
+    activeRunPhase: row.active_run_phase,
+    sceneStatus: row.scene_status,
+    referenceDataStatus: row.reference_data_status,
+    referenceImageStatus: row.reference_image_status,
+    sceneImageStatus: row.scene_image_status,
+    payloadJson:
+      row.payload_json === null
+        ? null
+        : typeof row.payload_json === 'string'
+          ? JSON.parse(row.payload_json)
+          : row.payload_json,
+    version: row.version,
+    costEstimate: row.cost_estimate,
+    errorMessage: row.error_message,
+    updatedAt: row.updated_at,
+  });
+
+  await publishRealtimeEvent({
+    type: 'storyboard.status.updated',
+    userId: row.user_id,
+    draftId: row.draft_id,
+    payload: state as unknown as Record<string, unknown>,
   });
 }
 

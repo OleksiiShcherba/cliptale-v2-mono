@@ -24,6 +24,7 @@ import { processAiGenerateJob, type AiGenerateJobPayload } from '@/jobs/ai-gener
 import { processEnhancePromptJob } from '@/jobs/enhancePrompt.job.js';
 import { processStoryboardOpenAIImageJob } from '@/jobs/storyboardOpenAIImage.job.js';
 import { routeStoryboardPlanQueueJob } from '@/jobs/storyboardPlanQueue.processor.js';
+import { reaperJobProcessor } from '@/jobs/storyboardPipelineReaper.job.js';
 import {
   aiGenerationJobRepo,
   filesRepo,
@@ -37,6 +38,8 @@ const QUEUE_AI_GENERATE = 'ai-generate';
 const QUEUE_AI_ENHANCE = 'ai-enhance';
 const QUEUE_STORYBOARD_PLAN = 'storyboard-plan';
 const QUEUE_STORYBOARD_OPENAI_IMAGE = 'storyboard-openai-image';
+const QUEUE_STORYBOARD_PIPELINE_REAPER = 'storyboard-pipeline-reaper';
+const STORYBOARD_PIPELINE_REAPER_JOB_NAME = 'storyboard-pipeline-reaper-sweep';
 
 const connection = { url: config.redis.url };
 
@@ -209,6 +212,51 @@ storyboardOpenAIImageWorker.on('error', (err) => {
 
 console.log('[media-worker] Listening for jobs on queue:', QUEUE_STORYBOARD_OPENAI_IMAGE);
 
+// ── Storyboard pipeline reaper (repeatable — releases stuck phases, ADR-0005) ─
+// A repeatable BullMQ job sweeps for over-bound running phases every
+// APP_STORYBOARD_PIPELINE_REAPER_INTERVAL_MS (default 60s) and releases each under a
+// version CAS. This complements the lazy-on-read release (api) so closed tabs (no read
+// to trigger the lazy path) are still unblocked at the heartbeat bound (T11/T14, AC-12).
+
+const storyboardPipelineReaperQueue = new Queue(QUEUE_STORYBOARD_PIPELINE_REAPER, { connection });
+storyboardPipelineReaperQueue.on('error', (err) => {
+  console.error('[media-worker] storyboardPipelineReaperQueue error:', err.message);
+});
+
+// Register the repeatable schedule. A stable jobId keeps BullMQ from stacking duplicate
+// repeatables across restarts.
+void storyboardPipelineReaperQueue.add(
+  STORYBOARD_PIPELINE_REAPER_JOB_NAME,
+  {},
+  {
+    repeat: { every: config.storyboardPipeline.reaperIntervalMs },
+    removeOnComplete: true,
+    removeOnFail: true,
+    jobId: STORYBOARD_PIPELINE_REAPER_JOB_NAME,
+  },
+);
+
+const storyboardPipelineReaperWorker = new Worker(
+  QUEUE_STORYBOARD_PIPELINE_REAPER,
+  () => reaperJobProcessor(),
+  { connection, concurrency: 1 },
+);
+
+storyboardPipelineReaperWorker.on('failed', (job, err) => {
+  console.error(`[media-worker] storyboard-pipeline-reaper job ${job?.id} failed:`, err.message);
+});
+
+storyboardPipelineReaperWorker.on('error', (err) => {
+  console.error('[media-worker] storyboard-pipeline-reaper worker error:', err.message);
+});
+
+console.log(
+  '[media-worker] Storyboard pipeline reaper registered (every',
+  config.storyboardPipeline.reaperIntervalMs,
+  'ms) on queue:',
+  QUEUE_STORYBOARD_PIPELINE_REAPER,
+);
+
 // ── Graceful shutdown ─────────────────────────────────────────────────────────
 
 async function shutdown(signal: string): Promise<void> {
@@ -220,8 +268,10 @@ async function shutdown(signal: string): Promise<void> {
     aiEnhanceWorker.close(),
     storyboardPlanWorker.close(),
     storyboardOpenAIImageWorker.close(),
+    storyboardPipelineReaperWorker.close(),
     mediaIngestQueue.close(),
     aiGenerateQueue.close(),
+    storyboardPipelineReaperQueue.close(),
   ]);
   console.log('[media-worker] Workers closed. Exiting.');
   process.exit(0);

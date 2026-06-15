@@ -19,6 +19,7 @@ import { REALTIME_REDIS_CHANNEL } from '@ai-video-editor/project-schema';
 
 import {
   publishAiJobUpdatedById,
+  publishPipelineState,
   publishStoryboardStatusUpdated,
 } from './realtimePublisher.js';
 
@@ -103,6 +104,54 @@ describe('realtimePublisher', () => {
         errorMessage: 'provider failed',
       },
     }));
+  });
+
+  it('publishes the full projected pipeline state (including version) on storyboard.status.updated', async () => {
+    await publishPipelineState({
+      userId: 'user-1',
+      draftId: 'draft-1',
+      state: {
+        draft_id: 'draft-1',
+        active_phase: 'reference_data',
+        active_run_phase: 'reference_data',
+        phases: {
+          scene: { status: 'completed' },
+          reference_data: { status: 'running' },
+          reference_image: { status: 'idle' },
+          scene_image: { status: 'idle' },
+        },
+        payload: null,
+        version: 9,
+        cost_estimate: null,
+        error_message: null,
+        updated_at: '2026-06-15T10:00:00.000Z',
+      },
+    });
+
+    expect(mockPublish).toHaveBeenCalledOnce();
+    const [channel, serialized] = mockPublish.mock.calls[0] as [string, string];
+    expect(channel).toBe(REALTIME_REDIS_CHANNEL);
+    const event = JSON.parse(serialized);
+    expect(event).toEqual(expect.objectContaining({
+      type: 'storyboard.status.updated',
+      userId: 'user-1',
+      draftId: 'draft-1',
+      eventId: expect.any(String),
+      occurredAt: expect.any(String),
+    }));
+    // Full projected state is the payload, version-stamped (AC-05 / ADR-0004).
+    expect(event.payload).toEqual(expect.objectContaining({
+      draft_id: 'draft-1',
+      active_phase: 'reference_data',
+      version: 9,
+      phases: {
+        scene: { status: 'completed' },
+        reference_data: { status: 'running' },
+        reference_image: { status: 'idle' },
+        scene_image: { status: 'idle' },
+      },
+    }));
+    expect(event.payload.version).toBe(9);
   });
 
   it('swallows Redis publish failures so API calls can continue', async () => {

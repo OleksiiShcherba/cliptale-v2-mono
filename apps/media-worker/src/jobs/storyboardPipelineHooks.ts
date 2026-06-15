@@ -29,6 +29,20 @@ import {
 } from '@ai-video-editor/project-schema';
 import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 
+import { publishPipelineState } from '@/lib/realtime.js';
+
+/**
+ * Best-effort realtime publish of the full projected pipeline state after a CAS
+ * transition (T14, AC-05, ADR-0004). Wrapped so a publish failure NEVER fails the job.
+ */
+async function publishStateBestEffort(pool: Pool, draftId: string): Promise<void> {
+  try {
+    await publishPipelineState({ pool, draftId });
+  } catch (error) {
+    console.error('[storyboardPipelineHooks] publish failed:', error);
+  }
+}
+
 /**
  * Illustration model used for both reference-image and scene-image phases (mirrors
  * apps/api/src/services/storyboardIllustration.config.ts; the worker cannot import
@@ -68,9 +82,6 @@ async function queryPerUnitCost(pool: Pool): Promise<number> {
   const baseAmount = row.base_amount != null ? parseFloat(row.base_amount) : 0;
   return perImage ?? baseAmount;
 }
-
-// TODO(T14): the dedicated pipeline-state realtime publisher is wired in T14. Until
-// then advancing the row is sufficient; T14 adds a best-effort publish after each CAS.
 
 /** Whitelisted phase → status-column map (keeps dynamic column names injection-safe). */
 const PHASE_STATUS_COLUMN: Record<PipelinePhase, string> = {
@@ -179,7 +190,7 @@ export async function onSceneGenerationComplete(params: {
   if (!canTransition(state.scene_status, 'completed')) return;
   if (!canTransition(state.reference_data_status, 'running')) return;
 
-  await casAdvance(pool, {
+  const affected = await casAdvance(pool, {
     draftId,
     currentVersion: state.version,
     activePhase: 'reference_data',
@@ -189,6 +200,7 @@ export async function onSceneGenerationComplete(params: {
     ],
     activeRunPhase: 'reference_data',
   });
+  if (affected > 0) await publishStateBestEffort(pool, draftId);
 }
 
 /**
@@ -206,13 +218,14 @@ export async function onCastProposalReady(params: {
 
   if (!canTransition(state.reference_data_status, 'awaiting_review')) return;
 
-  await casAdvance(pool, {
+  const affected = await casAdvance(pool, {
     draftId,
     currentVersion: state.version,
     activePhase: 'reference_data',
     phaseSets: [{ phase: 'reference_data', status: 'awaiting_review' }],
     activeRunPhase: null,
   });
+  if (affected > 0) await publishStateBestEffort(pool, draftId);
 }
 
 /** True when no reference block for the draft is still pending/running (all terminal). */
@@ -289,7 +302,7 @@ export async function onReferenceImagesAllTerminal(params: {
     }),
   );
 
-  await casAdvance(pool, {
+  const affected = await casAdvance(pool, {
     draftId,
     currentVersion: state.version,
     activePhase: 'scene_image',
@@ -301,6 +314,7 @@ export async function onReferenceImagesAllTerminal(params: {
     actualCost: actualCostStr,
     ...(params.sceneImageOffer !== undefined ? { payloadJson: params.sceneImageOffer } : {}),
   });
+  if (affected > 0) await publishStateBestEffort(pool, draftId);
 }
 
 /** True when every scene-illustration job for the draft is terminal (ready / failed). */
@@ -373,7 +387,7 @@ export async function onSceneImagesAllTerminal(params: {
     }),
   );
 
-  await casAdvance(pool, {
+  const affected = await casAdvance(pool, {
     draftId,
     currentVersion: state.version,
     activePhase: 'scene_image',
@@ -381,4 +395,5 @@ export async function onSceneImagesAllTerminal(params: {
     activeRunPhase: null,
     actualCost: actualCostStr,
   });
+  if (affected > 0) await publishStateBestEffort(pool, draftId);
 }

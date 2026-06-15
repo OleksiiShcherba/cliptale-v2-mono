@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   REALTIME_REDIS_CHANNEL,
+  type PipelineState,
   type RealtimeAiJobEvent,
   type RealtimeStoryboardEvent,
 } from '@ai-video-editor/project-schema';
@@ -38,6 +39,24 @@ export async function publishStoryboardStatusUpdated(params: {
     userId: params.userId,
     draftId: params.draftId,
     payload: params.payload,
+  });
+}
+
+/**
+ * Publish the FULL projected pipeline state on `storyboard.status.updated` (AC-05,
+ * ADR-0004). The payload IS the version-stamped PipelineState, so every observer tab
+ * converges on the latest transition and can ignore any event with an older `version`.
+ * Best-effort: a publish failure never propagates (publishRealtimeEvent swallows it).
+ */
+export async function publishPipelineState(params: {
+  userId: string;
+  draftId: string;
+  state: PipelineState;
+}): Promise<void> {
+  await publishStoryboardStatusUpdated({
+    userId: params.userId,
+    draftId: params.draftId,
+    payload: params.state as unknown as Record<string, unknown>,
   });
 }
 

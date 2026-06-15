@@ -24,9 +24,7 @@
 
 import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 
-// TODO(T14): publishPipelineState is wired in T14. Until then the best-effort publish
-// sends a minimal event via publishAiGenerationJobStatus or is left as a no-op consistent
-// with the seam used in T10's hooks.
+import { publishPipelineState } from '@/lib/realtime.js';
 
 /** Default stuck-phase time bound in minutes (spec §6 NFR, ADR-0005). */
 const DEFAULT_BOUND_MINUTES = 10;
@@ -123,8 +121,13 @@ export async function runStoryboardPipelineReaper(params: {
     );
     if (affected > 0) {
       released++;
-      // TODO(T14): best-effort publish pipeline state after release.
-      // publishPipelineState({ pool: params.pool, draftId: row.draft_id }) is wired in T14.
+      // Best-effort publish of the full version-stamped state after release (T14, AC-05,
+      // ADR-0004) so observer tabs converge. A publish failure never fails the sweep.
+      try {
+        await publishPipelineState({ pool: params.pool, draftId: row.draft_id });
+      } catch (error) {
+        console.error('[reaper] publish failed:', error);
+      }
     }
   }
 
