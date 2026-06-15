@@ -13,6 +13,12 @@ vi.mock('@/lib/realtime.js', () => ({
   publishStoryboardPlanStatus: vi.fn().mockResolvedValue(undefined),
 }));
 
+// B1 review fix — control the scene-completion hook so we can assert the cast-extract
+// enqueue is invoked ONLY when the pipeline actually advanced (the CAS winner).
+vi.mock('./storyboardPipelineHooks.js', () => ({
+  onSceneGenerationComplete: vi.fn().mockResolvedValue(false),
+}));
+
 import {
   resolveStoryboardPlanContext,
   StoryboardPlanContextValidationError,
@@ -25,6 +31,7 @@ import {
   type StoryboardPlanOpenAiClient,
 } from './storyboardPlan.job.js';
 import type { StoryboardPlanJobRepository } from './storyboardPlan.repository.js';
+import { onSceneGenerationComplete } from './storyboardPipelineHooks.js';
 
 const JOB_ID = '11111111-1111-4111-8111-111111111111';
 const DRAFT_ID = '22222222-2222-4222-8222-222222222222';
@@ -762,5 +769,62 @@ describe('processStoryboardPlanJob', () => {
     expect(repository.markCompleted).toHaveBeenCalledWith(expect.objectContaining({
       jobId: JOB_ID,
     }));
+  });
+
+  // ── B1 review fix — enqueue cast extraction after a successful scene plan (AC-02) ──
+  describe('cast-extraction enqueue (B1, AC-02)', () => {
+    const advanceHook = onSceneGenerationComplete as ReturnType<typeof vi.fn>;
+
+    it('enqueues cast extraction when the scene-completion hook ADVANCED the pipeline', async () => {
+      advanceHook.mockResolvedValueOnce(true); // CAS winner
+      const enqueueCastExtraction = vi.fn().mockResolvedValue(undefined);
+      const openai = makeOpenAiMock(JSON.stringify(makeValidPlan()));
+      const resolveContext = vi.fn(async () => makeContext());
+
+      await processStoryboardPlanJob(makeJob(), {
+        openai,
+        pool,
+        repository: makeRepository(),
+        resolveContext,
+        enqueueCastExtraction,
+      });
+
+      expect(enqueueCastExtraction).toHaveBeenCalledTimes(1);
+      expect(enqueueCastExtraction).toHaveBeenCalledWith({ draftId: DRAFT_ID, userId: USER_ID });
+    });
+
+    it('does NOT enqueue when the hook did not advance (lost the CAS / already advanced)', async () => {
+      advanceHook.mockResolvedValueOnce(false);
+      const enqueueCastExtraction = vi.fn().mockResolvedValue(undefined);
+      const openai = makeOpenAiMock(JSON.stringify(makeValidPlan()));
+      const resolveContext = vi.fn(async () => makeContext());
+
+      await processStoryboardPlanJob(makeJob(), {
+        openai,
+        pool,
+        repository: makeRepository(),
+        resolveContext,
+        enqueueCastExtraction,
+      });
+
+      expect(enqueueCastExtraction).not.toHaveBeenCalled();
+    });
+
+    it('an enqueue failure does NOT fail the scene job (best-effort)', async () => {
+      advanceHook.mockResolvedValueOnce(true);
+      const enqueueCastExtraction = vi.fn().mockRejectedValue(new Error('queue down'));
+      const openai = makeOpenAiMock(JSON.stringify(makeValidPlan()));
+      const resolveContext = vi.fn(async () => makeContext());
+
+      const result = await processStoryboardPlanJob(makeJob(), {
+        openai,
+        pool,
+        repository: makeRepository(),
+        resolveContext,
+        enqueueCastExtraction,
+      });
+
+      expect(result).toEqual(makeValidPlan()); // job still succeeds
+    });
   });
 });

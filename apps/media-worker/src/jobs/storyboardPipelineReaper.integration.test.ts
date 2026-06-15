@@ -26,7 +26,10 @@ vi.mock('@/lib/realtime.js', () => ({
 }));
 
 import { pool } from '@/lib/db.js';
-import { runStoryboardPipelineReaper } from '@/jobs/storyboardPipelineReaper.job.js';
+import {
+  releaseStuckPhase,
+  runStoryboardPipelineReaper,
+} from '@/jobs/storyboardPipelineReaper.job.js';
 
 const PREFIX = 'sgp-t11';
 
@@ -213,5 +216,42 @@ describe('T11 — reaper releases over-bound running phases (AC-12)', () => {
     expect(afterSecond.version).toBe(7); // unchanged — idempotent
     // secondRun may include other drafts but not this one
     void secondRun; // suppress lint
+  });
+
+  // ── Review fix MIN-3: releaseStuckPhase CAS directly — a stale version writes 0 rows ──
+  it('AC-12(c) direct: releaseStuckPhase with a STALE version affects 0 rows (no clobber)', async () => {
+    const draftId = await seedDraft();
+    await seedPipeline({
+      draftId,
+      activePhase: 'reference_image',
+      sceneStatus: 'completed',
+      referenceDataStatus: 'completed',
+      referenceImageStatus: 'running',
+      sceneImageStatus: 'idle',
+      activeRunPhase: 'reference_image',
+      version: 10,
+      heartbeatAge: 'STUCK',
+    });
+
+    // A concurrent advance bumped the row to version 11 AFTER the reaper read v10.
+    await pool.execute(
+      `UPDATE storyboard_pipeline SET version = 11 WHERE draft_id = ?`,
+      [draftId],
+    );
+
+    // The reaper writes with the STALE version it read (10) → CAS must miss.
+    const affected = await releaseStuckPhase(pool, draftId, 'reference_image', 10);
+    expect(affected).toBe(0); // no clobber
+
+    const row = await readPipeline(draftId);
+    expect(row.reference_image_status).toBe('running'); // untouched by the stale write
+    expect(row.version).toBe(11); // concurrent advance preserved
+
+    // A write with the CURRENT version (11) applies exactly once.
+    const affectedFresh = await releaseStuckPhase(pool, draftId, 'reference_image', 11);
+    expect(affectedFresh).toBe(1);
+    const after = await readPipeline(draftId);
+    expect(after.reference_image_status).toBe('failed');
+    expect(after.version).toBe(12);
   });
 });

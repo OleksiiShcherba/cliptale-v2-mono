@@ -49,7 +49,10 @@ type StuckRow = RowDataPacket & {
  * uses its own pool, not the api's).
  */
 async function findStuckPhases(pool: Pool, boundMinutes: number): Promise<StuckRow[]> {
-  const [rows] = await pool.execute<StuckRow[]>(
+  // pool.query (text protocol), not pool.execute (prepared): binding a placeholder
+  // inside `INTERVAL ? MINUTE` is a known mysql2 prepared-statement fragility. The api
+  // repository's equivalent query uses pool.query for the same reason — aligned here.
+  const [rows] = await pool.query<StuckRow[]>(
     `SELECT draft_id, active_run_phase, version
        FROM storyboard_pipeline
       WHERE active_run_phase IS NOT NULL
@@ -67,7 +70,7 @@ async function findStuckPhases(pool: Pool, boundMinutes: number): Promise<StuckR
  *   - version = version + 1
  * Returns affectedRows: 1 = applied, 0 = stale version (concurrent advance won, no-op).
  */
-async function releaseStuckPhase(
+export async function releaseStuckPhase(
   pool: Pool,
   draftId: string,
   phase: string,

@@ -41,6 +41,7 @@ import { publishAiGenerationJobStatus } from '@/lib/realtime.js';
 import {
   onReferenceBlockJobComplete,
 } from '@/jobs/ai-generate.referenceWindow.js';
+import { refreshActiveRunHeartbeat } from '@/jobs/storyboardPipelineHooks.js';
 
 // Re-export FileKind so existing imports from this module continue to work.
 export type { FileKind };
@@ -293,6 +294,13 @@ async function maybeAdvanceReferenceWindow(
   if (refRows.length === 0) return; // Not a reference-block first run.
 
   const { id: blockId, draft_id: draftId } = refRows[0]!;
+
+  // B2 review fix (AC-12, ADR-0005): a reference block just reached a terminal result —
+  // refresh the reference_image heartbeat so the rolling window's real per-unit progress
+  // keeps a HEALTHY phase out of the reaper's reach even when the whole window runs past
+  // the wall-clock stuck-bound. No-op when reference_image no longer holds the run.
+  // Best-effort: never fails the generation job.
+  await refreshActiveRunHeartbeat(pool, draftId, 'reference_image');
 
   await onReferenceBlockJobComplete(
     { jobId, blockId, draftId, outcome, errorMessage },

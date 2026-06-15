@@ -31,6 +31,11 @@ export type StoryboardPlanQueueClients = {
   /** OpenAI client — structurally satisfies both the plan and cast-extract LLM ports. */
   openai: StoryboardPlanOpenAiClient;
   pool: Pool;
+  /**
+   * Enqueue cast extraction after the scene plan completes (B1 review fix, AC-02).
+   * Optional so existing callers/tests still compile; the entrypoint wires the real one.
+   */
+  enqueueCastExtraction?: (params: { draftId: string; userId: string }) => Promise<void>;
 };
 
 /**
@@ -52,5 +57,6 @@ export function routeStoryboardPlanQueueJob(
   return processStoryboardPlanJob(job as Job<StoryboardPlanJobPayload>, {
     openai: clients.openai,
     pool: clients.pool,
+    enqueueCastExtraction: clients.enqueueCastExtraction,
   });
 }

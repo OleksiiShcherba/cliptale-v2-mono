@@ -73,6 +73,13 @@ export type StoryboardPlanJobDeps = {
   resolveContext?: (draftId: string, userId: string) => Promise<StoryboardPlanResolvedContext>;
   defaultModel?: string;
   allowedModels?: readonly string[];
+  /**
+   * Enqueue cast extraction for the draft (B1 review fix, AC-02). Called ONLY when the
+   * scene-completion hook actually advanced the pipeline (the CAS winner), so the
+   * cast-extract job is enqueued exactly once. Injected for testability + because the
+   * worker owns its own queue producer (the entrypoint wires the real implementation).
+   */
+  enqueueCastExtraction?: (params: { draftId: string; userId: string }) => Promise<void>;
 };
 
 export class StoryboardPlanJobPayloadValidationError extends Error {
@@ -285,11 +292,16 @@ export async function processStoryboardPlanJob(
 
     // T10 completion-hook (ADR-0003, AC-02): scene generation finished — advance the
     // pipeline phase (scene → completed, reference_data → running) via the shared
-    // transition module. Best-effort: a hook failure must not fail the scene job.
+    // transition module, then enqueue cast extraction so a cast proposal is actually
+    // produced (B1 review fix — only the CAS winner enqueues, exactly once). Best-effort:
+    // a hook/enqueue failure must not fail the scene job.
     try {
-      await onSceneGenerationComplete({ pool: deps.pool, draftId });
+      const advanced = await onSceneGenerationComplete({ pool: deps.pool, draftId });
+      if (advanced && deps.enqueueCastExtraction) {
+        await deps.enqueueCastExtraction({ draftId, userId });
+      }
     } catch (hookError) {
-      console.error('[storyboardPlan] pipeline advance hook failed:', hookError);
+      console.error('[storyboardPlan] pipeline advance/enqueue hook failed:', hookError);
     }
 
     return plan;

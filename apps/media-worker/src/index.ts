@@ -24,6 +24,7 @@ import { processAiGenerateJob, type AiGenerateJobPayload } from '@/jobs/ai-gener
 import { processEnhancePromptJob } from '@/jobs/enhancePrompt.job.js';
 import { processStoryboardOpenAIImageJob } from '@/jobs/storyboardOpenAIImage.job.js';
 import { routeStoryboardPlanQueueJob } from '@/jobs/storyboardPlanQueue.processor.js';
+import { enqueueCastExtraction } from '@/jobs/enqueueCastExtraction.js';
 import { reaperJobProcessor } from '@/jobs/storyboardPipelineReaper.job.js';
 import {
   aiGenerationJobRepo,
@@ -166,9 +167,22 @@ console.log('[media-worker] Listening for jobs on queue:', QUEUE_AI_ENHANCE);
 // Carries two job types (ADR-0002): storyboard-plan AND cast-extract — routed by
 // job.name so the cast-extract handler actually runs in production (R1).
 
+// Producer for the same queue: lets a completed scene-plan job self-enqueue cast
+// extraction (B1 review fix, AC-02 — SAD §6 Flow 1 chains scene → reference-data).
+const storyboardPlanQueue = new Queue(QUEUE_STORYBOARD_PLAN, { connection });
+storyboardPlanQueue.on('error', (err) => {
+  console.error('[media-worker] storyboardPlanQueue error:', err.message);
+});
+
 const storyboardPlanWorker = new Worker(
   QUEUE_STORYBOARD_PLAN,
-  (job) => routeStoryboardPlanQueueJob(job, { openai: openaiClient, pool }),
+  (job) =>
+    routeStoryboardPlanQueueJob(job, {
+      openai: openaiClient,
+      pool,
+      enqueueCastExtraction: (params) =>
+        enqueueCastExtraction(params, { pool, queue: storyboardPlanQueue }).then(() => undefined),
+    }),
   { connection, concurrency: 1 },
 );
 

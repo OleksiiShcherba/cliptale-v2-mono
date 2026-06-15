@@ -13,6 +13,7 @@ import type {
 import { parseStorageUri } from '@/lib/storage-uri.js';
 import { publishAiGenerationJobStatus } from '@/lib/realtime.js';
 import { setJobProgress, setJobStatus } from '@/jobs/ai-generate.utils.js';
+import { refreshActiveRunHeartbeat } from '@/jobs/storyboardPipelineHooks.js';
 import type { CreateFileParams, FilesRepo, AiGenerationJobRepo } from '@/jobs/ai-generate.job.js';
 import {
   selectSceneReferences,
@@ -350,6 +351,10 @@ async function maybeAdvanceSceneImagePhase(
   deps: StoryboardOpenAIImageJobDeps,
 ): Promise<void> {
   if (payload.kind !== 'scene' || !deps.onSceneImagesAllTerminal) return;
+  // B2 review fix (AC-12, ADR-0005): a scene image just reached a terminal result —
+  // refresh the scene_image heartbeat so a HEALTHY long-running scene batch is not
+  // killed by the reaper / lazy-release. Best-effort: never affects the job outcome.
+  await refreshActiveRunHeartbeat(deps.pool, payload.draftId, 'scene_image');
   try {
     await deps.onSceneImagesAllTerminal({ pool: deps.pool, draftId: payload.draftId });
   } catch {

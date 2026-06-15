@@ -83,6 +83,102 @@ async function queryPerUnitCost(pool: Pool): Promise<number> {
   return perImage ?? baseAmount;
 }
 
+/**
+ * Refresh the heartbeat for the phase currently holding the active run (B2 review fix,
+ * AC-12, ADR-0005). Called at every per-unit completion point during a long-running
+ * phase (reference-image rolling window, scene-image per-scene) so a HEALTHY phase that
+ * legitimately runs past the stuck-bound is NOT killed by the reaper / lazy-release —
+ * the heartbeat tracks real per-unit progress, not wall-clock. No-op (affectedRows 0)
+ * when that phase no longer holds the run. Best-effort: never fails the calling job.
+ */
+export async function refreshActiveRunHeartbeat(
+  pool: Pool,
+  draftId: string,
+  phase: PipelinePhase,
+): Promise<void> {
+  try {
+    await pool.execute(
+      `UPDATE storyboard_pipeline
+          SET heartbeat_at = NOW(3)
+        WHERE draft_id = ?
+          AND active_run_phase = ?`,
+      [draftId, phase],
+    );
+  } catch (error) {
+    console.error('[storyboardPipelineHooks] heartbeat refresh failed:', error);
+  }
+}
+
+/** Count the draft's Step-2 scene blocks (the scene-image unit count for the estimate). */
+async function countSceneBlocks(pool: Pool, draftId: string): Promise<number> {
+  const [rows] = await pool.execute<Array<RowDataPacket & { cnt: number }>>(
+    `SELECT COUNT(*) AS cnt FROM storyboard_blocks
+      WHERE draft_id = ? AND block_type = 'scene'`,
+    [draftId],
+  );
+  return Number(rows[0]!.cnt);
+}
+
+/**
+ * The latest COMPLETED cast-extraction proposal for a draft (the source of the cast
+ * modal payload + the reference set size). Returns the parsed proposal_json + the cast
+ * size, or null when no completed extraction exists yet.
+ */
+async function readLatestCastProposal(
+  pool: Pool,
+  draftId: string,
+): Promise<{ proposalJson: unknown; castSize: number } | null> {
+  const [rows] = await pool.execute<Array<RowDataPacket & { proposal_json: unknown }>>(
+    `SELECT proposal_json
+       FROM storyboard_cast_extraction_jobs
+      WHERE draft_id = ? AND status = 'completed'
+      ORDER BY completed_at DESC, created_at DESC
+      LIMIT 1`,
+    [draftId],
+  );
+  if (!rows.length) return null;
+  const raw = rows[0]!.proposal_json;
+  const parsed = typeof raw === 'string' ? safeParseJson(raw) : raw;
+  const cast = parsed && typeof parsed === 'object' ? (parsed as { cast?: unknown }).cast : undefined;
+  const castSize = Array.isArray(cast) ? cast.length : 0;
+  return { proposalJson: parsed, castSize };
+}
+
+function safeParseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Project the stored cast-extraction proposal (`{ cast: [{ type, name, scene_block_ids }] }`)
+ * into the wire shape the cast-proposal modal consumes (contracts/openapi.yaml
+ * awaiting_review_cast): `{ references: [{ name, kind, scene_ids }] }`.
+ */
+function projectCastProposalPayload(proposalJson: unknown): {
+  cast_proposal: { references: Array<{ name: string; kind: string; scene_ids: string[] }> };
+} {
+  const cast =
+    proposalJson && typeof proposalJson === 'object'
+      ? (proposalJson as { cast?: unknown }).cast
+      : undefined;
+  const references = Array.isArray(cast)
+    ? cast.map((raw) => {
+        const r = (raw ?? {}) as { type?: unknown; name?: unknown; scene_block_ids?: unknown };
+        return {
+          name: typeof r.name === 'string' ? r.name : '',
+          kind: r.type === 'environment' ? 'environment' : 'character',
+          scene_ids: Array.isArray(r.scene_block_ids)
+            ? r.scene_block_ids.filter((id): id is string => typeof id === 'string')
+            : [],
+        };
+      })
+    : [];
+  return { cast_proposal: { references } };
+}
+
 /** Whitelisted phase → status-column map (keeps dynamic column names injection-safe). */
 const PHASE_STATUS_COLUMN: Record<PipelinePhase, string> = {
   scene: 'scene_status',
@@ -137,6 +233,7 @@ async function casAdvance(
     activeRunPhase: PipelinePhase | null;
     payloadJson?: unknown;
     actualCost?: string;
+    costEstimate?: string;
   },
 ): Promise<number> {
   const sets: string[] = [
@@ -162,6 +259,11 @@ async function casAdvance(
     values.push(params.actualCost);
   }
 
+  if (params.costEstimate !== undefined) {
+    sets.push('cost_estimate = ?');
+    values.push(params.costEstimate);
+  }
+
   const [result] = await pool.execute<ResultSetHeader>(
     `UPDATE storyboard_pipeline
         SET ${sets.join(',\n            ')}
@@ -181,14 +283,14 @@ async function casAdvance(
 export async function onSceneGenerationComplete(params: {
   pool: Pool;
   draftId: string;
-}): Promise<void> {
+}): Promise<boolean> {
   const { pool, draftId } = params;
   const state = await readState(pool, draftId);
-  if (!state) return;
+  if (!state) return false;
 
   // running → completed must be legal, and idle → running for the next phase.
-  if (!canTransition(state.scene_status, 'completed')) return;
-  if (!canTransition(state.reference_data_status, 'running')) return;
+  if (!canTransition(state.scene_status, 'completed')) return false;
+  if (!canTransition(state.reference_data_status, 'running')) return false;
 
   const affected = await casAdvance(pool, {
     draftId,
@@ -200,7 +302,12 @@ export async function onSceneGenerationComplete(params: {
     ],
     activeRunPhase: 'reference_data',
   });
-  if (affected > 0) await publishStateBestEffort(pool, draftId);
+  if (affected > 0) {
+    await publishStateBestEffort(pool, draftId);
+    return true;
+  }
+  // CAS lost the race / already advanced — the winner owns the cast-extract enqueue.
+  return false;
 }
 
 /**
@@ -218,12 +325,27 @@ export async function onCastProposalReady(params: {
 
   if (!canTransition(state.reference_data_status, 'awaiting_review')) return;
 
+  // G3 review fix — persist the cast-proposal modal payload AND the reference-image
+  // cost estimate the modal must show (AC-02 "each proposed reference showing its
+  // AI-selected scenes"; AC-03 "a precomputed reference-image cost estimate";
+  // contracts/openapi.yaml awaiting_review_cast). The estimate is reference-count ×
+  // per-unit price from the SAME source (flow_model_pricing for the storyboard
+  // illustration model) that the api confirm.service re-validates against, so a
+  // confirm echoing the shown estimate matches exactly.
+  const proposal = await readLatestCastProposal(pool, draftId);
+  const payloadJson = proposal ? projectCastProposalPayload(proposal.proposalJson) : { cast_proposal: { references: [] } };
+  const castSize = proposal?.castSize ?? 0;
+  const perUnit = await queryPerUnitCost(pool);
+  const costEstimate = (castSize * perUnit).toFixed(4);
+
   const affected = await casAdvance(pool, {
     draftId,
     currentVersion: state.version,
     activePhase: 'reference_data',
     phaseSets: [{ phase: 'reference_data', status: 'awaiting_review' }],
     activeRunPhase: null,
+    payloadJson,
+    costEstimate,
   });
   if (affected > 0) await publishStateBestEffort(pool, draftId);
 }
@@ -302,6 +424,15 @@ export async function onReferenceImagesAllTerminal(params: {
     }),
   );
 
+  // G2 review fix — compute + persist the scene-image cost estimate the offer modal
+  // must show (AC-04 "a precomputed scene-image cost estimate"). Estimate = scene-block
+  // count × per-unit price (same flow_model_pricing source the api re-validates against).
+  // This overwrites cost_estimate (was the reference-image estimate, already consumed by
+  // the delta above) with the NEXT phase's estimate, mirroring the cast-proposal step.
+  const sceneCount = await countSceneBlocks(pool, draftId);
+  const sceneImageEstimate = (sceneCount * perUnit).toFixed(4);
+  const sceneImageOffer = params.sceneImageOffer ?? { scene_image_offer: { scene_count: sceneCount } };
+
   const affected = await casAdvance(pool, {
     draftId,
     currentVersion: state.version,
@@ -312,7 +443,8 @@ export async function onReferenceImagesAllTerminal(params: {
     ],
     activeRunPhase: null,
     actualCost: actualCostStr,
-    ...(params.sceneImageOffer !== undefined ? { payloadJson: params.sceneImageOffer } : {}),
+    costEstimate: sceneImageEstimate,
+    payloadJson: sceneImageOffer,
   });
   if (affected > 0) await publishStateBestEffort(pool, draftId);
 }
