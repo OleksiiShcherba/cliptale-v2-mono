@@ -112,6 +112,26 @@ export async function computeSceneImageEstimate(params: { sceneCount: number }):
 }
 
 /**
+ * Computes the estimate-vs-actual delta as a signed percentage.
+ *
+ *   delta = ((actual - estimate) / estimate) × 100
+ *
+ * A positive value means actual exceeded the estimate; negative means underrun.
+ * Returns 0 when estimate is 0 (zero-guard to prevent division by zero — a zero estimate
+ * makes the percent meaningless; the absolute actual is in the log alongside it).
+ *
+ * This is the canonical formula for the KPI metric `cost_estimate_actual_delta_pct`
+ * (SAD §7, ADR-0006). The worker duplicates the 3-line body because it cannot import
+ * API services; both copies are unit-tested to stay in sync.
+ *
+ * AC-03 / AC-04 / ADR-0006.
+ */
+export function estimateActualDeltaPct(estimate: number, actual: number): number {
+  if (estimate === 0) return 0;
+  return ((actual - estimate) / estimate) * 100;
+}
+
+/**
  * Re-validates a client-supplied cost estimate against the server-recomputed value.
  *
  * The client estimate is NEVER trusted (§6.1 abuse case: "cost-estimate manipulation").

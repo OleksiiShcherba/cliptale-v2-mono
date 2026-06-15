@@ -29,6 +29,46 @@ import {
 } from '@ai-video-editor/project-schema';
 import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 
+/**
+ * Illustration model used for both reference-image and scene-image phases (mirrors
+ * apps/api/src/services/storyboardIllustration.config.ts; the worker cannot import
+ * api services, so the value is co-located here).
+ */
+const STORYBOARD_ILLUSTRATION_MODEL_ID = 'openai/gpt-image-2';
+
+/**
+ * Compute the estimate-vs-actual delta as a signed percentage.
+ *   delta = ((actual - estimate) / estimate) × 100
+ *
+ * Returns 0 when estimate is 0 (zero-guard). This is a deliberate 3-line duplication
+ * of the pure helper in apps/api/src/services/storyboardPipeline.cost.service.ts
+ * (estimateActualDeltaPct) because the worker cannot import API services. Both copies
+ * are unit-tested. Metric name: `cost_estimate_actual_delta_pct` (SAD §7, ADR-0006).
+ */
+function computeEstimateActualDeltaPct(estimate: number, actual: number): number {
+  if (estimate === 0) return 0;
+  return ((actual - estimate) / estimate) * 100;
+}
+
+/**
+ * Query the per-unit cost for the storyboard illustration model directly from the
+ * worker's own DB pool. Priority: per_image → base_amount → 0.
+ * The worker cannot import the api's getPricingForModel (separate app) so we issue a
+ * direct query here — same table, same logic, no caching needed for completion hooks
+ * (each runs once per phase).
+ */
+async function queryPerUnitCost(pool: Pool): Promise<number> {
+  const [rows] = await pool.execute<Array<RowDataPacket & { base_amount: string | null; per_image: string | null }>>(
+    `SELECT base_amount, per_image FROM flow_model_pricing WHERE model_id = ? LIMIT 1`,
+    [STORYBOARD_ILLUSTRATION_MODEL_ID],
+  );
+  if (!rows.length) return 0;
+  const row = rows[0]!;
+  const perImage = row.per_image != null ? parseFloat(row.per_image) : null;
+  const baseAmount = row.base_amount != null ? parseFloat(row.base_amount) : 0;
+  return perImage ?? baseAmount;
+}
+
 // TODO(T14): the dedicated pipeline-state realtime publisher is wired in T14. Until
 // then advancing the row is sufficient; T14 adds a best-effort publish after each CAS.
 
@@ -52,6 +92,7 @@ type CurrentStateRow = RowDataPacket & {
   reference_data_status: PhaseStatus;
   reference_image_status: PhaseStatus;
   scene_image_status: PhaseStatus;
+  cost_estimate: string | null;
 };
 
 type PhaseSetItem = { phase: PipelinePhase; status: PhaseStatus };
@@ -60,7 +101,8 @@ type PhaseSetItem = { phase: PipelinePhase; status: PhaseStatus };
 async function readState(pool: Pool, draftId: string): Promise<CurrentStateRow | null> {
   const [rows] = await pool.execute<CurrentStateRow[]>(
     `SELECT version, scene_status, reference_data_status,
-            reference_image_status, scene_image_status
+            reference_image_status, scene_image_status,
+            CAST(cost_estimate AS CHAR) AS cost_estimate
        FROM storyboard_pipeline
       WHERE draft_id = ?`,
     [draftId],
@@ -83,6 +125,7 @@ async function casAdvance(
     phaseSets: PhaseSetItem[];
     activeRunPhase: PipelinePhase | null;
     payloadJson?: unknown;
+    actualCost?: string;
   },
 ): Promise<number> {
   const sets: string[] = [
@@ -101,6 +144,11 @@ async function casAdvance(
   if (params.payloadJson !== undefined) {
     sets.push('payload_json = ?');
     values.push(params.payloadJson === null ? null : JSON.stringify(params.payloadJson));
+  }
+
+  if (params.actualCost !== undefined) {
+    sets.push('actual_cost = ?');
+    values.push(params.actualCost);
   }
 
   const [result] = await pool.execute<ResultSetHeader>(
@@ -214,6 +262,33 @@ export async function onReferenceImagesAllTerminal(params: {
   // scene_image→awaiting_review via casUpdateState, no idle→awaiting_review gate).
   if (!canTransition(state.reference_image_status, 'completed')) return;
 
+  // T13 — compute actual cost: count reference blocks with window_status='done'
+  // (those that produced an image) × per-unit price. Failed/skipped blocks consumed
+  // no image generation credit so they don't count toward the actual charge.
+  const [refCountRows] = await pool.execute<Array<RowDataPacket & { done_count: number }>>(
+    `SELECT COUNT(*) AS done_count FROM storyboard_reference_blocks
+      WHERE draft_id = ? AND window_status = 'done'`,
+    [draftId],
+  );
+  const doneCount = Number(refCountRows[0]!.done_count);
+  const perUnit = await queryPerUnitCost(pool);
+  const actualCostNum = doneCount * perUnit;
+  const actualCostStr = actualCostNum.toFixed(4);
+
+  // Emit the estimate-vs-actual delta to telemetry (SAD §7, ADR-0006).
+  const estimate = state.cost_estimate != null ? parseFloat(state.cost_estimate) : 0;
+  const deltaPct = computeEstimateActualDeltaPct(estimate, actualCostNum);
+  console.info(
+    JSON.stringify({
+      metric: 'cost_estimate_actual_delta_pct',
+      draft_id: draftId,
+      phase: 'reference_image',
+      estimate: state.cost_estimate ?? '0.0000',
+      actual: actualCostStr,
+      delta_pct: deltaPct,
+    }),
+  );
+
   await casAdvance(pool, {
     draftId,
     currentVersion: state.version,
@@ -223,6 +298,7 @@ export async function onReferenceImagesAllTerminal(params: {
       { phase: 'scene_image', status: 'awaiting_review' },
     ],
     activeRunPhase: null,
+    actualCost: actualCostStr,
     ...(params.sceneImageOffer !== undefined ? { payloadJson: params.sceneImageOffer } : {}),
   });
 }
@@ -271,11 +347,38 @@ export async function onSceneImagesAllTerminal(params: {
   // delivery sees scene_image already `completed` and this gate no-ops).
   if (!canTransition(state.scene_image_status, 'completed')) return;
 
+  // T13 — compute actual cost: count scene illustration jobs with status='ready'
+  // (those that produced an image) × per-unit price. Failed jobs consumed no credit.
+  const [sceneCountRows] = await pool.execute<Array<RowDataPacket & { ready_count: number }>>(
+    `SELECT COUNT(*) AS ready_count FROM storyboard_scene_illustration_jobs
+      WHERE draft_id = ? AND status = 'ready'`,
+    [draftId],
+  );
+  const readyCount = Number(sceneCountRows[0]!.ready_count);
+  const perUnit = await queryPerUnitCost(pool);
+  const actualCostNum = readyCount * perUnit;
+  const actualCostStr = actualCostNum.toFixed(4);
+
+  // Emit the estimate-vs-actual delta to telemetry (SAD §7, ADR-0006).
+  const estimate = state.cost_estimate != null ? parseFloat(state.cost_estimate) : 0;
+  const deltaPct = computeEstimateActualDeltaPct(estimate, actualCostNum);
+  console.info(
+    JSON.stringify({
+      metric: 'cost_estimate_actual_delta_pct',
+      draft_id: draftId,
+      phase: 'scene_image',
+      estimate: state.cost_estimate ?? '0.0000',
+      actual: actualCostStr,
+      delta_pct: deltaPct,
+    }),
+  );
+
   await casAdvance(pool, {
     draftId,
     currentVersion: state.version,
     activePhase: 'scene_image',
     phaseSets: [{ phase: 'scene_image', status: 'completed' }],
     activeRunPhase: null,
+    actualCost: actualCostStr,
   });
 }

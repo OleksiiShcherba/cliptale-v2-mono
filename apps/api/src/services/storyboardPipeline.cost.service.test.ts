@@ -27,6 +27,7 @@ import {
   computeReferenceImageEstimate,
   computeSceneImageEstimate,
   revalidateEstimate,
+  estimateActualDeltaPct,
   EstimateRevalidationFailedError,
 } from './storyboardPipeline.cost.service.js';
 
@@ -241,5 +242,31 @@ describe('revalidateEstimate — rejects mismatched estimate (§6.1 abuse guard)
     expect(() =>
       revalidateEstimate({ serverEstimate: '0.4000', clientEstimate: '0.0000' }),
     ).toThrow(EstimateRevalidationFailedError);
+  });
+});
+
+// ── (e) estimateActualDeltaPct — pure delta-percent helper (ADR-0006, SAD §7) ─
+
+describe('estimateActualDeltaPct', () => {
+  it('returns +10 when actual is 10% above estimate (estimate=1.0, actual=1.1)', () => {
+    expect(estimateActualDeltaPct(1.0, 1.1)).toBeCloseTo(10, 5);
+  });
+
+  it('returns -10 when actual is 10% below estimate (estimate=1.0, actual=0.9)', () => {
+    expect(estimateActualDeltaPct(1.0, 0.9)).toBeCloseTo(-10, 5);
+  });
+
+  it('returns 0 when estimate equals actual', () => {
+    expect(estimateActualDeltaPct(0.08, 0.08)).toBe(0);
+  });
+
+  it('returns 0 when estimate is 0 (zero-guard to avoid division-by-zero)', () => {
+    // A zero estimate with any actual → guard returns 0 (no meaningful percent)
+    expect(estimateActualDeltaPct(0, 0.04)).toBe(0);
+  });
+
+  it('handles fractional sub-cent amounts correctly', () => {
+    // estimate=0.04, actual=0.08 → +100%
+    expect(estimateActualDeltaPct(0.04, 0.08)).toBeCloseTo(100, 5);
   });
 });
