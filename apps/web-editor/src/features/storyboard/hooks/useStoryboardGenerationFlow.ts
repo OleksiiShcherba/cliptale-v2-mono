@@ -7,6 +7,28 @@
  * state so that StoryboardPageWorkspace keeps its existing prop interface
  * without changes.
  *
+ * Mapping (T15 reconciliation):
+ *   scene phase status     → StoryboardPlanGenerationStatus
+ *   scene_image phase status → StoryboardIllustrationLifecycleStatus
+ *
+ * PhaseStatus → plan:
+ *   idle            → idle
+ *   queued          → queued
+ *   running         → running
+ *   awaiting_review → running  (still in-progress from the UI's perspective)
+ *   completed       → completed
+ *   skipped         → completed (skipped counts as done)
+ *   failed          → failed
+ *
+ * PhaseStatus → illustration:
+ *   idle            → idle
+ *   queued          → queued
+ *   running         → running
+ *   awaiting_review → running
+ *   completed       → completed
+ *   skipped         → completed
+ *   failed          → failed
+ *
  * T16–T19 UI components are NOT wired here; mount-point comments are left
  * in StoryboardPageWorkspace where the real components will plug in.
  */
@@ -16,6 +38,7 @@ import type React from 'react';
 import type { Edge as FlowEdge, Node } from '@xyflow/react';
 
 import type { StoryboardPlanGenerationStatus, StoryboardIllustrationLifecycleStatus, StoryboardIllustrationLifecyclePhase } from '@/features/storyboard/types';
+import type { PhaseStatus } from '@/features/storyboard/api';
 
 import type { UseStoryboardPlanGenerationResult } from './useStoryboardPlanGeneration';
 import type { UseStoryboardIllustrationsResult } from './useStoryboardIllustrations';
@@ -33,23 +56,41 @@ interface UseStoryboardGenerationFlowArgs {
   reloadStoryboard: () => Promise<void>;
 }
 
-/** Derive a plan-generation status from the pipeline's active_run_phase. */
-function derivePlanStatus(activeRunPhase: string | null): StoryboardPlanGenerationStatus {
-  if (activeRunPhase === 'cast_extraction' || activeRunPhase === 'cast_review') return 'idle';
-  if (activeRunPhase === 'scene_planning') return 'running';
-  if (activeRunPhase === 'scene_illustration') return 'completed';
-  return 'idle';
+/** Map a pipeline PhaseStatus → StoryboardPlanGenerationStatus. */
+function mapPhaseToPlantStatus(phaseStatus: PhaseStatus): StoryboardPlanGenerationStatus {
+  switch (phaseStatus) {
+    case 'queued': return 'queued';
+    case 'running': return 'running';
+    case 'awaiting_review': return 'running';
+    case 'completed': return 'completed';
+    case 'skipped': return 'completed';
+    case 'failed': return 'failed';
+    case 'idle':
+    default:
+      return 'idle';
+  }
 }
 
-/** Derive an illustration lifecycle status from the pipeline's active_run_phase. */
-function deriveIllustrationStatus(activeRunPhase: string | null): StoryboardIllustrationLifecycleStatus {
-  if (activeRunPhase === 'scene_illustration') return 'running';
-  return 'idle';
+/** Map a pipeline PhaseStatus → StoryboardIllustrationLifecycleStatus. */
+function mapPhaseToIllustrationStatus(phaseStatus: PhaseStatus): StoryboardIllustrationLifecycleStatus {
+  switch (phaseStatus) {
+    case 'queued': return 'queued';
+    case 'running': return 'running';
+    case 'awaiting_review': return 'running';
+    case 'completed': return 'completed';
+    case 'skipped': return 'completed';
+    case 'failed': return 'failed';
+    case 'idle':
+    default:
+      return 'idle';
+  }
 }
 
-/** Derive an illustration lifecycle phase. */
-function deriveIllustrationPhase(activeRunPhase: string | null): StoryboardIllustrationLifecyclePhase {
-  if (activeRunPhase === 'scene_illustration') return 'scene';
+/** Derive an illustration lifecycle phase from the illustration status. */
+function deriveIllustrationPhase(illustrationStatus: StoryboardIllustrationLifecycleStatus): StoryboardIllustrationLifecyclePhase {
+  if (illustrationStatus === 'running' || illustrationStatus === 'queued') return 'scene';
+  if (illustrationStatus === 'completed') return 'completed';
+  if (illustrationStatus === 'failed') return 'failed';
   return 'idle';
 }
 
@@ -58,11 +99,12 @@ export function useStoryboardGenerationFlow({
 }: UseStoryboardGenerationFlowArgs) {
   const { state } = usePipelineState(draftId);
 
-  const activeRunPhase = state?.active_run_phase ?? null;
+  const scenePhaseStatus: PhaseStatus = state?.phases?.scene?.status ?? 'idle';
+  const sceneImagePhaseStatus: PhaseStatus = state?.phases?.scene_image?.status ?? 'idle';
 
-  const planStatus = derivePlanStatus(activeRunPhase);
-  const illustrationStatus = deriveIllustrationStatus(activeRunPhase);
-  const illustrationPhase = deriveIllustrationPhase(activeRunPhase);
+  const planStatus = mapPhaseToPlantStatus(scenePhaseStatus);
+  const illustrationStatus = mapPhaseToIllustrationStatus(sceneImagePhaseStatus);
+  const illustrationPhase = deriveIllustrationPhase(illustrationStatus);
 
   const isPlanBlocking =
     planStatus === 'queued' || planStatus === 'running' || planStatus === 'applying';

@@ -9,6 +9,11 @@ vi.mock('./StoryboardCanvas', () => ({
   StoryboardCanvas: () => <div data-testid="storyboard-canvas-stub" />,
 }));
 
+const mockTriggerPhase = vi.fn().mockResolvedValue({});
+vi.mock('@/features/storyboard/api', () => ({
+  triggerPhase: (...args: unknown[]) => mockTriggerPhase(...args),
+}));
+
 import { StoryboardPageWorkspace } from './StoryboardPageWorkspace';
 import { AuthContext, type AuthContextValue } from '@/features/auth/hooks/useAuth';
 import type { AuthUser } from '@/features/auth/types';
@@ -119,28 +124,32 @@ describe('StoryboardPageWorkspace — status menu wiring (T6 integration)', () =
     expect(screen.queryByTestId('storyboard-status-menu-trigger')).toBeNull();
   });
 
-  it('gates the destructive scene Regenerate behind the confirm modal and starts exactly one generation on confirm (AC-01, AC-07)', () => {
-    const { planStart } = renderWorkspace({ illustrationStatus: 'idle', hasMusic: false });
+  it('gates the destructive scene Regenerate behind the confirm modal and triggers the scene phase on confirm (AC-01, AC-07)', () => {
+    mockTriggerPhase.mockClear();
+    renderWorkspace({ illustrationStatus: 'idle', hasMusic: false });
     // The plan (scenes) block is the first completed block.
     fireEvent.click(screen.getAllByTestId('storyboard-status-menu-trigger')[0]);
     fireEvent.click(screen.getByTestId('storyboard-status-menu-regenerate'));
 
-    // Modal appears; nothing started yet.
+    // Modal appears; nothing triggered yet.
     expect(screen.getByTestId('storyboard-regenerate-modal')).toBeTruthy();
-    expect(planStart).not.toHaveBeenCalled();
+    expect(mockTriggerPhase).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId('storyboard-regenerate-confirm-button'));
-    expect(planStart).toHaveBeenCalledTimes(1);
-    // Modal closed — no second confirm path remains (AC-07 structural guard).
+    // triggerPhase('draft-1', 'scene') called exactly once (AC-07 structural guard).
+    expect(mockTriggerPhase).toHaveBeenCalledTimes(1);
+    expect(mockTriggerPhase).toHaveBeenCalledWith('draft-1', 'scene');
+    // Modal closed — no second confirm path remains.
     expect(screen.queryByTestId('storyboard-regenerate-modal')).toBeNull();
   });
 
-  it('cancelling the scene warning starts no generation (AC-05)', () => {
-    const { planStart } = renderWorkspace();
+  it('cancelling the scene warning triggers no generation (AC-05)', () => {
+    mockTriggerPhase.mockClear();
+    renderWorkspace();
     fireEvent.click(screen.getAllByTestId('storyboard-status-menu-trigger')[0]);
     fireEvent.click(screen.getByTestId('storyboard-status-menu-regenerate'));
     fireEvent.click(screen.getByTestId('storyboard-regenerate-cancel-button'));
-    expect(planStart).not.toHaveBeenCalled();
+    expect(mockTriggerPhase).not.toHaveBeenCalled();
     expect(screen.queryByTestId('storyboard-regenerate-modal')).toBeNull();
   });
 

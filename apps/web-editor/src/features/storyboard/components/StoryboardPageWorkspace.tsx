@@ -14,6 +14,7 @@ import type {
 } from '@xyflow/react';
 
 import { AuthContext } from '@/features/auth/hooks/useAuth';
+import { triggerPhase } from '@/features/storyboard/api';
 import { useStoryboardHiddenBlocks } from '@/features/storyboard/hooks/useStoryboardHiddenBlocks';
 import type { UseStoryboardPlanGenerationResult } from '@/features/storyboard/hooks/useStoryboardPlanGeneration';
 import type { UseStoryboardIllustrationsResult } from '@/features/storyboard/hooks/useStoryboardIllustrations';
@@ -27,7 +28,6 @@ import { EffectsIcon, LibraryIcon, StoryboardIcon } from './storyboardIcons';
 import { StoryboardHistoryPanel } from './StoryboardHistoryPanel';
 import {
   StoryboardIllustrationControls,
-  StoryboardPlanBlockingOverlay,
   StoryboardPlanControls,
 } from './StoryboardPlanControls';
 import {
@@ -145,12 +145,14 @@ export function StoryboardPageWorkspace({
   }, []);
 
   const handleSceneRegenerateConfirm = React.useCallback(() => {
-    // Close first so a duplicate confirm has no modal to act on, then start
-    // exactly one generation — the block leaves its completed state at once
-    // (status → queued), so its menu unmounts too (AC-01, AC-07).
+    // Close first so a duplicate confirm has no modal to act on, then trigger
+    // the scene phase via the pipeline API — the block leaves its completed
+    // state at once (status → queued), so its menu unmounts too (AC-01, AC-07).
     setIsSceneConfirmOpen(false);
-    void planGeneration.start();
-  }, [planGeneration]);
+    void triggerPhase(draftId, 'scene').catch((err: unknown) => {
+      console.error('[StoryboardPageWorkspace] triggerPhase scene failed:', err);
+    });
+  }, [draftId]);
 
   const handleSceneRegenerateCancel = React.useCallback(() => {
     setIsSceneConfirmOpen(false);
@@ -242,8 +244,6 @@ export function StoryboardPageWorkspace({
           onRestore={onRestore}
         />
       )}
-
-      {isPlanBlocking && <StoryboardPlanBlockingOverlay status={planGeneration.status} />}
 
       {isSceneConfirmOpen && (
         <StoryboardRegenerateConfirmModal
