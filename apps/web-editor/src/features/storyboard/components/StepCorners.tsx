@@ -4,6 +4,7 @@
  * Buttons that let the Creator manually (re)trigger any pipeline phase.
  * Rendered inside the canvas bottom-left toolbar, to the right of ZoomToolbar.
  * Styled identically to Add Block / Add Music (canvasToolbarButton).
+ * Each button opens a confirmation modal before triggering the phase.
  */
 
 import React, { useState } from 'react';
@@ -12,6 +13,7 @@ import { GateError, triggerPhase } from '@/features/storyboard/api';
 import type { PipelineState } from '@/features/storyboard/api';
 
 import { referenceGateMessageStyles } from './ReferenceGateMessage.styles';
+import { storyboardRegenerateConfirmModalStyles as ms } from './StoryboardRegenerateConfirmModal.styles';
 import { storyboardPageStyles as s } from './storyboardPageStyles';
 
 export interface StepCornersProps {
@@ -29,7 +31,25 @@ const PHASE_LABELS: Record<Phase, string> = {
   scene_image: 'Scene Images',
 };
 
-/** SVG refresh icon matching the Add-Block style (16×16). */
+const PHASE_MODAL_TITLE: Record<Phase, string> = {
+  scene: 'Re-run scene generation?',
+  reference_data: 'Re-run reference extraction?',
+  reference_image: 'Re-run reference images?',
+  scene_image: 'Re-run scene images?',
+};
+
+const PHASE_MODAL_DESCRIPTION: Record<Phase, string> = {
+  scene:
+    'This re-generates the scene plan from your script. The existing scenes on the canvas will be replaced with a new set. Any manual edits to scene text or order will be lost.',
+  reference_data:
+    'This re-extracts characters and locations from your scenes. The existing reference blocks will be replaced. Any custom edits or starred results tied to those blocks will be discarded.',
+  reference_image:
+    'This re-generates the visual reference images for every reference block. Previously generated images will be overwritten. Starred selections will be reset.',
+  scene_image:
+    'This re-generates the illustrated images for every scene. Previously generated scene illustrations will be overwritten.',
+};
+
+/** SVG refresh icon matching the Add-Block style (14×14). */
 function RefreshIcon(): React.ReactElement {
   return (
     <svg
@@ -49,12 +69,83 @@ function RefreshIcon(): React.ReactElement {
   );
 }
 
+/** Inline confirmation modal — reuses the same visual layer as StoryboardRegenerateConfirmModal. */
+function PhaseConfirmModal({
+  phase,
+  onConfirm,
+  onCancel,
+}: {
+  phase: Phase;
+  onConfirm: () => void;
+  onCancel: () => void;
+}): React.ReactElement {
+  const dialogRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    dialogRef.current?.focus();
+  }, []);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === 'Escape') { e.stopPropagation(); onCancel(); }
+  };
+
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>): void => {
+    if (e.target === e.currentTarget) onCancel();
+  };
+
+  return (
+    <div
+      style={ms.backdrop}
+      onClick={handleBackdropClick}
+      data-testid="step-corner-confirm-backdrop"
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="step-corner-confirm-title"
+        tabIndex={-1}
+        style={ms.dialog}
+        onKeyDown={handleKeyDown}
+        data-testid="step-corner-confirm-modal"
+      >
+        <h2 id="step-corner-confirm-title" style={ms.title}>
+          {PHASE_MODAL_TITLE[phase]}
+        </h2>
+        <p style={{ ...ms.body, margin: 0 }}>
+          {PHASE_MODAL_DESCRIPTION[phase]}
+        </p>
+        <div style={ms.footer}>
+          <button
+            type="button"
+            style={ms.cancelButton}
+            onClick={onCancel}
+            data-testid="step-corner-confirm-cancel"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            style={ms.confirmButton}
+            onClick={onConfirm}
+            data-testid="step-corner-confirm-run"
+          >
+            Re-run
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function StepCorners({ draftId, state }: StepCornersProps): React.ReactElement {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pendingPhase, setPendingPhase] = useState<Phase | null>(null);
 
   const isPhaseRunning = state?.active_run_phase != null;
 
   function handleTrigger(phase: Phase): void {
+    setPendingPhase(null);
     triggerPhase(draftId, phase)
       .then(() => {
         setErrorMessage(null);
@@ -69,27 +160,37 @@ export function StepCorners({ draftId, state }: StepCornersProps): React.ReactEl
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div style={{ display: 'flex', gap: 8 }}>
-        {PHASES.map((phase) => (
-          <button
-            key={phase}
-            type="button"
-            data-testid={`step-corner-trigger-${phase}`}
-            disabled={isPhaseRunning}
-            onClick={() => handleTrigger(phase)}
-            style={isPhaseRunning ? s.canvasToolbarButtonDisabled : s.canvasToolbarButton}
-          >
-            <RefreshIcon />
-            {PHASE_LABELS[phase]}
-          </button>
-        ))}
-      </div>
-      {errorMessage !== null && (
-        <div role="alert" style={referenceGateMessageStyles.root}>
-          {errorMessage}
+    <>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {PHASES.map((phase) => (
+            <button
+              key={phase}
+              type="button"
+              data-testid={`step-corner-trigger-${phase}`}
+              disabled={isPhaseRunning}
+              onClick={() => setPendingPhase(phase)}
+              style={isPhaseRunning ? s.canvasToolbarButtonDisabled : s.canvasToolbarButton}
+            >
+              <RefreshIcon />
+              {PHASE_LABELS[phase]}
+            </button>
+          ))}
         </div>
+        {errorMessage !== null && (
+          <div role="alert" style={referenceGateMessageStyles.root}>
+            {errorMessage}
+          </div>
+        )}
+      </div>
+
+      {pendingPhase !== null && (
+        <PhaseConfirmModal
+          phase={pendingPhase}
+          onConfirm={() => handleTrigger(pendingPhase)}
+          onCancel={() => setPendingPhase(null)}
+        />
       )}
-    </div>
+    </>
   );
 }

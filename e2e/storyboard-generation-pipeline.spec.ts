@@ -583,8 +583,19 @@ test.describe('Flow 3 — cancel + corner re-trigger', () => {
     // Corner trigger should be visible for the scene phase
     await expect(page.getByTestId('step-corner-trigger-scene')).toBeVisible({ timeout: 8_000 });
 
-    // Click corner trigger
+    // Click corner trigger — confirmation modal appears
     await page.getByTestId('step-corner-trigger-scene').click();
+    await expect(page.getByTestId('step-corner-confirm-modal')).toBeVisible({ timeout: 5_000 });
+
+    // Cancelling the modal does NOT trigger the phase
+    await page.getByTestId('step-corner-confirm-cancel').click();
+    await expect(page.getByTestId('step-corner-confirm-modal')).not.toBeVisible({ timeout: 3_000 });
+
+    // Click again and confirm
+    await page.getByTestId('step-corner-trigger-scene').click();
+    await expect(page.getByTestId('step-corner-confirm-modal')).toBeVisible({ timeout: 5_000 });
+    await page.getByTestId('step-corner-confirm-run').click();
+    await expect(page.getByTestId('step-corner-confirm-modal')).not.toBeVisible({ timeout: 3_000 });
 
     // Simulate: scene running again
     await emitState(
@@ -743,11 +754,16 @@ test.describe('Flow 5 — phase-order guard: triggering a later phase before pre
     const sceneTrigger = page.getByTestId('step-corner-trigger-scene_image');
     await expect(sceneTrigger).toBeVisible({ timeout: 8_000 });
 
-    // Attempt to trigger scene_image — should fail with a guard message
+    // Attempt to trigger scene_image — confirmation modal appears first
     await sceneTrigger.click();
+    await expect(page.getByTestId('step-corner-confirm-modal')).toBeVisible({ timeout: 5_000 });
 
-    // A guard/error message should appear somewhere on the page
-    // (BlockingLoader not shown, no modal — just the guard text)
+    // Confirm → API returns 422 GateError → guard message appears
+    await page.getByTestId('step-corner-confirm-run').click();
+    await expect(page.getByTestId('step-corner-confirm-modal')).not.toBeVisible({ timeout: 3_000 });
+
+    // Guard message (role="alert") should appear; loader must not appear
+    await expect(page.getByRole('alert')).toBeVisible({ timeout: 5_000 });
     await expect(page.getByTestId('blocking-loader')).not.toBeVisible({ timeout: 5_000 });
   });
 
