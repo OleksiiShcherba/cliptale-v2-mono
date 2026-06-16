@@ -143,14 +143,12 @@ function buildMusicBlockName(segment: StoryboardPlanMusicSegment, index: number)
 
 function getMusicBlockLayoutPosition(
   coveredScene: Pick<StoryboardLayoutBlock, 'positionX' | 'positionY'>,
-  laneIndex: number,
 ): { x: number; y: number } {
   return {
     x: coveredScene.positionX,
     y: coveredScene.positionY
       + STORYBOARD_SCENE_NODE_RENDERED_HEIGHT
-      + STORYBOARD_MUSIC_NODE_VERTICAL_GAP
-      + laneIndex * STORYBOARD_MUSIC_NODE_LANE_HEIGHT,
+      + STORYBOARD_MUSIC_NODE_VERTICAL_GAP,
   };
 }
 
@@ -192,7 +190,7 @@ function buildMusicBlocks(
       );
     }
 
-    const position = getMusicBlockLayoutPosition(startScene, index);
+    const position = getMusicBlockLayoutPosition(startScene);
 
     return {
       id: newId(),

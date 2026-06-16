@@ -25,6 +25,11 @@ import type {
   StoryboardBlock,
   StoryboardEdge,
 } from '@/features/storyboard/types';
+import {
+  STORYBOARD_MUSIC_NODE_LANE_HEIGHT,
+  STORYBOARD_MUSIC_NODE_VERTICAL_GAP,
+  STORYBOARD_SCENE_NODE_RENDERED_HEIGHT,
+} from '@/features/storyboard/utils/musicBlockLayout';
 import { musicBlockToNode, orderStoryboardSceneBlocks } from './useStoryboardMusic';
 
 // ── Canvas layout constants ────────────────────────────────────────────────────
@@ -105,6 +110,57 @@ function edgeToFlowEdge(edge: StoryboardEdge): Edge {
  */
 export const REFERENCE_BLOCK_Y_OFFSET = 350;
 
+// ── Reference block auto-layout constants ─────────────────────────────────────
+
+/** Gap between the bottom of the music-block row and the first reference row. */
+const REFERENCE_BLOCK_GAP_FROM_MUSIC = 40;
+
+/** Approximate rendered height of one reference-block node. */
+const REFERENCE_BLOCK_NODE_HEIGHT = 180;
+
+/** Vertical spacing between reference blocks stacked under the same scene. */
+const REFERENCE_BLOCK_NODE_VERTICAL_SPACING = 20;
+
+/**
+ * Computes the default canvas position for a reference block when it has not yet
+ * been manually placed (positionX === 0 && positionY === 0).
+ *
+ * Layout rules (per product spec):
+ * - X: aligned to the first scene block the reference is connected to.
+ * - Y: below the shared music-block row; multiple references from the same first
+ *   scene are stacked vertically.
+ *
+ * Returns null when the first linked scene cannot be found (e.g., newly created
+ * reference before scene blocks exist) — the caller falls back to the (0, 0) default.
+ */
+function computeDefaultReferenceBlockPosition(
+  block: ReferenceBlockApiResponse,
+  sceneBlocksById: Map<string, StoryboardBlock>,
+  countByFirstSceneId: Map<string, number>,
+): { x: number; y: number } | null {
+  if (block.positionX !== 0 || block.positionY !== 0) return null;
+
+  const firstSceneId = block.sceneBlockIds[0];
+  if (!firstSceneId) return null;
+
+  const firstScene = sceneBlocksById.get(firstSceneId);
+  if (!firstScene) return null;
+
+  // Music row: all music blocks are on one horizontal line below scene nodes.
+  const musicRowY = firstScene.positionY + STORYBOARD_SCENE_NODE_RENDERED_HEIGHT + STORYBOARD_MUSIC_NODE_VERTICAL_GAP;
+  const referenceRowStartY = musicRowY + STORYBOARD_MUSIC_NODE_LANE_HEIGHT + REFERENCE_BLOCK_GAP_FROM_MUSIC;
+
+  // Stack vertically when multiple references share the same first scene.
+  const stackIndex = countByFirstSceneId.get(firstSceneId) ?? 0;
+  countByFirstSceneId.set(firstSceneId, stackIndex + 1);
+
+  const canvasY = referenceRowStartY
+    + stackIndex * (REFERENCE_BLOCK_NODE_HEIGHT + REFERENCE_BLOCK_NODE_VERTICAL_SPACING);
+
+  // storedY = canvasY − REFERENCE_BLOCK_Y_OFFSET (offset is re-added on render).
+  return { x: firstScene.positionX, y: canvasY - REFERENCE_BLOCK_Y_OFFSET };
+}
+
 /**
  * Converts a ReferenceBlockApiResponse to a React Flow Node (off-chain, like musicBlockToNode).
  * The node type is 'reference-block' — registered in STORYBOARD_NODE_TYPES.
@@ -119,7 +175,12 @@ function referenceBlockToNode(
   onRetry: (blockId: string) => void,
   resolvedPreviewUrls: string[] = [],
   onOpenDetails?: (blockId: string) => void,
+  defaultPosition?: { x: number; y: number } | null,
 ): Node {
+  // Use computed default position when block has not yet been manually placed.
+  const storedX = defaultPosition?.x ?? block.positionX;
+  const storedY = defaultPosition?.y ?? block.positionY;
+
   const data: ReferenceBlockNodeData = {
     referenceBlock: {
       id: block.blockId,
@@ -129,8 +190,8 @@ function referenceBlockToNode(
       name: block.name,
       description: block.description,
       sortOrder: block.sortOrder,
-      positionX: block.positionX,
-      positionY: block.positionY,
+      positionX: storedX,
+      positionY: storedY,
       windowStatus: block.windowStatus,
       firstJobId: null,
       errorMessage: block.errorMessage,
@@ -148,7 +209,7 @@ function referenceBlockToNode(
   return {
     id: block.blockId,
     type: 'reference-block',
-    position: { x: block.positionX, y: block.positionY + REFERENCE_BLOCK_Y_OFFSET }, // below main flow row
+    position: { x: storedX, y: storedY + REFERENCE_BLOCK_Y_OFFSET }, // REFERENCE_BLOCK_Y_OFFSET added on render
     data,
     draggable: true,
     deletable: true,
@@ -340,10 +401,19 @@ export function useStoryboardCanvas(
       const positionedBlocks = applyDefaultPositions(dedupedBlocks);
 
       const orderedScenes = orderStoryboardSceneBlocks(positionedBlocks, state.edges);
+
+      // Build lookup for reference block auto-layout: X aligned to first scene, Y below music row.
+      const sceneBlocksById = new Map(
+        positionedBlocks.filter((b) => b.blockType === 'scene').map((b) => [b.id, b]),
+      );
+      const refCountByFirstSceneId = new Map<string, number>();
+
       const flowNodes = [
         ...positionedBlocks.map((block) => blockToNode(block, removeNode)),
         ...state.musicBlocks.map((musicBlock) => musicBlockToNode(musicBlock, orderedScenes as StoryboardBlock[])),
         ...refBlocksResult.items.map((refBlock) => {
+          const defaultPos = computeDefaultReferenceBlockPosition(refBlock, sceneBlocksById, refCountByFirstSceneId);
+
           // All starred files, oldest-first; fall back to previewFileId when
           // nothing is starred (e.g. legacy/auto preview).
           const starUrls = refBlock.stars
@@ -363,6 +433,7 @@ export function useStoryboardCanvas(
             onOpenDetailsRef.current
               ? (blockId) => { onOpenDetailsRef.current?.(blockId); }
               : undefined,
+            defaultPos,
           );
         }),
       ];

@@ -127,7 +127,7 @@ describe('useAddMusicBlock', () => {
     );
   });
 
-  it('stacks new manual music blocks in the next lane below the scene row', () => {
+  it('places new manual music blocks on the same horizontal row as other music blocks', () => {
     const scene1 = scene('scene-1', 1, 300);
     const existingMusicBlock = {
       id: 'music-existing',
@@ -188,6 +188,7 @@ describe('useAddMusicBlock', () => {
     const updater = setNodes.mock.calls[0][0] as (prev: Node[]) => Node[];
     const createdNode = updater(nodes).find((node) => node.id === MUSIC_ID);
     expect(createdNode?.position).toEqual(getManualMusicBlockPosition(scene1, [existingMusicBlock]));
-    expect(createdNode?.position.y).toBeGreaterThan(existingMusicBlock.positionY);
+    // All music blocks share one horizontal row — new block y equals the layout row y.
+    expect(createdNode?.position.y).toBe(getManualMusicBlockPosition(scene1, []).y);
   });
 });

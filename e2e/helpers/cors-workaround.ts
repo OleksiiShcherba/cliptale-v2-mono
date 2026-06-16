@@ -34,10 +34,9 @@ export async function installCorsWorkaround(
   page: Page,
   token: string,
 ): Promise<void> {
-  if (IS_LOCAL_TARGET) return;
-
-  // Intercept auth/me — return hardcoded dev-user payload so the AuthProvider
-  // considers the user authenticated without reaching the CORS-blocked API.
+  // Always stub /auth/me so the AuthProvider sees a valid session even when the
+  // real endpoint is rate-limited (the E2E auth/me endpoint shares a rate-limit
+  // bucket with /auth/login; long combined test runs hit 429 on later tests).
   await page.route('**/auth/me', (route) => {
     if (route.request().method() === 'GET') {
       return route.fulfill({
@@ -52,6 +51,8 @@ export async function installCorsWorkaround(
     }
     return route.continue();
   });
+
+  if (IS_LOCAL_TARGET) return;
 
   // Proxy ALL localhost:3001 requests to E2E_API_URL via page.request.
   // page.request runs in Node.js context so there are no browser CORS

@@ -8,29 +8,28 @@ export const STORYBOARD_MUSIC_NODE_LANE_HEIGHT = 132;
 /**
  * Calculates the default canvas position for a storyboard music block.
  *
- * The block starts aligned to the first covered scene and is placed in a lane
- * below the rendered scene node so generated and manual music blocks share the
- * same non-overlapping layout.
+ * All music blocks share the same horizontal row (one lane below the scene node),
+ * aligned to the X of the first covered scene. This matches the generated-layout
+ * convention: each music block is visually "under" its start scene.
  */
 export function getMusicBlockLayoutPosition(
   coveredScene: Pick<StoryboardBlock, 'positionX' | 'positionY'>,
-  laneIndex: number,
 ): { x: number; y: number } {
   return {
     x: coveredScene.positionX,
     y: coveredScene.positionY
       + STORYBOARD_SCENE_NODE_RENDERED_HEIGHT
-      + STORYBOARD_MUSIC_NODE_VERTICAL_GAP
-      + laneIndex * STORYBOARD_MUSIC_NODE_LANE_HEIGHT,
+      + STORYBOARD_MUSIC_NODE_VERTICAL_GAP,
   };
 }
 
 /**
- * Calculates the next manual music block position from existing music lanes.
+ * Calculates the canvas position for a manually added music block.
+ * Placed on the same horizontal music row, aligned to the first covered scene.
  */
 export function getManualMusicBlockPosition(
   coveredScene: StoryboardBlock,
-  existingMusicBlocks: readonly StoryboardMusicBlock[],
+  _existingMusicBlocks: readonly StoryboardMusicBlock[],
 ): { x: number; y: number } {
-  return getMusicBlockLayoutPosition(coveredScene, existingMusicBlocks.length);
+  return getMusicBlockLayoutPosition(coveredScene);
 }
