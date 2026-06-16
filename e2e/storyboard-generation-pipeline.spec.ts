@@ -1165,3 +1165,131 @@ test.describe('Flow 8 — canvas refresh: blocks appear after pipeline phase tra
     await reloadRequest;
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Flow 9 — Reference block position persistence
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Flow 9 — reference block position persistence after reload', () => {
+  test.setTimeout(60_000);
+
+  /**
+   * When reference blocks have positionX=0/positionY=0 (freshly created by
+   * confirmCast), the canvas computes default positions and immediately PATCHes
+   * them back to the backend. On the next page load the blocks return with
+   * non-zero stored positions — no drift, no jump.
+   *
+   * Constants used (from useStoryboardCanvas.ts + musicBlockLayout.ts):
+   *   STORYBOARD_SCENE_NODE_RENDERED_HEIGHT = 280
+   *   STORYBOARD_MUSIC_NODE_VERTICAL_GAP    = 40
+   *   STORYBOARD_MUSIC_NODE_LANE_HEIGHT     = 132
+   *   REFERENCE_BLOCK_GAP_FROM_MUSIC        = 40
+   *   REFERENCE_BLOCK_NODE_HEIGHT           = 180
+   *   REFERENCE_BLOCK_NODE_VERTICAL_SPACING = 20
+   *   REFERENCE_BLOCK_Y_OFFSET              = 350
+   *
+   * Scene at positionY=300 → storedY = (300+280+40) + (132+40) - 350 = 442
+   * Scene at positionX=340 → storedX = 340
+   */
+  test('reference blocks with (0,0) positions get computed positions persisted via PATCH after canvas load', async ({ page }) => {
+    const SCENE_ID = 'f9-scene-id-aaaa';
+    const REF_ID   = 'f9-ref-id-bbbb';
+    const FLOW_ID  = 'f9-flow-id-cccc';
+    const NOW = '2026-06-16T00:00:00.000Z';
+
+    // Pipeline: all phases completed — no loader, reference blocks visible.
+    const allComplete = makeState({
+      version: 200,
+      active_phase: 'scene_image',
+      active_run_phase: null,
+      phases: {
+        scene: { status: 'completed' },
+        reference_data: { status: 'completed' },
+        reference_image: { status: 'completed' },
+        scene_image: { status: 'completed' },
+      },
+    });
+
+    await stubPipeline(page, allComplete);
+
+    // Override storyboard GET: scene block at (340, 300), sentinels at known X.
+    const baseBlock = {
+      videoPrompt: null as string | null,
+      durationS: 5,
+      style: null as string | null,
+      createdAt: NOW,
+      updatedAt: NOW,
+      mediaItems: [] as unknown[],
+    };
+    await page.route(`**/storyboards/${draftId}`, async (route) => {
+      const url = new URL(route.request().url());
+      if (!url.pathname.endsWith(`/storyboards/${draftId}`) || route.request().method() !== 'GET') {
+        return route.continue();
+      }
+      return route.fulfill(jsonOk({
+        blocks: [
+          { ...baseBlock, id: 'f9-start', draftId, blockType: 'start', name: null, prompt: null, positionX: 50,  positionY: 300, sortOrder: 0 },
+          { ...baseBlock, id: SCENE_ID,   draftId, blockType: 'scene', name: 'Scene 1', prompt: 'Hero scene', positionX: 340, positionY: 300, sortOrder: 1 },
+          { ...baseBlock, id: 'f9-end',   draftId, blockType: 'end',   name: null, prompt: null, positionX: 680, positionY: 300, sortOrder: 999 },
+        ],
+        edges: [
+          { id: 'f9-e1', draftId, sourceBlockId: 'f9-start', targetBlockId: SCENE_ID },
+          { id: 'f9-e2', draftId, sourceBlockId: SCENE_ID,   targetBlockId: 'f9-end' },
+        ],
+        musicBlocks: [],
+      }));
+    });
+
+    // Override reference blocks GET: one block at (0, 0) linked to the scene.
+    await page.route(`**/storyboards/${draftId}/references/blocks`, async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      return route.fulfill(jsonOk({
+        items: [{
+          blockId: REF_ID,
+          draftId,
+          flowId: FLOW_ID,
+          castType: 'character',
+          name: 'Hero',
+          description: 'The protagonist',
+          sortOrder: 0,
+          positionX: 0,
+          positionY: 0,
+          windowStatus: 'done',
+          errorMessage: null,
+          version: 1,
+          sceneBlockIds: [SCENE_ID],
+          stars: [],
+          previewFileId: null,
+          createdAt: NOW,
+          updatedAt: NOW,
+        }],
+      }));
+    });
+
+    // Capture PATCH /references/blocks/:blockId to verify position persistence.
+    const patchedPositions: Array<{ blockId: string; positionX: number; positionY: number }> = [];
+    await page.route(`**/storyboards/${draftId}/references/blocks/*`, async (route) => {
+      if (route.request().method() !== 'PATCH') return route.continue();
+      const blockId = route.request().url().split('/').at(-1) ?? '';
+      const body = route.request().postDataJSON() as { positionX?: number; positionY?: number } | null;
+      patchedPositions.push({ blockId, positionX: body?.positionX ?? -1, positionY: body?.positionY ?? -1 });
+      await route.fulfill(jsonOk({ blockId, positionX: body?.positionX ?? 0, positionY: body?.positionY ?? 0 }));
+    });
+
+    await openStoryboard(page);
+
+    // Reference block node must appear on the canvas.
+    await expect(page.getByTestId('reference-block-node')).toHaveCount(1, { timeout: 15_000 });
+
+    // Wait for the PATCH to be fired (default position persisted).
+    await expect.poll(() => patchedPositions.length, { timeout: 5_000 }).toBeGreaterThan(0);
+
+    // The persisted position must match the expected computed default:
+    //   storedX = 340 (scene positionX)
+    //   storedY = (300 + 280 + 40) + (132 + 40) - 350 = 792 - 350 = 442
+    const patch = patchedPositions[0]!;
+    expect(patch.blockId).toBe(REF_ID);
+    expect(patch.positionX).toBe(340);
+    expect(patch.positionY).toBe(442);
+  });
+});

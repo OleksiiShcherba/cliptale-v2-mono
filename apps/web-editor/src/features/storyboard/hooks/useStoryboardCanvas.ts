@@ -16,7 +16,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 import type { Node, Edge } from '@xyflow/react';
 
-import { fetchFileInfo, fetchStoryboard, listReferenceBlocks } from '@/features/storyboard/api';
+import { fetchFileInfo, fetchStoryboard, listReferenceBlocks, updateReferenceBlock } from '@/features/storyboard/api';
 import type {
   ReferenceBlockApiResponse,
   ReferenceBlockNodeData,
@@ -408,11 +408,18 @@ export function useStoryboardCanvas(
       );
       const refCountByFirstSceneId = new Map<string, number>();
 
+      // Compute default positions and collect blocks that need their positions persisted.
+      const defaultPositions = new Map<string, { x: number; y: number }>();
+      for (const refBlock of refBlocksResult.items) {
+        const pos = computeDefaultReferenceBlockPosition(refBlock, sceneBlocksById, refCountByFirstSceneId);
+        if (pos) defaultPositions.set(refBlock.blockId, pos);
+      }
+
       const flowNodes = [
         ...positionedBlocks.map((block) => blockToNode(block, removeNode)),
         ...state.musicBlocks.map((musicBlock) => musicBlockToNode(musicBlock, orderedScenes as StoryboardBlock[])),
         ...refBlocksResult.items.map((refBlock) => {
-          const defaultPos = computeDefaultReferenceBlockPosition(refBlock, sceneBlocksById, refCountByFirstSceneId);
+          const defaultPos = defaultPositions.get(refBlock.blockId) ?? null;
 
           // All starred files, oldest-first; fall back to previewFileId when
           // nothing is starred (e.g. legacy/auto preview).
@@ -446,6 +453,17 @@ export function useStoryboardCanvas(
       ) return;
       setNodes(flowNodes);
       setEdges(flowEdges);
+
+      // Persist computed default positions so they survive page refresh.
+      // Fire-and-forget: display is already correct; errors are non-fatal.
+      for (const [blockId, pos] of defaultPositions) {
+        void updateReferenceBlock(draftId, blockId, {
+          positionX: pos.x,
+          positionY: pos.y,
+        }).catch((err) => {
+          console.error('[useStoryboardCanvas] failed to persist reference block default position:', err);
+        });
+      }
     } catch (err) {
       if (
         !isMountedRef.current

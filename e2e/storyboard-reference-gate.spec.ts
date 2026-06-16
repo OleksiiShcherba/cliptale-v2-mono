@@ -227,6 +227,17 @@ async function installGateApi(page: Page, state: GateApiState): Promise<void> {
       return;
     }
 
+    // ── PATCH /references/blocks/:blockId (position persist) ──────────────
+    const patchBlockMatch = pathname.match(
+      new RegExp(`^${refBase.replace(/\//g, '\\/')}/blocks/([^/]+)$`),
+    );
+    if (method === 'PATCH' && patchBlockMatch) {
+      // Accept position updates — return 200 with the current block.
+      const block = state.referenceReady ? makeReadyRefBlock() : makeNotReadyRefBlock();
+      await route.fulfill(jsonResponse(block));
+      return;
+    }
+
     // ── GET illustrations status (initial load) ────────────────────────────
     if (method === 'GET' && pathname === `/storyboards/${DRAFT_ID}/illustrations`) {
       await route.fulfill(jsonResponse(makeIdleIllustrationResponse()));

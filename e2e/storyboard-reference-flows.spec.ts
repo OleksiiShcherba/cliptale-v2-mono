@@ -329,6 +329,18 @@ async function installReferenceApi(
       return;
     }
 
+    // ── PATCH /references/blocks/:blockId (position persist) ─────────────
+    const patchBlockMatch = pathname.match(
+      new RegExp(`^${refBase.replace(/\//g, '\\/')}/blocks/([^/]+)$`),
+    );
+    if (method === 'PATCH' && patchBlockMatch) {
+      // Accept position updates silently — return updated block state.
+      const [, blockId] = patchBlockMatch;
+      const block = state.blocks.find((b) => b.blockId === blockId);
+      await route.fulfill(jsonResponse(block ? serializeBlock(block) : { blockId }, 200));
+      return;
+    }
+
     // ── PUT /references/blocks/:blockId/stars/:fileId (AC-06) ─────────────
     const starMatch = pathname.match(
       new RegExp(`^${refBase.replace(/\//g, '\\/')}/blocks/([^/]+)/stars/([^/]+)$`),
