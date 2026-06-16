@@ -343,7 +343,13 @@ async function installGateApi(page: Page, state: GateApiState): Promise<void> {
       return;
     }
 
-    // ── Fall through (auth, realtime, etc.) ───────────────────────────────
+    // ── GET /auth/me — stub to prevent rate-limit auth failures ─────────────
+    if (method === 'GET' && pathname === '/auth/me') {
+      await route.fulfill(jsonResponse({ userId: 'dev-user-e2e', email: 'dev@cliptale.local', displayName: 'Dev User' }));
+      return;
+    }
+
+    // ── Fall through (realtime, etc.) ─────────────────────────────────────
     await route.fallback();
   });
 }

@@ -46,21 +46,24 @@ export type PipelineStateDto = StoryboardPipelineRow;
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-type DraftOwnerRow = RowDataPacket & { user_id: string };
+type DraftOwnerRow = RowDataPacket & { user_id: string; status: string };
 
 /**
  * Verify the draft exists and is owned by userId.
  * Throws NotFoundError for both absent and wrong-owner cases (deny-and-hide,
  * AC-13: evaluated before any prerequisite/ordering check).
+ *
+ * Returns the draft status so callers can gate auto-start on step2+.
  */
-async function assertDraftOwner(draftId: string, userId: string): Promise<void> {
+async function assertDraftOwner(draftId: string, userId: string): Promise<string> {
   const [rows] = await pool.execute<DraftOwnerRow[]>(
-    `SELECT user_id FROM generation_drafts WHERE id = ? LIMIT 1`,
+    `SELECT user_id, status FROM generation_drafts WHERE id = ? LIMIT 1`,
     [draftId],
   );
   if (!rows.length || rows[0]!.user_id !== userId) {
     throw new NotFoundError(`Draft not found`);
   }
+  return rows[0]!.status;
 }
 
 /**
@@ -126,12 +129,15 @@ export async function getPipelineState(
   userId: string,
 ): Promise<PipelineStateDto> {
   // 1. Authorization — must be first (AC-13, SAD §8)
-  await assertDraftOwner(draftId, userId);
+  const draftStatus = await assertDraftOwner(draftId, userId);
 
   // 2. Read existing row
   let row = await getPipelineByDraftId(draftId);
 
-  // 3. Fresh draft — lazily create row + auto-start scene generation (AC-01)
+  // 3. Fresh draft — lazily create row + auto-start scene generation (AC-01).
+  //    Guard: only auto-start for step2+ drafts. step1 ('draft') drafts are not
+  //    in the storyboard phase yet, so enqueueing a scene-plan job would be premature
+  //    (and would trigger real LLM calls for empty prompt docs).
   if (row === null) {
     // INSERT IGNORE so a concurrent first-open does not error (idempotent)
     await insertPipelineRow({ draftId });
@@ -139,17 +145,20 @@ export async function getPipelineState(
     // Re-read to get the freshly inserted defaults (version = 1, scene_status = 'idle')
     row = (await getPipelineByDraftId(draftId))!;
 
-    // Claim the 'scene' run via the active-run CAS (ADR-0007)
-    const affected = await claimRun({ draftId, phase: 'scene', currentVersion: row.version });
+    if (draftStatus === 'step2' || draftStatus === 'step3' || draftStatus === 'completed') {
+      // Claim the 'scene' run via the active-run CAS (ADR-0007)
+      const affected = await claimRun({ draftId, phase: 'scene', currentVersion: row.version });
 
-    if (affected === 1) {
-      // We won the claim — enqueue the scene-plan job (AC-01)
-      const jobId = randomUUID();
-      await enqueueStoryboardPlan({ jobId, draftId, userId });
+      if (affected === 1) {
+        // We won the claim — enqueue the scene-plan job (AC-01)
+        const jobId = randomUUID();
+        await enqueueStoryboardPlan({ jobId, draftId, userId });
+      }
+
+      // Re-read to return the post-claim state (running or whatever the winner set)
+      row = (await getPipelineByDraftId(draftId))!;
     }
 
-    // Re-read to return the post-claim state (running or whatever the winner set)
-    row = (await getPipelineByDraftId(draftId))!;
     return row;
   }
 

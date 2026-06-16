@@ -58,12 +58,12 @@ function newId(tag: string): string {
   return `${PREFIX}-${tag}-${randomUUID().slice(0, 12)}`;
 }
 
-async function seedDraft(userId: string): Promise<string> {
+async function seedDraft(userId: string, status: 'draft' | 'step2' | 'step3' | 'completed' = 'step2'): Promise<string> {
   const draftId = newId('draft');
   trackedDraftIds.push(draftId);
   await conn.execute(
-    `INSERT INTO generation_drafts (id, user_id, prompt_doc) VALUES (?, ?, ?)`,
-    [draftId, userId, JSON.stringify({ text: 'Test prompt', blocks: [], settings: null })],
+    `INSERT INTO generation_drafts (id, user_id, prompt_doc, status) VALUES (?, ?, ?, ?)`,
+    [draftId, userId, JSON.stringify({ text: 'Test prompt', blocks: [], settings: null }), status],
   );
   return draftId;
 }
@@ -97,9 +97,9 @@ afterAll(async () => {
 // ── AC-01: auto-start on fresh draft ─────────────────────────────────────────
 
 describe('AC-01 — auto-start on fresh draft (no pipeline row)', () => {
-  it('creates the pipeline row, claims the run, sets scene_status=running, and enqueues scene plan', async () => {
+  it('creates the pipeline row, claims the run, sets scene_status=running, and enqueues scene plan (step2 draft)', async () => {
     vi.clearAllMocks();
-    const draftId = await seedDraft(USER_A);
+    const draftId = await seedDraft(USER_A, 'step2');
 
     const state = await getPipelineState(draftId, USER_A);
 
@@ -123,7 +123,7 @@ describe('AC-01 — auto-start on fresh draft (no pipeline row)', () => {
 
   it('returns the existing running state idempotently on a second call (no duplicate enqueue)', async () => {
     vi.clearAllMocks();
-    const draftId = await seedDraft(USER_A);
+    const draftId = await seedDraft(USER_A, 'step2');
 
     // First call: auto-start
     await getPipelineState(draftId, USER_A);
@@ -134,6 +134,20 @@ describe('AC-01 — auto-start on fresh draft (no pipeline row)', () => {
     // Second call: row exists and is already running — must NOT enqueue again
     const state = await getPipelineState(draftId, USER_A);
     expect(state.sceneStatus).toBe('running');
+    expect(enqueueStoryboardPlan).not.toHaveBeenCalled();
+  });
+
+  it('does NOT auto-start for a fresh step1 (draft status) draft — row created but idle, no enqueue', async () => {
+    vi.clearAllMocks();
+    const draftId = await seedDraft(USER_A, 'draft');
+
+    const state = await getPipelineState(draftId, USER_A);
+
+    // Row is created but NOT claimed — scene remains idle
+    expect(state.sceneStatus).toBe('idle');
+    expect(state.activeRunPhase).toBeNull();
+
+    // No LLM job should be enqueued for a Step 1 draft
     expect(enqueueStoryboardPlan).not.toHaveBeenCalled();
   });
 });

@@ -320,6 +320,24 @@ test.describe('Storyboard canvas — /storyboard/:draftId', () => {
     try {
       await initializeDraft(page.request, token, draftId);
 
+      // Stub the pipeline endpoint to return idle state so the pipeline blocking
+      // loader and cast-proposal modal do not appear and block the add-block click.
+      // (initializeDraft advances draft status to step2 which triggers auto-start.)
+      await page.route(`**/${draftId}/pipeline**`, async (route) => {
+        if (route.request().method() === 'GET') {
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              draft_id: draftId, active_phase: 'scene', active_run_phase: null,
+              phases: { scene: { status: 'idle' }, reference_data: { status: 'idle' }, reference_image: { status: 'idle' }, scene_image: { status: 'idle' } },
+              payload: null, version: 1, cost_estimate: null, error_message: null,
+            }),
+          });
+        }
+        return route.continue();
+      });
+
       await page.goto(`/storyboard/${draftId}`);
       await page.waitForLoadState('networkidle', { timeout: 30_000 });
 

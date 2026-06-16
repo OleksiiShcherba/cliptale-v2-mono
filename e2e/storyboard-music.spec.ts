@@ -348,7 +348,7 @@ async function installStoryboardMusicMocks(page: Page): Promise<{
   getVideoStartPayloads: () => unknown[];
   getSceneMoveSaved: () => boolean;
 }> {
-  let storyboardApplied = false;
+  let storyboardApplied = true; // pipeline completes server-side before page open in the new flow
   let assembledMode: 'images' | 'videos' = 'images';
   let musicPollCount = 0;
   let autoMusicReady = false;
@@ -687,6 +687,71 @@ async function installStoryboardMusicMocks(page: Page): Promise<{
       return;
     }
 
+    // ── GET /generation-drafts/:id — draft metadata (draftOwnerId for UI) ──
+    if (request.method() === 'GET' && path === `/generation-drafts/${DRAFT_ID}`) {
+      await route.fulfill(jsonResponse({
+        id: DRAFT_ID,
+        userId: 'e2e-music-user',
+        status: 'step2',
+        createdAt: '2026-06-16T10:00:00.000Z',
+      }));
+      return;
+    }
+
+    // ── GET /users/me/settings — autosave interval + concurrency limit ────
+    if (request.method() === 'GET' && path === '/users/me/settings') {
+      await route.fulfill(jsonResponse({ autosaveIntervalSeconds: 60, updatedAt: null }));
+      return;
+    }
+
+    // ── GET /references/blocks — no reference blocks in music tests ────────
+    if (request.method() === 'GET' && path === `/storyboards/${DRAFT_ID}/references/blocks`) {
+      await route.fulfill(jsonResponse({ items: [] }));
+      return;
+    }
+
+    // ── GET /references/extraction — no cast extraction in music tests ─────
+    if (request.method() === 'GET' && path === `/storyboards/${DRAFT_ID}/references/extraction`) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"not found"}', headers: { 'access-control-allow-origin': '*' } });
+      return;
+    }
+
+    // ── POST /files/stream-urls — bulk signed URL fetcher ─────────────────
+    if (request.method() === 'POST' && path === '/files/stream-urls') {
+      const body = request.postDataJSON() as { fileIds?: string[] } | null;
+      const fileIds = body?.fileIds ?? [];
+      const urls: Record<string, string> = {};
+      for (const fileId of fileIds) {
+        urls[fileId] = `https://signed.test/files/${fileId}/stream`;
+      }
+      await route.fulfill(jsonResponse({ urls, missingFileIds: [] }));
+      return;
+    }
+
+    // ── GET /pipeline — new pipeline state (storyboard-generation-pipeline) ──
+    // Scenes are already generated server-side before the page opens; return
+    // all phases completed so BlockingLoader never appears and the canvas loads
+    // the applied storyboard state immediately.
+    if (request.method() === 'GET' && path === `/storyboards/${DRAFT_ID}/pipeline`) {
+      await route.fulfill(jsonResponse({
+        draft_id: DRAFT_ID,
+        active_phase: 'scene_image',
+        active_run_phase: null,
+        phases: {
+          scene: { status: 'completed' },
+          reference_data: { status: 'completed' },
+          reference_image: { status: 'completed' },
+          scene_image: { status: 'completed' },
+        },
+        payload: null,
+        version: 4,
+        cost_estimate: null,
+        error_message: null,
+        updated_at: null,
+      }));
+      return;
+    }
+
     if (url.origin === E2E_API_ORIGIN) {
       unexpectedApiRequests.push(`${request.method()} ${path}`);
       await route.fulfill(jsonResponse({ error: `Unexpected API request: ${request.method()} ${path}` }, 599));
@@ -803,6 +868,9 @@ function parseTranslatePosition(transform: string): { positionX: number; positio
 }
 
 async function getNodeCanvasPosition(locator: Locator): Promise<{ positionX: number; positionY: number }> {
+  // React Flow applies the CSS transform on the outer .react-flow__node wrapper,
+  // not on the inner content element. Walk up the DOM tree to find the first
+  // ancestor whose computed transform is not "none".
   const transform = await locator.evaluate((element) => {
     const view = (
       element as {
@@ -813,7 +881,14 @@ async function getNodeCanvasPosition(locator: Locator): Promise<{ positionX: num
         };
       }
     ).ownerDocument?.defaultView;
-    return view?.getComputedStyle?.(element)?.transform ?? 'none';
+    if (!view?.getComputedStyle) return 'none';
+    let el: Element | null = element;
+    while (el) {
+      const t = view.getComputedStyle(el)?.transform ?? 'none';
+      if (t && t !== 'none') return t;
+      el = el.parentElement;
+    }
+    return 'none';
   });
   const position = parseTranslatePosition(String(transform));
   expect(position, `Expected node transform to expose canvas position, got ${String(transform)}`).not.toBeNull();
@@ -938,8 +1013,8 @@ async function prepareStoryboardMusicFlow(page: Page) {
   const mocks = await installStoryboardMusicMocks(page);
   await page.goto(`/storyboard/${DRAFT_ID}`);
 
-  await expect(page.getByTestId('storyboard-plan-overlay')).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('storyboard-plan-overlay')).not.toBeVisible({ timeout: 20_000 });
+  // With the new pipeline, scenes are applied server-side before the page opens.
+  // The pipeline mock returns all phases completed so no BlockingLoader appears.
   await expect(page.getByTestId('scene-block-node')).toHaveCount(2, { timeout: 15_000 });
   await expect(page.getByTestId('music-block-node')).toHaveCount(3, { timeout: 15_000 });
   await expect(page.getByTestId('music-source-badge')).toHaveText(['Auto later', 'Auto later', 'Auto later']);
@@ -981,8 +1056,7 @@ test.describe('Storyboard music E2E', () => {
     const mocks = await installStoryboardMusicMocks(page);
     await page.goto(`/storyboard/${DRAFT_ID}`);
 
-    await expect(page.getByTestId('storyboard-plan-overlay')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('storyboard-plan-overlay')).not.toBeVisible({ timeout: 20_000 });
+    // Pipeline mock returns all phases completed; storyboard is pre-applied.
     await expect(page.getByTestId('scene-block-node')).toHaveCount(2, { timeout: 15_000 });
     await expect(page.getByTestId('music-block-node')).toHaveCount(3, { timeout: 15_000 });
     await expectVisibleMusicBlocksDoNotOverlap(page, 3);
@@ -1090,11 +1164,11 @@ test.describe('Storyboard music E2E', () => {
     await expect(page.getByTestId('step3-generation-modal')).toBeVisible();
     await page.getByTestId('step3-skip-videos-button').click();
 
-    await expect(page.getByText('Generating background music and creating your editor project...')).toBeVisible();
+    // Road-map page assembles quickly in mocked env; wait for editor URL directly.
+    await expect(page).toHaveURL(new RegExp(`/editor\\?projectId=${PROJECT_ID}$`), { timeout: 20_000 });
     await expect.poll(mocks.getAutoMusicReady, { timeout: 10_000 }).toBe(true);
     expect(mocks.getMusicPollCount()).toBeGreaterThanOrEqual(1);
     expect(mocks.getProjectAssemblyViolations()).toEqual([]);
-    await expect(page).toHaveURL(new RegExp(`/editor\\?projectId=${PROJECT_ID}$`), { timeout: 20_000 });
     await expect(page.getByRole('toolbar', { name: 'Playback controls' })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('button', { name: /Clip: image/ })).toHaveCount(2);
     await expect(page.getByRole('button', { name: /Clip: audio/ })).toHaveCount(3);
@@ -1116,12 +1190,12 @@ test.describe('Storyboard music E2E', () => {
     await page.getByTestId('step3-video-model-select').selectOption('fal-ai/mock-image-to-video');
     await page.getByTestId('step3-start-videos-button').click();
 
-    await expect(page.getByText('Generating storyboard videos and background music...')).toBeVisible();
+    // Road-map page assembles quickly in mocked env; wait for editor URL directly.
+    await expect(page).toHaveURL(new RegExp(`/editor\\?projectId=${PROJECT_ID}$`), { timeout: 20_000 });
     await expect.poll(mocks.getAutoMusicReady, { timeout: 10_000 }).toBe(true);
     await expect.poll(mocks.getVideoReadyPollCount, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
     expect(mocks.getMusicPollCount()).toBeGreaterThanOrEqual(1);
     expect(mocks.getProjectAssemblyViolations()).toEqual([]);
-    await expect(page).toHaveURL(new RegExp(`/editor\\?projectId=${PROJECT_ID}$`), { timeout: 20_000 });
     await expect(page.getByRole('button', { name: /Clip: video/ })).toHaveCount(2);
     await expect(page.getByRole('button', { name: /Clip: audio/ })).toHaveCount(3);
 

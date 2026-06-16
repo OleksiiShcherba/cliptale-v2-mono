@@ -601,7 +601,13 @@ async function installReferenceApi(
       return;
     }
 
-    // ── Fall through to real network (auth, checkpoints, etc.) ─────────────
+    // ── GET /auth/me — stub to prevent rate-limit auth failures ─────────────
+    if (method === 'GET' && pathname === '/auth/me') {
+      await route.fulfill(jsonResponse({ userId: 'dev-user-e2e', email: 'dev@cliptale.local', displayName: 'Dev User' }));
+      return;
+    }
+
+    // ── Fall through to real network (realtime, etc.) ─────────────────────
     await route.fallback();
   });
 
