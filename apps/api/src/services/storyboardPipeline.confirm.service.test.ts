@@ -217,6 +217,8 @@ afterAll(async () => {
   }
   // confirmCast inserts ai_generation_jobs rows (no draft_id) — clean by owner.
   await conn.query(`DELETE FROM ai_generation_jobs WHERE user_id = ?`, [OWNER_ID]);
+  // confirmCast now creates generation_flows (linked to reference blocks) — clean by owner.
+  await conn.query(`DELETE FROM generation_flows WHERE user_id = ?`, [OWNER_ID]);
   await conn.query(`DELETE FROM users WHERE user_id = ?`, [OWNER_ID]);
   await conn.end();
   const { pool } = await import('@/db/connection.js');
@@ -435,5 +437,68 @@ describe('confirmCast — references below music + idempotent run claim', () => 
     ).rejects.toBeInstanceOf(NotFoundError);
 
     expect(await countReferenceBlocks(draftId)).toBe(0);
+  });
+
+  // ── MAIN ADJUSTMENT — each reference block must have a linked flow (base flow) ──
+
+  it('MAIN ADJ: each reference block has a non-null flow_id pointing to a pre-seeded flow', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    await seedSceneAndMusic(draftId, [2]);
+    await seedCastProposal(draftId, OWNER_ID, [
+      { type: 'character',   name: 'Hero',   description: 'A brave hero' },
+      { type: 'environment', name: 'Forest', description: 'Dense forest' },
+    ]);
+    await arrangeAwaitingReview(draftId, '0.1000');
+
+    await confirmCast({ draftId, userId: OWNER_ID, clientEstimate: '0.1000' });
+
+    const refBlocks = await listReferenceBlocksByDraftId({ draftId, userId: OWNER_ID });
+    expect(refBlocks).toHaveLength(2);
+
+    for (const block of refBlocks) {
+      // Each block must link to a flow.
+      expect(block.flowId).toBeTruthy();
+
+      // The linked flow must exist in generation_flows.
+      const [flowRows] = await conn.execute<RowDataPacket[]>(
+        `SELECT flow_id, canvas FROM generation_flows WHERE flow_id = ? AND user_id = ?`,
+        [block.flowId, OWNER_ID],
+      );
+      expect(flowRows).toHaveLength(1);
+
+      // The flow canvas must contain a generation block (base-flow structure).
+      const rawCanvas = (flowRows[0] as { canvas: string | object }).canvas;
+      const canvas = typeof rawCanvas === 'string' ? JSON.parse(rawCanvas) : rawCanvas;
+      const blocks: Array<{ type?: string }> = (canvas as { blocks?: Array<{ type?: string }> }).blocks ?? [];
+      expect(blocks.some((b) => b.type === 'generation')).toBe(true);
+    }
+  });
+
+  it('MAIN ADJ: ai_generation_jobs created by confirmCast carry flow_id + block_id', async () => {
+    const draftId = await seedDraft(OWNER_ID);
+    await seedSceneAndMusic(draftId, [0]);
+    await seedCastProposal(draftId, OWNER_ID, [
+      { type: 'character', name: 'Villain', description: 'The main antagonist' },
+    ]);
+    await arrangeAwaitingReview(draftId, '0.0500');
+
+    await confirmCast({ draftId, userId: OWNER_ID, clientEstimate: '0.0500' });
+
+    // Fetch the reference block's first_job_id.
+    const refBlocks = await listReferenceBlocksByDraftId({ draftId, userId: OWNER_ID });
+    expect(refBlocks).toHaveLength(1);
+    const block = refBlocks[0]!;
+    expect(block.firstJobId).toBeTruthy();
+    expect(block.flowId).toBeTruthy();
+
+    // The ai_generation_jobs row must carry flow_id and block_id.
+    const [jobRows] = await conn.execute<RowDataPacket[]>(
+      `SELECT job_id, flow_id, block_id FROM ai_generation_jobs WHERE job_id = ?`,
+      [block.firstJobId],
+    );
+    expect(jobRows).toHaveLength(1);
+    const job = jobRows[0] as { job_id: string; flow_id: string | null; block_id: string | null };
+    expect(job.flow_id).toBe(block.flowId);
+    expect(job.block_id).toBeTruthy(); // the canvas generation block id
   });
 });

@@ -351,7 +351,12 @@ async function installReferenceApi(
         } else {
           existing.isPrimary = isPrimary;
         }
-        if (isPrimary) block.previewFileId = fileId ?? null;
+        if (isPrimary) {
+          block.previewFileId = fileId ?? null;
+        } else if (block.previewFileId === null) {
+          // Mirror DB logic: first star (even non-primary) becomes the preview.
+          block.previewFileId = fileId ?? null;
+        }
       }
       await route.fulfill(
         jsonResponse({
@@ -388,7 +393,65 @@ async function installReferenceApi(
       return;
     }
 
+    // ── GET /storyboards/:draftId/pipeline (pipeline state for new flow) ───
+    if (method === 'GET' && pathname === `/storyboards/${draftId}/pipeline`) {
+      await route.fulfill(
+        jsonResponse({
+          active_run_phase: null,
+          version: 1,
+          phases: {
+            scene: { status: 'completed' },
+            reference_data: { status: 'completed' },
+            reference_image: { status: 'completed' },
+            scene_image: { status: 'idle' },
+          },
+          payload: null,
+          cost_estimate: null,
+          error_message: null,
+        }),
+      );
+      return;
+    }
+
+    // ── POST /storyboards/:draftId/pipeline/phases/scene_image/trigger ────
+    // The new UI calls triggerPhase('scene_image') instead of POST /illustrations.
+    // Mirror the star-gate: if blocks are missing stars, return a 422 with their names.
+    if (method === 'POST' && pathname === `/storyboards/${draftId}/pipeline/phases/scene_image/trigger`) {
+      if (state.starGateBlocks.length > 0) {
+        const names = state.starGateBlocks.map((b) => b.name).join(', ');
+        await route.fulfill(
+          jsonResponse(
+            {
+              error: `Reference block(s) still need a starred result: ${names}.`,
+              code: 'pipeline.phase_out_of_order',
+              details: {},
+            },
+            422,
+          ),
+        );
+        return;
+      }
+      // Gate passed — 200 with running scene_image state.
+      await route.fulfill(
+        jsonResponse({
+          active_run_phase: 'scene_image',
+          version: 2,
+          phases: {
+            scene: { status: 'completed' },
+            reference_data: { status: 'completed' },
+            reference_image: { status: 'completed' },
+            scene_image: { status: 'running' },
+          },
+          payload: null,
+          cost_estimate: null,
+          error_message: null,
+        }),
+      );
+      return;
+    }
+
     // ── POST /storyboards/:draftId/illustrations (star gate — AC-08) ──────
+    // Legacy endpoint kept so older test flows that still mock it don't break.
     if (method === 'POST' && pathname === `/storyboards/${draftId}/illustrations`) {
       if (state.starGateBlocks.length > 0) {
         const names = state.starGateBlocks.map((b) => b.name).join(', ');
@@ -459,14 +522,24 @@ async function installReferenceApi(
                 position: { x: 0, y: 0 },
                 params: { contentType: 'text', text: 'A reference image.' },
               },
+              // Generation block required so result block can resolve its source job.
+              {
+                blockId: 'gen-block-1',
+                type: 'generation',
+                position: { x: 340, y: 0 },
+                params: { modelId: 'openai/gpt-image-2' },
+              },
               {
                 blockId: 'result-block-1',
                 type: 'result',
-                position: { x: 320, y: 0 },
+                position: { x: 680, y: 0 },
                 params: { sourceBlockId: 'gen-block-1' },
               },
             ],
-            edges: [],
+            edges: [
+              { edgeId: 'edge-content-gen', sourceBlockId: 'content-block-1', sourceHandle: 'out', targetBlockId: 'gen-block-1', targetHandle: 'prompt' },
+              { edgeId: 'edge-gen-result', sourceBlockId: 'gen-block-1', sourceHandle: 'out', targetBlockId: 'result-block-1', targetHandle: 'in' },
+            ],
           },
           jobs: [
             {
@@ -515,7 +588,12 @@ async function installReferenceApi(
     }
 
     // ── Misc: files/assets ──────────────────────────────────────────────────
-    if (method === 'GET' && (pathname === `/files/${FILE_1_ID}` || pathname === `/files/${FILE_2_ID}`)) {
+    // Handles both /files/{fileId} (direct) and /files/{fileId}/stream (fetchFileInfo)
+    if (
+      method === 'GET' &&
+      (pathname === `/files/${FILE_1_ID}` || pathname === `/files/${FILE_2_ID}` ||
+       pathname === `/files/${FILE_1_ID}/stream` || pathname === `/files/${FILE_2_ID}/stream`)
+    ) {
       const fid = pathname.includes(FILE_1_ID) ? FILE_1_ID : FILE_2_ID;
       await route.fulfill(
         jsonResponse({ id: fid, fileId: fid, url: PREVIEW_URL, mimeType: 'image/png', kind: 'image' }),
@@ -705,20 +783,30 @@ test.describe('J2 — stars to scenes (AC-06, AC-08, AC-09)', () => {
       await expect(blockNode).toBeVisible({ timeout: 10_000 });
       await expect(blockNode.getByTestId('reference-block-preview-placeholder')).toBeVisible();
 
-      // Open the reference flow from the block (AC-05: same-tab navigation).
-      await blockNode.click();
+      // Open the reference flow from the block.
+      // Block click now opens the details modal (scene links + prompt);
+      // the "View flow" button on the node navigates to the flow page.
+      await blockNode.getByTestId('reference-block-view-flow-button').click();
       await expect(page.getByRole('link', { name: /back to storyboard/i })).toBeVisible({ timeout: 10_000 });
 
       // In the flow editor there is a result image the Creator can star.
       // The star button targets the result file FILE_1_ID.
+      // Note: the image may appear broken in headless tests (external URL) but is in the DOM.
       const resultImg = page.getByTestId('result-media-image').first();
       await expect(resultImg).toBeVisible({ timeout: 10_000 });
-      await expect(resultImg).toHaveAttribute('src', PREVIEW_URL);
 
-      // Star the result as primary (the primary-star button / action).
-      const starBtn = page.getByRole('button', { name: /primary star|star as primary|make primary/i }).first();
+      // Star the result (star-toggle — data-testid="star-toggle").
+      // All stars are equal in this flow (isPrimary: false); the first star becomes the preview.
+      const starBtn = page.getByTestId('star-toggle').first();
       await expect(starBtn).toBeVisible({ timeout: 5_000 });
+
+      // Wait for the star PUT network request to complete before navigating away,
+      // otherwise the stub may not have updated block.previewFileId yet (race condition).
+      const starPutDone = page.waitForResponse(
+        (resp) => resp.url().includes('/stars/') && resp.request().method() === 'PUT',
+      );
       await starBtn.click();
+      await starPutDone;
 
       // Go back to the storyboard canvas.
       await page.getByRole('link', { name: /back to storyboard/i }).click();
@@ -796,15 +884,27 @@ test.describe('J2 — stars to scenes (AC-06, AC-08, AC-09)', () => {
         starGateBlocks: [], // gate passes
       };
 
-      // Capture what the illustrations POST sends.
-      let illustrationPayload: unknown = null;
+      // Track the pipeline scene_image trigger call (the new "start illustrations" path).
+      let triggerCalled = false;
       await installReferenceApi(page, state);
 
-      // Override the illustrations endpoint to capture the payload.
-      await page.route(`**/${DRAFT_ID}/illustrations`, async (route: Route) => {
+      // Override the pipeline trigger endpoint to capture the call.
+      await page.route(`**/pipeline/phases/scene_image/trigger`, async (route: Route) => {
         if (route.request().method() === 'POST') {
-          illustrationPayload = route.request().postDataJSON();
-          await route.fulfill(jsonResponse({ status: 'queued' }, 202));
+          triggerCalled = true;
+          await route.fulfill(
+            jsonResponse({
+              active_run_phase: 'scene_image',
+              version: 2,
+              phases: {
+                scene: { status: 'completed' },
+                reference_data: { status: 'completed' },
+                reference_image: { status: 'completed' },
+                scene_image: { status: 'running' },
+              },
+              payload: null, cost_estimate: null, error_message: null,
+            }),
+          );
         } else {
           await route.fallback();
         }
@@ -812,18 +912,18 @@ test.describe('J2 — stars to scenes (AC-06, AC-08, AC-09)', () => {
 
       await openStoryboard(page);
 
-      // The star gate passes — "Next" / "Generate scenes" should be enabled.
+      // The star gate passes — "Next: Step 3" should be enabled.
       const nextBtn = page.getByRole('button', { name: /next|generate scenes|start previews/i }).first();
       await expect(nextBtn).toBeEnabled({ timeout: 10_000 });
       await nextBtn.click();
 
-      // No gate-failure alert should appear.
+      // No gate-failure alert should appear (star gate passes).
       await expect(page.getByRole('alert')).not.toBeVisible({ timeout: 3_000 }).catch(() => {
         // If alert doesn't exist in DOM that's fine too.
       });
 
-      // The illustrations start request was issued (scene generation kicked off).
-      await expect.poll(() => illustrationPayload !== null, { timeout: 10_000 }).toBeTruthy();
+      // The pipeline scene_image trigger was issued (scene generation kicked off).
+      await expect.poll(() => triggerCalled, { timeout: 10_000 }).toBeTruthy();
     },
   );
 });

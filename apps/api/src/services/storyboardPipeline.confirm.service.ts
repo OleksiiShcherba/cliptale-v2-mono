@@ -146,6 +146,85 @@ function buildReferenceOptions(entry: ProposalCastEntry): Record<string, unknown
   };
 }
 
+/**
+ * Builds the base-flow canvas for a pipeline-confirmed reference.
+ *
+ * Seeds the full visible chain — (optional) text-content → generation → result —
+ * so opening the flow shows the auto-generated output instead of an empty canvas.
+ * Mirrors storyboardReference.confirm.service.buildReferenceCanvas, but without
+ * imageFileIds (pipeline proposals carry only description/name).
+ */
+function buildReferenceCanvas(entry: ProposalCastEntry): {
+  canvas: { blocks: unknown[]; edges: unknown[] };
+  genBlockId: string;
+} {
+  const blocks: unknown[] = [];
+  const edges: unknown[] = [];
+
+  if (entry.description?.trim()) {
+    const contentId = randomUUID();
+    blocks.push({
+      blockId: contentId,
+      type: 'content',
+      position: { x: 0, y: 0 },
+      params: { contentType: 'text', text: entry.description.trim(), modality: 'text' },
+    });
+    const genBlockId = randomUUID();
+    blocks.push({
+      blockId: genBlockId,
+      type: 'generation',
+      position: { x: 340, y: 0 },
+      params: { modelId: REFERENCE_DEFAULT_MODEL_ID },
+    });
+    edges.push({
+      edgeId: randomUUID(),
+      sourceBlockId: contentId,
+      sourceHandle: 'out',
+      targetBlockId: genBlockId,
+      targetHandle: 'prompt',
+    });
+    const resultBlockId = randomUUID();
+    blocks.push({
+      blockId: resultBlockId,
+      type: 'result',
+      position: { x: 680, y: 0 },
+      params: { sourceBlockId: genBlockId },
+    });
+    edges.push({
+      edgeId: randomUUID(),
+      sourceBlockId: genBlockId,
+      sourceHandle: 'out',
+      targetBlockId: resultBlockId,
+      targetHandle: 'in',
+    });
+    return { canvas: { blocks, edges }, genBlockId };
+  }
+
+  // No description — just generation → result.
+  const genBlockId = randomUUID();
+  blocks.push({
+    blockId: genBlockId,
+    type: 'generation',
+    position: { x: 340, y: 0 },
+    params: { modelId: REFERENCE_DEFAULT_MODEL_ID },
+  });
+  const resultBlockId = randomUUID();
+  blocks.push({
+    blockId: resultBlockId,
+    type: 'result',
+    position: { x: 680, y: 0 },
+    params: { sourceBlockId: genBlockId },
+  });
+  edges.push({
+    edgeId: randomUUID(),
+    sourceBlockId: genBlockId,
+    sourceHandle: 'out',
+    targetBlockId: resultBlockId,
+    targetHandle: 'in',
+  });
+  return { canvas: { blocks, edges }, genBlockId };
+}
+
 // ── confirmCast ───────────────────────────────────────────────────────────────
 
 /**
@@ -225,21 +304,34 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmCas
 
   // 7. Create every reference block below all music blocks (AC-09, snapshot).
   //    sort_order starts just past MAX(music.sort_order); blocks created 'pending'.
+  //    Each block gets a linked generation_flow with a pre-seeded base canvas
+  //    (content→generation→result) so the Creator can open the flow and review
+  //    the auto-generated reference image (MAIN ADJUSTMENT).
   //    Immediately after each block, insert its storyboard_reference_scene_links
   //    rows from the proposal entry's scene_block_ids (AC-10 prep for T12).
   //    Only scene blocks that exist for this draft are linked (bad ids are skipped
   //    to prevent FK violations from stale proposal data — the FK would rollback).
   const baseSort = (await maxMusicSortOrder(draftId)) + 1;
-  type CreatedBlock = { blockId: string; entry: ProposalCastEntry };
+  type CreatedBlock = { blockId: string; flowId: string; genBlockId: string; entry: ProposalCastEntry };
   const created: CreatedBlock[] = [];
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i]!;
     const blockId = randomUUID();
+    const flowId = randomUUID();
+
+    // Create the generation_flow row with a pre-seeded base canvas.
+    const { canvas, genBlockId } = buildReferenceCanvas(entry);
+    await pool.execute(
+      `INSERT INTO generation_flows (flow_id, user_id, title, canvas)
+       VALUES (?, ?, ?, ?)`,
+      [flowId, userId, entry.name, JSON.stringify(canvas)],
+    );
+
     await pool.execute(
       `INSERT INTO storyboard_reference_blocks
-         (id, draft_id, cast_type, name, description, sort_order, window_status)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
-      [blockId, draftId, entry.castType, entry.name, entry.description, baseSort + i],
+         (id, draft_id, flow_id, cast_type, name, description, sort_order, window_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      [blockId, draftId, flowId, entry.castType, entry.name, entry.description, baseSort + i],
     );
     // Insert reference → scene links (AC-10; matches shipped insert shape from
     // storyboardReference.confirm.service / migration 054).
@@ -251,22 +343,24 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmCas
         [blockId, sceneBlockId],
       );
     }
-    created.push({ blockId, entry });
+    created.push({ blockId, flowId, genBlockId, entry });
   }
 
   // 8. Enqueue reference-image generation the SAME way the shipped reference flow
   //    does: ai_generation_jobs row + first_job_id claim + queue.add. The worker's
   //    rolling window (<=4) governs concurrency downstream.
-  for (const { blockId, entry } of created) {
+  //    block_id binds the run to the flow canvas' generation block so the flow's
+  //    result block resolves this run's output as its preview (MAIN ADJUSTMENT).
+  for (const { blockId, flowId, genBlockId, entry } of created) {
     const jobId = randomUUID();
     const prompt = buildReferencePrompt(entry);
     const options = buildReferenceOptions(entry);
 
     await pool.execute(
       `INSERT INTO ai_generation_jobs
-         (job_id, user_id, model_id, capability, prompt, options)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [jobId, userId, REFERENCE_DEFAULT_MODEL_ID, REFERENCE_DEFAULT_CAPABILITY, prompt, JSON.stringify(options)],
+         (job_id, user_id, model_id, capability, prompt, options, flow_id, block_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [jobId, userId, REFERENCE_DEFAULT_MODEL_ID, REFERENCE_DEFAULT_CAPABILITY, prompt, JSON.stringify(options), flowId, genBlockId],
     );
     // Claim the block to 'running' alongside first_job_id (mirrors the shipped
     // storyboardReference.confirm.service). The block was inserted 'pending';

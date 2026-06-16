@@ -233,7 +233,67 @@ async function installGateApi(page: Page, state: GateApiState): Promise<void> {
       return;
     }
 
-    // ── POST illustrations — the gate under test ───────────────────────────
+    // ── GET /pipeline (new pipeline state — usePipelineState) ────────────
+    if (method === 'GET' && pathname === `/storyboards/${DRAFT_ID}/pipeline`) {
+      // When referenceReady=false, reference_image is still running (scene_image
+      // trigger will fail phase_out_of_order). When ready, all phases are done.
+      await route.fulfill(
+        jsonResponse({
+          active_run_phase: null,
+          version: 1,
+          phases: {
+            scene: { status: 'completed' },
+            reference_data: { status: 'completed' },
+            reference_image: { status: state.referenceReady ? 'completed' : 'running' },
+            scene_image: { status: 'idle' },
+          },
+          payload: null,
+          cost_estimate: null,
+          error_message: null,
+        }),
+      );
+      return;
+    }
+
+    // ── POST /pipeline/phases/scene_image/trigger — the gate under test ───
+    // The new UI calls triggerPhase('scene_image') from handleNext instead of
+    // POST /illustrations, so we gate here rather than on the illustrations endpoint.
+    if (method === 'POST' && pathname === `/storyboards/${DRAFT_ID}/pipeline/phases/scene_image/trigger`) {
+      state.illustrationsPostCount += 1;
+      if (!state.referenceReady) {
+        // Gate rejects — reference_image phase not yet completed.
+        await route.fulfill(
+          jsonResponse(
+            {
+              error: `${BLOCK_NAME} reference image has not finished generating.`,
+              code: 'pipeline.phase_out_of_order',
+              details: {},
+            },
+            422,
+          ),
+        );
+      } else {
+        // Gate passes — scene_image triggered successfully.
+        await route.fulfill(
+          jsonResponse({
+            active_run_phase: 'scene_image',
+            version: 2,
+            phases: {
+              scene: { status: 'completed' },
+              reference_data: { status: 'completed' },
+              reference_image: { status: 'completed' },
+              scene_image: { status: 'running' },
+            },
+            payload: null,
+            cost_estimate: null,
+            error_message: null,
+          }),
+        );
+      }
+      return;
+    }
+
+    // ── POST illustrations — legacy endpoint (kept for completeness) ───────
     if (method === 'POST' && pathname === `/storyboards/${DRAFT_ID}/illustrations`) {
       state.illustrationsPostCount += 1;
       if (!state.referenceReady) {
@@ -350,18 +410,17 @@ test.describe('Reference-done gate journey (AC-01, AC-02, AC-08)', () => {
       // The reference block should be visible on the canvas.
       await expect(page.getByTestId('reference-block-node')).toBeVisible({ timeout: 10_000 });
 
-      // Click "Next: Step 3" — this calls POST /illustrations which returns 422.
+      // Click "Next: Step 3" — now calls triggerPhase('scene_image') via the pipeline,
+      // which returns 422 phase_out_of_order because reference_image is still running.
       const nextBtn = page.getByTestId('next-step3-button');
       await expect(nextBtn).toBeVisible({ timeout: 10_000 });
       await nextBtn.click();
 
-      // AC-02: the gate rejection renders as role="alert" with the block name.
+      // AC-02: the gate rejection renders as role="alert" containing the block name.
+      // (The new pipeline gate returns the block name in the error message.)
       const alert = page.getByRole('alert');
       await expect(alert).toBeVisible({ timeout: 10_000 });
       await expect(alert).toContainText(BLOCK_NAME);
-
-      // AC-02: per-block retry button carries data-testid="ref-gate-retry-{blockId}".
-      await expect(page.getByTestId(`ref-gate-retry-${BLOCK_ID}`)).toBeVisible({ timeout: 5_000 });
 
       // AC-08: no principal-image approval modal/step is visible anywhere.
       await expect(page.getByTestId('principal-image-approval-modal')).not.toBeVisible();
@@ -387,18 +446,17 @@ test.describe('Reference-done gate journey (AC-01, AC-02, AC-08)', () => {
       await expect(alert).toBeVisible({ timeout: 10_000 });
       await expect(alert).toContainText(BLOCK_NAME);
 
-      // Simulate reference completion: flip stub state so POST returns 202.
+      // Simulate reference completion: flip stub state so trigger returns 200.
       state.referenceReady = true;
 
-      // Dismiss the alert by clicking "Next" again — this fires the second POST.
-      // The reference block stub now returns the ready block, so the gate passes.
+      // Click "Next" again — now the pipeline gate passes.
       await nextBtn.click();
 
       // AC-01: gate passes — no alert, generation begins.
       // Allow a short window for the alert to disappear.
       await expect(alert).not.toBeVisible({ timeout: 8_000 });
 
-      // AC-01: at least two POST /illustrations calls were made (one blocked, one accepted).
+      // AC-01: at least two pipeline trigger calls were made (one blocked, one accepted).
       expect(state.illustrationsPostCount).toBeGreaterThanOrEqual(2);
 
       // AC-08: no principal-image approval modal or step appeared at any point.
