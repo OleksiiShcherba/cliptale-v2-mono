@@ -118,8 +118,6 @@ async function stubPipeline(
   page: Page,
   initialState: PipelineState,
 ): Promise<{ emitState: (state: PipelineState) => Promise<void> }> {
-  const escaped = draftId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
   // GET /storyboards/:draftId/pipeline → initial state
   await page.route(`**/${draftId}/pipeline`, async (route) => {
     if (route.request().method() === 'GET') {
@@ -135,6 +133,45 @@ async function stubPipeline(
       // Return the initial state as the sync response; tests drive transitions
       // via emitState() after clicking the action.
       return route.fulfill(jsonOk(initialState));
+    }
+    return route.continue();
+  });
+
+  // GET /storyboards/:draftId → minimal start+end storyboard.
+  // Prevents tests from depending on real API response latency (which can
+  // cause the canvas to not render within the 15s waitForCanvas timeout
+  // after many sequential test runs). Tests that need specific storyboard
+  // content (F8) register their own route AFTER this call — Playwright
+  // executes routes in reverse-registration order, so the later route wins.
+  await page.route(`**/storyboards/${draftId}`, async (route) => {
+    const url = new URL(route.request().url());
+    if (!url.pathname.endsWith(`/storyboards/${draftId}`) || route.request().method() !== 'GET') {
+      return route.continue();
+    }
+    return route.fulfill(jsonOk({
+      blocks: [
+        {
+          id: 'stub-start-id', draftId, blockType: 'start', name: null, prompt: null,
+          videoPrompt: null, durationS: 3, positionX: 0, positionY: 0, sortOrder: 0,
+          style: null, createdAt: '2026-06-16T00:00:00Z', updatedAt: '2026-06-16T00:00:00Z',
+          mediaItems: [],
+        },
+        {
+          id: 'stub-end-id', draftId, blockType: 'end', name: null, prompt: null,
+          videoPrompt: null, durationS: 3, positionX: 600, positionY: 0, sortOrder: 999,
+          style: null, createdAt: '2026-06-16T00:00:00Z', updatedAt: '2026-06-16T00:00:00Z',
+          mediaItems: [],
+        },
+      ],
+      edges: [{ id: 'stub-edge-id', draftId, sourceBlockId: 'stub-start-id', targetBlockId: 'stub-end-id' }],
+      musicBlocks: [],
+    }));
+  });
+
+  // GET /storyboards/:draftId/reference-blocks → empty (no references in pipeline tests)
+  await page.route(`**/${draftId}/reference-blocks`, async (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill(jsonOk({ items: [] }));
     }
     return route.continue();
   });
@@ -934,5 +971,197 @@ test.describe('Flow 7 — pipeline failure banner (AC-12)', () => {
     // Failure banner with retry
     await expect(page.getByTestId('pipeline-failure-banner')).toBeVisible({ timeout: 8_000 });
     await expect(page.getByTestId('pipeline-failure-retry')).toBeVisible();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Flow 8 — Canvas refresh after pipeline phase completion
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Flow 8 — canvas refresh: blocks appear after pipeline phase transitions', () => {
+  test.setTimeout(60_000);
+
+  test('Scene blocks appear on canvas when scene phase transitions to completed', async ({ page }) => {
+    // Stable block ids used in the mocked storyboard responses below.
+    const BLOCK_START = 'f8-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    const BLOCK_END   = 'f8-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+    const BLOCK_S1    = 'f8-cccc-cccc-cccc-cccccccccccc';
+    const BLOCK_S2    = 'f8-dddd-dddd-dddd-dddddddddddd';
+    const NOW = '2026-06-16T00:00:00.000Z';
+
+    const baseBlock = {
+      videoPrompt: null as string | null,
+      durationS: 5,
+      style: null as string | null,
+      createdAt: NOW,
+      updatedAt: NOW,
+      mediaItems: [] as unknown[],
+    };
+
+    // Toggle between initial (start+end) and post-completion (start+scenes+end) payloads.
+    let storyboardState: 'initial' | 'with-scenes' = 'initial';
+
+    const sceneRunning = makeState({
+      version: 130,
+      active_phase: 'scene',
+      active_run_phase: 'scene',
+      phases: {
+        scene: { status: 'running' },
+        reference_data: { status: 'idle' },
+        reference_image: { status: 'idle' },
+        scene_image: { status: 'idle' },
+      },
+    });
+
+    const { emitState } = await stubPipeline(page, sceneRunning);
+
+    // Stub GET /storyboards/:draftId — returns different shapes per state toggle.
+    // Pattern ends at draftId so it does not capture sub-resources (pipeline, reference-blocks).
+    await page.route(`**/storyboards/${draftId}`, async (route) => {
+      // Only intercept the root storyboard resource, not sub-paths like /pipeline.
+      const url = new URL(route.request().url());
+      const endsAtDraft = url.pathname.endsWith(`/storyboards/${draftId}`);
+      if (!endsAtDraft || route.request().method() !== 'GET') {
+        return route.continue();
+      }
+      if (storyboardState === 'initial') {
+        return route.fulfill(jsonOk({
+          blocks: [
+            { ...baseBlock, id: BLOCK_START, draftId, blockType: 'start', name: null, prompt: null, positionX: 0,   positionY: 0, sortOrder: 0 },
+            { ...baseBlock, id: BLOCK_END,   draftId, blockType: 'end',   name: null, prompt: null, positionX: 600, positionY: 0, sortOrder: 999 },
+          ],
+          edges: [{ id: 'f8-e0', draftId, sourceBlockId: BLOCK_START, targetBlockId: BLOCK_END }],
+          musicBlocks: [],
+        }));
+      }
+      return route.fulfill(jsonOk({
+        blocks: [
+          { ...baseBlock, id: BLOCK_START, draftId, blockType: 'start', name: null,       prompt: null,                      positionX: 0,   positionY: 0, sortOrder: 0 },
+          { ...baseBlock, id: BLOCK_S1,    draftId, blockType: 'scene', name: 'Scene 1',  prompt: 'A sunrise over mountains', positionX: 200, positionY: 0, sortOrder: 1 },
+          { ...baseBlock, id: BLOCK_S2,    draftId, blockType: 'scene', name: 'Scene 2',  prompt: 'Hikers on the trail',      positionX: 400, positionY: 0, sortOrder: 2 },
+          { ...baseBlock, id: BLOCK_END,   draftId, blockType: 'end',   name: null,       prompt: null,                      positionX: 600, positionY: 0, sortOrder: 999 },
+        ],
+        edges: [
+          { id: 'f8-e1', draftId, sourceBlockId: BLOCK_START, targetBlockId: BLOCK_S1 },
+          { id: 'f8-e2', draftId, sourceBlockId: BLOCK_S1,    targetBlockId: BLOCK_S2 },
+          { id: 'f8-e3', draftId, sourceBlockId: BLOCK_S2,    targetBlockId: BLOCK_END },
+        ],
+        musicBlocks: [],
+      }));
+    });
+
+    await openStoryboard(page);
+
+    // Initial: loader visible (scene running), no scene-block nodes.
+    await expect(page.getByTestId('blocking-loader')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('scene-block-node')).toHaveCount(0);
+
+    // Switch stub so the next reload returns scene blocks.
+    storyboardState = 'with-scenes';
+
+    // Emit scene=completed — the phase observer in StoryboardPage calls reloadStoryboard().
+    await emitState(
+      makeState({
+        version: 131,
+        active_phase: 'reference_data',
+        active_run_phase: null,
+        phases: {
+          scene: { status: 'completed' },
+          reference_data: { status: 'idle' },
+          reference_image: { status: 'idle' },
+          scene_image: { status: 'idle' },
+        },
+      }),
+    );
+
+    // Loader must disappear (no active_run_phase).
+    await expect(page.getByTestId('blocking-loader')).not.toBeVisible({ timeout: 8_000 });
+
+    // Canvas must now show the 2 scene blocks added by the mocked reload.
+    await expect(page.getByTestId('scene-block-node')).toHaveCount(2, { timeout: 8_000 });
+  });
+
+  test('Cast confirm triggers canvas reload — storyboard GET fired after onConfirm', async ({ page }) => {
+    // Verifies that the onConfirm callback in ReviewCastProposalModal calls
+    // reloadStoryboard() after confirmPipelineCast resolves.
+    const BLOCK_START = 'f8b-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    const BLOCK_END   = 'f8b-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+    const NOW = '2026-06-16T00:00:00.000Z';
+    const baseBlock = {
+      videoPrompt: null as string | null,
+      durationS: 5,
+      style: null as string | null,
+      createdAt: NOW,
+      updatedAt: NOW,
+      mediaItems: [] as unknown[],
+    };
+
+    const castAwaiting = makeState({
+      version: 140,
+      active_phase: 'reference_data',
+      active_run_phase: null,
+      phases: {
+        scene: { status: 'completed' },
+        reference_data: { status: 'awaiting_review' },
+        reference_image: { status: 'idle' },
+        scene_image: { status: 'idle' },
+      },
+      payload: { cast_proposal: { references: [{ name: 'Hero', kind: 'character', scene_ids: ['s1'] }] } },
+      cost_estimate: '1.00 credit',
+    });
+
+    const { emitState } = await stubPipeline(page, castAwaiting);
+
+    await page.route(`**/storyboards/${draftId}`, async (route) => {
+      const url = new URL(route.request().url());
+      if (!url.pathname.endsWith(`/storyboards/${draftId}`) || route.request().method() !== 'GET') {
+        return route.continue();
+      }
+      return route.fulfill(jsonOk({
+        blocks: [
+          { ...baseBlock, id: BLOCK_START, draftId, blockType: 'start', name: null, prompt: null, positionX: 0,   positionY: 0, sortOrder: 0 },
+          { ...baseBlock, id: BLOCK_END,   draftId, blockType: 'end',   name: null, prompt: null, positionX: 600, positionY: 0, sortOrder: 999 },
+        ],
+        edges: [{ id: 'f8b-e0', draftId, sourceBlockId: BLOCK_START, targetBlockId: BLOCK_END }],
+        musicBlocks: [],
+      }));
+    });
+
+    await openStoryboard(page);
+
+    // Cast modal visible; initial storyboard load is now done.
+    await expect(page.getByTestId('review-cast-proposal-modal')).toBeVisible({ timeout: 10_000 });
+
+    // Set up request watcher AFTER mount (so we only capture post-confirm reloads).
+    const reloadRequest = page.waitForRequest(
+      (req) =>
+        req.url().includes(`/storyboards/${draftId}`) &&
+        !req.url().includes('/pipeline') &&
+        !req.url().includes('/reference-blocks') &&
+        req.method() === 'GET',
+      { timeout: 8_000 },
+    );
+
+    // Click confirm
+    await page.getByTestId('confirm-button').click();
+
+    // Emit: reference_image running (server advances state after confirm)
+    await emitState(makeState({
+      version: 141,
+      active_phase: 'reference_image',
+      active_run_phase: 'reference_image',
+      phases: {
+        scene: { status: 'completed' },
+        reference_data: { status: 'completed' },
+        reference_image: { status: 'running' },
+        scene_image: { status: 'idle' },
+      },
+    }));
+
+    // Confirm modal must disappear (pipeline state updated).
+    await expect(page.getByTestId('review-cast-proposal-modal')).not.toBeVisible({ timeout: 8_000 });
+
+    // The confirm callback calls reloadStoryboard() → storyboard GET should have fired.
+    await reloadRequest;
   });
 });

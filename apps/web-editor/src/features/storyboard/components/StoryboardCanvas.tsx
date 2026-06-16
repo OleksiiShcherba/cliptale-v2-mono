@@ -8,7 +8,7 @@
  * Pan: drag on empty canvas area (panOnDrag prop).
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 
 import {
   ReactFlow,
@@ -92,6 +92,11 @@ interface StoryboardCanvasProps {
   onCutEdge?: (edgeId: string) => void;
   /** Optional — opens the cast extraction modal (storyboard-reference-flows AC-01). */
   onStartReferenceGeneration?: () => void;
+  /**
+   * Incremented by the parent after reloadStoryboard() resolves. InnerCanvas
+   * watches this and calls fitView() so newly-added pipeline blocks fill the viewport.
+   */
+  fitViewTrigger?: number;
 }
 
 // ── Inner canvas (needs ReactFlow context for useReactFlow) ────────────────────
@@ -112,8 +117,9 @@ function InnerCanvas({
   onStartReferenceGeneration,
   zoom,
   onZoomChange,
-}: Pick<InnerCanvasProps, 'onAddBlock' | 'onAddMusicBlock' | 'canAddMusicBlock' | 'onStartReferenceGeneration' | 'zoom' | 'onZoomChange'>): React.ReactElement {
-  const { zoomTo } = useReactFlow();
+  fitViewTrigger,
+}: Pick<InnerCanvasProps, 'onAddBlock' | 'onAddMusicBlock' | 'canAddMusicBlock' | 'onStartReferenceGeneration' | 'zoom' | 'onZoomChange' | 'fitViewTrigger'>): React.ReactElement {
+  const { zoomTo, fitView } = useReactFlow();
 
   const handleZoomChange = useCallback(
     (newZoom: number): void => {
@@ -122,6 +128,12 @@ function InnerCanvas({
     },
     [zoomTo, onZoomChange],
   );
+
+  // Fit viewport whenever the parent signals a canvas reload completed.
+  useEffect(() => {
+    if (!fitViewTrigger) return;
+    fitView({ duration: 300, padding: 0.3 });
+  }, [fitViewTrigger, fitView]);
 
   return (
     <>
@@ -160,6 +172,7 @@ export function StoryboardCanvas({
   cursorMode = 'grab',
   onCutEdge,
   onStartReferenceGeneration,
+  fitViewTrigger,
 }: StoryboardCanvasProps): React.ReactElement {
   // Track zoom locally so ZoomToolbar percentage display stays in sync.
   const [zoom, setZoom] = useState<number>(DEFAULT_ZOOM);
@@ -219,6 +232,7 @@ export function StoryboardCanvas({
           onStartReferenceGeneration={onStartReferenceGeneration}
           zoom={zoom}
           onZoomChange={setZoom}
+          fitViewTrigger={fitViewTrigger}
         />
       </ReactFlow>
     </div>

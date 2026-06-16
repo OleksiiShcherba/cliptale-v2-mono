@@ -81,6 +81,8 @@ interface StoryboardPageWorkspaceProps {
   hasMusic: boolean;
   /** Optional — opens the cast extraction modal (storyboard-reference-flows AC-01). */
   onStartReferenceGeneration?: () => void;
+  /** Incremented after pipeline reloads — forwarded to StoryboardCanvas for fitView. */
+  fitViewTrigger?: number;
 }
 
 export function StoryboardPageWorkspace({
@@ -116,6 +118,7 @@ export function StoryboardPageWorkspace({
   draftOwnerId,
   hasMusic,
   onStartReferenceGeneration,
+  fitViewTrigger,
 }: StoryboardPageWorkspaceProps): React.ReactElement {
   // AC-09 owner gate: only the draft's owner ever sees the status menu. Read the
   // auth context defensively — outside an AuthProvider (e.g. isolated tests) the
@@ -233,6 +236,7 @@ export function StoryboardPageWorkspace({
             cursorMode={isKnifeActive ? 'knife' : 'grab'}
             onCutEdge={onCutEdge}
             onStartReferenceGeneration={onStartReferenceGeneration}
+            fitViewTrigger={fitViewTrigger}
           />
         )}
       </div>

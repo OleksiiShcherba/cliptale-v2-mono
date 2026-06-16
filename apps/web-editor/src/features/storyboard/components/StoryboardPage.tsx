@@ -143,8 +143,10 @@ export function StoryboardPage(): React.ReactElement {
     [detailsBlockId, safeDraftId, setNodes],
   );
 
+  const [fitViewTrigger, setFitViewTrigger] = useState(0);
   const reloadStoryboard = useCallback(async (): Promise<void> => {
     await reload?.();
+    setFitViewTrigger((t) => t + 1);
   }, [reload]);
 
   // ── Cast extraction (AC-01, AC-05, AC-07) ─────────────────────────────────
@@ -213,6 +215,39 @@ export function StoryboardPage(): React.ReactElement {
     isGenerationBlocking,
     isStep3Disabled,
   } = generationFlow;
+  // Reload canvas when pipeline workers materialize new blocks (scene, reference images,
+  // scene illustrations). Skip on mount by initialising refs to the current status so
+  // only transitions that happen while the page is open trigger a reload.
+  const prevSceneStatusRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const curr = pipelineState?.phases?.scene?.status;
+    if (prevSceneStatusRef.current === undefined) { prevSceneStatusRef.current = curr; return; }
+    if (prevSceneStatusRef.current !== curr && curr === 'completed') {
+      void reloadStoryboard();
+    }
+    prevSceneStatusRef.current = curr;
+  }, [pipelineState?.phases?.scene?.status, reloadStoryboard]);
+
+  const prevRefImageStatusRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const curr = pipelineState?.phases?.reference_image?.status;
+    if (prevRefImageStatusRef.current === undefined) { prevRefImageStatusRef.current = curr; return; }
+    if (prevRefImageStatusRef.current !== curr && curr === 'completed') {
+      void reloadStoryboard();
+    }
+    prevRefImageStatusRef.current = curr;
+  }, [pipelineState?.phases?.reference_image?.status, reloadStoryboard]);
+
+  const prevSceneImageStatusRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const curr = pipelineState?.phases?.scene_image?.status;
+    if (prevSceneImageStatusRef.current === undefined) { prevSceneImageStatusRef.current = curr; return; }
+    if (prevSceneImageStatusRef.current !== curr && curr === 'completed') {
+      void reloadStoryboard();
+    }
+    prevSceneImageStatusRef.current = curr;
+  }, [pipelineState?.phases?.scene_image?.status, reloadStoryboard]);
+
   const {
     fileIds: bulkStreamFileIds,
     urls: storyboardImageStreamUrls,
@@ -526,6 +561,7 @@ export function StoryboardPage(): React.ReactElement {
           isPlanBlocking={isPlanBlocking}
           draftOwnerId={draftOwnerId} hasMusic={musicBlocks.length > 0}
           onStartReferenceGeneration={handleStartCastExtraction}
+          fitViewTrigger={fitViewTrigger}
         />
         {/* AC-08: gate error alerts when POST /illustrations returns 422 */}
         {illustrationGeneration.gateError?.code === 'references.reference_gate_failed' ? (
@@ -561,28 +597,35 @@ export function StoryboardPage(): React.ReactElement {
           onConfirm={() => {
             // Confirm as shown — no client body. The server re-validates the estimate
             // against the persisted value (review r3 F5 / ADR-0006).
-            void confirmPipelineCast(safeDraftId).catch((err: unknown) => {
-              console.error('confirmPipelineCast failed', err);
-            });
+            void confirmPipelineCast(safeDraftId)
+              .then(() => reloadStoryboard())
+              .catch((err: unknown) => {
+                console.error('confirmPipelineCast failed', err);
+              });
           }}
           onSkip={() => {
-            void skipPhase(safeDraftId, 'reference_data').catch((err: unknown) => {
-              console.error('skipPhase failed', err);
-            });
+            void skipPhase(safeDraftId, 'reference_data')
+              .then(() => reloadStoryboard())
+              .catch((err: unknown) => {
+                console.error('skipPhase failed', err);
+              });
           }}
         />
         {/* T18 SceneImageOfferModal */}
         <SceneImageOfferModal
           state={pipelineState}
           onAccept={() => {
+            // Trigger only — reload fires when scene_image transitions to completed (observer above).
             void triggerPhase(safeDraftId, 'scene_image').catch((err: unknown) => {
               console.error('triggerPhase scene_image failed', err);
             });
           }}
           onSkip={() => {
-            void skipPhase(safeDraftId, 'scene_image').catch((err: unknown) => {
-              console.error('skipPhase scene_image failed', err);
-            });
+            void skipPhase(safeDraftId, 'scene_image')
+              .then(() => reloadStoryboard())
+              .catch((err: unknown) => {
+                console.error('skipPhase scene_image failed', err);
+              });
           }}
         />
         {/* T19 StepCorners */}
