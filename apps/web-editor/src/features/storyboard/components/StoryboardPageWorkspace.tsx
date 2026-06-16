@@ -15,6 +15,7 @@ import type {
 
 import { AuthContext } from '@/features/auth/hooks/useAuth';
 import { triggerPhase } from '@/features/storyboard/api';
+import type { PipelineState } from '@/features/storyboard/api';
 import { useStoryboardHiddenBlocks } from '@/features/storyboard/hooks/useStoryboardHiddenBlocks';
 import type { UseStoryboardPlanGenerationResult } from '@/features/storyboard/hooks/useStoryboardPlanGeneration';
 import type { UseStoryboardIllustrationsResult } from '@/features/storyboard/hooks/useStoryboardIllustrations';
@@ -83,6 +84,8 @@ interface StoryboardPageWorkspaceProps {
   onStartReferenceGeneration?: () => void;
   /** Incremented after pipeline reloads — forwarded to StoryboardCanvas for fitView. */
   fitViewTrigger?: number;
+  /** Current pipeline state — forwarded to StoryboardCanvas for StepCorners. */
+  pipelineState?: PipelineState | null;
 }
 
 export function StoryboardPageWorkspace({
@@ -119,6 +122,7 @@ export function StoryboardPageWorkspace({
   hasMusic,
   onStartReferenceGeneration,
   fitViewTrigger,
+  pipelineState,
 }: StoryboardPageWorkspaceProps): React.ReactElement {
   // AC-09 owner gate: only the draft's owner ever sees the status menu. Read the
   // auth context defensively — outside an AuthProvider (e.g. isolated tests) the
@@ -237,6 +241,8 @@ export function StoryboardPageWorkspace({
             onCutEdge={onCutEdge}
             onStartReferenceGeneration={onStartReferenceGeneration}
             fitViewTrigger={fitViewTrigger}
+            pipelineState={pipelineState}
+            draftId={draftId}
           />
         )}
       </div>

@@ -54,7 +54,6 @@ import { ReferenceGateMessage, UnlinkedScenesMessage } from './ReferenceGateMess
 import { StoryboardPageFooter } from './StoryboardPageFooter';
 import { StoryboardPageWorkspace } from './StoryboardPageWorkspace';
 import { StoryboardTopBar } from './StoryboardPage.topBar';
-import { StepCorners } from './StepCorners';
 import { STORYBOARD_NODE_TYPES } from './storyboardNodeTypes';
 import { storyboardPageStyles as s } from './storyboardPageStyles';
 
@@ -562,6 +561,7 @@ export function StoryboardPage(): React.ReactElement {
           draftOwnerId={draftOwnerId} hasMusic={musicBlocks.length > 0}
           onStartReferenceGeneration={handleStartCastExtraction}
           fitViewTrigger={fitViewTrigger}
+          pipelineState={pipelineState}
         />
         {/* AC-08: gate error alerts when POST /illustrations returns 422 */}
         {illustrationGeneration.gateError?.code === 'references.reference_gate_failed' ? (
@@ -628,8 +628,6 @@ export function StoryboardPage(): React.ReactElement {
               });
           }}
         />
-        {/* T19 StepCorners */}
-        <StepCorners draftId={safeDraftId} state={pipelineState} />
         <StoryboardPageFooter isNextDisabled={effectiveIsStep3Disabled || isMusicBlockingStep3} onBack={handleBack} onNext={handleNext} />
         {editingBlock !== null && (
           <SceneModal

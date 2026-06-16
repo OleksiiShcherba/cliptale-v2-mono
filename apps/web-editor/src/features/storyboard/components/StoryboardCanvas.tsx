@@ -31,7 +31,10 @@ import type {
   EdgeMouseHandler,
 } from '@xyflow/react';
 
+import type { PipelineState } from '@/features/storyboard/api';
+
 import { CanvasToolbar } from './CanvasToolbar';
+import { StepCorners } from './StepCorners';
 import { ZoomToolbar } from './ZoomToolbar';
 import { SURFACE, BORDER } from './storyboardPageStyles';
 
@@ -47,6 +50,17 @@ const MAX_ZOOM = 2.0;
 const DEFAULT_ZOOM = 1.0;
 
 // ── Stable style constants ─────────────────────────────────────────────────────
+
+/** Positions the bottom-left toolbar row (ZoomToolbar + StepCorners) over the canvas. */
+const BOTTOM_LEFT_TOOLBAR_STYLE: React.CSSProperties = {
+  position: 'absolute',
+  bottom: '16px',
+  left: '16px',
+  display: 'flex',
+  alignItems: 'flex-end',
+  gap: '8px',
+  zIndex: 10,
+};
 
 const FLOW_CONTAINER_STYLE: React.CSSProperties = {
   width: '100%',
@@ -97,6 +111,10 @@ interface StoryboardCanvasProps {
    * watches this and calls fitView() so newly-added pipeline blocks fill the viewport.
    */
   fitViewTrigger?: number;
+  /** Current pipeline state — used to render StepCorners phase trigger buttons. */
+  pipelineState?: PipelineState | null;
+  /** Draft id — forwarded to StepCorners for triggerPhase calls. */
+  draftId?: string;
 }
 
 // ── Inner canvas (needs ReactFlow context for useReactFlow) ────────────────────
@@ -104,6 +122,8 @@ interface StoryboardCanvasProps {
 interface InnerCanvasProps extends StoryboardCanvasProps {
   zoom: number;
   onZoomChange: (newZoom: number) => void;
+  pipelineState: PipelineState | null;
+  draftId: string;
 }
 
 /**
@@ -118,7 +138,9 @@ function InnerCanvas({
   zoom,
   onZoomChange,
   fitViewTrigger,
-}: Pick<InnerCanvasProps, 'onAddBlock' | 'onAddMusicBlock' | 'canAddMusicBlock' | 'onStartReferenceGeneration' | 'zoom' | 'onZoomChange' | 'fitViewTrigger'>): React.ReactElement {
+  pipelineState,
+  draftId,
+}: Pick<InnerCanvasProps, 'onAddBlock' | 'onAddMusicBlock' | 'canAddMusicBlock' | 'onStartReferenceGeneration' | 'zoom' | 'onZoomChange' | 'fitViewTrigger' | 'pipelineState' | 'draftId'>): React.ReactElement {
   const { zoomTo, fitView } = useReactFlow();
 
   const handleZoomChange = useCallback(
@@ -137,7 +159,12 @@ function InnerCanvas({
 
   return (
     <>
-      <ZoomToolbar currentZoom={zoom} onZoomChange={handleZoomChange} />
+      <div style={BOTTOM_LEFT_TOOLBAR_STYLE}>
+        <ZoomToolbar currentZoom={zoom} onZoomChange={handleZoomChange} />
+        {draftId && (
+          <StepCorners draftId={draftId} state={pipelineState ?? null} />
+        )}
+      </div>
       <CanvasToolbar
         onAddBlock={onAddBlock}
         onAddMusicBlock={onAddMusicBlock}
@@ -173,6 +200,8 @@ export function StoryboardCanvas({
   onCutEdge,
   onStartReferenceGeneration,
   fitViewTrigger,
+  pipelineState,
+  draftId,
 }: StoryboardCanvasProps): React.ReactElement {
   // Track zoom locally so ZoomToolbar percentage display stays in sync.
   const [zoom, setZoom] = useState<number>(DEFAULT_ZOOM);
@@ -233,6 +262,8 @@ export function StoryboardCanvas({
           zoom={zoom}
           onZoomChange={setZoom}
           fitViewTrigger={fitViewTrigger}
+          pipelineState={pipelineState ?? null}
+          draftId={draftId ?? ''}
         />
       </ReactFlow>
     </div>

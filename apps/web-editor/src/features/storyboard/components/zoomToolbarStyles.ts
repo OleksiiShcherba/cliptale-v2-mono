@@ -12,20 +12,17 @@ const BORDER = '#252535';
 const TEXT_PRIMARY = '#F0F0FA';
 
 export const zoomToolbarStyles = {
-  /** Wrapper: absolute bottom-left of canvas, z-index 10 */
+  /** Wrapper: flex child inside a bottom-left row; positioning is owned by the parent. */
   toolbar: {
-    position: 'absolute' as const,
-    bottom: '16px',
-    left: '16px',
     display: 'flex',
     alignItems: 'center',
     gap: '4px',
-    zIndex: 10,
     background: SURFACE_ELEVATED,
     border: `1px solid ${BORDER}`,
     borderRadius: '8px',
     padding: '0 4px',
     height: '36px',
+    flexShrink: 0,
   } as React.CSSProperties,
 
   /** "+" and "−" icon buttons */
