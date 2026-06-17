@@ -3,8 +3,8 @@ import { describe, it, expect } from 'vitest';
 import { FAL_MODELS, type FalFieldType } from './fal-models.js';
 
 describe('fal-models catalog', () => {
-  it('has exactly 10 models', () => {
-    expect(FAL_MODELS).toHaveLength(10);
+  it('has exactly 12 models', () => {
+    expect(FAL_MODELS).toHaveLength(12);
   });
 
   it('every model has provider: "fal"', () => {
@@ -86,6 +86,18 @@ describe('fal-models catalog', () => {
     expect(ltx).toBeDefined();
     const fieldNames = ltx!.inputSchema.fields.map((f) => f.name);
     expect(fieldNames).not.toContain('video_size');
+  });
+
+  it('seedance-2 reference-to-video has an image_url_list field named image_urls', () => {
+    const model = FAL_MODELS.find(
+      (m) => m.id === 'bytedance/seedance-2.0/reference-to-video'
+    );
+    expect(model).toBeDefined();
+    const field = model!.inputSchema.fields.find((f) => f.name === 'image_urls');
+    expect(field).toBeDefined();
+    expect(field!.type).toBe('image_url_list');
+    expect(field!.required).toBe(true);
+    expect(field!.modality).toBe('image');
   });
 
   it('includes openai/gpt-image-2 with storyboard illustration fields', () => {

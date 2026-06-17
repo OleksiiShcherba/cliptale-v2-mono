@@ -21,7 +21,7 @@
  *    the fly.
  *
  * Exports:
- *  - `FAL_MODELS`     — the catalog const (`readonly FalModel[]`, length 9)
+ *  - `FAL_MODELS`     — the catalog const (`readonly FalModel[]`, length 12)
  *  - `FalModel`       — single catalog entry type
  *  - `FalCapability`  — union of the 4 supported capability values
  *  - `FalFieldType`   — union of the 12 supported field types (incl. audio_url, audio_upload, voice_picker, composition_plan)
@@ -1251,6 +1251,208 @@ export const FAL_MODELS: readonly FalModel[] = [
           required: false,
           default: false,
           description: 'Return as data URI.',
+        },
+      ],
+    },
+  },
+
+  // 11. bytedance/seedance-2.0/image-to-video
+  {
+    id: 'bytedance/seedance-2.0/image-to-video',
+    provider: 'fal',
+    capability: 'image_to_video',
+    group: 'videos',
+    label: 'Seedance 2 Image to Video',
+    description:
+      'ByteDance Seedance 2 image-to-video with optional end-frame interpolation, multi-resolution output, and synchronized audio generation.',
+    inputSchema: {
+      fields: [
+        {
+          name: 'prompt',
+          type: 'text',
+          label: 'Prompt',
+          required: true,
+          description: 'Text prompt describing desired motion/action.',
+          modality: 'text',
+        },
+        {
+          name: 'image_url',
+          type: 'image_url',
+          label: 'Image URL',
+          required: true,
+          description: 'Starting frame image. JPEG/PNG/WebP, max 30 MB.',
+          modality: 'image',
+        },
+        {
+          name: 'end_image_url',
+          type: 'image_url',
+          label: 'End Image URL',
+          required: false,
+          description: 'Final frame for transition. JPEG/PNG/WebP, max 30 MB.',
+          modality: 'image',
+        },
+        {
+          name: 'resolution',
+          type: 'enum',
+          label: 'Resolution',
+          required: false,
+          default: '720p',
+          enum: ['480p', '720p', '1080p'],
+          description: 'Video resolution.',
+        },
+        {
+          name: 'duration',
+          type: 'enum',
+          label: 'Duration',
+          required: false,
+          default: 'auto',
+          enum: [
+            'auto',
+            '4',
+            '5',
+            '6',
+            '7',
+            '8',
+            '9',
+            '10',
+            '11',
+            '12',
+            '13',
+            '14',
+            '15',
+          ],
+          description: 'Duration in seconds (stringified).',
+        },
+        {
+          name: 'aspect_ratio',
+          type: 'enum',
+          label: 'Aspect Ratio',
+          required: false,
+          default: 'auto',
+          enum: ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'],
+          description: 'Aspect ratio.',
+        },
+        {
+          name: 'generate_audio',
+          type: 'boolean',
+          label: 'Generate Audio',
+          required: false,
+          default: true,
+          description: 'Generate synchronized audio (SFX, ambient, lip-sync).',
+        },
+        {
+          name: 'bitrate_mode',
+          type: 'enum',
+          label: 'Bitrate Mode',
+          required: false,
+          default: 'standard',
+          enum: ['standard', 'high'],
+          description: 'Output bitrate mode.',
+        },
+        {
+          name: 'seed',
+          type: 'number',
+          label: 'Seed',
+          required: false,
+          description: 'Random seed for reproducibility.',
+        },
+      ],
+    },
+  },
+
+  // 12. bytedance/seedance-2.0/reference-to-video
+  {
+    id: 'bytedance/seedance-2.0/reference-to-video',
+    provider: 'fal',
+    capability: 'image_to_video',
+    group: 'videos',
+    label: 'Seedance 2 Reference to Video',
+    description:
+      'ByteDance Seedance 2 reference-to-video. Compose a video from up to 9 reference images referenced in the prompt as @Image1, @Image2, etc.',
+    inputSchema: {
+      fields: [
+        {
+          name: 'prompt',
+          type: 'text',
+          label: 'Prompt',
+          required: true,
+          description:
+            'Describes the generation. Reference assets as @Image1, @Image2, etc.',
+          modality: 'text',
+        },
+        {
+          name: 'image_urls',
+          type: 'image_url_list',
+          label: 'Reference Images',
+          required: true,
+          description:
+            'Up to 9 reference images (JPEG/PNG/WebP, max 30 MB each). At least one required.',
+          modality: 'image',
+        },
+        {
+          name: 'resolution',
+          type: 'enum',
+          label: 'Resolution',
+          required: false,
+          default: '720p',
+          enum: ['480p', '720p', '1080p'],
+          description: 'Video resolution.',
+        },
+        {
+          name: 'duration',
+          type: 'enum',
+          label: 'Duration',
+          required: false,
+          default: 'auto',
+          enum: [
+            'auto',
+            '4',
+            '5',
+            '6',
+            '7',
+            '8',
+            '9',
+            '10',
+            '11',
+            '12',
+            '13',
+            '14',
+            '15',
+          ],
+          description: 'Duration in seconds (stringified).',
+        },
+        {
+          name: 'aspect_ratio',
+          type: 'enum',
+          label: 'Aspect Ratio',
+          required: false,
+          default: 'auto',
+          enum: ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'],
+          description: 'Aspect ratio.',
+        },
+        {
+          name: 'generate_audio',
+          type: 'boolean',
+          label: 'Generate Audio',
+          required: false,
+          default: true,
+          description: 'Generate synchronized audio.',
+        },
+        {
+          name: 'bitrate_mode',
+          type: 'enum',
+          label: 'Bitrate Mode',
+          required: false,
+          default: 'standard',
+          enum: ['standard', 'high'],
+          description: 'Output bitrate mode.',
+        },
+        {
+          name: 'seed',
+          type: 'number',
+          label: 'Seed',
+          required: false,
+          description: 'Random seed for reproducibility.',
         },
       ],
     },

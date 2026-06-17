@@ -1,4 +1,4 @@
-# Development Log (compacted — 2026-03-29 to 2026-06-16)
+# Development Log (compacted — 2026-03-29 to 2026-05-29)
 
 ## Monorepo + DB Migrations
 - added: root config, apps/packages scaffold; migrations 001–042 (projects, assets, captions, versions, render_jobs, clips, users/auth, ai_generation_jobs, files/pivots, soft-delete, thumbnails, storyboard tables, scene_templates/media, storyboard plan/illustration/video/music jobs, illustration references + approval, generation_drafts created-project pointers)
@@ -213,19 +213,254 @@
 
 ---
 
-## Seedance 2 Video Models — seedance2-video-models (2026-06-16)
-- researched: fal.ai docs (WebFetch) — confirmed two i2v endpoints `bytedance/seedance-2.0/image-to-video` + `bytedance/seedance-2.0/reference-to-video` (no `fal-ai/` prefix); reference-array field is `image_urls` (image_url_list); duration enum string values; aspect adds 21:9/3:4; omit end_user_id/video_urls/audio_urls
-- added: 2 entries to `FAL_MODELS` in `packages/api-contracts/src/fal-models.ts` (entries #11/#12, `capability: image_to_video`, group videos, provider fal); i2v requires prompt+image_url; reference requires prompt+image_urls (catalog-required to force ≥1 ref image); header comment 9→12
-- added: 2 rows to `FLOW_PRICE_TABLE` in `apps/api/src/lib/flow-pricing.ts` — i2v 0.20, reference 0.25 (best-effort `// approximate`, ADR-0008 per-run USD)
-- updated: `fal-models.test.ts` count 10→12 + targeted test (reference model has `image_urls` image_url_list/required/modality image); `elevenlabs-models.test.ts` AI_MODELS 14→16, fal 10→12
-- verified (no code change): downstream branches by capability not modelId — `listModels()` aiGeneration.service.ts:284–299 (catalog iterate), `validateFalOptions` falOptions.validator.ts:60–139 (image_url_list handled), `parseFalOutput` ai-generate.output.ts:54–74 (capability→parseVideoOutput), storyboardVideo.service.ts:57–66 gate passes, GenerationOptionsForm/SchemaFieldInput render image_url_list (multi picker); NO hidden single-i2v-model assumption
-- tests: api-contracts 224/224 green; web-editor 3235/3238 (3 pre-existing StepCorners failures, unrelated)
+## [2026-06-16]
 
-## Architectural Decisions (2026-06-16)
-- Seedance 2 reuses `image_to_video` capability — no new capability, no DB ENUM migration, no `parseFalOutput`/`CapabilityTabs`/`CAPABILITY_TO_GROUP` change; entire i2v pipeline branches by capability so new models flow through automatically
-- Catalog may mark an API-optional field `required: true` to enforce UI minimums (reference `image_urls` ≥1 image)
+### Task: seedance2-video-models — Seedance 2 Image-to-Video + Reference-to-Video
+**Subtask:** 1. Зафіксувати точні fal.ai endpoint-ID та схеми полів Seedance 2
 
-## Known Issues / TODOs (2026-06-16)
-- 3 pre-existing failures in `apps/web-editor/.../StepCorners.test.tsx` (storyboard-pipeline confirmation modal, commit 2ff0449) — unrelated to Seedance, fail before+after
-- Seedance 2 prices 0.20/0.25 are approximate — reconcile against `flow_model_pricing` when public per-run pricing is published
-- `video_urls`/`audio_urls` reference inputs deferred (Phase 1 images-only); add as string_list if multi-modal references are needed later
+**What was done:**
+- Fetched fal.ai docs via WebFetch for all Seedance 2.0 endpoints (no fal-ai MCP available this session).
+- Confirmed two endpoints relevant to this task: `bytedance/seedance-2.0/image-to-video` and `bytedance/seedance-2.0/reference-to-video`.
+- Documented full input field schemas for both (see Notes below for subtask 2 to consume).
+- No code files modified (research-only subtask).
+
+**Notes — schema for subtask 2:**
+
+**Endpoint 1 — `bytedance/seedance-2.0/image-to-video`**
+Source: https://fal.ai/models/fal-ai/seedance-2/image-to-video/api
+API call string: `fal.subscribe("bytedance/seedance-2.0/image-to-video", {...})`
+
+Fields:
+- `prompt` — type text, required, modality text. "Text prompt describing desired motion/action."
+- `image_url` — type image_url, required, modality image. "Starting frame image. JPEG/PNG/WebP, max 30 MB."
+- `end_image_url` — type image_url, optional, modality image. "Final frame for transition. JPEG/PNG/WebP, max 30 MB."
+- `resolution` — type enum, optional, default "720p", enum ["480p","720p","1080p"]. "Video resolution."
+- `duration` — type enum, optional, default "auto", enum ["auto","4","5","6","7","8","9","10","11","12","13","14","15"]. "Duration in seconds."
+- `aspect_ratio` — type enum, optional, default "auto", enum ["auto","21:9","16:9","4:3","1:1","3:4","9:16"]. "Aspect ratio."
+- `generate_audio` — type boolean, optional, default true. "Generate synchronized audio (SFX, ambient, lip-sync)."
+- `bitrate_mode` — type enum, optional, default "standard", enum ["standard","high"]. "Output bitrate mode."
+- `seed` — type number, optional. "Random seed for reproducibility."
+
+Output: `{ video: File, seed: integer }` — File has `url`, `content_type`, `file_name`, `file_size`.
+
+---
+
+**Endpoint 2 — `bytedance/seedance-2.0/reference-to-video`**
+Source: https://fal.ai/models/fal-ai/seedance-2/reference-to-video/api
+API call string: `fal.subscribe("bytedance/seedance-2.0/reference-to-video", {...})`
+
+Fields:
+- `prompt` — type text, required, modality text. "Describes generation; reference assets as @Image1, @Image2, @Video1, @Audio1 etc."
+- `image_urls` — type image_url_list, optional, modality image. "Up to 9 reference images; JPEG/PNG/WebP, max 30 MB each." ← THIS is the reference-array field (NOT `reference_image_urls`, NOT `image_url`)
+- `video_urls` — type string_list (or image_url_list equivalent for video), optional. "Up to 3 reference videos; MP4/MOV; combined 2-15 sec." (catalog: out of scope for Phase 1 — omit or add as string_list)
+- `audio_urls` — type string_list, optional. "Up to 3 audio files; MP3/WAV; max 15 MB each, combined ≤15 sec." (catalog: out of scope for Phase 1 — omit or add as string_list)
+- `resolution` — type enum, optional, default "720p", enum ["480p","720p","1080p"]. "Video resolution."
+- `duration` — type enum, optional, default "auto", enum ["auto","4","5","6","7","8","9","10","11","12","13","14","15"]. "Duration in seconds."
+- `aspect_ratio` — type enum, optional, default "auto", enum ["auto","21:9","16:9","4:3","1:1","3:4","9:16"]. "Aspect ratio."
+- `generate_audio` — type boolean, optional, default true. "Generate synchronized audio."
+- `bitrate_mode` — type enum, optional, default "standard", enum ["standard","high"]. "Output bitrate mode."
+- `seed` — type number, optional. "Random seed for reproducibility."
+
+Output: `{ video: File, seed: integer }` — same File shape as above.
+
+**IMPORTANT for subtask 2:**
+- Only `prompt` is required for reference-to-video (unlike image-to-video which also requires `image_url`). The `image_urls` field is optional per the API, but UI-wise the Creator needs at least one reference image to make useful calls.
+- The reference image-array field is named `image_urls` (plural, with underscore) — maps to `FalFieldType = 'image_url_list'` with `modality: 'image'`. This already exists in the catalog type system (`nano-banana-2/edit` and `gpt-image-1.5/edit` both use `image_url_list` type).
+- The `video_urls` and `audio_urls` fields are multi-modal reference inputs. The task context says to model reference-to-video via `image_url_list` only (storyboard reference blocks are images). `video_urls` / `audio_urls` can be omitted from the catalog entry for now (they remain passable by advanced callers who know the API).
+- The `end_user_id` field exists on both endpoints but should be omitted from the catalog (it is injected by the worker/service layer, not user-provided).
+- Duration enum values on fal.ai are strings ("4", "5", ...) NOT integers — match existing pattern in Kling o3 (`enum: ['3','4',...,'15']`).
+- Aspect ratio includes "21:9" and "3:4" which are not in all other models — include them.
+
+**Confirmed:** reference-to-video variant EXISTS as a distinct endpoint (not ambiguous). No blocker.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 1. Зафіксувати точні fal.ai endpoint-ID та схеми полів Seedance 2</summary>
+
+- [ ] **1. Зафіксувати точні fal.ai endpoint-ID та схеми полів Seedance 2**
+  - What: Через `WebFetch` отримати з docs fal.ai реальні endpoint-ID (image-to-video та reference-to-video варіанти Seedance 2 від ByteDance) і повні схеми вхідних полів — назви, типи, enum-значення, defaults, required.
+  - Where: Дослідницький крок; результат → нотатки/чернетка для підзадачі 2 (модель-ендпоінти на кшталт `fal-ai/bytedance/seedance/v2/...`).
+  - Why: Каталог має дзеркалити реальне API fal.ai; неточні поля зламають валідацію або сабміт у воркері.
+  - Depends on: none
+  - ⚠️ Блокер точності — якщо docs не дають reference-to-video варіант або поля неоднозначні, ескалювати до власника (див. Open Questions).
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-06-16. Research/docs-only subtask — no code files modified, no UI surface. All design checklists N/A. Auto-approved.
+checked by playwright-reviewer: YES
+
+---
+
+## 2026-06-16
+
+### Task: seedance2-video-models — Seedance 2 Image-to-Video + Reference-to-Video
+**Subtask:** 2. Додати два записи Seedance 2 у каталог `FAL_MODELS`
+
+**What was done:**
+- Added entry `bytedance/seedance-2.0/image-to-video` (entry #11) to `FAL_MODELS` with fields: `prompt` (text, required), `image_url` (image_url, required), `end_image_url` (image_url, optional), `resolution` (enum), `duration` (enum), `aspect_ratio` (enum), `generate_audio` (boolean), `bitrate_mode` (enum), `seed` (number).
+- Added entry `bytedance/seedance-2.0/reference-to-video` (entry #12) to `FAL_MODELS` with fields: `prompt` (text, required), `image_urls` (image_url_list, required — marked required in catalog per UI enforcement policy despite optional in raw API), `resolution` (enum), `duration` (enum), `aspect_ratio` (enum), `generate_audio` (boolean), `bitrate_mode` (enum), `seed` (number).
+- Both entries: `capability: 'image_to_video'`, `group: 'videos'`, `provider: 'fal'`.
+- Updated header comment in `fal-models.ts`: `length 9` → `length 12` (header was stale at "9", actual was 10 before this subtask).
+- All media fields carry correct `modality` (`image_url`/`image_url_list` → `'image'`; `text` → `'text'`).
+- TypeScript compilation: zero errors (`tsc --noEmit` clean).
+
+**Files modified:**
+- `packages/api-contracts/src/fal-models.ts`
+
+**Notes:**
+- `image_urls` on `reference-to-video` is `required: true` in the catalog (per task decision) even though the fal.ai API marks it optional — enforces ≥1 reference image at the UI/validator level.
+- Duration enum values are strings ("auto","4","5",...,"15") consistent with Kling o3 pattern.
+- Aspect ratio includes "21:9" and "3:4" (Seedance 2 supports wider set than other i2v models).
+- `end_user_id` intentionally omitted (worker-injected, not user-provided).
+- `video_urls` / `audio_urls` intentionally omitted (Phase 1 images-only scope).
+- Count-assertion tests (`fal-models.test.ts`, `elevenlabs-models.test.ts`) will fail until subtask 4 updates the counters — expected, not fixed here per task instructions.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 2. Додати два записи Seedance 2 у каталог FAL_MODELS</summary>
+
+- [ ] **2. Додати два записи Seedance 2 у каталог `FAL_MODELS`**
+  - What: Додати дві моделі (`capability: 'image_to_video'`, `group: 'videos'`, `provider: 'fal'`) з повними `inputSchema.fields` зі схем підзадачі 1; reference-варіант використовує `image_url_list` (`modality: 'image'`) для референс-зображень, image-варіант — `image_url`. Кожне текстове поле — `modality: 'text'`.
+  - Where: `packages/api-contracts/src/fal-models.ts`.
+  - Why: Реєструє моделі в єдиному джерелі правди для UI/валідації/воркера.
+  - Depends on: 1
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-06-16. No UI surface modified. Subtask added two model entries (bytedance/seedance-2.0/image-to-video, bytedance/seedance-2.0/reference-to-video) to packages/api-contracts/src/fal-models.ts — pure data catalog additions (id, label, capability, inputSchema.fields). No JSX, CSS, style tokens, spacing, typography, or layout changes. Existing rendering components (GenerationOptionsForm, SchemaFieldInput, image_url_list) are unchanged. Design checklist not applicable.
+checked by playwright-reviewer: YES
+
+## 2026-06-16
+
+### Task: seedance2-video-models — Seedance 2 Image-to-Video + Reference-to-Video
+**Subtask:** 3. Додати ціни Seedance 2 у `FLOW_PRICE_TABLE`
+
+**What was done:**
+- Added two price entries to `FLOW_PRICE_TABLE` in `apps/api/src/lib/flow-pricing.ts`, placed in the fal.ai image-to-video section immediately after the existing four i2v rows.
+- Keys match the exact `id` values registered in `fal-models.ts` (subtask 2): `bytedance/seedance-2.0/image-to-video` and `bytedance/seedance-2.0/reference-to-video`.
+- Prices set to conservative USD estimates: `0.20` (i2v) and `0.25` (reference-to-video), each annotated with an `// approximate` inline comment noting no public per-run price was available at 2026-06-16.
+- TypeScript compilation: `tsc --noEmit --skipLibCheck` passes with zero errors.
+
+**Files modified:**
+- `apps/api/src/lib/flow-pricing.ts`
+
+**Notes:**
+- Pricing convention followed: per-run USD float, `// approximate — ...` inline comment for unverified prices, consistent with ADR-0008 best-effort seed/fallback pattern.
+- Reference-to-video priced slightly higher (0.25 vs 0.20) to reflect multi-image reference processing overhead; conservative relative to Kling o3 (0.28) and PixVerse (0.35).
+- No tests exist for this file in the codebase; the `getPriceForModel` function is exercised indirectly by flow-model-pricing tests if any.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 3. Додати ціни Seedance 2 у FLOW_PRICE_TABLE</summary>
+
+- [ ] **3. Додати ціни Seedance 2 у `FLOW_PRICE_TABLE`**
+  - What: Додати два ключі (за `id` моделей) з best-effort USD-цінами у секцію fal.ai image-to-video.
+  - Where: `apps/api/src/lib/flow-pricing.ts`.
+  - Why: Без ціни сервіс віддає amount 0 / bestEffort; коректний seed узгоджує `flow_model_pricing` fallback.
+  - Depends on: 2
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-06-16. Backend-only subtask — sole modified file is apps/api/src/lib/flow-pricing.ts (two numeric constant rows added to FLOW_PRICE_TABLE). No JSX, CSS, style tokens, spacing, typography, or layout changes. Design checklist not applicable. Auto-approved.
+checked by playwright-reviewer: YES — backend-only change; git diff confirms only apps/api/src/lib/flow-pricing.ts + docs touched; no UI component, route, or page modified; no E2E required per mandate
+
+## 2026-06-16
+
+### Task: seedance2-video-models — Seedance 2 Image-to-Video + Reference-to-Video
+**Subtask:** 4. Оновити тести каталогу під нові лічильники та інваріанти
+
+**What was done:**
+- Updated `fal-models.test.ts`: count assertion `toHaveLength(10)` → `toHaveLength(12)` (line 7).
+- Added targeted test in `fal-models.test.ts`: "seedance-2 reference-to-video has an image_url_list field named image_urls" — asserts the field exists, type is `image_url_list`, `required: true`, and `modality: 'image'`.
+- Updated `elevenlabs-models.test.ts` AI_MODELS total: `toHaveLength(14)` → `toHaveLength(16)` (line 176).
+- Updated `elevenlabs-models.test.ts` fal-models count in discriminate test: `toHaveLength(10)` → `toHaveLength(12)` (line 187).
+- Verified `catalog-modality.test.ts` — exhaustive modality backfill + field-type correctness iterate over all FAL_MODELS; new Seedance 2 entries (both have correct `modality` on all media fields) pass all invariants without changes to the test file.
+- Full vitest run: **224 tests, 11 test files — all passed** (0 failures).
+
+**Files modified:**
+- `packages/api-contracts/src/fal-models.test.ts`
+- `packages/api-contracts/src/elevenlabs-models.test.ts`
+
+**Notes:**
+- `catalog-modality.test.ts` required no edits — its tests are iterate-all and inherently cover new models; both Seedance 2 entries satisfy all modality invariants.
+- New targeted test lives in the `fal-models catalog` describe block, grouped with other model-specific field-shape tests.
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 4. Оновити тести каталогу під нові лічильники та інваріанти</summary>
+
+- [ ] **4. Оновити тести каталогу під нові лічильники та інваріанти**
+  - What: Підняти `fal-models.test.ts` `toHaveLength(10 → 12)`; `elevenlabs-models.test.ts` `AI_MODELS` 14→16 та fal-models 10→12. Переконатися, що нові моделі задовольняють `catalog-modality.test.ts` (modality на кожному media-полі) та інваріанти required/unique-id. За потреби додати точковий тест на reference-модель (наявність `image_url_list`-поля).
+  - Where: `packages/api-contracts/src/fal-models.test.ts`, `elevenlabs-models.test.ts`, `catalog-modality.test.ts`.
+  - Why: Лічильники захардкоджені — без оновлення suite червоніє; інваріанти гарантують коректну поведінку canvas/валідації.
+  - Depends on: 2
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-06-16. No UI surface modified — only test files (fal-models.test.ts, elevenlabs-models.test.ts). Design review not applicable; auto-approved.
+checked by playwright-reviewer: YES — test-only change; git diff confirms only fal-models.test.ts and elevenlabs-models.test.ts touched (count assertions + one new targeted field-shape test); no UI component, route, page, or style modified; no E2E required per mandate
+
+---
+
+## [2026-06-16]
+
+### Task: seedance2-video-models — Seedance 2 Image-to-Video + Reference-to-Video
+**Subtask:** 5. Верифікувати downstream-споживачів end-to-end (без змін коду)
+
+**What was done:**
+- Read-only verification pass across all 5 downstream consumers; confirmed no hidden per-modelId assumptions.
+- No code changes were made. All verification is evidence-based (file:line references below).
+
+**Evidence per verification point:**
+
+**(а) listModels() in aiGeneration.service.ts:**
+- `apps/api/src/services/aiGeneration.service.ts` lines 284–299: `listModels()` iterates ALL `AI_MODELS` in a single loop `for (const model of AI_MODELS) { grouped[model.capability].push(model); }`. The `image_to_video` key is pre-declared at line 289. No allowlist, no per-modelId guard. Both Seedance 2 models (capability = `image_to_video`) will appear under the `image_to_video` key automatically.
+
+**(б) validateFalOptions in falOptions.validator.ts:**
+- `apps/api/src/services/falOptions.validator.ts` lines 60–139: `checkField()` switch handles all relevant types: `text` (line 62), `enum` (line 87), `number` (line 68), `boolean` (line 80), `image_url` (line 96), `image_url_list` (lines 102–113). The `image_url_list` branch validates `Array.isArray(value) && every(v => string)`. Seedance-2 i2v payload (prompt=text, image_url=image_url, resolution=enum, duration=enum, aspect_ratio=enum, generate_audio=boolean, bitrate_mode=enum, seed=number) and reference-to-video payload (prompt=text, image_urls=image_url_list, ...) are fully covered by existing branches without any new code.
+
+**(в) parseFalOutput in ai-generate.output.ts:**
+- `apps/media-worker/src/jobs/ai-generate.output.ts` lines 54–74: `parseFalOutput()` branches on `capability` (NEVER on `modelId`). Line 69: `if (capability === 'text_to_video' || capability === 'image_to_video') { return parseVideoOutput(capability, o); }`. Both Seedance 2 models have `capability: 'image_to_video'` → `parseVideoOutput` is called automatically. Parser expects `{ video: { url, width?, height?, duration? } }` shape.
+
+**(г) storyboardVideo.service.ts gate:**
+- `apps/api/src/services/storyboardVideo.service.ts` lines 57–66: `getModel()` does `AI_MODELS.find(candidate => candidate.id === modelId)` then checks `model.capability !== 'image_to_video'` and throws if not i2v. Both Seedance 2 models have `capability: 'image_to_video'` → they pass the gate. No modelId allowlist exists.
+
+**(д) GenerationOptionsForm.tsx / SchemaFieldInput.tsx:**
+- `apps/web-editor/src/shared/ai-generation/components/GenerationOptionsForm.tsx` lines 29–56: iterates `model.inputSchema.fields` and renders one `SchemaFieldInput` per entry. Comment at line 24 explicitly documents "no per-model `if (modelId === 'x')` branches." Zero changes needed.
+- `apps/web-editor/src/shared/ai-generation/components/SchemaFieldInput.tsx` lines 52–63: `image_url_list` case renders `<AssetPickerField mode="multi" .../>`. The `image_urls` field on the reference-to-video model (type `image_url_list`, modality `image`) will render correctly as a multi-image picker. The `default` exhaustiveness guard at line 272 (`_exhaustive: never`) confirms no unhandled types.
+
+**Hidden assumptions found:** NONE. Every downstream consumer branches by capability or iterates the entire catalog. No hardcoded modelId, no `.find` assuming exactly one i2v model, no single-image-only path that would break on `image_url_list`.
+
+**Notes:**
+- 3 failing tests in `StepCorners.test.tsx` are pre-existing, unrelated to Seedance models (they test StepCorners confirmation modal behavior from the storyboard-pipeline feature). They fail before and after this subtask.
+- api-contracts tests: 224/224 pass. web-editor: 3235/3238 pass (3 pre-existing StepCorners failures).
+
+**Completed subtask from active_task.md:**
+<details>
+<summary>Subtask: 5. Верифікувати downstream-споживачів end-to-end (без змін коду)</summary>
+
+- [ ] **5. Верифікувати downstream-споживачів end-to-end (без змін коду)**
+  - What: Підтвердити, що нові моделі: (а) повертаються у `listModels()` під ключем `image_to_video`; (б) проходять `validateFalOptions` для типового payload; (в) парсяться `parseFalOutput` як відео; (г) проходять гейт `storyboardVideo.service` (`capability === 'image_to_video'`); (д) рендеряться у `GenerationOptionsForm`/`SchemaFieldInput` (зокрема `image_url_list` на reference-моделі) і дають типізовані handle-и на canvas. Якщо десь виявиться приховане припущення «рівно одна image_to_video модель з одним image_url» — задокументувати й виправити.
+  - Where: read/verify across `aiGeneration.service.ts`, `falOptions.validator.ts`, `ai-generate.output.ts`, `storyboardVideo.service.ts`, `SchemaFieldInput.tsx`; запустити vitest з `apps/web-editor` та пакетні тести.
+  - Why: Рішення «reuse image_to_video» ґрунтується на тому, що весь downstream гілкується за capability; крок 5 це доводить фактично, а не на віру.
+  - Depends on: 2, 3, 4
+
+</details>
+
+checked by code-reviewer - YES
+checked by qa-reviewer - YES
+checked by design-reviewer - YES
+design-reviewer notes: Reviewed on 2026-06-16. Subtask 5 (seedance2-video-models) is verification-only — no UI components, styles, spacing, color tokens, or layout were created or modified. All referenced files (aiGeneration.service.ts, falOptions.validator.ts, ai-generate.output.ts, storyboardVideo.service.ts, SchemaFieldInput.tsx) are backend service logic or existing UI rendering infrastructure with zero design-surface changes. Design review not applicable; marking YES.
+checked by playwright-reviewer: YES — verification-only subtask; git diff confirms zero changes to any file under apps/web-editor/src/ (GenerationOptionsForm.tsx and SchemaFieldInput.tsx untouched); only fal-models.ts catalog data, pricing table, test count assertions, and docs were modified; no UI component added or modified, no E2E required per mandate

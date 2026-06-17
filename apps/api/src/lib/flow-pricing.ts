@@ -36,6 +36,8 @@ export const FLOW_PRICE_TABLE: Readonly<Record<string, number>> = {
   'fal-ai/kling-video/o3/standard/image-to-video': 0.28,
   'fal-ai/pixverse/v6/image-to-video': 0.35,
   'fal-ai/wan/v2.2-a14b/image-to-video': 0.12,
+  'bytedance/seedance-2.0/image-to-video': 0.20, // approximate — no public per-run price at 2026-06-16
+  'bytedance/seedance-2.0/reference-to-video': 0.25, // approximate — multi-reference variant; no public per-run price at 2026-06-16
 
   // ── fal.ai text-to-video ──────────────────────────────────────────────────
   'fal-ai/kling-video/v2.5-turbo/pro/text-to-video': 0.45,
