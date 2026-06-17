@@ -57,37 +57,32 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
 
 ## 3. Context and scope
 
-<!-- 🎯 Why: draws the SYSTEM BOUNDARY — who talks to it from outside, where the trust zone ends.
-     Without §3, §5 and §8 (authorization) blur — unclear what's «inside» vs «outside».
-     📋 Write: 2–3 sentences of business context + an external-systems table + a C4Context block.
-     📌 «External: none (deliberate, no third-party in v1)» is itself a decision worth stating.
-     Trust boundary — the line past which you don't trust data without checking it.
-     Never N/A — greenfield still draws the planned actors + external systems. -->
+The feature lives inside the ClipTale platform (the existing media → storyboard → render pipeline). A Creator describes a graphic, the system has an external LLM provider author a code component, executes that component in a live in-browser preview, and persists it as a per-Creator media asset. The only external dependency in MVP1 is the LLM provider (code authoring); server-side render/export is deferred (spec §3, §8 OQ-1).
 
-<Business context in 2–3 sentences. What the system does for whom.>
+**Trust boundary.** AI-authored code is treated as **untrusted input** along its whole path — LLM → storage → browser execution. MVP1 ships no execution sandbox; the blast-radius boundary is the Creator's own browser session (self-only, no sharing), backed by a pre-generation prompt-guardrail.
 
-<!-- brownfield: <one-line scan summary> (or «N/A — greenfield repo» if no source existed) -->
+<!-- brownfield: monorepo (Express 4 api + React 18 web-editor + BullMQ workers + Remotion 4.0.443 shared bundle), MySQL 8 raw SQL, OpenAI SDK present, no streaming-chat / runtime-code-eval precedent — per docs/architecture-map.md + targeted scan 2026-06-17. -->
 
 **External systems (in / out):**
 
 | Actor or system | Type | Interaction |
 |---|---|---|
-| <author role> | Person | <what they do> |
-| <external service> | System (internal/external) | <interaction> |
-| <identity provider> | System (external) | <provides auth tokens> |
+| Creator | Person | Describes, previews, refines graphics; attaches them to storyboard blocks |
+| LLM provider | System (external) | Authors + refines the Motion Graphic component code from the Creator's prompt + chat history |
+| Sandboxing / code-isolation service | — | **None (deliberate)** — MVP1 does not sandbox browser execution; it relies on the prompt-guardrail + the self-only blast radius |
 
-**C4 Context (L1):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. -->
+**C4 Context (L1):**
 
 ```mermaid
 C4Context
-    title <feature> — System Context
+    title AI Motion Graphic — System Context
 
-    Person(actor, "<Actor role>", "<intent>")
-    System(app, "<Our system>", "<one-sentence description>")
-    System_Ext(ext, "<External system>", "<one-sentence description>")
+    Person(creator, "Creator", "Describes, previews, and iterates Motion Graphics; attaches them to storyboard blocks")
+    System(cliptale, "ClipTale — AI Motion Graphic", "Authors reusable code-backed motion graphics via chat; live in-browser preview; attach as storyboard media")
+    System_Ext(llm, "LLM provider", "Authors and refines the Motion Graphic component code from the Creator's prompts")
 
-    Rel(actor, app, "<interaction>", "<protocol>")
-    Rel(app, ext, "<interaction>", "<protocol>")
+    Rel(creator, cliptale, "Describes, previews, refines graphics", "HTTPS / WS")
+    Rel(cliptale, llm, "Sends prompt + chat history, streams back code", "HTTPS")
 ```
 
 ## 4. Solution strategy
