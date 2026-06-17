@@ -226,43 +226,39 @@ sequenceDiagram
 
 ## 9. Architecture decisions
 
-<!-- 🎯 Why: the REVERSE INDEX onto the adr/ folder. `ls adr/` gives the files; §9 gives the
-     semantics — why they exist, which SAD section they attach to, what status.
-     📋 Write: a 4-column table, one row per ADR. Mixed status is fine.
-     📌 e.g. «0001 | Store content as a table of typed blocks | Accepted | §4». -->
-
 | # | Title | Status | Section |
 |---|---|---|---|
-| <NNNN> | <imperative — e.g. "Use a sliding-window counter for rate limiting"> | Accepted | §<N> |
-| <NNNN> | <imperative — e.g. "Co-locate the worker in the API process"> | Accepted | §<N> |
+| 0001 | Build a fullstack backend-service + web-frontend, no worker in MVP1 | Accepted | §4 |
+| 0002 | Use Anthropic Claude for Motion Graphic code authoring | Accepted | §4 |
+| 0003 | Stream generation tokens to the browser over Server-Sent Events | Accepted | §4 |
+| 0004 | Transpile authored TSX in the browser and mount it into a runtime Remotion composition | Accepted | §4 |
+| 0005 | Accept unsandboxed browser execution with a self-only blast radius in MVP1 | Accepted | §4 |
+| 0006 | Enforce determinism with an author-time AST scan plus a runtime shim | Accepted | §4 |
+| 0007 | Refuse malicious prompts server-side and restrict generated code to a minimal allowlist | Accepted | §4 |
+| 0008 | Store Motion Graphic code as a TEXT column in MySQL, version-capable from day one | Accepted | §4 |
+| 0009 | Attach code-backed graphics to storyboard blocks via a separate snapshot table | Accepted | §5 |
+| 0010 | Pin the rendering-runtime version and snapshot at attach without re-validation | Accepted | §8 |
 
-ADR files live under `docs/features/<slug>/adr/NNNN-<title>.md`.
+ADR files live under `docs/features/ai-motion-graphic/adr/NNNN-<title>.md`.
 
 ## 10. Quality requirements
 
-<!-- 🎯 Why: the QUALITY TREE — take a goal from §1 and break it into concrete leaves: tests,
-     metrics, configs, drills. ⭐ Without §10, §1 is a manifesto. With §10 each declaration maps
-     to something PROVABLE.
-     📋 Write: per §1 goal — When / Then / How-verify. Numbers from spec §6 NFR VERBATIM (don't
-     round ≤250ms to ≤300ms — that's a critic F6 hit).
-     📌 e.g. «p95 ≤ 500 ms on a block update, verified by a 100 req/s load test». -->
-
 Each top-3 goal from §1 expanded into a full scenario:
 
-**QG-1. <quality attribute>**
-- **When:** <trigger condition>
-- **Then:** <expected behaviour with numbers from spec §6 NFR>
-- **How verify:** <test / chaos drill / load test / metric>
+**QG-1. Render-determinism / preview↔export parity**
+- **When:** an authored graphic would animate from wall-clock time or randomness rather than from its frame position.
+- **Then:** it does not reach ready state (AC-09); parity is verified by a frame-diff check in CI on a fixed fixture set — there is no per-user-graphic runtime frame-diff.
+- **How verify:** author-time AST scan + runtime shim enforcement (ADR-0006) + the CI frame-diff on the fixture set (spec §6 NFR "Render parity").
 
-**QG-2. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-2. Tenant isolation under the new trust boundary**
+- **When:** a non-owner attempts to open/preview/continue-chat/attach/duplicate a graphic through any surface; or AI-authored code attempts session exfiltration during preview.
+- **Then:** access is denied uniformly as though the graphic does not exist (AC-07); browser execution is bounded to a self-only blast radius (ADR-0005); ≥ 95% of the curated red-team prompt set (exfiltration / system-subversion intent) are refused before generation runs (spec §6 NFR).
+- **How verify:** authorization tests on every surface (AC-07); the guardrail conformance test suite over the red-team prompt set (≥ 95% refusal, spec §6 NFR "Malicious-prompt guardrail").
 
-**QG-3. <quality attribute>**
-- **When:** <trigger>
-- **Then:** <expected>
-- **How verify:** <how>
+**QG-3. Interactive authoring responsiveness**
+- **When:** a code change is received into the preview; a generation/refinement is started; the Motion Graphics list is loaded.
+- **Then:** live preview ready ≤ 1500 ms from code received (incl. transpile + sandbox/runtime init) to first rendered frame, p95; time-to-first-streamed-token ≤ 3 s p95; list load ≤ 400 ms p95 (spec §6 NFR, verbatim).
+- **How verify:** client preview-render timing metric; chat streaming metric; server list-endpoint metric (spec §6 NFR measurement columns).
 
 ## 11. Risks and technical debt
 
