@@ -193,25 +193,18 @@ sequenceDiagram
 
 ## 7. Deployment view
 
-<!-- 🎯 Why: the TOPOLOGY DevOps must know without reading the deploy charts — how many replicas,
-     where the background worker lives, AT WHAT NUMBERS we scale.
-     📋 Write: 2–3 sentences on topology + monitoring + concrete threshold numbers.
-     📌 e.g. «500 authors → partition by quarter» (not «we'll think about scale later»).
-     🎯 N/A allowed for XS/S that reuses an existing deployment unit with no change.
-     Deployment-diagram scaffold → templates/deployment.md. -->
-
-<Topology in 2–3 sentences. Where it runs, replicas, scaling thresholds.>
+**Topology.** No new deployment units: endpoints are added to the existing `api` (Express) container, the page ships in the existing `web-editor` bundle, and the new schema lives in the existing MySQL 8 (migrations 058+). The one new external dependency is the LLM provider (Anthropic), reached over HTTPS with a new `APP_ANTHROPIC_API_KEY` validated in `config.ts`. No worker, render fleet, or object-store change in MVP1 (browser-only execution; code stored as DB TEXT).
 
 **Monitoring:**
-- <Metrics — e.g. `<metric_name>`>
-- <Alerts — e.g. «worker lag > 10 min → page on-call»>
-- <Tracing — e.g. spans on the request boundary>
+- Metrics: generation-success-rate (KPI ≥ 80%), TTFT p95 (≤ 3 s), client preview-render timing p95 (≤ 1500 ms), list-endpoint p95 (≤ 400 ms), guardrail-conformance (≥ 95% red-team refusal), cost estimate↔actual delta (|median| ≤ 15%), **concurrent SSE generation connections per api instance**.
+- Alerts: guardrail-refusal spike or LLM upstream 5xx; **concurrent SSE connections approaching the per-instance limit → scale api horizontally**.
+- Tracing: span on the generation request boundary (guardrail → LLM stream → persist).
 
 **Scaling thresholds:**
-- <e.g. comfortable in one table up to N rows/year>
-- <e.g. partition by quarter above N rows/year>
+- Motion Graphics list — an indexed per-owner query; comfortable in one table at expected per-Creator volumes.
+- SSE generation — each active generation holds one long-lived connection (an api request slot + an upstream Anthropic stream) for the generation's duration; **monitor concurrent SSE connections per api instance and scale the api horizontally as that count approaches the instance's connection limit** (long-lived streams, not request/response, are the binding resource).
 
-<!-- For XS/S with no deployment change: <!-- N/A: reuses existing deployment unit, no infra change --> -->
+<!-- DEC-7-sse-capacity (Socratic, approved): pin the SSE-concurrency threshold + metric rather than treat as a transparent reuse — long-lived streams change the api's binding resource. Not ADR-worthy (deployment config, no blast radius). -->
 
 ## 8. Crosscutting concepts
 
