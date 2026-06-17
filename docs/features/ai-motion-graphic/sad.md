@@ -111,49 +111,48 @@ Each tactical decision in later sections traces to one of these seeds. Tactical 
 
 ## 5. Building block view
 
-<!-- 🎯 Why: INTERNAL DECOMPOSITION — modules, containers, datastores. The static topology: who
-     may talk to whom. Without §5, §6 (the flows) has no vocabulary of participants.
-     📋 Write: 1 ¶ on the style (layered / hexagonal / clean / event-driven) + a folder tree + a
-     C4Container block.
-     📌 Draw ONE Container per declared `target_surface` (frontmatter): a fullstack
-     [backend-service, web-frontend] = a backend-API container + a web/SPA container; a
-     [backend-service, mobile-app] = the API + the mobile app. The Container(web, …) line below is
-     just one surface's container — swap/add per what was declared in §4. → _shared/surfaces.md
-     📌 e.g. «web app, content API, media worker, datastore, object store, CDN». -->
-
-<One paragraph: layered / hexagonal / clean / event-driven, and why.>
+**Style.** Layered, following the repo conventions without divergence — api: `routes → controllers → services → repositories` with module singletons (`pool`/`config`), no DI; web-editor: a `features/<name>/` slice with `components/ · hooks/ · api.ts · types.ts`, modelled on the generate-wizard feature. The two declared surfaces (`backend-service`, `web-frontend`) are the two application containers below.
 
 **Internal decomposition:**
 
 ```
-<e.g. modules/<feature>/>
-├── domain/       <entities + sentinel errors>
-├── app/          <use cases / services>
-├── infra/        <repository + integration impl>
-├── ports/        <handlers, DTOs, error mapping>
-└── wiring        <self-wiring entry point>
+apps/api/src/
+├── routes/motionGraphic.routes.ts            → controllers/motionGraphic.controller.ts
+├── services/motionGraphic.service.ts           CRUD, ownership, ready-state invariants (AC-07/AC-08)
+├── services/motionGraphicAuthoring.service.ts  Anthropic SDK streaming proxy + SSE (ADR-0002/0003)
+├── services/motionGraphicGuardrail.service.ts  pre-generation prompt guardrail + allowlist (ADR-0007)
+├── services/motionGraphic.cost.service.ts      estimate mirror of storyboardPipeline.cost (cost-gate)
+├── repositories/motionGraphic.repository.ts    motion_graphics (code TEXT), chat history — raw SQL
+└── (storyboard) block-media attach extended: kind = motion_graphic → snapshot table (ADR-0009)
+
+apps/web-editor/src/features/motion-graphic/    (browser-only runtime in MVP1 — DEC-5 inline)
+├── components/   page, chat panel, full-canvas live preview, duration input, list + empty state
+├── runtime/      in-browser transpile (Sucrase) + AST scan (ADR-0006) + runtime shim + mount → <Player>
+├── hooks/  ·  api.ts  ·  types.ts
 ```
 
-**C4 Container (L2):** <!-- syntax → references/c4-mermaid-syntax.md. Real names, no <placeholder> stubs. ONE Container per declared target_surface (frontmatter); the web container below is one example surface. -->
+The browser runtime wrapper (transpile + AST-scan + shim + dynamic mount) lives **in the web-editor feature** (`runtime/`), not in `packages/remotion-comps` — MVP1 executes code only in the browser, so the runtime is local to the feature; the deferred server-side export milestone will promote a shared runtime contract into the bundle (a separate ADR at that time). The storyboard attach UI reuses the existing block-media picker.
+
+**C4 Container (L2):**
 
 ```mermaid
 C4Container
-    title <feature> — Containers
+    title AI Motion Graphic — Containers
 
-    Person(actor, "<Actor>")
+    Person(creator, "Creator", "Authors, previews, refines graphics; attaches to storyboard")
 
-    Container_Boundary(app, "<Our system>") {
-        Container(web, "<Web/UI>", "<technology>", "<purpose>")
-        Container(api, "<API/handler>", "<technology>", "<purpose>")
-        ContainerDb(db, "<Datastore>", "<technology>", "<purpose>")
+    Container_Boundary(cliptale, "ClipTale") {
+        Container(web, "web-editor", "React 18 + Vite + Remotion Player", "Motion Graphic page: chat, live preview, in-browser transpile + mount, duration input, graphic list")
+        Container(api, "api", "Express 4 + SSE", "Graphic CRUD, chat persistence, cost-gate, prompt-guardrail, LLM streaming proxy, storyboard attachment")
+        ContainerDb(mysql, "MySQL 8", "InnoDB / mysql2", "motion_graphics (code TEXT, props schema JSON, status), chat history, block-media snapshot")
     }
 
-    System_Ext(ext, "<External>", "<purpose>")
+    System_Ext(llm, "LLM provider (Anthropic)", "Authors + refines component code")
 
-    Rel(actor, web, "<interaction>", "<protocol>")
-    Rel(web, api, "<calls>")
-    Rel(api, db, "<reads/writes>", "<driver>")
-    Rel(api, ext, "<emits>", "<protocol>")
+    Rel(creator, web, "Describes, previews, refines", "HTTPS / SSE")
+    Rel(web, api, "CRUD + streams generation + attaches", "REST / SSE")
+    Rel(api, mysql, "Reads/writes graphics, chat, snapshots", "mysql2 raw SQL")
+    Rel(api, llm, "Sends prompt + chat history, streams code", "HTTPS")
 ```
 
 ## 6. Runtime view
