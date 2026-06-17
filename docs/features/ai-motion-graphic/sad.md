@@ -257,7 +257,7 @@ Each top-3 goal from §1 expanded into a full scenario:
 
 **QG-3. Interactive authoring responsiveness**
 - **When:** a code change is received into the preview; a generation/refinement is started; the Motion Graphics list is loaded.
-- **Then:** live preview ready ≤ 1500 ms from code received (incl. transpile + sandbox/runtime init) to first rendered frame, p95; time-to-first-streamed-token ≤ 3 s p95; list load ≤ 400 ms p95 (spec §6 NFR, verbatim).
+- **Then:** live preview ready ≤ 1500 ms from code received (incl. transpile + sandbox/runtime init) to first rendered frame, p95; time-to-first-streamed-token ≤ 3 s p95; list load ≤ 400 ms p95 (spec §6 NFR, verbatim). *(MVP1 ships no execution sandbox — ADR-0005; the budget covers transpile + runtime init, and the spec's "sandbox/" applies to the future server-export milestone where a sandbox is a precondition.)*
 - **How verify:** client preview-render timing metric; chat streaming metric; server list-endpoint metric (spec §6 NFR measurement columns).
 
 ## 11. Risks and technical debt

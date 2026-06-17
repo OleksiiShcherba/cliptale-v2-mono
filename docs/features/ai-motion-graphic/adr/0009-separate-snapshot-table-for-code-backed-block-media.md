@@ -40,6 +40,7 @@ The existing `storyboard_block_media` pivot (migration 033) attaches media to a 
 
 **Negative**
 - One extra join to resolve a block's motion-graphic media; a second table to migrate (058+).
+- The existing pivot column `storyboard_block_media.file_id` is `CHAR(36) NOT NULL` with a `NOT NULL` FK to `files` (migration 033); supporting a `motion_graphic` row with no file requires the 058+ migration to make `file_id` **nullable** and relax/replace that FK constraint (the snapshot reference is non-null instead). Exact column/constraint changes are `data-model`'s job.
 
 **Neutral**
 - Version-pinning (MVP3) extends this table additively; no rewrite of the MVP1 shape.
