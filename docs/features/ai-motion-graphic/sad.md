@@ -35,30 +35,25 @@ target_surfaces: []  # filled in §4 — subset of: backend-service | web-fronte
 
 ## 2. Constraints
 
-<!-- 🎯 Why: §4 strategy only works when §2 has fixed WHAT IS ALREADY FIXED — stack, versions,
-     deadline, regulatory. This is an input, not an output.
-     📋 Write: four blocks — Technical / Organisational / Conventions / Regulatory.
-     📌 Pin versions («<datastore> 18», not «<datastore>»); «Q3 deadline — hard», not «ideally».
-     Never N/A — every feature inherits at least Conventions + Technical. -->
-
 **Technical.**
-- <Language + version>
-- <Framework(s) + version>
-- <Datastore(s) + version>
-- <Architecture convention — e.g. the layering style from the project convention file>
+- TypeScript 5.4+ (strict, ESM), Node ≥20; Turborepo + npm workspaces monorepo (`apps/*`, `packages/*`).
+- **api:** Express 4 + Helmet + CORS + express-rate-limit + Zod + `ws`. **web-editor:** React 18 + Vite 5 + React-Router v7 + TanStack Query 5 + Immer; state via a custom external store + `useSyncExternalStore` (no Redux/Zustand).
+- MySQL 8 / InnoDB via `mysql2` raw SQL (no ORM); Redis 7 (BullMQ); S3 (AWS SDK v3, presigned URLs).
+- **Remotion pinned 4.0.443** via root `overrides` — all `@remotion/*` kept aligned, never bumped piecemeal. One shared `packages/remotion-comps` bundle serves the browser `<Player>` and the server `@remotion/renderer`.
+- Existing LLM provider: **OpenAI SDK** (`chat.completions`, `gpt-4o-mini`) inside media-worker BullMQ jobs — **no streaming and no multi-turn chat precedent**; no Anthropic SDK present.
+- api layering: routes → controllers → services → repositories; no DI container, module singletons (`pool` / `redis` / `s3` / `config`).
 
 **Organisational.**
-- <Effort budget — e.g. 3 person-weeks>
-- <Deadline — e.g. 2026-Q3 hard>
-- <Team composition>
+- Effort / deadline: **no hard deadline fixed**; scope is bounded to MVP1 per spec §3 (server-side execution/export deferred).
+- Team: full-stack (api + web-editor); Security Lead is a mandatory reviewer (new trust boundary).
 
 **Conventions.**
-- <Link to the project's convention file>
-- <Naming, ID strategy, error-handling pattern>
+- `docs/architecture-map.md` + `docs/architecture-rules.md` (authored rules) are canonical.
+- IDs — UUID v4 `CHAR(36)` (`randomUUID()`); typed error classes (`apps/api/src/lib/errors.ts`, `err.statusCode` → JSON); numbered SQL migrations under `apps/api/src/db/migrations/` (next = **058**, in-process runner, `IF NOT EXISTS` guards); env only in `config.ts` (`APP_*`, Zod-validated); inline `CSSProperties` in co-located `*.styles.ts`; hand-maintained OpenAPI (`packages/api-contracts`) kept in sync in the same commit.
 
 **Regulatory / external.**
-- <e.g. data-retention / deletion behaviour per ADR-NNNN>
-- <e.g. applicable compliance controls, or N/A with a reason>
+- **Security review REQUIRED** (spec §6.1) — the feature introduces a new trust boundary: executing untrusted, AI-authored code in the browser with no execution sandbox in MVP1, relying on a prompt-guardrail + a self-only blast radius.
+- Data classification: confidential (the graphic is the Creator's content **and** executable code; chat may carry proprietary creative direction). No new PII fields; ownership is per-account.
 
 ## 3. Context and scope
 
