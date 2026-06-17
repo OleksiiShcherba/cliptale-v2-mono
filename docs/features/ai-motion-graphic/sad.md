@@ -157,31 +157,39 @@ C4Container
 
 ## 6. Runtime view
 
-<!-- 🎯 Why: the RUNTIME FLOW of 1–2 critical scenarios — who talks to whom, when, in what order.
-     Without §6, §5 is just boxes with no life.
-     📋 Write: a Mermaid sequenceDiagram. Participants are names from §5 (don't invent new ones).
-     Messages are semantic («saves a draft»), NO HTTP verbs / paths / status codes — endpoint-level
-     sequences arrive at the `api` stage.
-     📌 e.g. «author → web: composes draft → web → content API: save». Seed the primary flow(s) here;
-     the `sequences` stage then covers every §5 AC (no cap). Never N/A for M+; XS/S keeps ≥1 happy-path flow. -->
-
-**Critical flow 1: <flow name>**
+**Critical flow 1: Generate a Motion Graphic (US-02 / AC-01, AC-06, AC-09, AC-11)**
 
 ```mermaid
 sequenceDiagram
-    actor Actor
-    participant Web
-    participant Service
-    participant Store
-    Actor->>Web: <action>
-    Web->>Service: <call>
-    Service->>Store: <write>
-    Store-->>Service: ok
-    Service-->>Web: result
-    Web-->>Actor: confirmation
+    actor Creator
+    participant Web as web-editor
+    participant Api as api
+    participant LLM as LLM provider
+    participant Store as MySQL
+
+    Creator->>Web: describes graphic, sets duration, confirms
+    Web->>Api: request generation (prompt, duration, shown cost estimate)
+    Api->>Api: re-validate cost estimate, refuse on mismatch (AC-11)
+    Api->>Api: prompt-guardrail check, refuse bad intent (§6 NFR)
+    Api->>LLM: send system prompt + runtime contract + prompt
+    LLM-->>Api: stream code tokens
+    Api-->>Web: stream tokens (SSE)
+    Web->>Web: transpile + AST-scan determinism (AC-09)
+    alt runs in preview AND deterministic
+        Web->>Web: mount into <Player>, render preview
+        Web->>Api: persist graphic (code, duration, auto-title, ready) + chat turn
+        Api->>Store: write motion_graphics + chat
+        Store-->>Api: ok
+        Api-->>Web: ready
+        Web-->>Creator: live preview + ready
+    else fails to run or non-deterministic
+        Web->>Api: persist failed attempt to chat, keep last working (AC-06/AC-14)
+        Api->>Store: append chat turn
+        Web-->>Creator: not usable — retry / refine
+    end
 ```
 
-**Critical flow 2: <e.g. async event propagation>** — <if applicable, otherwise N/A>.
+**Critical flow 2: Attach a graphic to a storyboard block as a frozen snapshot (US-07 / AC-04, AC-08, AC-10)** — seeded at the `sequences` stage, which covers every remaining §5 acceptance criterion (refinement AC-03/AC-14, resume AC-05, authorization AC-07, duplicate AC-12, list AC-13) against the participants above.
 
 ## 7. Deployment view
 
