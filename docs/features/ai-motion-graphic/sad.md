@@ -272,22 +272,27 @@ Each top-3 goal from §1 expanded into a full scenario:
 
 | Risk / debt | Severity | Mitigation | Owner |
 |---|---|---|---|
-| <e.g. Worker lag may reach hours during a downstream outage> | Medium | <alert >10 min, on-call playbook, retry backoff> | <DevOps> |
-| <e.g. No event-schema versioning in v1> | Medium | <ADR-NNNN planned for v2, tolerate unknown fields> | <Backend> |
-| Open architectural decision: <decision-headline> | Open question | Resolve before <stage trigger or YYYY-MM-DD>; <inline rationale from the Save-as-OQ> | <owner> |
+| Guardrail bypass → an author exfiltrates their own session | Medium | Self-only blast radius (no sharing) + server-side prompt-guardrail (ADR-0005/0007); residual self-only risk accepted for MVP1 | Security Lead |
+| Transpile + render misses the ≤ 1500 ms p95 preview budget | Medium | Fast transpiler (Sucrase-class), not a full Babel pass; preview-render timing metric + alert | Tech Lead |
+| Generation success-rate below the 80% KPI | Medium | Claude code-gen (ADR-0002) + prompt-caching of the runtime contract; beta instrumentation of prompt→ready | Product Owner |
+| architecture-map is 322 commits behind HEAD | Low | Compensated by a targeted brownfield scan (2026-06-17); recommend running `survey` to refresh the map | Tech Lead |
+| Open architectural decision: server-side execution isolation for export | Open question | Resolve before the server-export milestone is scheduled (post-MVP1); default: treat all generated code as untrusted and isolate server execution (spec OQ-1) | Tech Lead + Security Lead |
+| Open architectural decision: curated red-team prompt set + rejection threshold | Open question | Resolve before `sdd:plan-tests`; default ≥ 95% refusal over a Security-Lead-owned red-team set (spec OQ-4) | Security Lead |
 
-**Accepted debt (acceptable in v1, plan to fix later):**
-- <e.g. the entity is immutable / unversioned — OK for v1, may need audit versioning in v2>
+**Accepted debt (acceptable in MVP1, plan to fix later):**
+- No-sandbox browser execution — self-only residual exfiltration risk accepted for MVP1; an execution sandbox arrives with the server-export milestone (ADR-0005).
+- Runtime-pin asset-rot — older graphics may stop rendering on a future Remotion bump; no automated migration in MVP1 (ADR-0010).
+- Second LLM provider + SDK + API key in the codebase (`@anthropic-ai/sdk` alongside `openai`) — accepted for code-gen quality (ADR-0002).
 
 ## 12. Glossary
 
-<!-- 🎯 Why: ⭐ the DOMAIN GLOSSARY that ends arguments a year later («checkpoint — weekly or
-     biweekly? quarter — calendar or fiscal?»).
-     📋 Write: a term / meaning table. Business + technical terms mixed.
-     📌 e.g. «Lesson | a unit inside a course made of blocks (text, video)». -->
+> Canonical domain terms (Motion Graphic, Component, Props schema, Duration, Chat history, Instance, Snapshot, Live preview, Determinism, Media asset, Storyboard block, Cost estimate + confirm) are defined in [CONTEXT](./CONTEXT.md) §Glossary and are not repeated here. This table adds only the technical terms this SAD introduces.
 
 | Term | Meaning |
 |---|---|
-| <e.g. domain object A> | <its meaning in this domain> |
-| <e.g. domain object B> | <its meaning> |
-| <e.g. domain invariant name> | <the rule, in plain language> |
+| Deterministic-render rule | The invariant (AC-09) that a ready graphic must animate only from its frame position (`useCurrentFrame`), never from wall-clock time or randomness, so browser preview matches the future server export frame-for-frame. |
+| Self-only blast radius | The MVP1 security boundary: because execution is browser-only, per-Creator, and never shared, AI-authored code can only ever affect its own author's session — no cross-account reach (ADR-0005). |
+| Runtime wrapper | The browser-side module that transpiles the authored TSX, runs the AST determinism scan + runtime shim, and dynamically mounts the resulting component into Remotion's `<Player>` (web-editor `features/motion-graphic/runtime/`, ADR-0004). |
+| Prompt-guardrail | The server-side, pre-generation check that refuses prompts whose intent is exfiltration or system subversion before the LLM call runs (≥ 95% red-team refusal, ADR-0007). |
+| Allowlist | The minimal set of modules/runtime APIs generated code may use (render runtime + schema lib); anything outside it is rejected at authoring time (ADR-0007, resolves spec OQ-2). |
+| Ready state | The status a graphic reaches only when it both runs in the live preview AND meets the deterministic-render rule; only a ready graphic can be attached to a storyboard block (AC-06, AC-08). |
