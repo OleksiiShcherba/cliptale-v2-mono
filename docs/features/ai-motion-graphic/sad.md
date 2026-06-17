@@ -208,21 +208,21 @@ sequenceDiagram
 
 ## 8. Crosscutting concepts
 
-<!-- 🎯 Why: CROSS-CUTTING PATTERNS spanning several modules: logging, errors, authorization, ID
-     strategy, events, caching. ⭐ The second-densest section. A pattern inside one module is NOT
-     here; a project-wide convention belongs in the convention file.
-     📋 Write: a table — concept / convention / where defined. One row per concept.
-     📌 e.g. «sortable time-based IDs generated in the app layer» as a default from the convention file. -->
-
 | Concept | Convention | Where defined |
 |---|---|---|
-| Logging | <e.g. structured, fields `module=<name>`> | <convention file §X or here> |
-| Authentication | <e.g. token-based via middleware> | <convention file §X> |
-| Error handling | <e.g. domain sentinel → ports error mapping → JSON> | <convention file §X> |
-| ID strategy | <e.g. sortable time-based ID in the app layer> | <convention file §X> |
-| Internationalisation | <e.g. N/A, single language> | — |
-| Observability | <e.g. tracing on the request boundary> | — |
-| Events | <module-specific patterns, if any> | <here> |
+| Logging | Repo default — structured, module-tagged | architecture-map §Conventions |
+| Authentication | Repo default — token middleware; authenticated Creators only | architecture-map §Conventions |
+| Authorization | Per-owner filtering on every read/write of a graphic, its chat, and its attachments; a non-owner is denied **uniformly, as though the graphic does not exist** (AC-07) | here + spec §6.1 |
+| Error handling | Repo default — typed error classes (`apps/api/src/lib/errors.ts`) → `statusCode` → JSON | architecture-map §Conventions |
+| ID strategy | Repo default — UUID v4 `CHAR(36)` via `randomUUID()` | architecture-map §Conventions |
+| Cost gate | Instrument-only server re-validation, exact-match rule, mirror of `storyboardPipeline.cost.service` (no credit ledger) | here + spec §6.1 |
+| Untrusted-code execution | AI-authored code is untrusted; browser-only, self-only blast radius, prompt-guardrail + minimal allowlist | ADR-0004 / ADR-0005 / ADR-0007 |
+| Determinism | Author-time AST scan + runtime shim; ready state requires a deterministic render (AC-09) | ADR-0006 |
+| Chat history | Persistent, never-deleted; **duplicate seeds it as live, re-runnable turns** (not a frozen transcript) plus the current code (AC-12) | here + spec §5 |
+| Runtime version pinning | Pin the rendering-runtime version graphics author against; snapshot at attach **without** re-validation; migration of old graphics deferred (resolves spec OQ-3) | ADR-0010 |
+| Internationalisation | N/A — single language | — |
+| Observability | Metrics (§7) + a span on the generation request boundary | §7 |
+| Events | N/A — no new cross-module events in MVP1 (no worker; SSE is request-scoped) | here |
 
 ## 9. Architecture decisions
 
