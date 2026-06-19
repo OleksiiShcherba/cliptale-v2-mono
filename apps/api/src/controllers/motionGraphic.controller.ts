@@ -28,6 +28,10 @@ import type { Request, Response, NextFunction } from 'express';
 
 import { ValidationError } from '@/lib/errors.js';
 import * as motionGraphicService from '@/services/motionGraphic.service.js';
+import {
+  runAuthoringStream,
+  type ChatTurn,
+} from '@/services/motionGraphicAuthoring.service.js';
 import type {
   MotionGraphicRecord,
   MotionGraphicWithChat,
@@ -56,6 +60,25 @@ const createBodySchema = z.object({
   fps: z.number().int().min(1).optional(),
   width: z.number().int().min(1).optional(),
   height: z.number().int().min(1).optional(),
+});
+
+/** The Creator's acknowledged cost estimate (#/components/schemas/Money). */
+const moneySchema = z.object({
+  currency: z.string().min(1),
+  amount: z.number().min(0),
+});
+
+/** POST /motion-graphics/generate body (#/components/schemas/GenerateRequest). */
+const generateBodySchema = z.object({
+  prompt: z.string().min(1),
+  durationSeconds: z.number().min(0),
+  acknowledgedCost: moneySchema.optional(),
+});
+
+/** POST /motion-graphics/{id}/refine body (#/components/schemas/RefineRequest). */
+const refineBodySchema = z.object({
+  instruction: z.string().min(1),
+  acknowledgedCost: moneySchema.optional(),
 });
 
 /** PATCH /motion-graphics/{id} body (#/components/schemas/MotionGraphicRename). */
@@ -261,6 +284,134 @@ export async function appendMotionGraphicTurn(
     });
 
     res.json(mapFull(updated));
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── SSE authoring stream (T11) ──────────────────────────────────────────────────
+
+/**
+ * Project the optional `acknowledgedCost: { currency, amount }` (Money) to the
+ * `clientEstimate` string the cost gate re-validates (T7 compares numerically via
+ * parseFloat). Absent → null, so the cost gate rejects an unconfirmed estimate (AC-11).
+ */
+function toClientEstimate(acknowledgedCost?: { amount: number }): string | null {
+  return acknowledgedCost ? String(acknowledgedCost.amount) : null;
+}
+
+/**
+ * Open the SSE response and relay the authoring frames (ADR-0003).
+ *
+ * CRITICAL (sad.md §6): the pre-stream gates inside `runAuthoringStream` THROW before the
+ * stream opens. We invoke it inside try/catch BEFORE writing a single SSE byte — so a thrown
+ * GateError is forwarded to the central errorHandler as a JSON 4xx (`{error, code, details}`),
+ * never an SSE error frame. We only set the `text/event-stream` headers from within `onFrame`,
+ * i.e. lazily on the FIRST frame, which is reached only after all gates have passed. Once a
+ * frame has been written the response is committed, so any later failure (already inside the
+ * stream) surfaces as an SSE `error` frame, not a status change.
+ *
+ * These endpoints do NOT persist (sad.md §6 flows 1 & 3 — non-persisting): the browser
+ * validates the streamed code and then calls POST /motion-graphics (T16) or
+ * POST /{id}/turns (T17) to persist the verdict.
+ */
+async function streamAuthoring(
+  res: Response,
+  next: NextFunction,
+  params: {
+    mode: 'generate' | 'refine';
+    prompt: string;
+    durationSeconds: number;
+    clientEstimate: string | null;
+    history?: ChatTurn[];
+  },
+): Promise<void> {
+  let headersSent = false;
+
+  const onFrame = (wire: string): void => {
+    // Lazily open the SSE response on the first frame (i.e. only after the gates passed).
+    if (!headersSent) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders();
+      headersSent = true;
+    }
+    res.write(wire);
+  };
+
+  try {
+    await runAuthoringStream({ ...params, onFrame });
+  } catch (err) {
+    // A pre-stream gate threw BEFORE any frame was written → JSON 4xx via errorHandler.
+    if (!headersSent) {
+      next(err);
+      return;
+    }
+    // The stream was already open — we can no longer change the status. Surface the failure
+    // as a terminal SSE error frame (defensive; runAuthoringStream normally frames its own).
+    res.write(`event: error\ndata: ${JSON.stringify({ message: 'The generation stream failed unexpectedly.' })}\n\n`);
+  }
+
+  if (headersSent) {
+    res.end();
+  }
+}
+
+// ── POST /motion-graphics/generate — stream a new graphic (AC-05 / AC-11) ────────
+
+export async function generateMotionGraphic(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    void req.user!.userId; // authenticated; generation is not yet owner-scoped (no row exists)
+    const parsed = generateBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw new ValidationError(formatZod(parsed.error));
+    }
+
+    await streamAuthoring(res, next, {
+      mode: 'generate',
+      prompt: parsed.data.prompt,
+      durationSeconds: parsed.data.durationSeconds,
+      clientEstimate: toClientEstimate(parsed.data.acknowledgedCost),
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── POST /motion-graphics/{id}/refine — stream a refinement (AC-07 / AC-11) ──────
+
+export async function refineMotionGraphic(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = req.user!.userId;
+    const id = parseId(req);
+    const parsed = refineBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      throw new ValidationError(formatZod(parsed.error));
+    }
+
+    // Owner check (AC-07) BEFORE streaming — non-owner / absent → NotFoundError → 404.
+    const withChat = await motionGraphicService.getWithChat(userId, id);
+    const history: ChatTurn[] = withChat.turns.map((t) => ({
+      role: t.role,
+      content: t.content,
+    }));
+
+    await streamAuthoring(res, next, {
+      mode: 'refine',
+      prompt: parsed.data.instruction,
+      durationSeconds: withChat.graphic.durationSeconds,
+      clientEstimate: toClientEstimate(parsed.data.acknowledgedCost),
+      history,
+    });
   } catch (err) {
     next(err);
   }
