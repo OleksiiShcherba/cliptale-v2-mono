@@ -16,6 +16,7 @@ import { HomePage } from '@/features/home/components/HomePage';
 import { TrashPanel } from '@/features/trash/TrashPanel';
 import { StoryboardPage } from '@/features/storyboard/components/StoryboardPage';
 import { FlowEditorPage } from '@/features/generate-ai-flow/components/FlowEditorPage';
+import { MotionGraphicsPage } from '@/features/motion-graphic/components/MotionGraphicsPage';
 import { SettingsPage } from '@/features/settings/components/SettingsPage';
 
 // ---------------------------------------------------------------------------
@@ -104,6 +105,14 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <FlowEditorPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: '/motion-graphics',
+    element: (
+      <ProtectedRoute>
+        <MotionGraphicsPage />
       </ProtectedRoute>
     ),
   },
