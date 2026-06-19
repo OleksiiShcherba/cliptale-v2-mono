@@ -144,6 +144,16 @@ router.post(
   storyboardIllustrationController.startStoryboardBlockIllustration,
 );
 
+// POST /storyboards/:draftId/blocks/:blockId/media/motion-graphic
+// Server-authored attach: freezes a Motion Graphic snapshot + block-media row (AC-04/07/08/10).
+router.post(
+  '/storyboards/:draftId/blocks/:blockId/media/motion-graphic',
+  authMiddleware,
+  aclMiddleware('editor'),
+  validateBody(storyboardController.attachMotionGraphicBodySchema),
+  storyboardController.attachMotionGraphic,
+);
+
 // GET /storyboards/:draftId
 // Returns { blocks, edges } for the authenticated user's draft.
 router.get(
