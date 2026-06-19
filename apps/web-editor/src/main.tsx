@@ -17,6 +17,7 @@ import { TrashPanel } from '@/features/trash/TrashPanel';
 import { StoryboardPage } from '@/features/storyboard/components/StoryboardPage';
 import { FlowEditorPage } from '@/features/generate-ai-flow/components/FlowEditorPage';
 import { MotionGraphicsPage } from '@/features/motion-graphic/components/MotionGraphicsPage';
+import { MotionGraphicAuthoringView } from '@/features/motion-graphic/components/MotionGraphicAuthoringView';
 import { SettingsPage } from '@/features/settings/components/SettingsPage';
 
 // ---------------------------------------------------------------------------
@@ -113,6 +114,24 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <MotionGraphicsPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    // Authoring entry — describe → generate → persist a NEW graphic (T16, Flow 1).
+    path: '/motion-graphics/new',
+    element: (
+      <ProtectedRoute>
+        <MotionGraphicAuthoringView />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    // Open an existing graphic in the authoring view (preview + chat, T16/T17).
+    path: '/motion-graphics/:id',
+    element: (
+      <ProtectedRoute>
+        <MotionGraphicAuthoringView />
       </ProtectedRoute>
     ),
   },
