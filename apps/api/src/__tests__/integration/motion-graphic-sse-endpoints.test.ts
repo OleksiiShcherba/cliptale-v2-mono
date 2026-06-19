@@ -67,6 +67,7 @@ vi.mock('@/lib/anthropic.js', () => {
 });
 
 import express from 'express';
+import { config } from '../../config.js';
 import { errorHandler } from '../../index.js';
 import { motionGraphicRouter } from '../../routes/motionGraphic.routes.js';
 
@@ -99,6 +100,12 @@ function track(id: string): string {
 }
 
 beforeAll(async () => {
+  // Order-independence: config is parsed at (hoisted) import time, so this file's
+  // env bootstrap cannot guarantee bypass=false if a prior test file leaked
+  // APP_DEV_AUTH_BYPASS=true into the shared process.env. Force the real auth path
+  // so the 401/404 assertions exercise authMiddleware + session ownership for real.
+  config.auth.devAuthBypass = false;
+
   conn = await mysql.createConnection({
     host:     process.env['APP_DB_HOST'],
     port:     Number(process.env['APP_DB_PORT']),

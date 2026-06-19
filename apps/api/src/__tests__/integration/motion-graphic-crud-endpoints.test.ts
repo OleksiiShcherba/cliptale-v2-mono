@@ -43,6 +43,7 @@ Object.assign(process.env, {
 });
 
 import express from 'express';
+import { config } from '../../config.js';
 import { errorHandler } from '../../index.js';
 import { motionGraphicRouter } from '../../routes/motionGraphic.routes.js';
 
@@ -75,6 +76,10 @@ function track(id: string): string {
 }
 
 beforeAll(async () => {
+  // Order-independence: force the real auth path regardless of a leaked
+  // APP_DEV_AUTH_BYPASS=true from a prior test file (config is parsed at import time).
+  config.auth.devAuthBypass = false;
+
   conn = await mysql.createConnection({
     host:     process.env['APP_DB_HOST'],
     port:     Number(process.env['APP_DB_PORT']),
