@@ -189,7 +189,138 @@ sequenceDiagram
     end
 ```
 
-**Critical flow 2: Attach a graphic to a storyboard block as a frozen snapshot (US-07 / AC-04, AC-08, AC-10)** — seeded at the `sequences` stage, which covers every remaining §5 acceptance criterion (refinement AC-03/AC-14, resume AC-05, authorization AC-07, duplicate AC-12, list AC-13) against the participants above.
+**Critical flow 2: Attach a graphic to a storyboard block as a frozen snapshot (US-07 / AC-04, AC-08, AC-10)**
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web as web-editor
+    participant Api as api
+    participant Store as MySQL
+
+    Note over Creator,Store: precondition — Creator owns the graphic, editing a storyboard
+    Creator->>Web: picks a graphic in the block-media picker, attaches
+    Web->>Api: request attach (graphic id, block id)
+    Api->>Store: read graphic (owner, status, code, duration)
+    Store-->>Api: graphic
+    Api->>Api: verify ownership, respond as not-exist if not owner (AC-07)
+    alt graphic is ready
+        Api->>Store: persist snapshot (code + duration) on block media
+        Note over Api,Store: persists block-media snapshot — frozen copy, not a reference (AC-10)
+        Store-->>Api: ok
+        Api-->>Web: attached
+        Web-->>Creator: graphic shown among block media
+    else still generating or not usable
+        Api-->>Web: refuse — only a ready, working graphic can be attached (AC-08)
+        Web-->>Creator: blocked with explanation
+    end
+```
+
+**Critical flow 3: Refine a Motion Graphic through chat (US-04 / AC-03, AC-14)**
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web as web-editor
+    participant Api as api
+    participant LLM as LLM provider
+    participant Store as MySQL
+
+    Note over Creator,Store: precondition — Creator owns a ready graphic, viewing its chat
+    Creator->>Web: sends refinement instruction, confirms
+    Web->>Api: request refinement (graphic id, instruction, shown cost estimate)
+    Api->>Store: read graphic (owner, current code, chat history)
+    Store-->>Api: graphic + history
+    Api->>Api: verify ownership, respond as not-exist if not owner (AC-07)
+    Api->>Api: re-validate cost estimate, refuse on mismatch (AC-11)
+    Api->>LLM: send system prompt + runtime contract + history + instruction
+    LLM-->>Api: stream code tokens
+    Api-->>Web: stream tokens (SSE)
+    Web->>Web: transpile + AST-scan determinism (AC-09)
+    alt runs in preview AND deterministic
+        Web->>Api: persist updated code + chat exchange (ready)
+        Api->>Store: write new current code + append chat turn
+        Note over Api,Store: persists motion_graphics (current code) + chat turn
+        Store-->>Api: ok
+        Api-->>Web: ready
+        Web-->>Creator: refreshed graphic in live preview
+    else fails to run or non-deterministic
+        Web->>Api: persist failed attempt to chat, keep last working (AC-14)
+        Api->>Store: append chat turn, current code unchanged
+        Note over Api,Store: last working version stays current — not overwritten
+        Store-->>Api: ok
+        Web-->>Creator: error in chat — previous graphic still ready
+    end
+```
+
+**Critical flow 4: Open / preview a graphic and resume its chat (US-03, US-05 / AC-02, AC-07)**
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web as web-editor
+    participant Api as api
+    participant Store as MySQL
+
+    Creator->>Web: opens a Motion Graphic
+    Web->>Api: request graphic (id)
+    Api->>Store: read graphic (owner, code, duration, chat history)
+    Store-->>Api: graphic + history
+    alt requester owns the graphic
+        Api-->>Web: code, duration, chat history
+        Web->>Web: transpile + mount into <Player>
+        Web-->>Creator: full-canvas live preview + chat alongside + duration input above chat
+    else requester is not the owner
+        Api-->>Web: respond as though the graphic does not exist (AC-07)
+        Web-->>Creator: not found
+    end
+```
+
+**Critical flow 5: List my Motion Graphics (US-01 / AC-13)**
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web as web-editor
+    participant Api as api
+    participant Store as MySQL
+
+    Creator->>Web: opens the AI Motion Graphic page
+    Web->>Api: request my graphics
+    Api->>Store: read graphics where owner = requester
+    Store-->>Api: owned graphics (may be empty)
+    alt has graphics
+        Api-->>Web: list (each with title + duration)
+        Web-->>Creator: graphics listed
+    else none yet
+        Api-->>Web: empty list
+        Web-->>Creator: empty state
+    end
+```
+
+**Critical flow 6: Duplicate a graphic to reuse with different content (US-08 / AC-12)**
+
+```mermaid
+sequenceDiagram
+    actor Creator
+    participant Web as web-editor
+    participant Api as api
+    participant Store as MySQL
+
+    Note over Creator,Store: precondition — Creator owns the source graphic
+    Creator->>Web: duplicates a graphic
+    Web->>Api: request duplicate (source id)
+    Api->>Store: read source (owner, code, chat history)
+    Store-->>Api: source graphic + history
+    Api->>Api: verify ownership, respond as not-exist if not owner (AC-07)
+    Api->>Store: persist independent copy (same owner, current code, chat seeded as live turns)
+    Note over Api,Store: persists new motion_graphics + copied chat turns — independent of source (AC-12)
+    Store-->>Api: ok (new id)
+    Api-->>Web: duplicated graphic
+    Web-->>Creator: copy ready to refine, original unaffected
+```
+
+**Coverage notes.** AC-05 (server declines an empty / too-short description) is an explicit **non-runtime N/A**: it is a pre-flight input-validation guard enforced before the LLM call — the same class as the AC-07 ownership response — not a distinct runtime path, so it carries no flow. AC-07 (authorization) is enforced uniformly across flows 2/3/4/6 as the "respond as not-exist" branch and applies equally to every other surface action. AC-10 (snapshot isolation) is shown as flow 2's frozen-copy persist note: the block stores a copy of code + duration, never a reference, so a later source refinement (flow 3) cannot alter a placed instance.
 
 ## 7. Deployment view
 
