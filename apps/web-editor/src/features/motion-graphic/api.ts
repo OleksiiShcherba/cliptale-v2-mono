@@ -18,11 +18,35 @@ import type {
   BlockMediaMotionGraphic,
   MotionGraphic,
   MotionGraphicCreate,
+  MotionGraphicError,
   MotionGraphicRename,
   MotionGraphicSummary,
   MotionGraphicSummaryPage,
   TurnCreate,
 } from './types';
+
+/**
+ * A typed attach failure carrying the machine-readable `code` from the error
+ * envelope — so the storyboard picker can tell `motion_graphic.not_ready`
+ * (AC-08) apart from other 4xx and surface the human `error` message.
+ * Mirrors the GenerateStreamError idiom in hooks/useGenerateStream.ts.
+ */
+export class AttachMotionGraphicError extends Error {
+  code: string | null;
+  status: number;
+  details?: Record<string, unknown>;
+
+  constructor(
+    message: string,
+    opts: { code?: string | null; status: number; details?: Record<string, unknown> },
+  ) {
+    super(message);
+    this.name = 'AttachMotionGraphicError';
+    this.code = opts.code ?? null;
+    this.status = opts.status;
+    this.details = opts.details;
+  }
+}
 
 type ListMotionGraphicsOptions = {
   /** Opaque cursor from a prior response. Omit for the first page. */
@@ -144,7 +168,18 @@ export async function attachMotionGraphicToBlock(
   const path = `/storyboards/${draftId}/blocks/${blockId}/media/motion-graphic`;
   const res = await apiClient.post(path, body);
   if (!res.ok) {
-    throw new Error(`POST ${path} failed: ${res.status}`);
+    // Parse the unified error envelope (free-text `error` + optional `code`) so the
+    // caller can surface AC-08's `motion_graphic.not_ready` refusal message.
+    let envelope: MotionGraphicError | null = null;
+    try {
+      envelope = (await res.json()) as MotionGraphicError;
+    } catch {
+      envelope = null;
+    }
+    throw new AttachMotionGraphicError(
+      envelope?.error ?? `POST ${path} failed: ${res.status}`,
+      { code: envelope?.code ?? null, status: res.status, details: envelope?.details },
+    );
   }
   return res.json() as Promise<BlockMediaMotionGraphic>;
 }

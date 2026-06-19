@@ -204,6 +204,8 @@ export function SceneModal(props: SceneModalProps): React.ReactElement {
             onAdd={handleAddMedia}
             onRemove={handleRemoveMedia}
             uploadDraftId={props.mode === 'block' ? props.uploadDraftId : undefined}
+            draftId={props.mode === 'block' ? props.block.draftId : undefined}
+            blockId={props.mode === 'block' ? props.block.id : undefined}
           />
 
           <SceneModalStyleSection

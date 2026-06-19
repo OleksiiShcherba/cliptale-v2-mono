@@ -37,6 +37,7 @@ const MEDIA_TYPE_BADGE_LABELS: Record<string, string> = {
   image: 'IMAGE CLIP',
   video: 'VIDEO CLIP',
   audio: 'AUDIO CLIP',
+  motion_graphic: 'MOTION GRAPHIC',
 };
 
 const ILLUSTRATION_STATUS_LABELS = {

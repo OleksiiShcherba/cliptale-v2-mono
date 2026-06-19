@@ -15,7 +15,9 @@ import {
   sectionLabelStyle,
 } from './SceneModal.styles';
 import { SceneModalMediaPreview } from './SceneModal.mediaPreview';
+import { MotionGraphicBlockMediaPicker } from './MotionGraphicBlockMediaPicker';
 import type { ModalMediaItem } from './SceneModal.types';
+import type { BlockMediaMotionGraphic } from '@/features/motion-graphic/types';
 
 const MAX_MEDIA_ITEMS = 6;
 
@@ -146,6 +148,14 @@ interface SceneModalMediaSectionProps {
   onAdd: (item: ModalMediaItem) => void;
   onRemove: (index: number) => void;
   uploadDraftId?: string;
+  /**
+   * When provided alongside a blockId, the picker offers a "Motion Graphic"
+   * media kind that attaches a ready graphic to the block server-side (AC-04).
+   */
+  draftId?: string;
+  blockId?: string;
+  /** Fired with the new block-media row once a motion graphic is attached. */
+  onAttachMotionGraphic?: (row: BlockMediaMotionGraphic) => void;
 }
 
 export function SceneModalMediaSection({
@@ -153,11 +163,16 @@ export function SceneModalMediaSection({
   onAdd,
   onRemove,
   uploadDraftId,
+  draftId,
+  blockId,
+  onAttachMotionGraphic,
 }: SceneModalMediaSectionProps): React.ReactElement {
   const uploadTarget: UploadTarget | undefined = uploadDraftId
     ? { kind: 'draft', draftId: uploadDraftId }
     : undefined;
+  const canAttachMotionGraphic = Boolean(draftId && blockId);
   const [pickerKind, setPickerKind] = useState<AssetKind | null>(null);
+  const [showMotionGraphicPicker, setShowMotionGraphicPicker] = useState(false);
   const [showTypePicker, setShowTypePicker] = useState(false);
   const [showMaxWarning, setShowMaxWarning] = useState(false);
   const addButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -174,6 +189,11 @@ export function SceneModalMediaSection({
   const handlePickType = (kind: AssetKind): void => {
     setShowTypePicker(false);
     setPickerKind(kind);
+  };
+
+  const handlePickMotionGraphic = (): void => {
+    setShowTypePicker(false);
+    setShowMotionGraphicPicker(true);
   };
 
   const handlePick = (asset: AssetSummary): void => {
@@ -241,6 +261,16 @@ export function SceneModalMediaSection({
                 {label}
               </button>
             ))}
+            {canAttachMotionGraphic && (
+              <button
+                type="button"
+                style={typeChipStyle}
+                onClick={handlePickMotionGraphic}
+                data-testid="type-chip-motion_graphic"
+              >
+                Motion Graphic
+              </button>
+            )}
             <button
               type="button"
               style={{ ...typeChipStyle, color: TEXT_SECONDARY }}
@@ -251,6 +281,17 @@ export function SceneModalMediaSection({
             </button>
           </div>
         </div>
+      )}
+
+      {showMotionGraphicPicker && draftId && blockId && (
+        <MotionGraphicBlockMediaPicker
+          draftId={draftId}
+          blockId={blockId}
+          onAttached={(row) => {
+            onAttachMotionGraphic?.(row);
+          }}
+          onClose={() => setShowMotionGraphicPicker(false)}
+        />
       )}
 
       <button
