@@ -19,13 +19,23 @@
  * The too-short / cost / guardrail pre-stream 422 surfaces inline from the thrown
  * GenerateStreamError (AC-05).
  *
- * REFINE (sending follow-ups in the chat) is T17 — the chat panel below is the seam
- * it plugs into; this view only implements GENERATE + create-persist.
+ * REFINE + HYDRATION (T17 / AC-03, AC-14, sad.md §6 flow 3 + 4):
+ *   - on the `/motion-graphics/:id` route, the view HYDRATES the existing graphic
+ *     via getMotionGraphic — chat history + current ready preview (Flow 4, US-05).
+ *   - sending a follow-up in the chat shows cost + confirm, opens the
+ *     `POST /motion-graphics/:id/refine` SSE stream (same frame protocol as
+ *     generate, no length gate), runs transpile + determinism on the assembled
+ *     code, then persists via appendMotionGraphicTurn (POST /:id/turns):
+ *       ready  → preview refreshes to the NEW code (AC-03),
+ *       failed → records the error in chat and KEEPS the last working preview/
+ *                version unchanged — the failed code is NEVER mounted (AC-14).
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 
-import { createMotionGraphic } from '../api';
+import { appendMotionGraphicTurn, createMotionGraphic, getMotionGraphic } from '../api';
 import { estimateGenerationCost } from '../cost';
 import { useGenerateStream } from '../hooks/useGenerateStream';
 import { evaluateGraphic } from '../runtime/evaluateGraphic';
@@ -58,21 +68,60 @@ function nextId(): string {
   return `entry-${entryCounter}`;
 }
 
+/** Project a persisted server chat turn into the local chat view shape. */
+function turnToEntry(turn: ChatTurn): ChatEntry {
+  return {
+    id: turn.id,
+    role: turn.role,
+    content:
+      turn.role === 'assistant' && turn.outcome === 'failed' && turn.errorMessage
+        ? turn.errorMessage
+        : turn.content,
+    outcome: turn.outcome ?? undefined,
+  };
+}
+
 export function MotionGraphicAuthoringView(): React.ReactElement {
-  const { runGenerate } = useGenerateStream();
+  const { runGenerate, runRefine } = useGenerateStream();
+  const { id: graphicId } = useParams<{ id: string }>();
+
+  // Hydrate an existing graphic on the /:id route (Flow 4 / US-05): chat history +
+  // current ready preview load via getMotionGraphic.
+  const { data: hydrated } = useQuery({
+    queryKey: ['motion-graphic', graphicId],
+    queryFn: () => getMotionGraphic(graphicId as string),
+    enabled: Boolean(graphicId),
+  });
 
   const [durationSeconds, setDurationSeconds] = useState<number>(DEFAULT_DURATION_SECONDS);
   const [description, setDescription] = useState('');
   const [chat, setChat] = useState<ChatEntry[]>([]);
   const [readyCode, setReadyCode] = useState<string | null>(null);
+  const [version, setVersion] = useState<number | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [pendingEstimate, setPendingEstimate] = useState<Money | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Once the graphic loads, seed the chat + the LAST WORKING preview from the
+  // server's current code (never the in-progress edits). Keyed on id so reloads
+  // (US-05) restore the persisted history.
+  useEffect(() => {
+    if (!hydrated) return;
+    setChat(hydrated.chatTurns.map(turnToEntry));
+    setReadyCode(hydrated.code ?? null);
+    setDurationSeconds(hydrated.durationSeconds);
+    setVersion(hydrated.version);
+  }, [hydrated]);
+
   const geometry = useMemo(
-    () => ({ durationSeconds, fps: DEFAULT_FPS, width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT }),
-    [durationSeconds],
+    () => ({
+      durationSeconds,
+      fps: hydrated?.fps ?? DEFAULT_FPS,
+      width: hydrated?.width ?? DEFAULT_WIDTH,
+      height: hydrated?.height ?? DEFAULT_HEIGHT,
+    }),
+    [durationSeconds, hydrated],
   );
 
   function handleSubmit(): void {
@@ -88,77 +137,140 @@ export function MotionGraphicAuthoringView(): React.ReactElement {
     setPendingPrompt('');
   }
 
+  /**
+   * GENERATE (new graphic, Flow 1): stream → evaluate → createMotionGraphic.
+   * ready → mount the new code; failed → record the error, no broken preview.
+   */
+  async function runGenerateFlow(prompt: string, estimate: Money): Promise<void> {
+    let assembled: string;
+    try {
+      assembled = await runGenerate({ prompt, durationSeconds, acknowledgedCost: estimate });
+    } catch (err) {
+      // Pre-stream gate (AC-05 too-short / AC-11 cost / guardrail) or stream error:
+      // surface the plain-language message inline; do NOT persist.
+      const message = err instanceof Error ? err.message : 'Generation could not be started.';
+      setInlineError(message);
+      return;
+    }
+
+    // Cost gate done — the description is now part of the chat history.
+    setDescription('');
+    setChat((prev) => [...prev, { id: nextId(), role: 'user', content: prompt }]);
+
+    // Transpile + determinism verdict (T15) drives ready vs failed (AC-01/06/09).
+    const verdict = evaluateGraphic(assembled);
+    if (verdict.ok) {
+      const created = await createMotionGraphic({
+        prompt,
+        durationSeconds,
+        outcome: 'ready',
+        code: assembled,
+        fps: DEFAULT_FPS,
+        width: DEFAULT_WIDTH,
+        height: DEFAULT_HEIGHT,
+      });
+      setReadyCode(created.code ?? assembled);
+      setChat((prev) => [
+        ...prev,
+        {
+          id: nextId(),
+          role: 'assistant',
+          content: created.title || autoTitle(durationSeconds),
+          outcome: 'ready',
+        },
+      ]);
+    } else {
+      // AC-06: failed attempt — record the plain-language error in chat, keep no
+      // broken preview, and persist the failed verdict.
+      const reason = verdict.reason;
+      await createMotionGraphic({
+        prompt,
+        durationSeconds,
+        outcome: 'failed',
+        code: null,
+        errorMessage: reason,
+      });
+      setReadyCode(null);
+      setChat((prev) => [
+        ...prev,
+        { id: nextId(), role: 'assistant', content: reason, outcome: 'failed' },
+      ]);
+    }
+  }
+
+  /**
+   * REFINE (existing graphic, Flow 3): stream → evaluate → appendMotionGraphicTurn.
+   * ready → preview refreshes to the NEW code (AC-03). failed → record the error in
+   * chat and KEEP the last working preview/version unchanged — the failed code is
+   * NEVER mounted (AC-14); the server's response (last-working code) re-seeds state.
+   */
+  async function runRefineFlow(id: string, instruction: string, estimate: Money): Promise<void> {
+    let assembled: string;
+    try {
+      assembled = await runRefine(id, { instruction, acknowledgedCost: estimate });
+    } catch (err) {
+      // Pre-stream gate (AC-11 cost / guardrail) or stream error: surface inline.
+      // The last working preview/version stays exactly as-is (AC-14).
+      const message = err instanceof Error ? err.message : 'Refinement could not be started.';
+      setInlineError(message);
+      return;
+    }
+
+    setDescription('');
+    setChat((prev) => [...prev, { id: nextId(), role: 'user', content: instruction }]);
+
+    const verdict = evaluateGraphic(assembled);
+    if (verdict.ok) {
+      // AC-03: server bumps version + appends turns; refresh the preview to the new code.
+      const updated: MotionGraphic = await appendMotionGraphicTurn(id, {
+        instruction,
+        outcome: 'ready',
+        code: assembled,
+      });
+      setReadyCode(updated.code ?? assembled);
+      setVersion(updated.version);
+      setChat((prev) => [
+        ...prev,
+        {
+          id: nextId(),
+          role: 'assistant',
+          content: updated.title || autoTitle(durationSeconds),
+          outcome: 'ready',
+        },
+      ]);
+    } else {
+      // AC-14: the server records the failed attempt and KEEPS the last working code/
+      // version. The UI records the error in chat and does NOT touch readyCode — the
+      // previous working preview stays mounted, the failed code is never shown.
+      const reason = verdict.reason;
+      await appendMotionGraphicTurn(id, {
+        instruction,
+        outcome: 'failed',
+        code: null,
+        errorMessage: reason,
+      });
+      setChat((prev) => [
+        ...prev,
+        { id: nextId(), role: 'assistant', content: reason, outcome: 'failed' },
+      ]);
+    }
+  }
+
   async function handleConfirm(): Promise<void> {
     if (pendingEstimate == null) return;
     const prompt = pendingPrompt;
     const estimate = pendingEstimate;
     setSubmitting(true);
     setInlineError(null);
-
-    let assembled: string;
-    try {
-      assembled = await runGenerate({
-        prompt,
-        durationSeconds,
-        acknowledgedCost: estimate,
-      });
-    } catch (err) {
-      // Pre-stream gate (AC-05 too-short / AC-11 cost / guardrail) or stream error:
-      // surface the plain-language message inline; do NOT persist.
-      const message =
-        err instanceof Error ? err.message : 'Generation could not be started.';
-      setInlineError(message);
-      setSubmitting(false);
-      return;
-    }
-
-    // Cost gate done — the description is now part of the chat history.
+    // Clear the cost gate up-front; the prompt is captured locally.
     setPendingEstimate(null);
     setPendingPrompt('');
-    setDescription('');
-    const userEntry: ChatEntry = { id: nextId(), role: 'user', content: prompt };
-    setChat((prev) => [...prev, userEntry]);
-
-    // Transpile + determinism verdict (T15) drives ready vs failed (AC-01/06/09).
-    const verdict = evaluateGraphic(assembled);
 
     try {
-      if (verdict.ok) {
-        const created: MotionGraphic = await createMotionGraphic({
-          prompt,
-          durationSeconds,
-          outcome: 'ready',
-          code: assembled,
-          fps: DEFAULT_FPS,
-          width: DEFAULT_WIDTH,
-          height: DEFAULT_HEIGHT,
-        });
-        setReadyCode(created.code ?? assembled);
-        setChat((prev) => [
-          ...prev,
-          {
-            id: nextId(),
-            role: 'assistant',
-            content: created.title || autoTitle(durationSeconds),
-            outcome: 'ready',
-          },
-        ]);
+      if (graphicId) {
+        await runRefineFlow(graphicId, prompt, estimate);
       } else {
-        // AC-06: failed attempt — record the plain-language error in chat, keep no
-        // broken preview, and persist the failed verdict.
-        const reason = verdict.reason;
-        await createMotionGraphic({
-          prompt,
-          durationSeconds,
-          outcome: 'failed',
-          code: null,
-          errorMessage: reason,
-        });
-        setReadyCode(null);
-        setChat((prev) => [
-          ...prev,
-          { id: nextId(), role: 'assistant', content: reason, outcome: 'failed' },
-        ]);
+        await runGenerateFlow(prompt, estimate);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not save the graphic.';

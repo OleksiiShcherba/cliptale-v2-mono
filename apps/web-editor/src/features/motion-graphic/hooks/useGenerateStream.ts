@@ -27,7 +27,7 @@ import { useCallback } from 'react';
 import { getAuthToken } from '@/lib/api-client';
 import { config } from '@/lib/config';
 
-import type { GenerateRequest } from '../types';
+import type { GenerateRequest, RefineRequest } from '../types';
 
 /**
  * A pre-stream gate rejection (JSON 4xx). `code` is the machine-readable reason from
@@ -120,6 +120,55 @@ async function consumeStream(body: ReadableStream<Uint8Array>): Promise<string> 
   }
 }
 
+/**
+ * POST `body` to an authoring SSE endpoint and resolve with the assembled source.
+ *
+ * Shared by both `runGenerate` (Flow 1) and `runRefine` (Flow 3): the frame protocol
+ * is identical (ADR-0003 token/done/error), only the URL + body differ — generate
+ * carries the length gate, refine does NOT (it operates on an existing graphic).
+ * Rejects with a `GenerateStreamError` on a pre-stream JSON 4xx (cost AC-11 / guardrail,
+ * plus generate-only length AC-05) or a mid-stream error frame.
+ */
+async function openAuthoringStream(path: string, body: unknown): Promise<string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+  };
+  const token = getAuthToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${config.apiBaseUrl}${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  // Distinguish the pre-stream JSON 4xx from the opened stream BEFORE reading the
+  // body. A gate failure (length AC-05 / cost AC-11 / guardrail) is a normal JSON
+  // 4xx; only a clean pass opens text/event-stream.
+  if (!res.ok) {
+    let parsed: { error?: string; code?: string | null; details?: Record<string, unknown> } = {};
+    try {
+      parsed = (await res.json()) as typeof parsed;
+    } catch {
+      // body may not be JSON
+    }
+    throw new GenerateStreamError(parsed.error ?? `HTTP ${res.status}`, {
+      code: parsed.code ?? null,
+      status: res.status,
+      details: parsed.details,
+    });
+  }
+
+  if (!res.body) {
+    throw new GenerateStreamError('The generation stream could not be opened.', {
+      status: res.status,
+    });
+  }
+
+  return consumeStream(res.body);
+}
+
 export interface UseGenerateStreamResult {
   /**
    * Open the generate stream and resolve with the assembled component source.
@@ -127,48 +176,26 @@ export interface UseGenerateStreamResult {
    * or a mid-stream error frame.
    */
   runGenerate: (req: GenerateRequest) => Promise<string>;
+  /**
+   * Open the refine stream for an existing graphic (Flow 3) and resolve with the
+   * assembled component source. Same frame protocol as `runGenerate`; the URL is
+   * `POST /motion-graphics/:id/refine` and refine has NO length gate.
+   */
+  runRefine: (id: string, req: RefineRequest) => Promise<string>;
 }
 
 export function useGenerateStream(): UseGenerateStreamResult {
-  const runGenerate = useCallback(async (req: GenerateRequest): Promise<string> => {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-    };
-    const token = getAuthToken();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+  const runGenerate = useCallback(
+    (req: GenerateRequest): Promise<string> =>
+      openAuthoringStream('/motion-graphics/generate', req),
+    [],
+  );
 
-    const res = await fetch(`${config.apiBaseUrl}/motion-graphics/generate`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(req),
-    });
+  const runRefine = useCallback(
+    (id: string, req: RefineRequest): Promise<string> =>
+      openAuthoringStream(`/motion-graphics/${id}/refine`, req),
+    [],
+  );
 
-    // Distinguish the pre-stream JSON 4xx from the opened stream BEFORE reading the
-    // body. A gate failure (length AC-05 / cost AC-11 / guardrail) is a normal JSON
-    // 4xx; only a clean pass opens text/event-stream.
-    if (!res.ok) {
-      let parsed: { error?: string; code?: string | null; details?: Record<string, unknown> } = {};
-      try {
-        parsed = (await res.json()) as typeof parsed;
-      } catch {
-        // body may not be JSON
-      }
-      throw new GenerateStreamError(parsed.error ?? `HTTP ${res.status}`, {
-        code: parsed.code ?? null,
-        status: res.status,
-        details: parsed.details,
-      });
-    }
-
-    if (!res.body) {
-      throw new GenerateStreamError('The generation stream could not be opened.', {
-        status: res.status,
-      });
-    }
-
-    return consumeStream(res.body);
-  }, []);
-
-  return { runGenerate };
+  return { runGenerate, runRefine };
 }
