@@ -3,8 +3,8 @@ import { AbsoluteFill } from 'remotion';
 import { Player } from '@remotion/player';
 import type { PlayerRef } from '@remotion/player';
 
-import { transpileComponent } from './transpile.js';
-import type { TranspileResult } from './transpile.js';
+import { evaluateGraphic } from './evaluateGraphic.js';
+import { withDeterministicShim } from './determinism.js';
 
 /**
  * Geometry for the runtime composition — duration drives `durationInFrames`
@@ -36,11 +36,14 @@ type RuntimeCompositionProps = {
 };
 
 function RuntimeComposition({ Component }: RuntimeCompositionProps): React.ReactElement {
-  return (
+  // Defense-in-depth (ADR-0006): even though the determinism AST scan gates the
+  // ready state, freeze the non-deterministic sources during the authored
+  // component's render so anything that slipped the scan stays reproducible.
+  return withDeterministicShim(() => (
     <AbsoluteFill>
       <Component />
     </AbsoluteFill>
-  );
+  ));
 }
 
 /**
@@ -61,9 +64,11 @@ export function MotionGraphicPlayer({
   geometry,
   playerRef,
 }: MotionGraphicPlayerProps): React.ReactElement {
-  // Transpile is pure + synchronous; memoize on the source so scrubbing/replays
-  // do not re-transpile and the component identity stays stable for Remotion.
-  const result: TranspileResult = useMemo(() => transpileComponent(code), [code]);
+  // The gated verdict (determinism scan → transpile) is pure + synchronous;
+  // memoize on the source so scrubbing/replays do not re-evaluate and the
+  // component identity stays stable for Remotion. A non-deterministic graphic
+  // (AC-09) returns ok:false here, so it never mounts — it shows fails-to-run.
+  const result = useMemo(() => evaluateGraphic(code), [code]);
 
   const durationInFrames = Math.max(
     1,

@@ -13,3 +13,18 @@ export { transpileComponent } from './transpile.js';
 export type { TranspileResult } from './transpile.js';
 export { MotionGraphicPlayer } from './MotionGraphicPlayer.js';
 export type { MotionGraphicGeometry } from './MotionGraphicPlayer.js';
+
+// T15 — determinism enforcement (AC-09 / ADR-0006 + ADR-0007).
+export {
+  scanDeterminism,
+  withDeterministicShim,
+  DETERMINISM_FROZEN_EPOCH_MS,
+  DETERMINISM_FROZEN_RANDOM,
+} from './determinism.js';
+export type {
+  DeterminismScanResult,
+  DeterminismViolation,
+  DeterminismViolationKind,
+} from './determinism.js';
+export { evaluateGraphic } from './evaluateGraphic.js';
+export type { GraphicVerdict } from './evaluateGraphic.js';
