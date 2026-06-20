@@ -32,7 +32,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 
 import { appendMotionGraphicTurn, createMotionGraphic, getMotionGraphic } from '../api';
@@ -84,6 +84,7 @@ function turnToEntry(turn: ChatTurn): ChatEntry {
 export function MotionGraphicAuthoringView(): React.ReactElement {
   const { runGenerate, runRefine } = useGenerateStream();
   const { id: graphicId } = useParams<{ id: string }>();
+  const navigate = useNavigate();
 
   // Hydrate an existing graphic on the /:id route (Flow 4 / US-05): chat history +
   // current ready preview load via getMotionGraphic.
@@ -179,11 +180,15 @@ export function MotionGraphicAuthoringView(): React.ReactElement {
           outcome: 'ready',
         },
       ]);
+      // The graphic now exists: move to its route so subsequent chat turns REFINE it
+      // (US-04/US-05) instead of spawning a new graphic on every send. Hydration
+      // re-seeds the same chat + preview from the server (Flow 4).
+      navigate(`/motion-graphics/${created.id}`);
     } else {
       // AC-06: failed attempt — record the plain-language error in chat, keep no
       // broken preview, and persist the failed verdict.
       const reason = verdict.reason;
-      await createMotionGraphic({
+      const created = await createMotionGraphic({
         prompt,
         durationSeconds,
         outcome: 'failed',
@@ -195,6 +200,9 @@ export function MotionGraphicAuthoringView(): React.ReactElement {
         ...prev,
         { id: nextId(), role: 'assistant', content: reason, outcome: 'failed' },
       ]);
+      // Even a failed first attempt persists a graphic record; move to its route so
+      // the next turn refines/retries it rather than creating duplicates.
+      navigate(`/motion-graphics/${created.id}`);
     }
   }
 

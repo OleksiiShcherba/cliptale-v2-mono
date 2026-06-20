@@ -11,7 +11,7 @@ import * as clipService from '@/services/clip.service.js';
 export const createClipSchema = z.object({
   clipId: z.string().uuid(),
   trackId: z.string().uuid(),
-  type: z.enum(['video', 'audio', 'text-overlay', 'image', 'caption']),
+  type: z.enum(['video', 'audio', 'text-overlay', 'image', 'caption', 'motion-graphic']),
   /** Maps to `file_id` in the DB and `fileId` in the project document model. */
   fileId: z.string().uuid().nullable().optional(),
   startFrame: z.number().int().nonnegative(),

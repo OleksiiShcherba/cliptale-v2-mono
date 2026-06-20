@@ -15,5 +15,5 @@ Object.assign(process.env, {
   APP_JWT_SECRET:           process.env['APP_JWT_SECRET']           ?? 'unit-test-jwt-secret-exactly-32ch!',
   APP_FAL_KEY:              process.env['APP_FAL_KEY']              ?? 'test-fal-key',
   APP_ELEVENLABS_API_KEY:   process.env['APP_ELEVENLABS_API_KEY']   ?? 'test-el-key',
-  APP_ANTHROPIC_API_KEY:    process.env['APP_ANTHROPIC_API_KEY']    ?? 'test-anthropic-key',
+  APP_OPENAI_API_KEY:       process.env['APP_OPENAI_API_KEY']       ?? 'test-openai-key',
 });

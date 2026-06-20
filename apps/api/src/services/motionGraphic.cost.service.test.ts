@@ -24,7 +24,7 @@ vi.mock('@/repositories/flow-model-pricing.repository.js', () => ({
 
 vi.mock('@/config.js', () => ({
   config: {
-    anthropic: { model: 'claude-opus-4-8' },
+    openai: { model: 'gpt-4o' },
   },
 }));
 
@@ -41,7 +41,7 @@ import {
 
 function makePricingRow(overrides: Partial<FlowModelPricing> = {}): FlowModelPricing {
   return {
-    modelId: 'claude-opus-4-8',
+    modelId: 'gpt-4o',
     currency: 'USD',
     baseAmount: 0.05,
     perSecond: null,
@@ -93,7 +93,7 @@ describe('computeGenerationEstimate', () => {
 
     await computeGenerationEstimate({ durationSeconds: 1 });
 
-    expect(getPricingForModel).toHaveBeenCalledWith('claude-opus-4-8');
+    expect(getPricingForModel).toHaveBeenCalledWith('gpt-4o');
   });
 
   it('falls back to 0.0000 when no pricing row exists for the model', async () => {

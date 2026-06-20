@@ -13,9 +13,9 @@ import {
   TEXT_PRIMARY,
   TEXT_SECONDARY,
 } from './SceneModal.styles';
-import type { ModalMediaItem } from './SceneModal.types';
+import type { ModalMediaItem, BlockMediaKind } from './SceneModal.types';
 
-const VISUAL_MEDIA_TYPES = new Set<AssetKind>(['image', 'video']);
+const VISUAL_MEDIA_TYPES = new Set<BlockMediaKind>(['image', 'video']);
 
 const previewFrameStyle: React.CSSProperties = {
   width: '52px',

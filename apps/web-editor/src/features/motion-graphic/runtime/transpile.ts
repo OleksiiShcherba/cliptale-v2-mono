@@ -23,6 +23,7 @@
 import React from 'react';
 import * as Remotion from 'remotion';
 import { transform } from 'sucrase';
+import * as zod from 'zod';
 
 import type { ComponentType } from 'react';
 
@@ -38,6 +39,10 @@ export type TranspileResult =
 const MODULE_ALLOWLIST: Record<string, unknown> = {
   react: React,
   remotion: Remotion,
+  // `zod` is on the ADR-0007 authoring allowlist (and passes the determinism scan),
+  // so the runtime require shim must provide it — otherwise an allowed prop-schema
+  // import would scan-clean but throw "not available" at eval (fails-to-run).
+  zod,
 };
 
 function requireShim(specifier: string): unknown {
@@ -64,11 +69,24 @@ function toMessage(err: unknown): string {
  * @param tsxSource - the raw TSX the AI authored.
  * @returns `{ ok:true, component }` or `{ ok:false, error }` — never throws.
  */
+/**
+ * Defensively strip a wrapping markdown code fence (```` ```tsx … ``` ````) that a
+ * model may have added despite the output contract. The primary strip happens at
+ * stream-assembly time; this keeps the transpile path robust for any source
+ * (e.g. previously-persisted code) that still carries a fence.
+ */
+function stripFences(src: string): string {
+  const trimmed = src.trim();
+  const openFence = /^```[^\n`]*\r?\n/;
+  if (!openFence.test(trimmed)) return trimmed;
+  return trimmed.replace(openFence, '').replace(/\r?\n?```[ \t]*\r?\n?$/, '').trim();
+}
+
 export function transpileComponent(tsxSource: string): TranspileResult {
   // ── Step 1: transpile TSX → CommonJS JS (synchronous, no WASM). ──
   let code: string;
   try {
-    const out = transform(tsxSource, {
+    const out = transform(stripFences(tsxSource), {
       transforms: ['typescript', 'jsx', 'imports'],
       production: true,
     });
@@ -88,7 +106,14 @@ export function transpileComponent(tsxSource: string): TranspileResult {
     const factory = new Function('require', 'module', 'exports', 'React', code);
     factory(requireShim, moduleObj, moduleObj.exports, React);
 
-    const component = moduleObj.exports.default;
+    // Prefer the default export (the output contract), but fall back to a named
+    // `MotionGraphic` export — models intermittently emit the component as a bare
+    // named export, and rejecting an otherwise-valid component over export syntax
+    // is a poor Creator experience.
+    const component =
+      typeof moduleObj.exports.default === 'function'
+        ? moduleObj.exports.default
+        : moduleObj.exports.MotionGraphic;
     if (typeof component !== 'function') {
       return { ok: false, error: 'Authored code has no default-exported component' };
     }

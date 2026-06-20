@@ -6,14 +6,19 @@
 
 import type { AssetKind } from '@/features/generate-wizard/types';
 
-import type { StoryboardBlock } from '../types';
+import type { StoryboardBlock, BlockMediaMotionGraphicSnapshot } from '../types';
+
+/** Block-media kinds: the asset kinds plus the frozen motion-graphic snapshot. */
+export type BlockMediaKind = AssetKind | 'motion_graphic';
 
 /** A single media item displayed and edited within SceneModal. */
 export type ModalMediaItem = {
   fileId: string;
-  mediaType: AssetKind;
+  mediaType: BlockMediaKind;
   filename: string;
   sortOrder: number;
+  /** Present only for motion_graphic items — the frozen snapshot to preview. */
+  motionGraphic?: BlockMediaMotionGraphicSnapshot;
 };
 
 /** Determines whether SceneModal is editing a canvas block or a library template. */

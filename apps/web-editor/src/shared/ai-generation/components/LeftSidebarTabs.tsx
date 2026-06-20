@@ -1,7 +1,7 @@
 import React from 'react';
 
 /** Valid left sidebar tab identifiers. */
-export type LeftSidebarTab = 'assets' | 'ai-generate';
+export type LeftSidebarTab = 'assets' | 'ai-generate' | 'motion-graphics';
 
 /** Props for the LeftSidebarTabs component. */
 export interface LeftSidebarTabsProps {
@@ -22,6 +22,7 @@ const PRIMARY_LIGHT = '#4C1D95';
 const TABS: { id: LeftSidebarTab; label: string }[] = [
   { id: 'assets', label: 'Assets' },
   { id: 'ai-generate', label: 'AI Generate' },
+  { id: 'motion-graphics', label: 'Motion' },
 ];
 
 /**

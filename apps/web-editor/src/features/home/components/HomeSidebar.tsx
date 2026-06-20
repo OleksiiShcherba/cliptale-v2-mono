@@ -102,9 +102,39 @@ export function HomeSidebar({ activeTab, onTabChange }: HomeSidebarProps): React
             </li>
           );
         })}
+
+        {/* AI Motion Graphics is a peer destination to Projects / Storyboard /
+            Generate AI (spec §1, US-01). It lives on its own route rather than an
+            in-page Home tab, so it navigates instead of switching `activeTab` —
+            but it sits in the SAME primary nav list, at the same visual level. */}
+        <li role="none">
+          <button
+            onClick={() => navigate('/motion-graphics')}
+            aria-label="AI Motion Graphics"
+            data-testid="nav-motion-graphics"
+            style={{
+              display: 'block',
+              width: '100%',
+              textAlign: 'left',
+              padding: '8px 12px',
+              fontSize: 14,
+              fontWeight: 400,
+              fontFamily: 'Inter, sans-serif',
+              color: TEXT_SECONDARY,
+              background: 'transparent',
+              border: 'none',
+              borderRadius: 8,
+              cursor: 'pointer',
+              lineHeight: '20px',
+              transition: 'background 0.15s, color 0.15s',
+            }}
+          >
+            AI Motion Graphics
+          </button>
+        </li>
       </ul>
 
-      {/* Settings — a route link, not an in-page tab (storyboard-autosave-checkpoints, AC-09). */}
+      {/* Settings lives on its own route, pinned to the bottom of the sidebar. */}
       <div style={{ marginTop: 'auto', padding: '8px 8px 0', borderTop: `1px solid ${BORDER}` }}>
         <button
           onClick={() => navigate('/settings')}

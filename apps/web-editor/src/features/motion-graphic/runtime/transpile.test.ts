@@ -39,6 +39,29 @@ import React from 'react';
 export function Named() { return <div />; }
 `;
 
+/** A bare NAMED `MotionGraphic` export (no default) — models emit this shape. */
+const NAMED_MOTION_GRAPHIC_TSX = `
+import { useCurrentFrame, AbsoluteFill } from 'remotion';
+export const MotionGraphic = () => {
+  const frame = useCurrentFrame();
+  return <AbsoluteFill>{frame}</AbsoluteFill>;
+};
+`;
+
+/** A valid component the model wrapped in a markdown code fence. */
+const FENCED_TSX = '```tsx\n' + VALID_TSX.trim() + '\n```';
+
+/** A component importing `zod` (on the ADR-0007 allowlist) for a prop schema. */
+const ZOD_IMPORT_TSX = `
+import { z } from 'zod';
+import { useCurrentFrame, AbsoluteFill } from 'remotion';
+const Schema = z.object({ label: z.string() });
+export default function MotionGraphic() {
+  const frame = useCurrentFrame();
+  return <AbsoluteFill>{Schema.safeParse({ label: 'x' }).success ? frame : 0}</AbsoluteFill>;
+}
+`;
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -78,5 +101,29 @@ describe('transpileComponent', () => {
   it('returns ok:false when there is no default-exported component', () => {
     const result = transpileComponent(NO_DEFAULT_EXPORT_TSX);
     expect(result.ok).toBe(false);
+  });
+
+  it('accepts a bare named `MotionGraphic` export as a fallback to the default export', () => {
+    const result = transpileComponent(NAMED_MOTION_GRAPHIC_TSX);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(typeof result.component).toBe('function');
+    }
+  });
+
+  it('transpiles a component wrapped in a markdown code fence (defensive strip)', () => {
+    const result = transpileComponent(FENCED_TSX);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(typeof result.component).toBe('function');
+    }
+  });
+
+  it('provides `zod` to authored code (ADR-0007 allowlist parity with the scan)', () => {
+    const result = transpileComponent(ZOD_IMPORT_TSX);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(typeof result.component).toBe('function');
+    }
   });
 });

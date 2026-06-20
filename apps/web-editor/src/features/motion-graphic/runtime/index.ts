@@ -13,6 +13,7 @@ export { transpileComponent } from './transpile.js';
 export type { TranspileResult } from './transpile.js';
 export { MotionGraphicPlayer } from './MotionGraphicPlayer.js';
 export type { MotionGraphicGeometry } from './MotionGraphicPlayer.js';
+export { MotionGraphicClipLayer } from './MotionGraphicClipLayer.js';
 
 // T15 — determinism enforcement (AC-09 / ADR-0006 + ADR-0007).
 export {

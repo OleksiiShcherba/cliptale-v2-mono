@@ -15,6 +15,7 @@
  */
 import { transpileComponent } from './transpile.js';
 import { scanDeterminism } from './determinism.js';
+import { renderProbe } from './renderProbe.js';
 import type { DeterminismViolation } from './determinism.js';
 
 import type { ComponentType } from 'react';
@@ -43,6 +44,17 @@ export function evaluateGraphic(tsxSource: string): GraphicVerdict {
   const transpiled = transpileComponent(tsxSource);
   if (!transpiled.ok) {
     return { ok: false, reason: transpiled.error };
+  }
+
+  // Step 3 — "it then runs": transpile + a clean determinism scan prove the
+  // graphic parses and is deterministic, but NOT that Remotion can render it.
+  // Render-time throws (e.g. `interpolate` with a colour outputRange, a bad
+  // <Sequence> range) only surface when the element tree is built. Probe an
+  // actual render so such a graphic takes the fails-to-run path (AC-06 / AC-14)
+  // instead of being persisted `ready` and crashing the live preview.
+  const probe = renderProbe(transpiled.component);
+  if (!probe.ok) {
+    return { ok: false, reason: probe.error };
   }
 
   return { ok: true, component: transpiled.component };

@@ -99,7 +99,7 @@ paths:
               prompt: "A lower-third that slides in the guest's name and title over 4 seconds."
               durationSeconds: 4.5
               outcome: "ready"
-              code: "export const MotionGraphic = () => { const f = useCurrentFrame(); /* ... */ };"
+              code: "export default function MotionGraphic() { const f = useCurrentFrame(); /* ... */ return null; }"
       responses:
         "201":
           description: Created
@@ -147,7 +147,7 @@ paths:
                 description: a sequence of SSE frames; not a single JSON document
               example: |
                 event: token
-                data: export const MotionGraphic = () => {
+                data: export default function MotionGraphic() {
 
                 event: token
                 data:  const f = useCurrentFrame();
@@ -291,7 +291,7 @@ paths:
             example:
               instruction: "Make the name 20% larger and use the brand's blue."
               outcome: "ready"
-              code: "export const MotionGraphic = () => { const f = useCurrentFrame(); /* larger, blue */ };"
+              code: "export default function MotionGraphic() { const f = useCurrentFrame(); /* larger, blue */ return null; }"
       responses:
         "200":
           description: OK — the refreshed graphic (code updated on `ready`, unchanged on `failed`).

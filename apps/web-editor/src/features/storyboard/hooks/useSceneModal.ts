@@ -59,9 +59,12 @@ export function useSceneModal(
         style: payload.style,
         mediaItems: payload.mediaItems.map((m) => ({
           id: crypto.randomUUID(),
-          fileId: m.fileId,
+          // motion_graphic rows have no file; carry the frozen snapshot instead so
+          // the autosave PUT round-trips the FK and the graphic survives a reload.
+          fileId: m.mediaType === 'motion_graphic' ? null : (m.fileId || null),
           mediaType: m.mediaType,
           sortOrder: m.sortOrder,
+          ...(m.motionGraphic ? { motionGraphic: m.motionGraphic } : {}),
         })),
       };
 

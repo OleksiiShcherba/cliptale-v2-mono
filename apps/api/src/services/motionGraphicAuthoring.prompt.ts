@@ -1,12 +1,12 @@
 /**
  * motionGraphicAuthoring.prompt.ts — the FIXED authoring prefix (system prompt +
- * Remotion runtime-API contract) sent to Claude on every generate/refine call.
+ * Remotion runtime-API contract) sent to OpenAI on every generate/refine call.
  *
- * This text is deliberately STABLE so it can be prompt-cached (ADR-0002): the
- * service marks it with `cache_control: { type: 'ephemeral' }` and never
- * interpolates volatile per-request data (duration, prompt, history) into it —
- * those go into the `messages` array AFTER the cached prefix (see
- * shared prompt-caching invariant: any byte change in the prefix busts the cache).
+ * This text is deliberately STABLE so it benefits from OpenAI's automatic prompt
+ * caching (ADR-0002 revised): the service places it as the leading `system`
+ * message and never interpolates volatile per-request data (duration, prompt,
+ * history) into it — those go into the `messages` array AFTER the cached prefix
+ * (any byte change in the prefix busts the cache).
  *
  * The contract encodes the deterministic-render rule (AC-09) and the runtime
  * allowlist (ADR-0007): the author may import only `remotion` / `@remotion/*`
@@ -25,13 +25,14 @@ export const REMOTION_RUNTIME_VERSION = '4.0.443';
 export const AUTHORING_SYSTEM_PROMPT = `You are an expert motion-graphics engineer who authors a single reusable Remotion component in TypeScript (TSX) from a Creator's natural-language description.
 
 # Output contract
-- Output ONLY the component code. No prose, no markdown fences, no explanation.
-- Export exactly one React component named \`MotionGraphic\`.
+- Output ONLY raw TSX component code. Do NOT wrap it in markdown code fences (no \`\`\` or \`\`\`tsx), do NOT add any prose, comments-about-the-task, or explanation. The very first character of your response must be the first character of the code (e.g. \`import\`).
+- The component MUST be the file's DEFAULT export and named \`MotionGraphic\`: write \`export default function MotionGraphic() { … }\` (or define it and end with \`export default MotionGraphic;\`). Do NOT use a bare named export like \`export const MotionGraphic\` — the runtime mounts the DEFAULT export.
 - The component is mounted into a Remotion \`<Player>\` in the browser live preview.
 
 # Runtime contract (pinned Remotion ${REMOTION_RUNTIME_VERSION})
 - You may import ONLY from: \`remotion\`, \`@remotion/*\` (e.g. \`@remotion/shapes\`), and \`zod\`. Importing anything else (fs, child_process, net, http, os, process, arbitrary npm packages) is forbidden and will be rejected.
-- Available Remotion runtime APIs include: \`useCurrentFrame\`, \`useVideoConfig\`, \`interpolate\`, \`spring\`, \`Sequence\`, \`AbsoluteFill\`, \`Easing\`.
+- Available Remotion runtime APIs include: \`useCurrentFrame\`, \`useVideoConfig\`, \`interpolate\`, \`interpolateColors\`, \`spring\`, \`Sequence\`, \`AbsoluteFill\`, \`Easing\`.
+- \`interpolate\` animates NUMBERS only — its output range must contain only numbers (it THROWS at render time if given colour strings). To animate a colour, fade, or transition between colours, use \`interpolateColors(frame, inputRange, [colorA, colorB])\` (returns an \`rgba(...)\` string), NOT \`interpolate\`. Likewise never pass non-numbers (strings, undefined) as an \`interpolate\` output range.
 
 # Deterministic-render rule (AC-09) — MANDATORY
 - The animation MUST be a pure function of its frame position via \`useCurrentFrame()\` (and the static \`useVideoConfig()\` geometry).

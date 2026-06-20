@@ -53,6 +53,28 @@ export class GenerateStreamError extends Error {
   }
 }
 
+/**
+ * Strip a wrapping markdown code fence from assembled model output.
+ *
+ * Despite the system prompt forbidding fences, models intermittently wrap the
+ * component in ```` ```tsx … ``` ````. The fence makes the source un-parseable
+ * (the determinism scan + transpile both reject it) AND would be persisted as the
+ * graphic's code, so we normalize it ONCE here — at the single point the full
+ * source first exists — so clean code flows to evaluate, persistence, and the
+ * player alike. A non-fenced response is returned unchanged (only trimmed).
+ */
+export function stripCodeFences(source: string): string {
+  const trimmed = source.trim();
+  // Opening fence: ``` optionally followed by a language tag (tsx/ts/jsx/js), to EOL.
+  const openFence = /^```[^\n`]*\r?\n/;
+  if (!openFence.test(trimmed)) return trimmed;
+  return trimmed
+    .replace(openFence, '')
+    // Closing fence on its own (optionally trailing) line.
+    .replace(/\r?\n?```[ \t]*\r?\n?$/, '')
+    .trim();
+}
+
 /** Parse one SSE frame block (`event: x\ndata: y\n...`) into { event, data }. */
 function parseFrame(block: string): { event: string; data: string } {
   let event = 'message';
@@ -166,7 +188,7 @@ async function openAuthoringStream(path: string, body: unknown): Promise<string>
     });
   }
 
-  return consumeStream(res.body);
+  return stripCodeFences(await consumeStream(res.body));
 }
 
 export interface UseGenerateStreamResult {

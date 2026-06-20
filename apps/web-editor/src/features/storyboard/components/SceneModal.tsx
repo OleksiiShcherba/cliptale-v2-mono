@@ -16,6 +16,8 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 
 import type { ModalMediaItem, SceneModalProps, SceneModalSavePayload } from './SceneModal.types';
+import type { StoryboardBlock } from '../types';
+import type { BlockMediaMotionGraphic } from '@/features/motion-graphic/types';
 import {
   backdropStyle,
   bodyStyle,
@@ -44,15 +46,17 @@ function CloseIcon(): React.ReactElement {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-/** Converts a block's mediaItems to modal-local ModalMediaItem shape. */
-function blockMediaToModal(
-  mediaItems: Array<{ id: string; fileId: string; mediaType: 'image' | 'video' | 'audio'; sortOrder: number }>,
-): ModalMediaItem[] {
+/** Converts a block's mediaItems to modal-local ModalMediaItem shape.
+ *  motion_graphic items pass their frozen snapshot through so the persisted
+ *  preview survives a reload (AC-04/US-07). */
+function blockMediaToModal(mediaItems: StoryboardBlock['mediaItems']): ModalMediaItem[] {
   return mediaItems.map((m) => ({
-    fileId: m.fileId,
+    fileId: m.fileId ?? '',
     mediaType: m.mediaType,
-    filename: m.fileId, // filename not stored on block; fall back to fileId
+    // filename not stored on block; use a graphic title when present, else the id.
+    filename: m.motionGraphic?.title ?? m.fileId ?? m.id,
     sortOrder: m.sortOrder,
+    ...(m.motionGraphic ? { motionGraphic: m.motionGraphic } : {}),
   }));
 }
 
@@ -122,6 +126,29 @@ export function SceneModal(props: SceneModalProps): React.ReactElement {
     setMediaItems((prev) =>
       prev.filter((_, i) => i !== index).map((m, i) => ({ ...m, sortOrder: i })),
     );
+  }, []);
+
+  // Wire the picker's server-side attach into the modal media list so the frozen
+  // snapshot reaches the Save payload and survives the autosave PUT round-trip
+  // (AC-04/US-07). Without this, the attached row is dropped on Save.
+  const handleAttachMotionGraphic = useCallback((row: BlockMediaMotionGraphic): void => {
+    setMediaItems((prev) => [
+      ...prev,
+      {
+        fileId: '',
+        mediaType: 'motion_graphic',
+        filename: row.snapshot.id,
+        sortOrder: prev.length,
+        motionGraphic: {
+          snapshotId: row.snapshot.id,
+          code: row.snapshot.code,
+          durationSeconds: row.snapshot.durationSeconds,
+          fps: row.snapshot.fps,
+          width: row.snapshot.width,
+          height: row.snapshot.height,
+        },
+      },
+    ]);
   }, []);
 
   // ── Validation ───────────────────────────────────────────────────────────────
@@ -206,6 +233,7 @@ export function SceneModal(props: SceneModalProps): React.ReactElement {
             uploadDraftId={props.mode === 'block' ? props.uploadDraftId : undefined}
             draftId={props.mode === 'block' ? props.block.draftId : undefined}
             blockId={props.mode === 'block' ? props.block.id : undefined}
+            onAttachMotionGraphic={handleAttachMotionGraphic}
           />
 
           <SceneModalStyleSection

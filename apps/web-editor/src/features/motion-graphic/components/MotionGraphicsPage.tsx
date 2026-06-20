@@ -28,10 +28,22 @@ export function MotionGraphicsPage(): React.ReactElement {
     navigate(`/motion-graphics/${id}`);
   }
 
+  function handleNew(): void {
+    navigate('/motion-graphics/new');
+  }
+
   return (
     <main style={styles.page} data-testid="motion-graphics-page">
       <div style={styles.header}>
         <h1 style={styles.heading}>Motion Graphics</h1>
+        <button
+          type="button"
+          onClick={handleNew}
+          style={styles.newButton}
+          data-testid="motion-graphics-new"
+        >
+          + New motion graphic
+        </button>
       </div>
 
       {isLoading ? (
@@ -48,6 +60,14 @@ export function MotionGraphicsPage(): React.ReactElement {
           <p style={styles.emptyHint}>
             Create your first motion graphic to get started.
           </p>
+          <button
+            type="button"
+            onClick={handleNew}
+            style={styles.newButton}
+            data-testid="motion-graphics-empty-new"
+          >
+            + New motion graphic
+          </button>
         </div>
       ) : (
         <div style={styles.grid}>

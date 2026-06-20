@@ -24,37 +24,15 @@
  * This is a FIXED-FIXTURE-SET CI check ONLY. It is NOT a per-user-graphic
  * runtime frame-diff (spec §6 NFR / §8 resolved OQ explicitly forbids that).
  */
-import React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
-import { Internals } from 'remotion';
-
 import { evaluateGraphic } from '../evaluateGraphic.js';
-import { withDeterministicShim } from '../determinism.js';
-
-const TimelineContext = Internals.TimelineContext;
-const CanUseRemotionHooksProvider = Internals.CanUseRemotionHooksProvider;
-
-/**
- * The minimal timeline context value `useCurrentFrame()` needs. The frame itself
- * is read from `window.remotion_initialFrame` (there is no composition), so the
- * per-composition `frame` map can be empty.
- */
-function makeTimelineValue(): React.ContextType<typeof TimelineContext> {
-  return {
-    frame: {},
-    playing: false,
-    rootId: '',
-    imperativePlaying: { current: false },
-    playbackRate: 1,
-    setPlaybackRate: () => undefined,
-    audioAndVideoTags: { current: [] },
-  } as unknown as React.ContextType<typeof TimelineContext>;
-}
+import { renderComponentAtFrame } from '../renderProbe.js';
 
 /**
  * Render a fixture's transpiled component to deterministic static HTML at a
  * fixed frame. Throws if the source does not gate to a ready component (a parity
- * fixture must be deterministic + runnable by construction).
+ * fixture must be deterministic + runnable by construction). The actual render
+ * (Remotion hook context + deterministic shim) is shared with the ready-gate's
+ * render-probe via `renderComponentAtFrame`.
  */
 export function renderFixtureAtFrame(source: string, frame: number): string {
   const verdict = evaluateGraphic(source);
@@ -64,24 +42,7 @@ export function renderFixtureAtFrame(source: string, frame: number): string {
     );
   }
 
-  const Component = verdict.component;
-
-  return withDeterministicShim(() => {
-    const w = globalThis as unknown as { remotion_initialFrame?: number };
-    const previous = w.remotion_initialFrame;
-    w.remotion_initialFrame = frame;
-    try {
-      return renderToStaticMarkup(
-        <CanUseRemotionHooksProvider>
-          <TimelineContext.Provider value={makeTimelineValue()}>
-            <Component />
-          </TimelineContext.Provider>
-        </CanUseRemotionHooksProvider>,
-      );
-    } finally {
-      w.remotion_initialFrame = previous;
-    }
-  });
+  return renderComponentAtFrame(verdict.component, frame);
 }
 
 /**

@@ -79,10 +79,38 @@ export const captionClipSchema = z.object({
   position: z.enum(['top', 'center', 'bottom']).default('bottom'),
 });
 
+/**
+ * Motion-graphic clip — a code-backed AI-authored graphic placed on the project
+ * timeline (ai-motion-graphic feature, editor integration). Unlike file-backed
+ * clips it carries no `fileId`; instead it stores a FROZEN snapshot of the
+ * source graphic's transpilable TSX `code` + its geometry, captured at insertion
+ * time (snapshot-isolation, mirrors the storyboard attach in AC-04/AC-10). The
+ * browser preview transpiles + mounts this code; server-side export of motion
+ * graphics is deferred (spec §3), so the render worker ignores this clip type.
+ */
+export const motionGraphicClipSchema = z.object({
+  id: z.string().uuid(),
+  type: z.literal('motion-graphic'),
+  trackId: z.string().uuid(),
+  startFrame: z.number().int().nonnegative(),
+  durationFrames: z.number().int().positive(),
+  /** Frozen TSX snapshot of the source graphic's authored code at insertion. */
+  code: z.string(),
+  /** The graphic's fixed authored duration in seconds (drives durationFrames). */
+  durationSeconds: z.number().positive(),
+  width: z.number().int().positive().default(1920),
+  height: z.number().int().positive().default(1080),
+  fps: z.number().int().positive().default(30),
+  opacity: z.number().min(0).max(1).default(1),
+  /** Source graphic this snapshot was taken from (for provenance; non-binding). */
+  sourceMotionGraphicId: z.string().uuid().optional(),
+});
+
 export const clipSchema = z.discriminatedUnion('type', [
   videoClipSchema,
   audioClipSchema,
   textOverlayClipSchema,
   imageClipSchema,
   captionClipSchema,
+  motionGraphicClipSchema,
 ]);

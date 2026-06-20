@@ -4,9 +4,10 @@
  *   POST /motion-graphics/{id}/refine   — Flow 3 (US-04), AC-07 / AC-11
  *
  * Level: integration (real MySQL 8, real session-based auth, supertest mini-app). The
- * upstream Anthropic client (`@/lib/anthropic.js`) is mocked so no live LLM call is made:
- * `messages.create` yields a canned async-iterable of `content_block_delta` text-delta
- * events, exactly the raw event shape the T9 service narrows into `token` frames.
+ * upstream OpenAI client (`@/lib/openai.js`) is mocked so no live LLM call is made:
+ * `chat.completions.create` yields a canned async-iterable of chat-completion chunks
+ * (`choices[].delta.content` text deltas + a final `finish_reason`), exactly the raw
+ * chunk shape the T9 service narrows into `token` frames.
  *
  * The endpoints PER sad.md §6 flows 1 & 3 are NON-PERSISTING — they only stream tokens;
  * the browser later calls POST /motion-graphics (T16) or POST /{id}/turns (T17) to persist.
@@ -44,23 +45,26 @@ Object.assign(process.env, {
   APP_DEV_AUTH_BYPASS:      'false',
 });
 
-// ── Fake the upstream Anthropic stream (no live LLM) ──────────────────────────
+// ── Fake the upstream OpenAI stream (no live LLM) ─────────────────────────────
 // The default stream factory in motionGraphicAuthoring.service calls
-// `anthropic.messages.create({ stream: true })` and iterates the result. We mock the
-// singleton so create() returns a canned async-iterable of raw stream events. Two text
-// tokens are emitted; the service turns each into a `token` frame and terminates `done`.
+// `openai.chat.completions.create({ stream: true })` and iterates the result. We mock
+// the singleton so create() returns a canned async-iterable of chat-completion chunks.
+// Two text tokens are emitted; the service turns each into a `token` frame and `done`.
 const FAKE_TOKENS = ['export const MotionGraphic = () => {', ' return null; };'];
 
-vi.mock('@/lib/anthropic.js', () => {
+vi.mock('@/lib/openai.js', () => {
   async function* cannedStream(): AsyncIterable<unknown> {
     for (const text of FAKE_TOKENS) {
-      yield { type: 'content_block_delta', delta: { type: 'text_delta', text } };
+      yield { choices: [{ index: 0, delta: { content: text }, finish_reason: null }] };
     }
+    yield { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] };
   }
   return {
-    anthropic: {
-      messages: {
-        create: vi.fn(() => cannedStream()),
+    openai: {
+      chat: {
+        completions: {
+          create: vi.fn(() => cannedStream()),
+        },
       },
     },
   };

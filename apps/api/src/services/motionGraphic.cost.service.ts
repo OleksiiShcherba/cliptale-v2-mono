@@ -13,8 +13,8 @@
  *  - Cost is produced as a DECIMAL(10,4)-compatible string (e.g. "0.2000").
  *
  * Pricing source: `flow_model_pricing` via `getPricingForModel` (same source as the
- * pipeline cost service — reused, not reinvented), keyed by the configured Claude
- * authoring model id (ADR-0002, `config.anthropic.model`).
+ * pipeline cost service — reused, not reinvented), keyed by the configured OpenAI
+ * authoring model id (ADR-0002 revised, `config.openai.model`).
  *
  * Cost formula (per generation/refinement):
  *   The only authoring-request size driver available before the stream opens is the
@@ -68,7 +68,7 @@ function toDecimalString(amount: number): string {
  *   3. 0 (no row)
  */
 async function computePerSecondCost(): Promise<number> {
-  const pricingRow = await getPricingForModel(config.anthropic.model);
+  const pricingRow = await getPricingForModel(config.openai.model);
   if (!pricingRow) return 0;
   return pricingRow.perSecond ?? pricingRow.baseAmount;
 }

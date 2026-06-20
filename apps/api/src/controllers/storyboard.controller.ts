@@ -59,10 +59,25 @@ export async function putStoryboard(
 ): Promise<void> {
   try {
     const body = req.body as SaveBody;
+    // Normalise each media item to the repository's BlockMediaItem shape: a
+    // motion_graphic row carries its frozen snapshot under `motionGraphic` so
+    // replaceStoryboard re-inserts the FK and the autosave round-trip is safe.
+    const blocks = body.blocks.map((b) => ({
+      ...b,
+      mediaItems: b.mediaItems?.map((m) => ({
+        id: m.id,
+        fileId: m.fileId ?? null,
+        mediaType: m.mediaType,
+        sortOrder: m.sortOrder,
+        ...(m.motionGraphicSnapshotId
+          ? { motionGraphic: { snapshotId: m.motionGraphicSnapshotId } }
+          : {}),
+      })),
+    }));
     const state = await storyboardService.saveStoryboard(
       req.user!.userId,
       req.params['draftId']!,
-      body.blocks,
+      blocks,
       body.edges,
       body.musicBlocks,
     );

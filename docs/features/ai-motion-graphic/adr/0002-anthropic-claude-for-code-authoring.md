@@ -1,17 +1,44 @@
 ---
-status: Accepted
+status: Superseded-in-place
 owner: "Architect / Tech Lead"
 reviewers: ["Tech Lead"]
-updated_at: "2026-06-17"
+updated_at: "2026-06-20"
 feature_size: "L"
 ticket: "ai-motion-graphic"
 ---
 
-# 0002 — Use Anthropic Claude for Motion Graphic code authoring
+# 0002 — LLM provider for Motion Graphic code authoring
 
-- **Status:** Accepted
-- **Date:** 2026-06-17
+- **Status:** Accepted (revised 2026-06-20 — reversed to OpenAI; see "Revision" below)
+- **Date:** 2026-06-17 (original), 2026-06-20 (revision)
 - **Deciders:** Architect + Tech Lead (Socratic design walk)
+
+## Revision (2026-06-20) — reverse to the existing OpenAI service
+
+**Decision changed to Option 2 (OpenAI).** The Motion Graphic authoring stream now
+runs through the platform's **already-integrated OpenAI service** (`openai` SDK,
+`config.openai.model`, default `gpt-4o`) instead of adding Anthropic.
+
+**Why the reversal:**
+- The runtime environment (docker-compose, `.env`) only ever provisioned
+  `APP_OPENAI_API_KEY`; `APP_ANTHROPIC_API_KEY` was never wired into the `api`
+  service, so the feature could not boot as originally shipped (config required the
+  Anthropic key with `.min(1)`).
+- Reusing the existing OpenAI integration removes a second LLM provider, a second
+  SDK, and a second API key from the codebase — lower operational surface.
+- OpenAI provides automatic prompt caching for the stable system prefix, so the
+  TTFT/prompt-cache rationale below still holds without provider-native
+  `cache_control`.
+
+**What changed in code:** `lib/openai.ts` singleton replaces `lib/anthropic.ts`;
+`motionGraphicAuthoring.service.ts` streams `openai.chat.completions.create({stream:true})`
+and reads `choices[0].delta.content`; the system prompt is the leading `system`
+message; `config.openai` replaces `config.anthropic`; cost lookups key on
+`config.openai.model`. The SSE wire protocol (ADR-0003) and all gates are unchanged.
+
+---
+
+## Original decision (2026-06-17) — superseded by the revision above
 
 ## Context
 
@@ -30,7 +57,9 @@ The feature's core capability is an AI that authors and iteratively refines a Re
 
 ## Decision outcome
 
-**Chosen:** Option 1 (Anthropic Claude). Claude is stronger at the code-generation task at the heart of this feature, and its prompt-caching amortizes the large fixed prefix (system prompt + Remotion runtime contract + chat history) across the iterate loop, directly serving the TTFT NFR and cost-estimate↔actual KPI. The new SDK dependency is justified by the feature's reliance on code-gen quality.
+**Originally chosen:** Option 1 (Anthropic Claude). Claude is stronger at the code-generation task at the heart of this feature, and its prompt-caching amortizes the large fixed prefix (system prompt + Remotion runtime contract + chat history) across the iterate loop, directly serving the TTFT NFR and cost-estimate↔actual KPI. The new SDK dependency is justified by the feature's reliance on code-gen quality.
+
+> **Superseded 2026-06-20:** reversed to Option 2 (OpenAI) — see the "Revision" section at the top. The OpenAI service was already integrated and provisioned in every environment; Anthropic was not.
 
 ## Consequences
 

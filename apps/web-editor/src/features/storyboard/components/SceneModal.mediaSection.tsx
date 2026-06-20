@@ -16,8 +16,9 @@ import {
 } from './SceneModal.styles';
 import { SceneModalMediaPreview } from './SceneModal.mediaPreview';
 import { MotionGraphicBlockMediaPicker } from './MotionGraphicBlockMediaPicker';
-import type { ModalMediaItem } from './SceneModal.types';
+import type { ModalMediaItem, BlockMediaKind } from './SceneModal.types';
 import type { BlockMediaMotionGraphic } from '@/features/motion-graphic/types';
+import { MotionGraphicPlayer } from '@/features/motion-graphic/runtime';
 
 const MAX_MEDIA_ITEMS = 6;
 
@@ -27,16 +28,29 @@ const MEDIA_TYPE_OPTIONS: { kind: AssetKind; label: string }[] = [
   { kind: 'audio', label: 'Audio' },
 ];
 
-const BADGE_COLORS: Record<AssetKind, string> = {
+const BADGE_COLORS: Record<BlockMediaKind, string> = {
   image: '#0EA5E9',
   video: '#7C3AED',
   audio: '#10B981',
+  motion_graphic: '#F59E0B',
 };
 
-const MEDIA_BADGE_LABELS: Record<AssetKind, string> = {
+const MEDIA_BADGE_LABELS: Record<BlockMediaKind, string> = {
   image: 'IMAGE CLIP',
   video: 'VIDEO CLIP',
   audio: 'AUDIO CLIP',
+  motion_graphic: 'MOTION GRAPHIC',
+};
+
+/** Compact inline preview frame for a persisted motion graphic (AC-04/US-07). */
+const motionGraphicPreviewStyle: React.CSSProperties = {
+  width: '52px',
+  height: '40px',
+  borderRadius: '6px',
+  overflow: 'hidden',
+  flexShrink: 0,
+  border: `1px solid ${BORDER}`,
+  background: SURFACE_ALT,
 };
 
 const mediaItemRowStyle: React.CSSProperties = {
@@ -221,7 +235,24 @@ export function SceneModalMediaSection({
         <div style={mediaListStyle} data-testid="media-list">
           {items.map((item, idx) => (
             <div key={`${item.fileId}-${idx}`} style={mediaItemRowStyle} data-testid="media-item-row">
-              <SceneModalMediaPreview item={item} />
+              {item.mediaType === 'motion_graphic' && item.motionGraphic ? (
+                <div
+                  style={motionGraphicPreviewStyle}
+                  data-testid="persisted-motion-graphic-preview"
+                >
+                  <MotionGraphicPlayer
+                    code={item.motionGraphic.code}
+                    geometry={{
+                      durationSeconds: item.motionGraphic.durationSeconds,
+                      fps: item.motionGraphic.fps,
+                      width: item.motionGraphic.width,
+                      height: item.motionGraphic.height,
+                    }}
+                  />
+                </div>
+              ) : (
+                <SceneModalMediaPreview item={item} />
+              )}
               <span style={mediaDetailsStyle}>
                 <span style={badgeStyle(BADGE_COLORS[item.mediaType])} data-testid="media-badge">
                   {MEDIA_BADGE_LABELS[item.mediaType]}
