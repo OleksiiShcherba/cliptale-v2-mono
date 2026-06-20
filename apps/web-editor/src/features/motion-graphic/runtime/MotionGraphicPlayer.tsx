@@ -101,7 +101,13 @@ export function MotionGraphicPlayer({
         compositionWidth={geometry.width}
         compositionHeight={geometry.height}
         style={styles.player}
-        controls={false}
+        // AC-02 / US-03: the Creator must WATCH the graphic play back in real
+        // time. A static frame-0 mount shows a black box for any intro/slide/
+        // fade graphic, so auto-play + loop the preview and expose controls so
+        // they can pause / scrub / replay.
+        autoPlay
+        loop
+        controls
       />
     </div>
   );

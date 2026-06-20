@@ -66,6 +66,17 @@ describe('MotionGraphicPlayer', () => {
     expect(mockPlayerProps[0]?.compositionHeight).toBe(1080);
   });
 
+  it('plays the graphic back in real time — autoPlay + loop + controls (AC-02 / US-03)', () => {
+    // The authoring preview must let the Creator WATCH the graphic play in real
+    // time (spec §4 US-03 / AC-02). A static frame-0 mount (no autoPlay) shows a
+    // black box for any intro/slide/fade graphic — the preview must auto-play,
+    // loop, and expose controls so the Creator can pause / scrub / replay.
+    render(<MotionGraphicPlayer code={VALID_TSX} geometry={GEOMETRY} />);
+    expect(mockPlayerProps[0]?.autoPlay).toBe(true);
+    expect(mockPlayerProps[0]?.loop).toBe(true);
+    expect(mockPlayerProps[0]?.controls).toBe(true);
+  });
+
   it('renders a fails-to-run fallback (no Player) for a non-compiling component', () => {
     const broken = 'export default function Broken( { return <div/>; }';
     const { queryByTestId, getByTestId } = render(
