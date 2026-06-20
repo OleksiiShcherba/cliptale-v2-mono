@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { projectDocSchema } from '../schemas/project-doc.schema.js';
 import { trackSchema } from '../schemas/track.schema.js';
-import { clipSchema, videoClipSchema, audioClipSchema, textOverlayClipSchema, imageClipSchema, captionClipSchema } from '../schemas/clip.schema.js';
+import { clipSchema, videoClipSchema, audioClipSchema, textOverlayClipSchema, imageClipSchema, captionClipSchema, motionGraphicClipSchema } from '../schemas/clip.schema.js';
 
 /** The root project document stored in the database and exchanged between client and server. */
 export type ProjectDoc = z.infer<typeof projectDocSchema>;
@@ -27,3 +27,6 @@ export type ImageClip = z.infer<typeof imageClipSchema>;
 
 /** A progressive-reveal caption clip with per-word frame timestamps. */
 export type CaptionClip = z.infer<typeof captionClipSchema>;
+
+/** A code-backed AI-authored motion-graphic clip (frozen TSX snapshot + geometry). */
+export type MotionGraphicClip = z.infer<typeof motionGraphicClipSchema>;

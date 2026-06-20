@@ -15,7 +15,10 @@ import {
   sectionLabelStyle,
 } from './SceneModal.styles';
 import { SceneModalMediaPreview } from './SceneModal.mediaPreview';
-import type { ModalMediaItem } from './SceneModal.types';
+import { MotionGraphicBlockMediaPicker } from './MotionGraphicBlockMediaPicker';
+import type { ModalMediaItem, BlockMediaKind } from './SceneModal.types';
+import type { BlockMediaMotionGraphic } from '@/features/motion-graphic/types';
+import { MotionGraphicPlayer } from '@/features/motion-graphic/runtime';
 
 const MAX_MEDIA_ITEMS = 6;
 
@@ -25,16 +28,29 @@ const MEDIA_TYPE_OPTIONS: { kind: AssetKind; label: string }[] = [
   { kind: 'audio', label: 'Audio' },
 ];
 
-const BADGE_COLORS: Record<AssetKind, string> = {
+const BADGE_COLORS: Record<BlockMediaKind, string> = {
   image: '#0EA5E9',
   video: '#7C3AED',
   audio: '#10B981',
+  motion_graphic: '#F59E0B',
 };
 
-const MEDIA_BADGE_LABELS: Record<AssetKind, string> = {
+const MEDIA_BADGE_LABELS: Record<BlockMediaKind, string> = {
   image: 'IMAGE CLIP',
   video: 'VIDEO CLIP',
   audio: 'AUDIO CLIP',
+  motion_graphic: 'MOTION GRAPHIC',
+};
+
+/** Compact inline preview frame for a persisted motion graphic (AC-04/US-07). */
+const motionGraphicPreviewStyle: React.CSSProperties = {
+  width: '52px',
+  height: '40px',
+  borderRadius: '6px',
+  overflow: 'hidden',
+  flexShrink: 0,
+  border: `1px solid ${BORDER}`,
+  background: SURFACE_ALT,
 };
 
 const mediaItemRowStyle: React.CSSProperties = {
@@ -146,6 +162,14 @@ interface SceneModalMediaSectionProps {
   onAdd: (item: ModalMediaItem) => void;
   onRemove: (index: number) => void;
   uploadDraftId?: string;
+  /**
+   * When provided alongside a blockId, the picker offers a "Motion Graphic"
+   * media kind that attaches a ready graphic to the block server-side (AC-04).
+   */
+  draftId?: string;
+  blockId?: string;
+  /** Fired with the new block-media row once a motion graphic is attached. */
+  onAttachMotionGraphic?: (row: BlockMediaMotionGraphic) => void;
 }
 
 export function SceneModalMediaSection({
@@ -153,11 +177,16 @@ export function SceneModalMediaSection({
   onAdd,
   onRemove,
   uploadDraftId,
+  draftId,
+  blockId,
+  onAttachMotionGraphic,
 }: SceneModalMediaSectionProps): React.ReactElement {
   const uploadTarget: UploadTarget | undefined = uploadDraftId
     ? { kind: 'draft', draftId: uploadDraftId }
     : undefined;
+  const canAttachMotionGraphic = Boolean(draftId && blockId);
   const [pickerKind, setPickerKind] = useState<AssetKind | null>(null);
+  const [showMotionGraphicPicker, setShowMotionGraphicPicker] = useState(false);
   const [showTypePicker, setShowTypePicker] = useState(false);
   const [showMaxWarning, setShowMaxWarning] = useState(false);
   const addButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -174,6 +203,11 @@ export function SceneModalMediaSection({
   const handlePickType = (kind: AssetKind): void => {
     setShowTypePicker(false);
     setPickerKind(kind);
+  };
+
+  const handlePickMotionGraphic = (): void => {
+    setShowTypePicker(false);
+    setShowMotionGraphicPicker(true);
   };
 
   const handlePick = (asset: AssetSummary): void => {
@@ -201,7 +235,24 @@ export function SceneModalMediaSection({
         <div style={mediaListStyle} data-testid="media-list">
           {items.map((item, idx) => (
             <div key={`${item.fileId}-${idx}`} style={mediaItemRowStyle} data-testid="media-item-row">
-              <SceneModalMediaPreview item={item} />
+              {item.mediaType === 'motion_graphic' && item.motionGraphic ? (
+                <div
+                  style={motionGraphicPreviewStyle}
+                  data-testid="persisted-motion-graphic-preview"
+                >
+                  <MotionGraphicPlayer
+                    code={item.motionGraphic.code}
+                    geometry={{
+                      durationSeconds: item.motionGraphic.durationSeconds,
+                      fps: item.motionGraphic.fps,
+                      width: item.motionGraphic.width,
+                      height: item.motionGraphic.height,
+                    }}
+                  />
+                </div>
+              ) : (
+                <SceneModalMediaPreview item={item} />
+              )}
               <span style={mediaDetailsStyle}>
                 <span style={badgeStyle(BADGE_COLORS[item.mediaType])} data-testid="media-badge">
                   {MEDIA_BADGE_LABELS[item.mediaType]}
@@ -241,6 +292,16 @@ export function SceneModalMediaSection({
                 {label}
               </button>
             ))}
+            {canAttachMotionGraphic && (
+              <button
+                type="button"
+                style={typeChipStyle}
+                onClick={handlePickMotionGraphic}
+                data-testid="type-chip-motion_graphic"
+              >
+                Motion Graphic
+              </button>
+            )}
             <button
               type="button"
               style={{ ...typeChipStyle, color: TEXT_SECONDARY }}
@@ -251,6 +312,17 @@ export function SceneModalMediaSection({
             </button>
           </div>
         </div>
+      )}
+
+      {showMotionGraphicPicker && draftId && blockId && (
+        <MotionGraphicBlockMediaPicker
+          draftId={draftId}
+          blockId={blockId}
+          onAttached={(row) => {
+            onAttachMotionGraphic?.(row);
+          }}
+          onClose={() => setShowMotionGraphicPicker(false)}
+        />
       )}
 
       <button

@@ -5,6 +5,7 @@ import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/prom
 import { pool } from '@/db/connection.js';
 import {
   mapBlockRow,
+  mapBlockMediaRow,
   mapEdgeRow,
   mapHistoryRow,
 } from '@/repositories/storyboard.repository.types.js';
@@ -49,6 +50,45 @@ export async function getConnection(): Promise<PoolConnection> {
 // ── Read queries ──────────────────────────────────────────────────────────────
 
 /**
+ * Shared SELECT for block media rows. LEFT JOINs the frozen motion-graphic
+ * snapshot (and its optional source title) so motion_graphic rows survive a
+ * read/reload with their code + geometry intact (AC-04/US-07). Non-mg rows get
+ * NULLs for the mg_* columns. `{LOCK}` is replaced with FOR UPDATE in the
+ * locking variant.
+ */
+const BLOCK_MEDIA_SELECT = (placeholders: string, lock: string): string =>
+  `SELECT m.id            AS id,
+          m.block_id      AS block_id,
+          m.file_id       AS file_id,
+          m.media_type    AS media_type,
+          m.sort_order    AS sort_order,
+          s.id               AS mg_snapshot_id,
+          s.code             AS mg_code,
+          s.duration_seconds AS mg_duration_seconds,
+          s.fps              AS mg_fps,
+          s.width            AS mg_width,
+          s.height           AS mg_height,
+          g.title            AS mg_title
+     FROM storyboard_block_media m
+     LEFT JOIN motion_graphic_block_snapshots s
+       ON s.id = m.motion_graphic_snapshot_id
+     LEFT JOIN motion_graphics g
+       ON g.id = s.source_motion_graphic_id
+    WHERE m.block_id IN (${placeholders})
+    ORDER BY m.sort_order ASC${lock}`;
+
+/** Groups media rows by block_id, hydrating motion-graphic snapshots. */
+function groupMediaByBlock(mediaRows: BlockMediaRow[]): Map<string, BlockMediaItem[]> {
+  const mediaByBlock = new Map<string, BlockMediaItem[]>();
+  for (const m of mediaRows) {
+    const existing = mediaByBlock.get(m.block_id) ?? [];
+    existing.push(mapBlockMediaRow(m));
+    mediaByBlock.set(m.block_id, existing);
+  }
+  return mediaByBlock;
+}
+
+/**
  * Returns all blocks for a draft, each hydrated with its media items.
  * Ordered by sort_order ASC.
  */
@@ -68,25 +108,11 @@ export async function findBlocksByDraftId(draftId: string): Promise<StoryboardBl
   const placeholders = blockIds.map(() => '?').join(', ');
 
   const [mediaRows] = await pool.execute<BlockMediaRow[]>(
-    `SELECT id, block_id, file_id, media_type, sort_order
-     FROM storyboard_block_media
-     WHERE block_id IN (${placeholders})
-     ORDER BY sort_order ASC`,
+    BLOCK_MEDIA_SELECT(placeholders, ''),
     blockIds,
   );
 
-  // Group media items by block_id.
-  const mediaByBlock = new Map<string, BlockMediaItem[]>();
-  for (const m of mediaRows) {
-    const existing = mediaByBlock.get(m.block_id) ?? [];
-    existing.push({
-      id: m.id,
-      fileId: m.file_id,
-      mediaType: m.media_type,
-      sortOrder: m.sort_order,
-    });
-    mediaByBlock.set(m.block_id, existing);
-  }
+  const mediaByBlock = groupMediaByBlock(mediaRows);
 
   return blockRows.map((r) => mapBlockRow(r, mediaByBlock.get(r.id) ?? []));
 }
@@ -111,25 +137,11 @@ export async function findBlocksByDraftIdForUpdate(
   const placeholders = blockIds.map(() => '?').join(', ');
 
   const [mediaRows] = await conn.execute<BlockMediaRow[]>(
-    `SELECT id, block_id, file_id, media_type, sort_order
-     FROM storyboard_block_media
-     WHERE block_id IN (${placeholders})
-     ORDER BY sort_order ASC
-     FOR UPDATE`,
+    BLOCK_MEDIA_SELECT(placeholders, '\n    FOR UPDATE OF m'),
     blockIds,
   );
 
-  const mediaByBlock = new Map<string, BlockMediaItem[]>();
-  for (const m of mediaRows) {
-    const existing = mediaByBlock.get(m.block_id) ?? [];
-    existing.push({
-      id: m.id,
-      fileId: m.file_id,
-      mediaType: m.media_type,
-      sortOrder: m.sort_order,
-    });
-    mediaByBlock.set(m.block_id, existing);
-  }
+  const mediaByBlock = groupMediaByBlock(mediaRows);
 
   return blockRows.map((r) => mapBlockRow(r, mediaByBlock.get(r.id) ?? []));
 }
@@ -254,10 +266,17 @@ export async function replaceStoryboard(
        b.positionX, b.positionY, b.sortOrder, b.style],
     );
     for (const m of b.mediaItems ?? []) {
+      // motion_graphic rows carry a frozen snapshot FK and a NULL file_id (ADR-0009);
+      // image/video/audio rows carry a file_id and a NULL snapshot. Threading the
+      // snapshot id here keeps the autosave delete+reinsert from orphaning a graphic.
+      const snapshotId = m.mediaType === 'motion_graphic'
+        ? (m.motionGraphic?.snapshotId ?? null)
+        : null;
       await conn.execute<ResultSetHeader>(
-        `INSERT INTO storyboard_block_media (id, block_id, file_id, media_type, sort_order)
-         VALUES (?, ?, ?, ?, ?)`,
-        [m.id, b.id, m.fileId, m.mediaType, m.sortOrder],
+        `INSERT INTO storyboard_block_media
+           (id, block_id, file_id, motion_graphic_snapshot_id, media_type, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [m.id, b.id, m.fileId, snapshotId, m.mediaType, m.sortOrder],
       );
     }
   }

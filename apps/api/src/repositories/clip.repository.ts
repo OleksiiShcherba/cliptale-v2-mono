@@ -64,8 +64,8 @@ export type ClipInsert = {
   clipId: string;
   projectId: string;
   trackId: string;
-  type: 'video' | 'audio' | 'text-overlay' | 'image' | 'caption';
-  /** The `files.file_id` backing this clip. Null for text-overlay and caption clips. */
+  type: 'video' | 'audio' | 'text-overlay' | 'image' | 'caption' | 'motion-graphic';
+  /** The `files.file_id` backing this clip. Null for text-overlay, caption and motion-graphic clips. */
   fileId?: string | null;
   startFrame: number;
   durationFrames: number;

@@ -2,8 +2,7 @@ import React, { useMemo } from 'react';
 import { Player } from '@remotion/player';
 import type { PlayerRef } from '@remotion/player';
 
-import { VideoComposition } from '@ai-video-editor/remotion-comps';
-
+import { EditorVideoComposition } from '@/features/preview/components/EditorVideoComposition.js';
 import { useRemotionPlayer } from '@/features/preview/hooks/useRemotionPlayer.js';
 import { usePrefetchAssets } from '@/features/preview/hooks/usePrefetchAssets.js';
 
@@ -40,10 +39,10 @@ export function PreviewPanel({ playerRef: externalPlayerRef }: PreviewPanelProps
   );
 
   return (
-    <div style={styles.container}>
+    <div style={styles.container} data-testid="editor-preview">
       <Player
         ref={playerRef}
-        component={VideoComposition}
+        component={EditorVideoComposition}
         inputProps={inputProps}
         fps={projectDoc.fps}
         durationInFrames={projectDoc.durationFrames}

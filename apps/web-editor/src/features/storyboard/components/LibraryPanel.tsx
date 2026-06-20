@@ -17,8 +17,23 @@
 
 import React, { useState, useCallback } from 'react';
 
+import type { AssetKind } from '@/features/generate-wizard/types';
+
 import type { SceneTemplate } from '../types';
 import type { SceneModalSavePayload } from './SceneModal.types';
+
+/**
+ * Scene templates support only file-backed media (image/video/audio). Motion
+ * graphics attach to canvas blocks, not templates, so they are filtered out of
+ * a template save payload (the picker never offers them without a blockId).
+ */
+function toTemplateMediaItems(
+  items: SceneModalSavePayload['mediaItems'],
+): Array<{ fileId: string; mediaType: AssetKind; sortOrder: number }> {
+  return items
+    .filter((m): m is typeof m & { mediaType: AssetKind } => m.mediaType !== 'motion_graphic')
+    .map((m, i) => ({ fileId: m.fileId, mediaType: m.mediaType, sortOrder: m.sortOrder ?? i }));
+}
 import { useSceneTemplates } from '../hooks/useSceneTemplates';
 import { SceneModal } from './SceneModal';
 import { TemplateCard } from './LibraryPanel.templateCard';
@@ -120,11 +135,7 @@ export function LibraryPanel({ onSwitchToStoryboard, onAddTemplate }: LibraryPan
           prompt: payload.prompt,
           durationS: payload.durationS,
           style: payload.style ?? undefined,
-          mediaItems: payload.mediaItems.map((m, i) => ({
-            fileId: m.fileId,
-            mediaType: m.mediaType,
-            sortOrder: m.sortOrder ?? i,
-          })),
+          mediaItems: toTemplateMediaItems(payload.mediaItems),
         });
       } else if (modalTarget !== null) {
         await updateTemplate(modalTarget.id, {
@@ -132,11 +143,7 @@ export function LibraryPanel({ onSwitchToStoryboard, onAddTemplate }: LibraryPan
           prompt: payload.prompt,
           durationS: payload.durationS,
           style: payload.style ?? undefined,
-          mediaItems: payload.mediaItems.map((m, i) => ({
-            fileId: m.fileId,
-            mediaType: m.mediaType,
-            sortOrder: m.sortOrder ?? i,
-          })),
+          mediaItems: toTemplateMediaItems(payload.mediaItems),
         });
       }
       setModalTarget(null);

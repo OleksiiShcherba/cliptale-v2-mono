@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-const envSchema = z.object({
+/**
+ * Environment schema. Exported so the validation can be unit-tested with a
+ * controlled env object (config.ts validates process.env eagerly at import and
+ * exits the process on failure, which is not testable directly).
+ */
+export const envSchema = z.object({
   APP_DB_HOST: z.string().min(1),
   APP_DB_PORT: z.string().default('3306'),
   APP_DB_NAME: z.string().default('cliptale'),
@@ -25,6 +30,8 @@ const envSchema = z.object({
   APP_FRONTEND_URL: z.string().default('http://localhost:5173'),
   APP_FAL_KEY: z.string().min(1),
   APP_ELEVENLABS_API_KEY: z.string().min(1),
+  APP_OPENAI_API_KEY: z.string().default(''),
+  APP_OPENAI_MODEL: z.string().default('gpt-4o'),
   APP_PIPELINE_STUCK_PHASE_BOUND_MINUTES: z.string().default('10'),
 });
 
@@ -83,6 +90,16 @@ export const config = {
   },
   elevenlabs: {
     apiKey: env.APP_ELEVENLABS_API_KEY,
+  },
+  openai: {
+    /**
+     * OpenAI API key for Motion Graphic code authoring (ADR-0002, revised: the
+     * feature reuses the existing OpenAI service instead of Anthropic). Shared
+     * with the rest of the platform's OpenAI text tasks.
+     */
+    apiKey: env.APP_OPENAI_API_KEY,
+    /** Authoring model id; swapping tiers is a one-line env override (ADR-0002). */
+    model: env.APP_OPENAI_MODEL,
   },
   storyboardPipeline: {
     /**

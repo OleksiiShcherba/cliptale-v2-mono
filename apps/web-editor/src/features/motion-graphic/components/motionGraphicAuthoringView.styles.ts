@@ -1,0 +1,208 @@
+/**
+ * Styles for MotionGraphicAuthoringView.
+ *
+ * Mirrors the per-file typed-constant convention of motionGraphicsPage.styles.ts
+ * (design-guide §3 Dark Theme tokens). The workspace is a two-pane layout: the live
+ * preview fills the left canvas area, the right rail stacks the duration input ABOVE
+ * the chat (AC-02).
+ */
+import type React from 'react';
+
+import {
+  BORDER,
+  ERROR,
+  PRIMARY,
+  SURFACE,
+  SURFACE_BASE,
+  SURFACE_ELEVATED,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+} from './motionGraphicsPage.styles';
+
+export const authoringViewStyles = {
+  page: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    minHeight: '100vh',
+    background: SURFACE,
+    color: TEXT_PRIMARY,
+    fontFamily: 'Inter, sans-serif',
+  } as React.CSSProperties,
+  workspace: {
+    display: 'flex',
+    flex: 1,
+    minHeight: 0,
+  } as React.CSSProperties,
+  previewArea: {
+    flex: 1,
+    minWidth: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: '#0D0D14',
+    overflow: 'hidden',
+  } as React.CSSProperties,
+  previewPlaceholder: {
+    color: TEXT_SECONDARY,
+    fontSize: 14,
+    textAlign: 'center' as const,
+    padding: 24,
+  } as React.CSSProperties,
+  rail: {
+    width: 380,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    borderLeft: `1px solid ${BORDER}`,
+    background: SURFACE_BASE,
+  } as React.CSSProperties,
+  durationRow: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 6,
+    padding: 16,
+    borderBottom: `1px solid ${BORDER}`,
+  } as React.CSSProperties,
+  label: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+  } as React.CSSProperties,
+  durationInput: {
+    background: SURFACE_ELEVATED,
+    border: `1px solid ${BORDER}`,
+    borderRadius: 8,
+    color: TEXT_PRIMARY,
+    padding: '8px 12px',
+    fontSize: 14,
+    width: 120,
+  } as React.CSSProperties,
+  estimateHint: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+  } as React.CSSProperties,
+  chat: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    minHeight: 0,
+    padding: 16,
+    gap: 12,
+  } as React.CSSProperties,
+  chatList: {
+    listStyle: 'none',
+    margin: 0,
+    padding: 0,
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 8,
+    flex: 1,
+    overflowY: 'auto' as const,
+  } as React.CSSProperties,
+  userTurn: {
+    alignSelf: 'flex-end',
+    background: PRIMARY,
+    color: '#fff',
+    borderRadius: 12,
+    padding: '8px 12px',
+    fontSize: 13,
+    maxWidth: '85%',
+  } as React.CSSProperties,
+  assistantTurn: {
+    alignSelf: 'flex-start',
+    background: SURFACE_ELEVATED,
+    color: TEXT_PRIMARY,
+    borderRadius: 12,
+    padding: '8px 12px',
+    fontSize: 13,
+    maxWidth: '85%',
+  } as React.CSSProperties,
+  inlineError: {
+    background: '#3B1D1D',
+    color: '#FCA5A5',
+    border: `1px solid ${ERROR}`,
+    borderRadius: 8,
+    padding: '8px 12px',
+    fontSize: 13,
+  } as React.CSSProperties,
+  composer: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 8,
+  } as React.CSSProperties,
+  composerInput: {
+    background: SURFACE_ELEVATED,
+    border: `1px solid ${BORDER}`,
+    borderRadius: 8,
+    color: TEXT_PRIMARY,
+    padding: '10px 12px',
+    fontSize: 14,
+    minHeight: 72,
+    resize: 'vertical' as const,
+    fontFamily: 'Inter, sans-serif',
+  } as React.CSSProperties,
+  generateButton: {
+    background: PRIMARY,
+    border: 'none',
+    color: '#fff',
+    borderRadius: 8,
+    padding: '10px 16px',
+    fontSize: 14,
+    fontWeight: 600,
+    cursor: 'pointer',
+  } as React.CSSProperties,
+  costOverlay: {
+    position: 'fixed' as const,
+    inset: 0,
+    background: 'rgba(0,0,0,0.7)',
+    backdropFilter: 'blur(4px)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  } as React.CSSProperties,
+  costModal: {
+    background: SURFACE_ELEVATED,
+    border: `1px solid ${BORDER}`,
+    borderRadius: 16,
+    padding: 24,
+    width: 420,
+    maxWidth: '95vw',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 16,
+    color: TEXT_PRIMARY,
+  } as React.CSSProperties,
+  costTitle: {
+    fontSize: 18,
+    margin: 0,
+  } as React.CSSProperties,
+  costSub: {
+    margin: 0,
+    fontSize: 14,
+    color: TEXT_SECONDARY,
+  } as React.CSSProperties,
+  costAmount: {
+    fontSize: 28,
+    fontWeight: 600,
+  } as React.CSSProperties,
+  costActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: 12,
+  } as React.CSSProperties,
+  cancelButton: {
+    background: 'transparent',
+    border: `1px solid ${BORDER}`,
+    color: TEXT_PRIMARY,
+    borderRadius: 8,
+    padding: '8px 16px',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+  confirmButton: {
+    background: PRIMARY,
+    border: 'none',
+    color: '#fff',
+    borderRadius: 8,
+    padding: '8px 16px',
+    cursor: 'pointer',
+  } as React.CSSProperties,
+};

@@ -25,6 +25,7 @@ import { storyboardReferencesRouter } from '@/routes/storyboard-references.route
 import { sceneTemplateRouter } from '@/routes/sceneTemplate.routes.js';
 import { generationFlowsRouter } from '@/routes/generation-flows.routes.js';
 import { settingsRouter } from '@/routes/settings.routes.js';
+import { motionGraphicRouter } from '@/routes/motionGraphic.routes.js';
 import { ValidationError, NotFoundError, UnauthorizedError, ForbiddenError, ConflictError, UnprocessableEntityError, GoneError, GateError, RateLimitedError } from '@/lib/errors.js';
 import { attachRealtimeWebSocketServer } from '@/lib/realtime.js';
 
@@ -65,6 +66,7 @@ app.use(storyboardReferencesRouter);
 app.use(sceneTemplateRouter);
 app.use(generationFlowsRouter);
 app.use(settingsRouter);
+app.use(motionGraphicRouter);
 
 /**
  * Centralized error handler — maps typed errors to HTTP status codes.

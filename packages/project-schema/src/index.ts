@@ -2,7 +2,7 @@ export type { FileKind } from './file-kind.js';
 export { mimeToKind } from './file-kind.js';
 export { projectDocSchema } from './schemas/project-doc.schema.js';
 export { trackSchema } from './schemas/track.schema.js';
-export { clipSchema, videoClipSchema, audioClipSchema, textOverlayClipSchema, imageClipSchema, captionClipSchema } from './schemas/clip.schema.js';
+export { clipSchema, videoClipSchema, audioClipSchema, textOverlayClipSchema, imageClipSchema, captionClipSchema, motionGraphicClipSchema } from './schemas/clip.schema.js';
 export {
   promptDocSchema,
   promptBlockSchema,
@@ -56,7 +56,7 @@ export {
   realtimeRedisEventSchema,
   realtimeServerMessageSchema,
 } from './schemas/realtime.schema.js';
-export type { ProjectDoc, Track, Clip, VideoClip, AudioClip, TextOverlayClip, ImageClip, CaptionClip } from './types/index.js';
+export type { ProjectDoc, Track, Clip, VideoClip, AudioClip, TextOverlayClip, ImageClip, CaptionClip, MotionGraphicClip } from './types/index.js';
 export type {
   PromptDoc,
   PromptBlock,

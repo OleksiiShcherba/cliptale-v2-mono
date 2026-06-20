@@ -1,0 +1,710 @@
+# DERIVED contract for ai-motion-graphic — do not hand-edit field-by-field.
+#   fields + constraints  ← data-model.md (motion_graphics, motion_graphic_chat_turns,
+#                           motion_graphic_block_snapshots, storyboard_block_media cols)
+#   error responses       ← sad.md §6 sequence alt-branches (Flows 1–6)
+#   endpoint list + shape ← spec.md §4 user stories / §5 acceptance criteria
+#
+# Brownfield deviations from the SDD defaults (all "follow the existing ClipTale API" — see api-sync-report.md):
+#   • Error body  = repo's `{ error }` (always present) PLUS additive optional `{ code, details }`
+#                   (errorHandler in apps/api/src/index.ts, team decision 2026-06-03), NOT the bare
+#                   `{ code, message, details? }` SDD envelope.
+#   • JSON keys   = camelCase (motionGraphicId, durationSeconds, createdAt…) — the repo's wire convention.
+#   • Pagination  = `cursor` + `limit` → `{ items, nextCursor }` (mirrors generate-ai-flow + GET assets).
+#   • URL prefix  = none; paths are rooted (the repo mounts routes at `/`), NOT `/api/v1`.
+#   • Streaming   = SSE (`text/event-stream`) for generate/refine (ADR-0003). NO worker / message bus
+#                   (ADR-0001), so there is NO async event contract — hence no events.md. The stream is
+#                   in-request; pre-stream guard failures (cost / guardrail / length) are normal JSON 4xx.
+openapi: 3.1.0
+
+info:
+  title: ai-motion-graphic API
+  version: 0.1.0
+  description: |
+    The AI Motion Graphic surface in `api`. A Creator describes a graphic in natural language; the
+    server runs a prompt-guardrail + cost re-validation, then proxies an LLM that authors a reusable,
+    code-backed Motion Graphic, streaming the component code back over SSE (ADR-0002/0003). The
+    browser transpiles + AST-scans the code for determinism (AC-09) and reports the verdict; the
+    server persists the graphic (code-as-text, ADR-0008), its append-only chat history, and — on
+    attach — an immutable code+duration snapshot onto a storyboard block (ADR-0009).
+
+    MVP1 executes the authored code ONLY in the browser live preview (no server-side render); the
+    server is authoritative for ownership, the ready-state invariant, the cost gate and the guardrail,
+    but NOT for whether the code runs — that verdict comes from the browser and is recorded on persist.
+    Every Motion Graphic, its chat and its attachments are private to the owning Creator (AC-07):
+    a non-owner is answered as though the graphic does not exist.
+
+servers:
+  - url: https://api.cliptale.com
+    description: Production
+  - url: http://localhost
+    description: Local
+
+# Global default — every operation requires a bearer JWT unless it overrides with `security: []`.
+security:
+  - BearerAuth: []
+
+paths:
+  /motion-graphics:
+    get:
+      summary: List my Motion Graphics (owner-scoped, most-recent first)
+      description: |
+        Flow 5 / US-01 / AC-13. Returns only the calling Creator's non-deleted graphics
+        (`deleted_at IS NULL`), ordered by `updatedAt` DESC — served by
+        idx_motion_graphics_user_active. Summaries only (title + duration + status), no code or chat.
+        Empty list → the empty-state path. NFR: p95 ≤ 400 ms.
+      operationId: listMotionGraphics
+      tags: [motion-graphics]
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MotionGraphicSummaryPage" }
+              example:
+                items:
+                  - id: "11111111-1111-4111-8111-111111111111"
+                    title: "Lower-third — guest name"
+                    durationSeconds: 4.5
+                    status: "ready"
+                    version: 3
+                    createdAt: "2026-06-15T10:00:00.000Z"
+                    updatedAt: "2026-06-18T09:12:00.000Z"
+                nextCursor: null
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+    post:
+      summary: Persist a generated Motion Graphic (create — ready or failed)
+      description: |
+        Flow 1 persist branch / US-02 / AC-01, AC-06, AC-09, AC-14. Records the FIRST exchange of a
+        new graphic after the browser has transpiled + AST-scanned the streamed code (the verdict the
+        server cannot compute in MVP1). Creates a `motion_graphics` row plus the opening chat exchange
+        (a `user` turn = the description, an `assistant` turn = the result):
+          • `outcome: ready`  → status `ready`, `code` stored, auto-generated title (renamable, AC-01),
+            version 1, attachable (AC-08).
+          • `outcome: failed` → status `failed`, `code` NULL, the assistant turn records `errorMessage`
+            (AC-06); the graphic exists but is not usable / not attachable.
+        Geometry (fps/width/height) and runtimeVersion default server-side (data-model defaults,
+        ADR-0010). The cost gate + guardrail already ran at /generate — they are NOT re-checked here.
+      operationId: createMotionGraphic
+      tags: [motion-graphics]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MotionGraphicCreate" }
+            example:
+              prompt: "A lower-third that slides in the guest's name and title over 4 seconds."
+              durationSeconds: 4.5
+              outcome: "ready"
+              code: "export default function MotionGraphic() { const f = useCurrentFrame(); /* ... */ return null; }"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MotionGraphic" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /motion-graphics/generate:
+    post:
+      summary: Stream generation of a new Motion Graphic (SSE)
+      description: |
+        Flow 1 / US-02 / US-06 / AC-01, AC-05, AC-09, AC-11. The non-persisting authoring stream for a
+        NEW graphic. The server, BEFORE any LLM call and BEFORE the stream opens, runs three gates in
+        order: (1) description-length guard (AC-05 — empty / too short), (2) cost re-validation against
+        the client estimate (AC-11, mirrors storyboardPipeline.cost.service), (3) prompt-guardrail
+        (§6 NFR, ADR-0007). Any gate failure is returned as a normal JSON 4xx (NOT an SSE error frame),
+        because the stream has not yet opened. On pass it opens `text/event-stream` and relays LLM code
+        tokens (ADR-0003); the browser transpiles + AST-scans and then calls `POST /motion-graphics` to
+        persist the verdict. No row is written by this endpoint. NFR: first token ≤ 3 s p95.
+      operationId: generateMotionGraphic
+      tags: [authoring]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GenerateRequest" }
+            example:
+              prompt: "A lower-third that slides in the guest's name and title over 4 seconds."
+              durationSeconds: 4.5
+              acknowledgedCost: { currency: "USD", amount: 0.03 }
+      responses:
+        "200":
+          description: |
+            SSE stream opened. Media type `text/event-stream`. Frame protocol (ADR-0003):
+              • `event: token` `data: <code chunk>`     — appended in order to reconstruct the component
+              • `event: done`  `data: {"finishReason":"stop"}` — stream complete; client now validates + persists
+              • `event: error` `data: {"message": "..."}`     — mid-stream LLM/transport failure (rare; the
+                                                                 pre-stream guards already passed)
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: a sequence of SSE frames; not a single JSON document
+              example: |
+                event: token
+                data: export default function MotionGraphic() {
+
+                event: token
+                data:  const f = useCurrentFrame();
+
+                event: done
+                data: {"finishReason":"stop"}
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422":
+          description: |
+            A pre-stream gate refused before any LLM call. `code` distinguishes the three modes:
+              • `motion_graphic.description_too_short`        — AC-05 (empty / below the meaningful minimum)
+              • `motion_graphic.estimate_revalidation_failed` — AC-11 (server cost re-compute ≠ client estimate)
+              • `motion_graphic.prompt_rejected`              — §6 NFR guardrail (exfiltration / subversion intent)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                descriptionTooShort:
+                  value:
+                    error: "Add a longer, more detailed description so the AI has enough to work with."
+                    code: "motion_graphic.description_too_short"
+                    details: { minLength: 12 }
+                estimateRevalidationFailed:
+                  value:
+                    error: "We couldn't confirm the estimated cost. Reload and try again."
+                    code: "motion_graphic.estimate_revalidation_failed"
+                    details: { serverEstimate: "0.0300", clientEstimate: "0.0100" }
+                promptRejected:
+                  value:
+                    error: "This request can't be used to author a motion graphic."
+                    code: "motion_graphic.prompt_rejected"
+                    details: {}
+
+  /motion-graphics/{id}:
+    parameters:
+      - $ref: "#/components/parameters/MotionGraphicId"
+    get:
+      summary: Open a Motion Graphic — code, duration, geometry, status + chat history
+      description: |
+        Flow 4 / US-03 / US-05 / AC-02, AC-07. Returns the full graphic (current code, duration,
+        runtime geometry, status, version) plus its append-only chat history in `seq` order, so the
+        browser can mount the live preview and resume the chat. Non-owner OR absent → 404, indistinguishable
+        (existence hiding, AC-07).
+      operationId: getMotionGraphic
+      tags: [motion-graphics]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MotionGraphic" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/MotionGraphicNotFound" }
+
+    patch:
+      summary: Rename a Motion Graphic
+      description: US-01 / AC-01. Metadata-only update of the title (usable from the list page). Non-owner → 404.
+      operationId: renameMotionGraphic
+      tags: [motion-graphics]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MotionGraphicRename" }
+            example:
+              title: "Lower-third — guest name"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MotionGraphicSummary" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/MotionGraphicNotFound" }
+
+  /motion-graphics/{id}/refine:
+    parameters:
+      - $ref: "#/components/parameters/MotionGraphicId"
+    post:
+      summary: Stream a refinement of an existing Motion Graphic (SSE)
+      description: |
+        Flow 3 / US-04 / US-06 / AC-03, AC-11, AC-14. The non-persisting authoring stream for a refine
+        turn. The server reads the graphic (owner check → 404 non-owner, AC-07), re-validates the cost
+        estimate (AC-11) and runs the prompt-guardrail (§6 NFR), then sends the system prompt + runtime
+        contract + chat history + the new instruction to the LLM and relays code tokens over SSE
+        (same frame protocol as /generate). The browser validates and then calls
+        `POST /motion-graphics/{id}/turns` to persist the verdict. No row is written by this endpoint.
+      operationId: refineMotionGraphic
+      tags: [authoring]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefineRequest" }
+            example:
+              instruction: "Make the name 20% larger and use the brand's blue."
+              acknowledgedCost: { currency: "USD", amount: 0.02 }
+      responses:
+        "200":
+          description: SSE stream opened — see `POST /motion-graphics/generate` for the frame protocol.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/MotionGraphicNotFound" }
+        "422":
+          description: |
+            A pre-stream gate refused (same modes as /generate, minus length):
+            `motion_graphic.estimate_revalidation_failed` (AC-11) or `motion_graphic.prompt_rejected` (§6 NFR).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "We couldn't confirm the estimated cost. Reload and try again."
+                code: "motion_graphic.estimate_revalidation_failed"
+                details: { serverEstimate: "0.0200", clientEstimate: "0.0050" }
+
+  /motion-graphics/{id}/turns:
+    parameters:
+      - $ref: "#/components/parameters/MotionGraphicId"
+    post:
+      summary: Persist a refinement exchange (append chat turn; update code on success)
+      description: |
+        Flow 3 persist branch / US-04 / AC-03, AC-14. Records the result of a refine after the browser
+        verdict. Appends the exchange to the append-only chat (a `user` turn = the instruction, an
+        `assistant` turn = the result), then:
+          • `outcome: ready`  → updates `motion_graphics.code` to the new code and increments `version`
+            (the graphic stays `ready`); returns the refreshed graphic.
+          • `outcome: failed` → appends the failed assistant turn with `errorMessage` (AC-14) and leaves
+            the current code / version / ready-state UNCHANGED — the last working version stays current.
+        Non-owner → 404 (AC-07).
+      operationId: appendMotionGraphicTurn
+      tags: [motion-graphics]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TurnCreate" }
+            example:
+              instruction: "Make the name 20% larger and use the brand's blue."
+              outcome: "ready"
+              code: "export default function MotionGraphic() { const f = useCurrentFrame(); /* larger, blue */ return null; }"
+      responses:
+        "200":
+          description: OK — the refreshed graphic (code updated on `ready`, unchanged on `failed`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MotionGraphic" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/MotionGraphicNotFound" }
+
+  /motion-graphics/{id}/duplicate:
+    parameters:
+      - $ref: "#/components/parameters/MotionGraphicId"
+    post:
+      summary: Duplicate a Motion Graphic into an independent copy
+      description: |
+        Flow 6 / US-08 / AC-12. Creates a new graphic owned by the same Creator, seeded with the
+        source's CURRENT code and its chat history copied as live, re-runnable turns (each assistant
+        turn keeps its `generatedCode`, not a frozen transcript), with `seq` order preserved. The copy
+        is fully independent — later edits to either side do not affect the other. Non-owner → 404 (AC-07).
+      operationId: duplicateMotionGraphic
+      tags: [motion-graphics]
+      responses:
+        "201":
+          description: Created — the independent copy.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MotionGraphic" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/MotionGraphicNotFound" }
+
+  /storyboards/{draftId}/blocks/{blockId}/media/motion-graphic:
+    parameters:
+      - $ref: "#/components/parameters/DraftId"
+      - $ref: "#/components/parameters/BlockId"
+    post:
+      summary: Attach a Motion Graphic to a storyboard block as a frozen snapshot
+      description: |
+        Flow 2 / US-07 / AC-04, AC-08, AC-10. Server-authored attach (the snapshot cannot go through
+        the opaque client-driven storyboard PUT — the server freezes the copy). Reads the graphic
+        (owner check → 404 non-owner/absent, AC-07), enforces the ready-state invariant (a `generating`
+        or `failed` graphic → 422 `motion_graphic.not_ready`, AC-08), then writes an immutable
+        `motion_graphic_block_snapshots` row (frozen code + duration + geometry + runtimeVersion,
+        ADR-0009/0010) and a `storyboard_block_media` row (`mediaType: motion_graphic`, `fileId: null`).
+        The snapshot is a COPY, never a reference — a later source refine (Flow 3) cannot alter the
+        placed instance (AC-10).
+      operationId: attachMotionGraphicToBlock
+      tags: [storyboard]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AttachMotionGraphicRequest" }
+            example:
+              motionGraphicId: "11111111-1111-4111-8111-111111111111"
+              sortOrder: 2
+      responses:
+        "201":
+          description: Attached — the new block-media row with its frozen snapshot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BlockMediaMotionGraphic" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: |
+            The Motion Graphic OR the storyboard block/draft does not exist or is not owned by the
+            caller — indistinguishable by design (existence hiding, AC-07).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example: { error: "Motion graphic not found.", code: "motion_graphic.not_found" }
+        "422":
+          description: The graphic is still generating or was marked not usable — only a ready graphic attaches (AC-08).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: "Only a ready, working motion graphic can be added to a block."
+                code: "motion_graphic.not_ready"
+                details: { status: "failed" }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    MotionGraphicId:
+      in: path
+      name: id
+      required: true
+      description: motion_graphics.id
+      schema: { type: string, format: uuid }
+    DraftId:
+      in: path
+      name: draftId
+      required: true
+      description: storyboard draft id (existing route param convention)
+      schema: { type: string, format: uuid }
+    BlockId:
+      in: path
+      name: blockId
+      required: true
+      description: storyboard_blocks.id — the block the snapshot attaches to
+      schema: { type: string, format: uuid }
+    Cursor:
+      in: query
+      name: cursor
+      description: opaque cursor — id of the last item seen; the page starts after it (repo convention)
+      required: false
+      schema: { type: [string, "null"] }
+    Limit:
+      in: query
+      name: limit
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 24 }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Unauthorized", code: "auth.unauthorized" }
+    BadRequest:
+      description: Malformed request body or parameters (Zod validation).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Invalid request body.", code: "motion_graphic.invalid_request" }
+    MotionGraphicNotFound:
+      description: |
+        The graphic does not exist OR is not owned by the caller — the two are indistinguishable by
+        design (existence hiding, AC-07 / §6.1).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: "Motion graphic not found.", code: "motion_graphic.not_found" }
+
+  schemas:
+    # Unified error envelope — repo's free-text `error` (existing, required) PLUS additive optional
+    # machine-readable `code` (neutral module.error_name) + `details`. errorHandler (apps/api/src/index.ts)
+    # attaches code+details only for GateError/RateLimitedError; ValidationError/NotFoundError emit bare
+    # { error } (see api-sync-report.md drift point 2). Existing clients reading only `error` are unaffected.
+    Error:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+          description: human-readable message (the existing repo field; safe to show to the Creator)
+        code:
+          type: [string, "null"]
+          pattern: "^[a-z_]+\\.[a-z_]+$"
+          description: machine-readable code, neutral `module.error_name` convention; null/absent on legacy errors
+          example: "motion_graphic.not_ready"
+        details:
+          type: object
+          description: optional structured context (server vs client estimate, current status, …)
+          additionalProperties: true
+
+    # ── Motion Graphic resource (← motion_graphics) ────────────────────────────────────────────────
+    MotionGraphicStatus:
+      type: string
+      enum: [generating, ready, failed]
+      description: |
+        motion_graphics.status. Only `ready` is attachable (AC-08). `generating` is the column default;
+        in MVP1 the row is persisted directly in a terminal state (`ready`/`failed`) by the verdict
+        endpoints — see api-sync-report.md.
+
+    MotionGraphicSummary:
+      type: object
+      required: [id, title, durationSeconds, status, version, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid, description: "motion_graphics.id" }
+        title: { type: string, maxLength: 255, description: "motion_graphics.title" }
+        durationSeconds:
+          type: number
+          minimum: 0
+          description: "motion_graphics.duration_seconds — DECIMAL(6,2); fractional seconds allowed (AC-13)"
+        status: { $ref: "#/components/schemas/MotionGraphicStatus" }
+        version: { type: integer, minimum: 1, description: "motion_graphics.version" }
+        createdAt: { type: string, format: date-time, description: "motion_graphics.created_at" }
+        updatedAt: { type: string, format: date-time, description: "motion_graphics.updated_at" }
+
+    MotionGraphic:
+      description: A full graphic read — summary fields + code/geometry + the append-only chat history.
+      type: object
+      required:
+        [id, title, code, propsSchema, durationSeconds, fps, width, height, runtimeVersion,
+         status, version, chatTurns, createdAt, updatedAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid, description: "motion_graphics.id" }
+        title: { type: string, maxLength: 255, description: "motion_graphics.title" }
+        code:
+          type: [string, "null"]
+          description: "motion_graphics.code (MEDIUMTEXT) — current ready component; null until first success / on a failed first generation (AC-06)"
+        propsSchema:
+          type: [object, "null"]
+          description: "motion_graphics.props_schema (JSON) — typed props shape; shape-only in MVP1 (forward-compat MVP2)"
+          additionalProperties: true
+        durationSeconds: { type: number, minimum: 0, description: "motion_graphics.duration_seconds (DECIMAL(6,2))" }
+        fps: { type: integer, minimum: 1, description: "motion_graphics.fps (default 30)" }
+        width: { type: integer, minimum: 1, description: "motion_graphics.width (default 1920)" }
+        height: { type: integer, minimum: 1, description: "motion_graphics.height (default 1080)" }
+        runtimeVersion:
+          type: string
+          maxLength: 32
+          description: "motion_graphics.runtime_version — pinned Remotion version authored against (ADR-0010)"
+        status: { $ref: "#/components/schemas/MotionGraphicStatus" }
+        version: { type: integer, minimum: 1, description: "motion_graphics.version (++ on each successful code update)" }
+        chatTurns:
+          type: array
+          description: the graphic's append-only chat history in `seq` order (motion_graphic_chat_turns)
+          items: { $ref: "#/components/schemas/ChatTurn" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ChatTurn:
+      description: one append-only chat turn (← motion_graphic_chat_turns); assistant turns are re-runnable (AC-12).
+      type: object
+      required: [id, role, seq, content, generatedCode, outcome, errorMessage, createdAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid, description: "motion_graphic_chat_turns.id" }
+        role:
+          type: string
+          enum: [user, assistant]
+          description: "motion_graphic_chat_turns.role"
+        seq: { type: integer, minimum: 0, description: "motion_graphic_chat_turns.seq — app-assigned monotonic order" }
+        content: { type: string, description: "motion_graphic_chat_turns.content — instruction / reply text" }
+        generatedCode:
+          type: [string, "null"]
+          description: "motion_graphic_chat_turns.generated_code — code an assistant turn produced; null for user / failed turns"
+        outcome:
+          type: [string, "null"]
+          enum: [ready, failed, null]
+          description: "motion_graphic_chat_turns.outcome — assistant-turn result; null on user turns"
+        errorMessage:
+          type: [string, "null"]
+          maxLength: 512
+          description: "motion_graphic_chat_turns.error_message — plain-language failure text (AC-06/AC-14)"
+        createdAt: { type: string, format: date-time }
+
+    MotionGraphicCreate:
+      description: Persist the first exchange of a newly generated graphic (the browser's verdict, Flow 1).
+      type: object
+      required: [prompt, durationSeconds, outcome]
+      additionalProperties: false
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          description: the Creator's description — becomes the opening `user` chat turn content
+        durationSeconds:
+          type: number
+          minimum: 0
+          description: "the fixed animation length the Creator set (→ motion_graphics.duration_seconds)"
+        outcome:
+          type: string
+          enum: [ready, failed]
+          description: the browser verdict — ran in preview AND deterministic (`ready`) vs not (`failed`, AC-06)
+        code:
+          type: [string, "null"]
+          description: "the generated component code; REQUIRED when outcome=ready, null when outcome=failed"
+        errorMessage:
+          type: [string, "null"]
+          maxLength: 512
+          description: "plain-language failure text recorded on the assistant turn when outcome=failed (AC-06)"
+        fps: { type: integer, minimum: 1, description: "optional; defaults to 30 (data-model)" }
+        width: { type: integer, minimum: 1, description: "optional; defaults to 1920 (data-model)" }
+        height: { type: integer, minimum: 1, description: "optional; defaults to 1080 (data-model)" }
+
+    MotionGraphicRename:
+      type: object
+      required: [title]
+      additionalProperties: false
+      properties:
+        title: { type: string, minLength: 1, maxLength: 255 }
+
+    GenerateRequest:
+      description: Open the generation stream for a new graphic (Flow 1; non-persisting).
+      type: object
+      required: [prompt, durationSeconds]
+      additionalProperties: false
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          description: |
+            the Creator's description; the server enforces a meaningful minimum length before the LLM
+            call (AC-05 → 422 motion_graphic.description_too_short)
+        durationSeconds:
+          type: number
+          minimum: 0
+          description: the fixed animation length the AI authors against
+        acknowledgedCost:
+          $ref: "#/components/schemas/Money"
+          description: the estimate the Creator confirmed in the cost gate; re-validated server-side (AC-11)
+
+    RefineRequest:
+      description: Open the refinement stream for an existing graphic (Flow 3; non-persisting).
+      type: object
+      required: [instruction]
+      additionalProperties: false
+      properties:
+        instruction:
+          type: string
+          minLength: 1
+          description: the follow-up instruction — becomes the next `user` chat turn on persist
+        acknowledgedCost:
+          $ref: "#/components/schemas/Money"
+          description: the estimate the Creator confirmed; re-validated server-side (AC-11)
+
+    TurnCreate:
+      description: Persist a refinement exchange (the browser's verdict, Flow 3).
+      type: object
+      required: [instruction, outcome]
+      additionalProperties: false
+      properties:
+        instruction:
+          type: string
+          minLength: 1
+          description: the follow-up instruction — becomes the `user` chat turn content
+        outcome:
+          type: string
+          enum: [ready, failed]
+          description: browser verdict — `ready` updates current code + version; `failed` keeps last working (AC-14)
+        code:
+          type: [string, "null"]
+          description: "the refined component code; REQUIRED when outcome=ready, null when outcome=failed"
+        errorMessage:
+          type: [string, "null"]
+          maxLength: 512
+          description: "plain-language failure text recorded on the failed assistant turn (AC-14)"
+
+    Money:
+      type: object
+      required: [currency, amount]
+      additionalProperties: false
+      properties:
+        currency: { type: string, description: "ISO 4217 code, e.g. USD" }
+        amount: { type: number, minimum: 0, description: "estimated cost in the currency's major unit" }
+
+    # ── Storyboard attach (← motion_graphic_block_snapshots + storyboard_block_media) ──────────────
+    AttachMotionGraphicRequest:
+      type: object
+      required: [motionGraphicId]
+      additionalProperties: false
+      properties:
+        motionGraphicId:
+          type: string
+          format: uuid
+          description: the ready graphic to freeze + attach (motion_graphics.id)
+        sortOrder:
+          type: integer
+          minimum: 0
+          description: "optional placement order within the block's media (storyboard_block_media.sort_order)"
+
+    BlockMediaMotionGraphic:
+      description: a storyboard_block_media row of kind `motion_graphic`, with its frozen snapshot.
+      type: object
+      required: [id, blockId, mediaType, sortOrder, snapshot]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid, description: "storyboard_block_media.id" }
+        blockId: { type: string, format: uuid, description: "storyboard_block_media.block_id" }
+        mediaType:
+          type: string
+          enum: [motion_graphic]
+          description: "storyboard_block_media.media_type — the new kind added by migration 04"
+        sortOrder: { type: integer, minimum: 0, description: "storyboard_block_media.sort_order" }
+        snapshot: { $ref: "#/components/schemas/MotionGraphicSnapshot" }
+
+    MotionGraphicSnapshot:
+      description: the immutable frozen copy of code + duration at attach time (← motion_graphic_block_snapshots, ADR-0009).
+      type: object
+      required:
+        [id, code, propsSchema, durationSeconds, fps, width, height, runtimeVersion, sourceVersion, createdAt]
+      additionalProperties: false
+      properties:
+        id: { type: string, format: uuid, description: "motion_graphic_block_snapshots.id" }
+        code: { type: string, description: "motion_graphic_block_snapshots.code — frozen (only a ready graphic attaches)" }
+        propsSchema:
+          type: [object, "null"]
+          description: "motion_graphic_block_snapshots.props_schema — frozen props-schema snapshot (MVP2 forward-compat)"
+          additionalProperties: true
+        durationSeconds: { type: number, minimum: 0, description: "motion_graphic_block_snapshots.duration_seconds — frozen (AC-04)" }
+        fps: { type: integer, minimum: 1, description: "motion_graphic_block_snapshots.fps — frozen geometry → export matches preview" }
+        width: { type: integer, minimum: 1, description: "motion_graphic_block_snapshots.width" }
+        height: { type: integer, minimum: 1, description: "motion_graphic_block_snapshots.height" }
+        runtimeVersion: { type: string, maxLength: 32, description: "motion_graphic_block_snapshots.runtime_version (ADR-0010)" }
+        sourceVersion:
+          type: [integer, "null"]
+          minimum: 1
+          description: "motion_graphic_block_snapshots.source_version — which motion_graphics.version was frozen (MVP3 pin hook)"
+        createdAt: { type: string, format: date-time }
+
+    # ── Pagination wrapper ─────────────────────────────────────────────────────────────────────────
+    MotionGraphicSummaryPage:
+      type: object
+      required: [items, nextCursor]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/MotionGraphicSummary" }
+        nextCursor:
+          type: [string, "null"]
+          description: opaque cursor for the next page, or null when there are no more (repo convention)

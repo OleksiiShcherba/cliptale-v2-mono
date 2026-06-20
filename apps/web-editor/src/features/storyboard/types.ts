@@ -20,12 +20,27 @@ export type StoryboardSaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 /** Valid block_type values matching the storyboard_blocks ENUM. */
 export type BlockType = 'start' | 'end' | 'scene';
 
-/** A single media attachment on a storyboard block. */
+/** Frozen motion-graphic snapshot hydrated onto a motion_graphic media item
+ *  (mirrors the API's BlockMediaItem.motionGraphic — AC-04/US-07). */
+export type BlockMediaMotionGraphicSnapshot = {
+  snapshotId: string;
+  code: string;
+  durationSeconds: number;
+  fps: number;
+  width: number;
+  height: number;
+  title?: string | null;
+};
+
+/** A single media attachment on a storyboard block.
+ *  motion_graphic rows carry a frozen snapshot and a NULL file_id (ADR-0009). */
 export type BlockMediaItem = {
   id: string;
-  fileId: string;
-  mediaType: 'image' | 'video' | 'audio';
+  fileId: string | null;
+  mediaType: 'image' | 'video' | 'audio' | 'motion_graphic';
   sortOrder: number;
+  /** Present only for media_type='motion_graphic' rows. */
+  motionGraphic?: BlockMediaMotionGraphicSnapshot;
 };
 
 /** A fully-hydrated storyboard block returned from the API. */

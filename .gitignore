@@ -20,3 +20,10 @@ test-results/
 .claude/*.local.md
 .worktrees/
 .e2e-cache/
+
+# ai-motion-graphic review/walkthrough harnesses (ephemeral — do not commit)
+/.mg-*/
+/mg-review.js
+/mg-attach-review.js
+/mg-editor-review.js
+/docs/features/ai-motion-graphic/_review/visual-*/

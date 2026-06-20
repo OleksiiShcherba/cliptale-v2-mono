@@ -21,7 +21,7 @@ export function useStoryboardPageBulkStreamUrls(
       if (node.type !== 'scene-block') return;
       const data = node.data as SceneBlockNodeData;
       (data.block?.mediaItems ?? []).forEach((item) => {
-        if (item.mediaType === 'image') ids.add(item.fileId);
+        if (item.mediaType === 'image' && item.fileId) ids.add(item.fileId);
       });
       if (data.illustration?.outputFileId) ids.add(data.illustration.outputFileId);
     });

@@ -11,6 +11,7 @@ const CLIP_COLORS: Record<Clip['type'], string> = {
   'text-overlay': '#F59E0B',
   image:          '#0EA5E9',
   caption:        '#10B981',
+  'motion-graphic': '#EC4899',
 };
 
 const CLIP_SELECTED_BORDER_COLOR = '#F0F0FA';
@@ -93,6 +94,7 @@ function getClipLabel(clip: Clip): string {
     const text = clip.words.map((w) => w.word).join(' ');
     return text.length > 40 ? `${text.slice(0, 40)}…` : text || 'caption';
   }
+  if (clip.type === 'motion-graphic') return 'motion graphic';
   return clip.type;
 }
 

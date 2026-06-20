@@ -10,12 +10,29 @@ import type { RowDataPacket } from 'mysql2/promise';
 /** Valid block_type values matching the storyboard_blocks ENUM. */
 export type BlockType = 'start' | 'end' | 'scene';
 
-/** A single media attachment on a storyboard block. */
+/** Frozen motion-graphic snapshot hydrated onto a motion_graphic media item.
+ *  On the READ path all geometry fields are populated; on the SAVE path only the
+ *  snapshotId is known (the rest are immutable in the DB and need not round-trip). */
+export type BlockMediaMotionGraphicSnapshot = {
+  snapshotId: string;
+  code?: string;
+  durationSeconds?: number;
+  fps?: number;
+  width?: number;
+  height?: number;
+  /** Optional source-graphic title (LEFT JOIN motion_graphics); null if source gone. */
+  title?: string | null;
+};
+
+/** A single media attachment on a storyboard block.
+ *  motion_graphic rows carry a frozen snapshot and a NULL file_id (ADR-0009). */
 export type BlockMediaItem = {
   id: string;
-  fileId: string;
-  mediaType: 'image' | 'video' | 'audio';
+  fileId: string | null;
+  mediaType: 'image' | 'video' | 'audio' | 'motion_graphic';
   sortOrder: number;
+  /** Present only for media_type='motion_graphic' rows with a live snapshot FK. */
+  motionGraphic?: BlockMediaMotionGraphicSnapshot;
 };
 
 /** A fully-hydrated storyboard block (includes mediaItems). */
@@ -103,10 +120,42 @@ export type BlockRow = RowDataPacket & {
 export type BlockMediaRow = RowDataPacket & {
   id: string;
   block_id: string;
-  file_id: string;
-  media_type: 'image' | 'video' | 'audio';
+  file_id: string | null;
+  media_type: 'image' | 'video' | 'audio' | 'motion_graphic';
   sort_order: number;
+  /** Joined columns from motion_graphic_block_snapshots (NULL for non-mg rows). */
+  mg_snapshot_id: string | null;
+  mg_code: string | null;
+  mg_duration_seconds: string | number | null;
+  mg_fps: number | null;
+  mg_width: number | null;
+  mg_height: number | null;
+  mg_title: string | null;
 };
+
+/** Maps a raw block-media row to the public BlockMediaItem, hydrating the
+ *  frozen motion-graphic snapshot when present. Shared by both read queries so
+ *  they never drift. */
+export function mapBlockMediaRow(m: BlockMediaRow): BlockMediaItem {
+  const item: BlockMediaItem = {
+    id: m.id,
+    fileId: m.file_id,
+    mediaType: m.media_type,
+    sortOrder: m.sort_order,
+  };
+  if (m.media_type === 'motion_graphic' && m.mg_snapshot_id != null) {
+    item.motionGraphic = {
+      snapshotId: m.mg_snapshot_id,
+      code: m.mg_code ?? '',
+      durationSeconds: Number(m.mg_duration_seconds ?? 0),
+      fps: Number(m.mg_fps ?? 0),
+      width: Number(m.mg_width ?? 0),
+      height: Number(m.mg_height ?? 0),
+      title: m.mg_title,
+    };
+  }
+  return item;
+}
 
 export type EdgeRow = RowDataPacket & {
   id: string;

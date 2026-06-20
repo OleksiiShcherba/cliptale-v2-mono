@@ -18,6 +18,7 @@ import { useKeyboardShortcuts } from '@/features/version-history/hooks/useKeyboa
 import { useWindowWidth } from '@/shared/hooks/useWindowWidth';
 import { ProjectSettingsModal } from '@/features/project-settings/components/ProjectSettingsModal';
 import { AiGenerationPanel } from '@/shared/ai-generation/components/AiGenerationPanel';
+import { EditorMotionGraphicPanel } from '@/features/motion-graphic/components/EditorMotionGraphicPanel';
 import { LeftSidebarTabs } from '@/shared/ai-generation/components/LeftSidebarTabs';
 import type { LeftSidebarTab } from '@/shared/ai-generation/components/LeftSidebarTabs';
 import { TimelineResizeHandle } from '@/features/timeline/components/TimelineResizeHandle';
@@ -241,6 +242,9 @@ export function App(): React.ReactElement {
             {leftSidebarTab === 'assets' && <AssetBrowserPanel projectId={projectId} />}
             {leftSidebarTab === 'ai-generate' && (
               <AiGenerationPanel context={{ kind: 'project', id: projectId }} onSwitchToAssets={() => setLeftSidebarTab('assets')} compact />
+            )}
+            {leftSidebarTab === 'motion-graphics' && (
+              <EditorMotionGraphicPanel projectId={projectId} />
             )}
           </aside>
           <div style={styles.verticalDivider} aria-hidden="true" />
