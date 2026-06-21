@@ -43,6 +43,22 @@ describe('HomeSidebar — Generate AI tab', () => {
   });
 });
 
+describe('HomeSidebar — reusable on standalone routes (Motion Graphics page)', () => {
+  it('navigates to /?tab=<id> when a tab is clicked without an onTabChange handler', () => {
+    mockNavigate.mockClear();
+    render(<HomeSidebar activeNav="motion-graphics" />);
+    fireEvent.click(screen.getByRole('tab', { name: /projects/i }));
+    expect(mockNavigate).toHaveBeenCalledWith('/?tab=projects');
+  });
+
+  it('marks the AI Motion Graphics item active when activeNav is "motion-graphics"', () => {
+    render(<HomeSidebar activeNav="motion-graphics" />);
+    expect(
+      screen.getByTestId('nav-motion-graphics').getAttribute('aria-current'),
+    ).toBe('page');
+  });
+});
+
 describe('HomeSidebar — Settings menu item (storyboard-autosave-checkpoints T8, AC-09)', () => {
   it('renders a Settings item in the left menu', () => {
     render(<HomeSidebar activeTab="projects" onTabChange={vi.fn()} />);

@@ -16,6 +16,8 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { HomeSidebar } from '@/features/home/components/HomeSidebar';
+
 import { useMotionGraphicsList } from '../hooks/useMotionGraphicsList';
 import { MotionGraphicCard } from './MotionGraphicCard';
 import { motionGraphicsPageStyles as styles } from './motionGraphicsPage.styles';
@@ -33,7 +35,11 @@ export function MotionGraphicsPage(): React.ReactElement {
   }
 
   return (
-    <main style={styles.page} data-testid="motion-graphics-page">
+    // Two-column layout — the same left nav as the rest of the app (Projects /
+    // Storyboard / Generate AI), with AI Motion Graphics shown active.
+    <div style={{ display: 'flex', minHeight: '100vh', background: '#0D0D14' }}>
+      <HomeSidebar activeNav="motion-graphics" />
+      <main style={{ ...styles.page, flex: 1 }} data-testid="motion-graphics-page">
       <div style={styles.header}>
         <h1 style={styles.heading}>Motion Graphics</h1>
         <button
@@ -82,6 +88,7 @@ export function MotionGraphicsPage(): React.ReactElement {
           ))}
         </div>
       )}
-    </main>
+      </main>
+    </div>
   );
 }

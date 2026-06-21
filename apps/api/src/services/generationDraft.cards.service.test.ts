@@ -271,6 +271,28 @@ describe('generationDraft.service — listStoryboardCardsForUser', () => {
     });
   });
 
+  // ── Malformed/legacy promptDoc must not 500 (regression) ──────────────────
+
+  it('should not throw when a draft has an empty promptDoc with no blocks key', async () => {
+    // A legacy/blank draft can persist `promptDoc: {}` (no `blocks`). The list
+    // endpoint must degrade to an empty card, never throw "blocks is not iterable".
+    vi.mocked(generationDraftRepository.findStoryboardDraftsForUser).mockResolvedValue([
+      // Cast: we are deliberately exercising a malformed row the DB can return.
+      { id: DRAFT_ID_1, status: 'step2', promptDoc: {}, updatedAt: new Date('2026-01-01') } as never,
+      { id: DRAFT_ID_2, status: 'draft', promptDoc: { schemaVersion: 1 }, updatedAt: new Date('2026-01-02') } as never,
+    ]);
+
+    const result = await listStoryboardCardsForUser(USER_ID);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]!.textPreview).toBe('');
+    expect(result[0]!.mediaPreviews).toEqual([]);
+    expect(result[1]!.textPreview).toBe('');
+    expect(result[1]!.mediaPreviews).toEqual([]);
+    // No asset lookup is attempted when there are no media refs.
+    expect(generationDraftRepository.findAssetPreviewsByIds).toHaveBeenCalledWith([]);
+  });
+
   // ── updatedAt passthrough ────────────────────────────────────────────────
 
   it('should pass through updatedAt from the draft row', async () => {

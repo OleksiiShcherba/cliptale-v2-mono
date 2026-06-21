@@ -495,12 +495,12 @@ describe('storyboard project API helper', () => {
     expect(result).toEqual(response);
   });
 
-  it('throws when storyboard project assembly fails', async () => {
+  it('throws the server error message when storyboard project assembly fails', async () => {
     mockApiClient.post.mockResolvedValue(mockErrorResponse(422));
 
-    await expect(createProjectFromStoryboard('draft-abc')).rejects.toThrow(
-      'POST /storyboards/draft-abc/project failed: 422',
-    );
+    // The server's plain-language reason is surfaced (mockErrorResponse → "not found"),
+    // not a raw "failed: 422" string, so Step 3 can show the user why it stopped.
+    await expect(createProjectFromStoryboard('draft-abc')).rejects.toThrow('not found');
   });
 });
 

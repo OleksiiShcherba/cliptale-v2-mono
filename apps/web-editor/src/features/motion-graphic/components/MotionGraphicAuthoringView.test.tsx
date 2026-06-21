@@ -152,6 +152,15 @@ describe('MotionGraphicAuthoringView (generate)', () => {
     expect(screen.getByTestId('mg-authoring-preview')).toBeTruthy();
   });
 
+  // ── Return-home navigation ──────────────────────────────────────────────────
+
+  it('renders a back-home control that navigates to the home route', () => {
+    renderView();
+
+    fireEvent.click(screen.getByTestId('mg-back-home'));
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
   // ── Too-short description (AC-05) ───────────────────────────────────────────
 
   it('surfaces the server description_too_short message inline and does not persist', async () => {

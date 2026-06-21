@@ -300,7 +300,12 @@ export async function createProjectFromStoryboard(
 ): Promise<StoryboardProjectCreateResponse> {
   const res = await apiClient.post(`/storyboards/${draftId}/project`, { mode });
   if (!res.ok) {
-    throw new Error(`POST /storyboards/${draftId}/project failed: ${res.status}`);
+    // Surface the server's plain-language reason (e.g. "Scene 3 is not ready
+    // yet") instead of a raw "failed: 422" so Step 3 can show why it stopped.
+    const body = await res.json().catch(() => null) as { error?: string } | null;
+    throw new Error(
+      body?.error ?? `POST /storyboards/${draftId}/project failed: ${res.status}`,
+    );
   }
   return res.json() as Promise<StoryboardProjectCreateResponse>;
 }

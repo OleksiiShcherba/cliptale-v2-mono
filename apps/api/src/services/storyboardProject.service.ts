@@ -7,7 +7,6 @@ import * as generationDraftRepository from '@/repositories/generationDraft.repos
 import * as projectRepository from '@/repositories/project.repository.js';
 import * as storyboardRepository from '@/repositories/storyboard.repository.js';
 import type { StoryboardBlock } from '@/repositories/storyboard.repository.js';
-import * as referenceRepository from '@/repositories/storyboardIllustrationReference.repository.js';
 import * as musicRepository from '@/repositories/storyboardMusic.repository.js';
 import type { StoryboardMusicBlock } from '@/repositories/storyboardMusic.repository.js';
 import * as illustrationRepository from '@/repositories/storyboardSceneIllustration.repository.js';
@@ -27,18 +26,19 @@ export type StoryboardProjectAssemblyMode = 'images' | 'videos';
 
 function assertReadyForProjectAssembly(params: {
   sceneBlocks: StoryboardBlock[];
-  reference: referenceRepository.StoryboardIllustrationReference | null;
   illustrationJobs: StoryboardSceneIllustrationJob[];
 }): void {
   if (params.sceneBlocks.length === 0) {
     throw new UnprocessableEntityError('Storyboard has no scene blocks to assemble');
   }
-  if (!params.reference || params.reference.status !== 'ready' || !params.reference.outputFileId) {
-    throw new UnprocessableEntityError('Principal image is not ready yet');
-  }
-  if (params.reference.approvalStatus !== 'approved') {
-    throw new UnprocessableEntityError('Principal image must be approved before creating a project');
-  }
+  // NOTE: project readiness is gated on every scene block having a ready
+  // illustration output below — NOT on the legacy single "principal image"
+  // (storyboard_illustration_references). The cast-reference pipeline
+  // (storyboard_reference_blocks + per-scene illustrations) superseded that
+  // table and no flow populates it anymore, so requiring it here rejected every
+  // real storyboard with "Principal image is not ready yet". Scene-illustration
+  // readiness already implies the upstream references were ready (scenes cannot
+  // generate before their references — scene-generation-reference-gate).
 
   const latestByBlock = new Map(params.illustrationJobs.map((job) => [job.blockId, job]));
   const missing = params.sceneBlocks.find((block) => {
@@ -125,7 +125,6 @@ export async function createProjectFromStoryboard(
     const blocks = await storyboardRepository.findBlocksByDraftIdForUpdate(conn, draftId);
     const edges = await storyboardRepository.findEdgesByDraftIdForUpdate(conn, draftId);
     const musicBlocks = await musicRepository.findMusicBlocksByDraftIdForUpdate(conn, draftId);
-    const reference = await referenceRepository.findActiveReferenceByDraftIdForUpdate(conn, draftId);
     const illustrationJobs = await illustrationRepository.findLatestIllustrationJobsByDraftIdForUpdate(
       conn,
       draftId,
@@ -137,7 +136,7 @@ export async function createProjectFromStoryboard(
     if (mode === 'videos') {
       assertReadyForVideoProjectAssembly({ sceneBlocks, videoJobs });
     } else {
-      assertReadyForProjectAssembly({ sceneBlocks, reference, illustrationJobs });
+      assertReadyForProjectAssembly({ sceneBlocks, illustrationJobs });
     }
     assertReadyForMusicProjectAssembly({ sceneBlocks, musicBlocks });
 

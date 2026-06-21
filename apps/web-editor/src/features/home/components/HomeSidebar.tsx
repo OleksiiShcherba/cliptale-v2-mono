@@ -11,8 +11,14 @@ const TEXT_SECONDARY = '#8A8AA0';
 const BORDER = '#252535';
 
 interface HomeSidebarProps {
-  activeTab: HomeTab;
-  onTabChange: (tab: HomeTab) => void;
+  /** Which Home tab is active. Omitted when the sidebar is shown on a standalone
+   *  route (e.g. the Motion Graphics page) where no Home tab is selected. */
+  activeTab?: HomeTab;
+  /** In-page tab switch handler (Home page). When omitted, clicking a tab
+   *  navigates to `/?tab=<id>` so the sidebar can be reused on other routes. */
+  onTabChange?: (tab: HomeTab) => void;
+  /** Highlights a non-tab nav destination as active (e.g. on `/motion-graphics`). */
+  activeNav?: 'motion-graphics';
 }
 
 const NAV_ITEMS: Array<{ id: HomeTab; label: string }> = [
@@ -26,8 +32,15 @@ const NAV_ITEMS: Array<{ id: HomeTab; label: string }> = [
  * Renders the Projects / Storyboard tab navigation.
  * Active tab uses `primary-light` background per design-guide §3.
  */
-export function HomeSidebar({ activeTab, onTabChange }: HomeSidebarProps): React.ReactElement {
+export function HomeSidebar({ activeTab, onTabChange, activeNav }: HomeSidebarProps): React.ReactElement {
   const navigate = useNavigate();
+  // In-page switch when a handler is supplied (Home); otherwise route to Home
+  // with the tab hint so the same sidebar works on standalone routes.
+  const handleTab = (id: HomeTab): void => {
+    if (onTabChange) onTabChange(id);
+    else navigate(`/?tab=${id}`);
+  };
+  const mgActive = activeNav === 'motion-graphics';
   return (
     <nav
       aria-label="Home navigation"
@@ -79,7 +92,7 @@ export function HomeSidebar({ activeTab, onTabChange }: HomeSidebarProps): React
                 aria-selected={isActive}
                 aria-controls={`panel-${id}`}
                 id={`tab-${id}`}
-                onClick={() => onTabChange(id)}
+                onClick={() => handleTab(id)}
                 style={{
                   display: 'block',
                   width: '100%',
@@ -111,6 +124,7 @@ export function HomeSidebar({ activeTab, onTabChange }: HomeSidebarProps): React
           <button
             onClick={() => navigate('/motion-graphics')}
             aria-label="AI Motion Graphics"
+            aria-current={mgActive ? 'page' : undefined}
             data-testid="nav-motion-graphics"
             style={{
               display: 'block',
@@ -118,10 +132,10 @@ export function HomeSidebar({ activeTab, onTabChange }: HomeSidebarProps): React
               textAlign: 'left',
               padding: '8px 12px',
               fontSize: 14,
-              fontWeight: 400,
+              fontWeight: mgActive ? 600 : 400,
               fontFamily: 'Inter, sans-serif',
-              color: TEXT_SECONDARY,
-              background: 'transparent',
+              color: mgActive ? TEXT_PRIMARY : TEXT_SECONDARY,
+              background: mgActive ? PRIMARY_LIGHT : 'transparent',
               border: 'none',
               borderRadius: 8,
               cursor: 'pointer',

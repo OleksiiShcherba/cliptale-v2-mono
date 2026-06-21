@@ -211,7 +211,6 @@ describe('createProjectFromStoryboard', () => {
     expect(mockStoryboardRepo.findBlocksByDraftIdForUpdate).toHaveBeenCalledWith(mockConn, DRAFT_ID);
     expect(mockStoryboardRepo.findEdgesByDraftIdForUpdate).toHaveBeenCalledWith(mockConn, DRAFT_ID);
     expect(mockMusicRepo.findMusicBlocksByDraftIdForUpdate).toHaveBeenCalledWith(mockConn, DRAFT_ID);
-    expect(mockReferenceRepo.findActiveReferenceByDraftIdForUpdate).toHaveBeenCalledWith(mockConn, DRAFT_ID);
     expect(mockIllustrationRepo.findLatestIllustrationJobsByDraftIdForUpdate).toHaveBeenCalledWith(
       mockConn,
       DRAFT_ID,
@@ -241,6 +240,20 @@ describe('createProjectFromStoryboard', () => {
     expect(mockConn.commit).toHaveBeenCalledOnce();
     expect(mockConn.rollback).not.toHaveBeenCalled();
     expect(mockConn.release).toHaveBeenCalledOnce();
+  });
+
+  it('assembles in images mode without a legacy principal-image reference when scenes are ready', async () => {
+    // Regression: the cast-reference pipeline no longer populates
+    // storyboard_illustration_references, so a ready storyboard has no "principal
+    // image". Assembly must still succeed when every scene illustration is ready.
+    mockReferenceRepo.findActiveReferenceByDraftIdForUpdate.mockResolvedValue(null);
+
+    const result = await createProjectFromStoryboard(USER_ID, DRAFT_ID);
+
+    expect(result).toEqual({ projectId: expect.any(String), versionId: VERSION_ID });
+    expect(mockProjectRepo.createProjectTransaction).toHaveBeenCalledOnce();
+    expect(mockConn.commit).toHaveBeenCalledOnce();
+    expect(mockConn.rollback).not.toHaveBeenCalled();
   });
 
   it('assembles video mode from ready storyboard video jobs without requiring illustration readiness', async () => {

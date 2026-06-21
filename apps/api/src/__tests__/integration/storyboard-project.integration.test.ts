@@ -540,14 +540,20 @@ describe('POST /storyboards/:draftId/project', () => {
     expect(Number(afterRetryRows[0]!['cnt'])).toBe(1);
   });
 
-  it('returns 422 for pending principal approval or missing scene output', async () => {
-    const pending = await request(app)
+  it('assembles regardless of the legacy principal-image approval (gate removed) when scenes are ready', async () => {
+    // The legacy single principal-image (storyboard_illustration_references) is no
+    // longer a gate — the cast-reference pipeline superseded it and no flow
+    // populates it. A storyboard whose scenes are all ready must assemble even if
+    // that legacy row is unapproved.
+    const res = await request(app)
       .post(`/storyboards/${draftPendingReference}/project`)
       .set('Authorization', authA())
       .send({});
-    expect(pending.status).toBe(422);
-    expect(pending.body.error).toContain('Principal image must be approved');
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.projectId).toBeDefined();
+  });
 
+  it('returns 422 when a scene illustration output is not ready', async () => {
     const missingOutput = await request(app)
       .post(`/storyboards/${draftMissingOutput}/project`)
       .set('Authorization', authA())

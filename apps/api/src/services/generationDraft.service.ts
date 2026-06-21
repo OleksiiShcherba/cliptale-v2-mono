@@ -286,7 +286,9 @@ export async function listStoryboardCardsForUser(userId: string): Promise<Storyb
 
   // Collect the first MEDIA_PREVIEW_MAX_COUNT media-ref fileIds per draft.
   const draftMediaRefs = drafts.map((d) => {
-    const blocks = d.promptDoc.blocks;
+    // A draft can carry an empty/legacy promptDoc (e.g. `{}` with no `blocks`
+    // key) — never assume `blocks` is an array, or the whole list 500s.
+    const blocks = Array.isArray(d.promptDoc?.blocks) ? d.promptDoc.blocks : [];
     const mediaRefs: string[] = [];
     for (const block of blocks) {
       if (block.type === 'media-ref' && mediaRefs.length < MEDIA_PREVIEW_MAX_COUNT) {
@@ -304,9 +306,10 @@ export async function listStoryboardCardsForUser(userId: string): Promise<Storyb
   const assetMap = new Map(assetRows.map((a) => [a.fileId, a]));
 
   return draftMediaRefs.map(({ draft, mediaRefs }) => {
-    // Build text preview from TextBlocks.
+    // Build text preview from TextBlocks (guard against a missing `blocks`).
     let textConcat = '';
-    for (const block of draft.promptDoc.blocks) {
+    const textBlocks = Array.isArray(draft.promptDoc?.blocks) ? draft.promptDoc.blocks : [];
+    for (const block of textBlocks) {
       if (block.type === 'text') {
         textConcat += block.value;
         if (textConcat.length >= TEXT_PREVIEW_MAX_CHARS) break;

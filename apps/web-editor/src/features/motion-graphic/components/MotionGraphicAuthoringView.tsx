@@ -292,6 +292,27 @@ export function MotionGraphicAuthoringView(): React.ReactElement {
 
   return (
     <main style={styles.page} data-testid="motion-graphic-authoring">
+      {/* Top bar with a clear way back out of the editor (return home / list). */}
+      <div style={styles.topBar}>
+        <button
+          type="button"
+          onClick={() => navigate('/')}
+          style={styles.homeButton}
+          aria-label="Back to home"
+          data-testid="mg-back-home"
+        >
+          ← Home
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate('/motion-graphics')}
+          style={styles.homeButton}
+          aria-label="Back to Motion Graphics list"
+          data-testid="mg-back-list"
+        >
+          Motion Graphics
+        </button>
+      </div>
       <div style={styles.workspace}>
         {/* Preview fills the canvas area alongside the chat (AC-02). */}
         <section style={styles.previewArea} data-testid="mg-authoring-preview" aria-label="Live preview">
