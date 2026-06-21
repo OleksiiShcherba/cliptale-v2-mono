@@ -20,4 +20,6 @@
 - [Relative imports crossing directory boundaries](ruling_relative_imports_cross_boundary.md) — `from '../types'` violates §9; always flag, fix with absolute alias `@/features/name/types`
 - [Subtask 8 — Storyboard store + autosave + undo/redo history](ruling_subtask8_storyboard_store_autosave.md) — hardcoded color violation in storyboard-history-store.ts:148; rest compliant
 - [Subtask ST-C2 — History UI review](ruling_subtask_stc2_history_ui.md) — architecture-rules §9 compliant; design-guide §3 token violations pre-flagged by design-reviewer
-- [ST-BUG2c-1 SQL in service violation](ruling_storyboard_service_sql_in_service.md) — storyboard.service.ts lines 76–82 execute SELECT directly; violates §5; extract to repository method accepting transaction conn
+- [SQL in service — storyboardPipeline.confirm.service.ts](ruling_storyboard_service_sql_in_service.md) — entire service has pre-existing direct pool.execute() SQL; subtask 1 (2026-06-21) added filterValidSceneIds — flagged §5 violation; always flag new SQL additions; file also exceeds 300-line cap
+- [vi.mock async importOriginal factory is safe without vi.hoisted](ruling_vi_mock_factory_safe_pattern.md) — async importOriginal factories that only call importOriginal() are TDZ-safe; only flag when factory references external module-scope variables
+- [workerRepositories.ts over 300 lines — pre-existing](ruling_workerRepositories_line_cap.md) — file was 470+ lines before 2026-06-21; treat 300-line cap as warning not violation for small focused additions; not yet in approved exceptions table

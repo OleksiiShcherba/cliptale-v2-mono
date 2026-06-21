@@ -295,6 +295,78 @@ describe('T7 — onReferenceBlockJobComplete rolling-window hook', () => {
       expect(payload).toMatchObject({ draftId: DRAFT_ID });
     });
 
+    // ── Hardening: oversized error blobs + DB-error on failure path ──────────
+    // Regression guard for the "Generating reference images" infinite-loader bug:
+    // a fal.ai 422 content_policy_violation payload (~720 chars) overflowed the
+    // VARCHAR(512) error_message column, the failure UPDATE threw, and the block
+    // stayed window_status='running' forever. The column is now TEXT (migration
+    // 064) AND the worker truncates defensively + never lets the failure write
+    // strand the block.
+
+    it('truncates an oversized error_message to <= 500 chars before the UPDATE', async () => {
+      const enqueue = makeEnqueue();
+      const { pool, calls } = makePool([
+        [[], []], // UPDATE block A → failed
+        [[], []], // SELECT next pending → empty
+      ]);
+
+      // Simulate the real fal.ai 422 content_policy_violation blob (~720 chars).
+      const hugeError = 'content_policy_violation: '.repeat(40); // ~1040 chars
+      expect(hugeError.length).toBeGreaterThan(512);
+
+      await onReferenceBlockJobComplete(makeFailureParams({ errorMessage: hugeError }), {
+        pool,
+        aiGenerateQueue: makeQueue(enqueue),
+      } satisfies ReferenceWindowHookDeps);
+
+      const [updateSql, updateParams] = calls[0]!;
+      expect(updateSql).toMatch(/window_status\s*=\s*['"]?failed['"]?/i);
+      const persisted = (updateParams as unknown[]).find(
+        (p) => typeof p === 'string' && p.startsWith('content_policy_violation'),
+      ) as string;
+      expect(persisted).toBeDefined();
+      expect(persisted.length).toBeLessThanOrEqual(500);
+    });
+
+    it('still marks the block failed (terminal) when the error-text UPDATE throws — never strands it as running', async () => {
+      const enqueue = makeEnqueue();
+      // First UPDATE (with error text) rejects, e.g. a DB-side error; the hook
+      // must retry with a sentinel so the block reaches 'failed'.
+      const calls: Array<[string, unknown[]?]> = [];
+      let callIndex = 0;
+      const execute = vi.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
+        calls.push([sql, params]);
+        callIndex += 1;
+        if (callIndex === 1) {
+          throw new Error('Data too long for column');
+        }
+        if (callIndex === 2) {
+          return [{ affectedRows: 1 }, []]; // sentinel UPDATE succeeds
+        }
+        return [[], []]; // SELECT next pending → empty
+      });
+      const pool = { execute } as unknown as Pool;
+
+      await expect(
+        onReferenceBlockJobComplete(makeFailureParams(), {
+          pool,
+          aiGenerateQueue: makeQueue(enqueue),
+        } satisfies ReferenceWindowHookDeps),
+      ).resolves.toBeUndefined();
+
+      // The retry UPDATE must still set window_status='failed' for this block.
+      const failedUpdate = calls.find(
+        ([sql]) =>
+          /UPDATE\s+storyboard_reference_blocks/i.test(sql) &&
+          /window_status\s*=\s*['"]?failed['"]?/i.test(sql),
+      );
+      expect(failedUpdate).toBeTruthy();
+      // The sentinel retry is scoped to the failed block.
+      const sentinelRetry = calls[1];
+      expect(sentinelRetry).toBeTruthy();
+      expect(sentinelRetry![1]).toContain(BLOCK_ID_A);
+    });
+
     it('does not affect other blocks — only the failed block row is updated', async () => {
       const enqueue = makeEnqueue();
       const { pool, calls } = makePool([

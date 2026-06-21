@@ -525,16 +525,15 @@ describe('AC-03 — billing is NOT called on confirm', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('AC-03 — transaction failure leaves no blocks / flows / pending rows', () => {
-  it('if confirmCast throws mid-transaction, no reference block or flow is persisted', async () => {
+  it('if confirmCast throws mid-transaction (foreign imageFileId), no reference block or flow is persisted', async () => {
     const { confirmCast } = await confirmSvc();
 
     const draftId = await seedDraft(OWNER_ID);
-    // Provide a cast entry with an invalid (non-existent) scene block id to
-    // force a FK violation inside the transaction, causing rollback.
-    // The service should propagate the error and leave the DB clean.
-    const badSceneId = randomUUID(); // not in storyboard_blocks
-
     await seedExtractionJob(draftId, OWNER_ID, 1);
+
+    // Use a foreign (cross-tenant) image file to trigger a NotFoundError inside
+    // the transaction, causing rollback and leaving the DB clean.
+    const foreignFile = await seedFile(OTHER_ID);
 
     mockQueueAdd.mockClear();
 
@@ -547,8 +546,8 @@ describe('AC-03 — transaction failure leaves no blocks / flows / pending rows'
             castType: 'character',
             name: 'Test Character 1',
             description: 'Desc 1',
-            imageFileIds: [],
-            sceneBlockIds: [badSceneId], // FK violation → transaction rolls back
+            imageFileIds: [foreignFile], // cross-tenant → NotFoundError → rollback
+            sceneBlockIds: [],
           },
         ],
         acknowledgedAggregateCredits: 0.42,
@@ -564,6 +563,49 @@ describe('AC-03 — transaction failure leaves no blocks / flows / pending rows'
 
     // No flows created for this user in this run (mockQueueAdd not called).
     expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it('invalid (stale) sceneBlockId is silently skipped — block created with zero links, no throw', async () => {
+    const { confirmCast } = await confirmSvc();
+
+    const draftId = await seedDraft(OWNER_ID);
+    await seedExtractionJob(draftId, OWNER_ID, 1);
+
+    const badSceneId = randomUUID(); // not in storyboard_blocks
+
+    mockQueueAdd.mockClear();
+
+    const result = await confirmCast({
+      draftId,
+      userId: OWNER_ID,
+      entries: [
+        {
+          castType: 'character',
+          name: 'Test Character 1',
+          description: 'Desc 1',
+          imageFileIds: [],
+          sceneBlockIds: [badSceneId],
+        },
+      ],
+      acknowledgedAggregateCredits: 0.42,
+    });
+
+    // Block created successfully — bad scene id skipped, no throw.
+    expect(result).toHaveLength(1);
+    expect(result[0]!.sceneBlockIds).toHaveLength(0);
+
+    // DB: block exists, zero scene links.
+    const [blockRows] = await conn.execute<RowDataPacket[]>(
+      `SELECT id FROM storyboard_reference_blocks WHERE draft_id = ?`,
+      [draftId],
+    );
+    expect(blockRows).toHaveLength(1);
+
+    const [linkRows] = await conn.execute<RowDataPacket[]>(
+      `SELECT scene_block_id FROM storyboard_reference_scene_links WHERE reference_block_id = ?`,
+      [blockRows[0]!['id']],
+    );
+    expect(linkRows).toHaveLength(0);
   });
 });
 
@@ -676,4 +718,193 @@ describe('F12 / confirmCast — imageFileIds ownership', () => {
     );
     expect(blockRows).toHaveLength(0);
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subtask 2 — proposal-scene-id fallback (legacy /references/confirm path)
+//
+// When the client omits sceneBlockIds the service resolves them server-side from
+// the latest completed cast-extraction proposal (matched by castType + name).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Insert a minimal scene block for a draft; returns its id. */
+async function seedSceneBlock(draftId: string): Promise<string> {
+  const id = randomUUID();
+  await conn.execute(
+    `INSERT INTO storyboard_blocks (id, draft_id, block_type, name, sort_order)
+     VALUES (?, ?, 'scene', 'Scene A', 0)`,
+    [id, draftId],
+  );
+  return id;
+}
+
+/**
+ * Insert a completed cast_extraction_job using the canonical `{ cast: [...] }` format
+ * (the format written by cast-extract.job.ts and expected by the proposal parser).
+ */
+async function seedExtractionJobWithProposal(
+  draftId: string,
+  userId: string,
+  cast: Array<{
+    type: 'character' | 'environment';
+    name: string;
+    description?: string;
+    scene_block_ids?: string[];
+  }>,
+): Promise<string> {
+  const id = randomUUID();
+  await conn.execute(
+    `INSERT INTO storyboard_cast_extraction_jobs
+       (id, draft_id, user_id, status, proposal_json, aggregate_estimate_credits, completed_at)
+     VALUES (?, ?, ?, 'completed', ?, '0.4200', NOW(3))`,
+    [
+      id,
+      draftId,
+      userId,
+      JSON.stringify({
+        cast: cast.map((c) => ({
+          type: c.type,
+          name: c.name,
+          description: c.description ?? '',
+          image_file_ids: [],
+          scene_block_ids: c.scene_block_ids ?? [],
+          per_run_estimate: 0.42,
+        })),
+      }),
+    ],
+  );
+  return id;
+}
+
+describe('Subtask 2 — proposal scene-id fallback', () => {
+  it(
+    'entry without sceneBlockIds + proposal has scene ids → links derived from proposal',
+    async () => {
+      const { confirmCast } = await confirmSvc();
+
+      const draftId = await seedDraft(OWNER_ID);
+      const sceneId = await seedSceneBlock(draftId);
+
+      // Seed proposal with scene_block_ids for "Hero".
+      await seedExtractionJobWithProposal(draftId, OWNER_ID, [
+        { type: 'character', name: 'Hero', scene_block_ids: [sceneId] },
+      ]);
+
+      mockQueueAdd.mockClear();
+
+      const result = await confirmCast({
+        draftId,
+        userId: OWNER_ID,
+        entries: [
+          {
+            castType: 'character',
+            name: 'Hero',
+            description: 'A brave hero',
+            imageFileIds: [],
+            // sceneBlockIds deliberately omitted (client did not provide them)
+          },
+        ],
+        acknowledgedAggregateCredits: 0.42,
+      });
+
+      expect(result).toHaveLength(1);
+      // Service resolves scene ids from proposal.
+      expect(result[0]!.sceneBlockIds).toEqual([sceneId]);
+
+      // DB: one scene link created.
+      const [linkRows] = await conn.execute<RowDataPacket[]>(
+        `SELECT scene_block_id FROM storyboard_reference_scene_links
+          WHERE reference_block_id = ?`,
+        [result[0]!.blockId],
+      );
+      expect(linkRows).toHaveLength(1);
+      expect((linkRows[0] as { scene_block_id: string }).scene_block_id).toBe(sceneId);
+    },
+  );
+
+  it(
+    'entry with explicit sceneBlockIds → client values honored, proposal not used',
+    async () => {
+      const { confirmCast } = await confirmSvc();
+
+      const draftId = await seedDraft(OWNER_ID);
+      const sceneIdA = await seedSceneBlock(draftId);
+      const sceneIdB = await seedSceneBlock(draftId);
+
+      // Proposal has sceneIdB for "Villain", but client supplies sceneIdA.
+      await seedExtractionJobWithProposal(draftId, OWNER_ID, [
+        { type: 'character', name: 'Villain', scene_block_ids: [sceneIdB] },
+      ]);
+
+      mockQueueAdd.mockClear();
+
+      const result = await confirmCast({
+        draftId,
+        userId: OWNER_ID,
+        entries: [
+          {
+            castType: 'character',
+            name: 'Villain',
+            description: 'The antagonist',
+            imageFileIds: [],
+            sceneBlockIds: [sceneIdA], // explicit → must win over proposal
+          },
+        ],
+        acknowledgedAggregateCredits: 0.42,
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.sceneBlockIds).toEqual([sceneIdA]);
+
+      const [linkRows] = await conn.execute<RowDataPacket[]>(
+        `SELECT scene_block_id FROM storyboard_reference_scene_links
+          WHERE reference_block_id = ?`,
+        [result[0]!.blockId],
+      );
+      expect(linkRows).toHaveLength(1);
+      expect((linkRows[0] as { scene_block_id: string }).scene_block_id).toBe(sceneIdA);
+    },
+  );
+
+  it(
+    'entry name with no proposal match → zero links, no throw',
+    async () => {
+      const { confirmCast } = await confirmSvc();
+
+      const draftId = await seedDraft(OWNER_ID);
+
+      // Proposal has a different character name — no match for "Unknown".
+      await seedExtractionJobWithProposal(draftId, OWNER_ID, [
+        { type: 'character', name: 'Hero', scene_block_ids: [randomUUID()] },
+      ]);
+
+      mockQueueAdd.mockClear();
+
+      const result = await confirmCast({
+        draftId,
+        userId: OWNER_ID,
+        entries: [
+          {
+            castType: 'character',
+            name: 'Unknown', // no match in proposal
+            description: 'Nobody',
+            imageFileIds: [],
+            // sceneBlockIds omitted, no proposal match
+          },
+        ],
+        acknowledgedAggregateCredits: 0.42,
+      });
+
+      // No throw, block created with zero links.
+      expect(result).toHaveLength(1);
+      expect(result[0]!.sceneBlockIds).toHaveLength(0);
+
+      const [linkRows] = await conn.execute<RowDataPacket[]>(
+        `SELECT scene_block_id FROM storyboard_reference_scene_links
+          WHERE reference_block_id = ?`,
+        [result[0]!.blockId],
+      );
+      expect(linkRows).toHaveLength(0);
+    },
+  );
 });

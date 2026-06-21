@@ -313,13 +313,18 @@ async function markStoryboardAiBindingsFailed(
   jobId: string,
   message: string,
 ): Promise<void> {
+  // Defensive truncation: provider error blobs can exceed the column width and
+  // raise "Data too long", which would abort this status write and strand the
+  // bound jobs as non-terminal. 064 widened these columns to TEXT; we still cap
+  // the value to keep rows bounded. Mirrors referenceWindow's failure path.
+  const safeMessage = message.slice(0, 500);
   await pool.execute(
     `UPDATE storyboard_scene_video_jobs
         SET status = 'failed',
             error_message = ?,
             active_lock = NULL
       WHERE ai_job_id = ?`,
-    [message, jobId],
+    [safeMessage, jobId],
   );
   await pool.execute(
     `UPDATE storyboard_music_generation_jobs
@@ -327,6 +332,6 @@ async function markStoryboardAiBindingsFailed(
             error_message = ?,
             active_lock = NULL
       WHERE ai_job_id = ?`,
-    [message, jobId],
+    [safeMessage, jobId],
   );
 }

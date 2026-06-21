@@ -13,6 +13,10 @@ import {
   restoreIllustrationJobsForRetainedBlocks,
   snapshotIllustrationJobsForDraft,
 } from '@/repositories/storyboardIllustrationMapping.repository.js';
+import {
+  restoreReferenceSceneLinksForRetainedScenes,
+  snapshotReferenceSceneLinksForDraft,
+} from '@/repositories/storyboardReferenceSceneLinks.repository.js';
 import * as storyboardMusicRepository from '@/repositories/storyboardMusic.repository.js';
 import type { StoryboardMusicBlockInsert } from '@/repositories/storyboardMusic.repository.js';
 import type {
@@ -231,6 +235,7 @@ export async function replaceStoryboard(
   musicBlocks?: StoryboardMusicBlockInsert[],
 ): Promise<void> {
   const illustrationJobs = await snapshotIllustrationJobsForDraft(conn, draftId);
+  const referenceSceneLinks = await snapshotReferenceSceneLinksForDraft(conn, draftId);
   const musicJobs = await storyboardMusicRepository.snapshotMusicGenerationJobsForDraft(conn, draftId);
   const existingMusicBlocks = musicBlocks === undefined
     ? await storyboardMusicRepository.findMusicBlocksByDraftIdForUpdate(conn, draftId)
@@ -285,6 +290,10 @@ export async function replaceStoryboard(
   // for blocks that survived the replace so in-flight image jobs can still
   // attach their output after an autosave.
   await restoreIllustrationJobsForRetainedBlocks(conn, illustrationJobs, retainedBlockIds);
+
+  // Deleting blocks also cascade-deletes reference→scene links (FK on scene_block_id).
+  // Restore links whose scene survived the replace so references stay bound to their scenes.
+  await restoreReferenceSceneLinksForRetainedScenes(conn, referenceSceneLinks, retainedBlockIds);
 
   // Insert edges.
   for (const e of edges) {

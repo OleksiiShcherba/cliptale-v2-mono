@@ -320,6 +320,33 @@ export const sceneReferenceSelectionRepo: SceneReferenceSelectionRepo = {
       windowStatus: block.window_status,
     }));
   },
+
+  async loadAttachedSceneMediaFileIds(blockId: string): Promise<string[]> {
+    // NULL file_id rows are excluded: migration 061 made file_id nullable for
+    // motion_graphic placeholder rows; an image row with NULL file_id is not usable.
+    // Scene-illustration outputs are also excluded: the worker writes its own
+    // generated renders into storyboard_block_media (via attachOutputToBlock).
+    // Feeding those back into images.edit() would reproduce the prior render
+    // instead of applying the scene prompt + genuine user attachments + references.
+    // The subquery matches output_file_id IS NOT NULL to avoid the nullable
+    // column matching NULL file_id rows.
+    const [rows] = await pool.query<Array<{ file_id: string } & RowDataPacket>>(
+      `SELECT m.file_id
+         FROM storyboard_block_media m
+        WHERE m.block_id = ?
+          AND m.media_type = 'image'
+          AND m.file_id IS NOT NULL
+          AND m.file_id NOT IN (
+            SELECT j.output_file_id
+              FROM storyboard_scene_illustration_jobs j
+             WHERE j.block_id = m.block_id
+               AND j.output_file_id IS NOT NULL
+          )
+        ORDER BY m.sort_order ASC`,
+      [blockId],
+    );
+    return rows.map((r) => r.file_id);
+  },
 };
 
 /**

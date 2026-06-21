@@ -116,15 +116,43 @@ export async function onReferenceBlockJobComplete(
     );
     updateResult = result as OkPacket;
   } else {
-    const [result] = await pool.execute(
-      `UPDATE storyboard_reference_blocks
-          SET window_status = 'failed',
-              error_message = ?
-        WHERE id = ?
-          AND window_status = 'running'`,
-      [errorMessage ?? null, blockId],
-    );
-    updateResult = result as OkPacket;
+    // Defensive truncation: provider error blobs (e.g. fal.ai 422
+    // content_policy_violation, ~720 chars) must never overflow the column or
+    // raise "Data too long". 064 widened the column to TEXT, but we still cap
+    // the value so a runaway payload can't bloat the row or strand the block.
+    const safeError = errorMessage != null ? errorMessage.slice(0, 500) : null;
+    let result: OkPacket;
+    try {
+      const [r] = await pool.execute(
+        `UPDATE storyboard_reference_blocks
+            SET window_status = 'failed',
+                error_message = ?
+          WHERE id = ?
+            AND window_status = 'running'`,
+        [safeError, blockId],
+      );
+      result = r as OkPacket;
+    } catch (err) {
+      // The failure UPDATE itself must never strand the block as 'running'
+      // (the bug that hung the storyboard). If writing the error text fails for
+      // any reason, retry once with a fixed-length sentinel so the block still
+      // reaches its terminal 'failed' state and the pipeline can resolve.
+      console.error(
+        `[referenceWindow] failed to persist error for block ${blockId}; ` +
+          `retrying with sentinel message`,
+        err,
+      );
+      const [r] = await pool.execute(
+        `UPDATE storyboard_reference_blocks
+            SET window_status = 'failed',
+                error_message = 'generation failed (error text unavailable)'
+          WHERE id = ?
+            AND window_status = 'running'`,
+        [blockId],
+      );
+      result = r as OkPacket;
+    }
+    updateResult = result;
   }
 
   // Idempotency: if 0 rows affected, the block was already terminal — stop.

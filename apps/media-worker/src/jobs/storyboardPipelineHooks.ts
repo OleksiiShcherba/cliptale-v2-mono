@@ -27,7 +27,7 @@ import {
   type PhaseStatus,
   type PipelinePhase,
 } from '@ai-video-editor/project-schema';
-import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+import type { Pool, Connection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 
 import { publishPipelineState } from '@/lib/realtime.js';
 
@@ -120,12 +120,31 @@ async function countSceneBlocks(pool: Pool, draftId: string): Promise<number> {
 }
 
 /**
+ * A parsed cast entry from a completed cast-extraction proposal.
+ * Replicates the shape of `ProposalCastEntry` in apps/api (cannot import across
+ * app boundaries). Both copies must stay behaviourally identical.
+ *
+ * castType: 'environment' only when the raw proposal entry type === 'environment';
+ *           all other values (including 'character' and missing) default to 'character'.
+ * name: trimmed raw name string; entries with a blank / missing name receive 'Untitled'.
+ * sceneBlockIds: only string elements of scene_block_ids (non-strings silently dropped).
+ */
+export type WorkerProposalCastEntry = {
+  castType: 'character' | 'environment';
+  name: string;
+  sceneBlockIds: string[];
+};
+
+/**
  * The latest COMPLETED cast-extraction proposal for a draft (the source of the cast
  * modal payload + the reference set size). Returns the parsed proposal_json + the cast
  * size, or null when no completed extraction exists yet.
+ *
+ * Exported so materializeScenePlan.ts can reuse the same query shape without
+ * duplicating it (subtask 1 extension — previously module-private).
  */
-async function readLatestCastProposal(
-  pool: Pool,
+export async function readLatestCastProposal(
+  pool: Pool | Connection,
   draftId: string,
 ): Promise<{ proposalJson: unknown; castSize: number } | null> {
   const [rows] = await pool.execute<Array<RowDataPacket & { proposal_json: unknown }>>(
@@ -142,6 +161,43 @@ async function readLatestCastProposal(
   const cast = parsed && typeof parsed === 'object' ? (parsed as { cast?: unknown }).cast : undefined;
   const castSize = Array.isArray(cast) ? cast.length : 0;
   return { proposalJson: parsed, castSize };
+}
+
+/**
+ * Parse the raw `proposal_json` value (from a cast-extraction job) into typed cast
+ * entries consumable by `materializeScenePlanBlocks`.
+ *
+ * Replicates the semantics of `parseProposalEntries` in
+ * apps/api/src/services/storyboardPipeline.confirm.service.ts.
+ * The worker cannot import from apps/api — this copy MUST stay behaviourally
+ * byte-for-byte equivalent; both are unit-tested.
+ *
+ * Rules (match the API copy exactly):
+ *   - Non-array / absent `cast` → returns []
+ *   - Null / non-object array elements are skipped
+ *   - castType: 'environment' iff raw entry type === 'environment'; else 'character'
+ *   - name: trimmed raw string; blank/missing → 'Untitled'
+ *   - sceneBlockIds: only string elements of scene_block_ids (non-strings dropped)
+ *
+ * Returns [] (never throws) for any malformed input.
+ */
+export function parseProposalCastEntries(proposalJson: unknown): WorkerProposalCastEntry[] {
+  if (proposalJson === null || typeof proposalJson !== 'object') return [];
+  const cast = (proposalJson as { cast?: unknown }).cast;
+  if (!Array.isArray(cast)) return [];
+  const entries: WorkerProposalCastEntry[] = [];
+  for (const raw of cast) {
+    if (raw === null || typeof raw !== 'object') continue;
+    const r = raw as { type?: unknown; name?: unknown; scene_block_ids?: unknown };
+    const castType: 'character' | 'environment' = r.type === 'environment' ? 'environment' : 'character';
+    const rawName = typeof r.name === 'string' ? r.name.trim() : '';
+    const name = rawName.length > 0 ? rawName : 'Untitled';
+    const sceneBlockIds: string[] = Array.isArray(r.scene_block_ids)
+      ? (r.scene_block_ids as unknown[]).filter((id): id is string => typeof id === 'string')
+      : [];
+    entries.push({ castType, name, sceneBlockIds });
+  }
+  return entries;
 }
 
 function safeParseJson(raw: string): unknown {

@@ -26,6 +26,8 @@ describe('F3 / buildStoryboardOpenAIImageJobDeps — production wiring', () => {
 
     expect(deps.sceneReferenceSelectionRepo).toBe(sceneReferenceSelectionRepo);
     expect(typeof deps.sceneReferenceSelectionRepo!.loadBlocksForDraft).toBe('function');
+    // Subtask 3: attached-media reader must also be wired via the same repo
+    expect(typeof deps.sceneReferenceSelectionRepo!.loadAttachedSceneMediaFileIds).toBe('function');
   });
 
   it('wires the scene repos and does NOT wire the retired principal-image repo (review F2, ADR-0004)', () => {

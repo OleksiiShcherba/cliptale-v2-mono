@@ -5,3 +5,4 @@
 - [find* vs get* in repositories](project_find_vs_get_naming.md) — repository getters must use `get` prefix not `find`; codebase and Section 9 convention; flagged Epic 8 subtask 2
 - [Zod request-body schema placement](project_zod_schema_placement.md) — Zod validation schemas must not be defined in controller files; Section 11 requires them in validate.middleware.ts or packages/project-schema; flagged Epic 8 subtask 3
 - [Token logging in stub services](project_stub_token_logging.md) — Stub email/notification services must not log raw token values; Section 11 security violation regardless of stub status; flagged Epic 8 subtask 4
+- [Raw SQL in confirm service](project_raw_sql_in_confirm_service.md) — storyboardPipeline.confirm.service.ts has multiple pre-existing raw pool.execute calls; generation_flows INSERT flagged in round-2 review 2026-06-21; pattern also present in sibling storyboardReference.confirm.service.ts

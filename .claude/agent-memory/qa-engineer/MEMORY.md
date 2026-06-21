@@ -1,6 +1,6 @@
 # QA Engineer Memory Index
 
-- [Test Infrastructure](test-infra.md) — Vitest per-package, no root test command, jsdom vs node environments, forwardRef mock pattern for Remotion Player, inline object literal in renderHook causes infinite loop, deferred promise pattern for floating async hooks
+- [Test Infrastructure](test-infra.md) — Vitest per-package, no root test command, jsdom vs node environments, forwardRef mock pattern for Remotion Player, inline object literal in renderHook causes infinite loop, deferred promise pattern for floating async hooks, DML migration tests must execute SQL directly (not via runPendingMigrations)
 - [Deferred E2E](deferred-e2e.md) — No E2E framework exists yet; priority flows to add when Playwright is wired
 - [Workspace and Test Discovery](workspace_discovery.md) — Only registered turbo workspaces run tests; unregistered dirs like infra/ orphan test files
 - [A2 Integration Test Pattern](a2-integration-test-pattern.md) — Real MySQL (never mock), mock only external services, auth bypass disabled, it.todo() for deferred scenarios with rationale

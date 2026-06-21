@@ -248,6 +248,77 @@ export async function casUpdateState(params: {
   return result.affectedRows;
 }
 
+// ── Generation-flow insert (used exclusively by confirmCast T6) ──────────────────
+
+/**
+ * Insert a generation_flow row with a pre-seeded canvas. Called by confirmCast when
+ * creating reference blocks — each block gets its own flow that the Creator can open
+ * to review the auto-generated reference image (MAIN ADJUSTMENT).
+ */
+export async function insertGenerationFlow(params: {
+  flowId: string;
+  userId: string;
+  title: string;
+  canvas: unknown;
+}): Promise<void> {
+  await pool.execute(
+    `INSERT INTO generation_flows (flow_id, user_id, title, canvas)
+     VALUES (?, ?, ?, ?)`,
+    [params.flowId, params.userId, params.title, JSON.stringify(params.canvas)],
+  );
+}
+
+// ── Confirm-service helpers (queries used exclusively by confirmCast T6) ─────────
+
+/**
+ * Count existing reference blocks for a draft (defensive idempotency guard in confirmCast).
+ */
+export async function countReferenceBlocksForDraft(draftId: string): Promise<number> {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT COUNT(*) AS cnt FROM storyboard_reference_blocks WHERE draft_id = ?`,
+    [draftId],
+  );
+  return Number((rows[0] as { cnt: number }).cnt);
+}
+
+/**
+ * MAX(music.sort_order) for a draft, or -1 when the draft has no music (AC-09).
+ * Used by confirmCast to place reference blocks below all music blocks.
+ */
+export async function maxMusicSortOrderForDraft(draftId: string): Promise<number> {
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT COALESCE(MAX(sort_order), -1) AS max_sort
+       FROM storyboard_music_blocks
+      WHERE draft_id = ?`,
+    [draftId],
+  );
+  return Number((rows[0] as { max_sort: number }).max_sort);
+}
+
+// ── Scene-block ID filter (used by confirm service for FK-safe inserts) ─────────
+
+/**
+ * Given a list of candidate scene-block IDs and a draft, return only the IDs
+ * that actually exist in `storyboard_blocks` for that draft.
+ *
+ * This pre-filter is required to avoid FK violations: INSERT IGNORE suppresses
+ * duplicate-key errors (1062) but NOT foreign-key constraint failures (1452),
+ * which would rollback the current statement and leave the whole transaction in
+ * an error state. By skipping unknown ids up front we guarantee a clean insert.
+ *
+ * Returns the subset of `candidateIds` that exist, preserving input order.
+ */
+export async function filterValidSceneIds(draftId: string, candidateIds: string[]): Promise<string[]> {
+  if (candidateIds.length === 0) return [];
+  const placeholders = candidateIds.map(() => '?').join(', ');
+  const [rows] = await pool.execute<RowDataPacket[]>(
+    `SELECT id FROM storyboard_blocks WHERE draft_id = ? AND id IN (${placeholders})`,
+    [draftId, ...candidateIds],
+  );
+  const existing = new Set((rows as Array<{ id: string }>).map((r) => r.id));
+  return candidateIds.filter((id) => existing.has(id));
+}
+
 /**
  * Refresh the heartbeat for the phase currently holding the active run (ADR-0005):
  * real per-unit progress, not wall-clock, keeps a healthy phase out of the reaper's reach.

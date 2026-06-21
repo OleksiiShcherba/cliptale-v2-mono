@@ -128,6 +128,16 @@ Fix: use a deferred pattern (resolvable on demand) and resolve it inside `await 
 
 **Impact:** Any test for a hook that calls `void somePromise.then(setState)` must resolve the promise inside `await act(async () => { ... })` before the test ends.
 
+## DML migration tests must execute SQL directly — not via runPendingMigrations()
+
+`runPendingMigrations()` is a one-shot runner: once a migration filename is recorded in `schema_migrations` it is skipped unconditionally on all future calls. For DDL migrations this is fine because DDL is structurally idempotent (ALTER TABLE on a column that already exists is a no-op). For **DML migrations** (INSERT, UPDATE, DELETE) the SQL is not re-executed against fresh test seed data, causing data assertions to fail with "expected [...] to include X" on every run after the first.
+
+Fix pattern (confirmed in migration 065 test): read the migration SQL file with `fs.readFileSync` and execute it directly on the test connection in `beforeAll`, after seeding. Keep a separate `runPendingMigrations()` test that validates the runner resolves without error for the "already up-to-date" case. The idempotency assertion should re-execute the raw SQL a second time and assert counts are unchanged.
+
+**Why:** Discovered 2026-06-21 during QA review of migration 065 — the test file seeded fresh rows and called `runPendingMigrations()`, which returned "All migrations up to date" without running the SQL, leaving all link assertions failing. The dev had tested once (migration first-apply), and the test appeared green, but every re-run thereafter failed.
+
+**Impact:** Any future migration test for a file that performs DML (not purely DDL) must use direct SQL execution in `beforeAll`, not `runPendingMigrations()`.
+
 ## Remotion Player mock must use forwardRef
 
 When testing `PreviewPanel` (or any component that passes a `ref` to Remotion `<Player>`), the `vi.mock('@remotion/player')` factory must use `React.forwardRef` to capture the ref. A plain functional mock component silently discards the ref, making `playerRef` forwarding behavior untestable.

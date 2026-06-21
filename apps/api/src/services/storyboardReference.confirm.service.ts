@@ -26,6 +26,8 @@ import { NotFoundError } from '@/lib/errors.js';
 import { aiGenerateQueue } from '@/queues/bullmq.js';
 import { DEFAULT_CONCURRENCY_LIMIT } from '@/services/settings.service.js';
 import * as settingsRepository from '@/repositories/settings.repository.js';
+import { findLatestCastExtractionJobForDraft } from '@/repositories/storyboardReference.repository.js';
+import { filterValidSceneIds } from '@/repositories/storyboardPipeline.repository.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -224,6 +226,72 @@ function buildReferenceOptions(entry: CastEntry): Record<string, unknown> {
   };
 }
 
+// ── Proposal scene-id fallback ────────────────────────────────────────────────
+
+/**
+ * One entry as stored in the cast-extraction proposal JSON
+ * (shape produced by cast-extract.job.ts and validated by castProposalSchema).
+ */
+type ProposalEntry = {
+  type: unknown;
+  name: unknown;
+  scene_block_ids: unknown;
+};
+
+/**
+ * Build a lookup map from `castType:name` → `sceneBlockIds[]` from the latest
+ * completed cast-extraction proposal for a draft.
+ *
+ * Rules:
+ *  - Only entries with status=completed and a `{ cast: [...] }` proposal_json are used.
+ *  - Each key is `<type>:<name>` (lowercase cast_type + original name).
+ *  - If two proposal entries share the same key (ambiguous collision), the key is
+ *    removed entirely so neither is used (safe skip rather than mis-link).
+ *  - Returns an empty map when no completed proposal exists.
+ */
+async function buildProposalSceneIdMap(
+  draftId: string,
+  userId: string,
+): Promise<Map<string, string[]>> {
+  const job = await findLatestCastExtractionJobForDraft({ draftId, userId });
+  if (!job || job.status !== 'completed' || job.proposalJson === null) {
+    return new Map();
+  }
+
+  const raw = job.proposalJson;
+  if (typeof raw !== 'object' || raw === null) return new Map();
+  const castArr = (raw as { cast?: unknown }).cast;
+  if (!Array.isArray(castArr)) return new Map();
+
+  const map = new Map<string, string[]>();
+  const ambiguous = new Set<string>();
+
+  for (const item of castArr) {
+    if (item === null || typeof item !== 'object') continue;
+    const entry = item as ProposalEntry;
+    const rawType = entry.type;
+    const castType: 'character' | 'environment' =
+      rawType === 'environment' ? 'environment' : 'character';
+    const name = typeof entry.name === 'string' && entry.name.trim() ? entry.name : null;
+    if (!name) continue;
+    const key = `${castType}:${name}`;
+    const sceneIds = Array.isArray(entry.scene_block_ids)
+      ? (entry.scene_block_ids as unknown[]).filter((id): id is string => typeof id === 'string')
+      : [];
+
+    if (ambiguous.has(key)) continue;
+    if (map.has(key)) {
+      // Collision — mark ambiguous and remove both.
+      ambiguous.add(key);
+      map.delete(key);
+    } else {
+      map.set(key, sceneIds);
+    }
+  }
+
+  return map;
+}
+
 // ── confirmCast ───────────────────────────────────────────────────────────────
 
 /**
@@ -242,6 +310,11 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmedB
   const { draftId, userId, entries } = params;
 
   const concurrencyLimit = await getConcurrencyLimit(userId);
+
+  // Fetch the proposal scene-id map before opening the transaction so we can do
+  // a read-only DB call outside the write path. This allows falling back to the
+  // authoritative server-side scene_block_ids when the client omits them.
+  const proposalSceneIdMap = await buildProposalSceneIdMap(draftId, userId);
 
   const conn = await pool.getConnection();
   const confirmed: ConfirmedBlock[] = [];
@@ -311,10 +384,25 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmedB
         ],
       );
 
-      // 3. Insert scene links (FK → storyboard_blocks; bad id causes rollback).
-      for (const sceneBlockId of entry.sceneBlockIds ?? []) {
+      // 3. Resolve scene links: use client-supplied sceneBlockIds when present;
+      //    otherwise fall back to server-side proposal scene_block_ids keyed by
+      //    castType:name. Ambiguous proposal entries (same key → two entries) are
+      //    already removed from the map by buildProposalSceneIdMap.
+      const clientIds = entry.sceneBlockIds ?? [];
+      const proposalKey = `${entry.castType}:${entry.name}`;
+      const rawSceneIds =
+        clientIds.length > 0 ? clientIds : (proposalSceneIdMap.get(proposalKey) ?? []);
+
+      // Pre-filter to only valid scene IDs: INSERT IGNORE suppresses duplicate-key
+      // errors (1062) but NOT FK violations (1452), which abort the statement and
+      // leave the transaction in an error state. Pre-filtering guarantees a clean insert.
+      const validSceneIds = rawSceneIds.length > 0
+        ? await filterValidSceneIds(draftId, rawSceneIds)
+        : [];
+
+      for (const sceneBlockId of validSceneIds) {
         await conn.execute(
-          `INSERT INTO storyboard_reference_scene_links
+          `INSERT IGNORE INTO storyboard_reference_scene_links
              (reference_block_id, scene_block_id)
            VALUES (?, ?)`,
           [blockId, sceneBlockId],
@@ -334,7 +422,7 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmedB
         windowStatus: 'pending',
         errorMessage: null,
         version: 1,
-        sceneBlockIds: entry.sceneBlockIds ?? [],
+        sceneBlockIds: validSceneIds,
         // Timestamps are populated from the DB fetch-back below.
         createdAt: new Date(0),
         updatedAt: new Date(0),

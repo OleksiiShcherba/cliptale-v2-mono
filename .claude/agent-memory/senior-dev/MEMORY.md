@@ -30,3 +30,6 @@
 - [Project: E2E Fix Batch (E2E-FIX-1 through E2E-FIX-3)](project_e2e_fix_batch.md) — branch fix/e2e-storyboard-coverage; ALL 3 SUBTASKS COMPLETE (2026-04-25); Test7/8/9 added
 - [Project: Storyboard UI Bugs (SB-UI-BUG-1 + SB-UI-BUG-2)](project_storyboard_ui_bugs.md) — Library Add canvas render + drag ghost; branch fix/storyboard-ui-bugs; BOTH COMPLETE (2026-04-27)
 - [Project: Storyboard UI Cleanup (SB-UI-CLEANUP)](project_sb_ui_cleanup.md) — Remove asset panel + minimap + upload affordance; ALL 4 SUBTASKS COMPLETE (2026-04-27)
+- [Project: Reference auto-linking + scene image assembly task](project_ref_autolink_task.md) — ALL 6 SUBTASKS COMPLETE (2026-06-21); link fragility gotcha + active_lock gotcha documented
+- [Project: replaceStoryboard scene-links fix](project_replaceStoryboard_scenelinks_fix.md) — ALL COMPLETE (2026-06-21): snapshot+restore wired; 4 tests pass; PUT preserves 15 links; Scene 05 regenerated via images.edit() with 7 inputs (4 attached + 3 reference stars)
+- [Project: Exclude generated outputs from scene image inputs](project_exclude_generated_outputs.md) — ALL COMPLETE (2026-06-21): NOT IN exclusion query in loadAttachedSceneMediaFileIds; Scene 05 confirmed regenerated with 3 reference-only inputs; output 0c952e14

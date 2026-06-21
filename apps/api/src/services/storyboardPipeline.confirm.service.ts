@@ -23,9 +23,11 @@
  * Reuse (no logic duplicated):
  *   - decideRunClaim / PipelinePhase           — @ai-video-editor/project-schema (T2)
  *   - getPipelineByDraftId / claimRun          — storyboardPipeline.repository (T3)
+ *   - filterValidSceneIds                      — storyboardPipeline.repository
  *   - computeReferenceImageEstimate / revalidateEstimate — cost.service (T5)
  *   - findLatestCastExtractionJobForDraft / listReferenceBlocksByDraftId — reference.repository
  *   - REFERENCE_DEFAULT_* + the enqueue shape  — storyboardReference.confirm.service (shipped)
+ *   - buildReferenceCanvas / buildReferenceOptions / buildReferencePrompt — confirm.canvas
  */
 
 import { randomUUID } from 'node:crypto';
@@ -39,6 +41,10 @@ import { decideRunClaim } from '@ai-video-editor/project-schema';
 import {
   getPipelineByDraftId,
   claimRun,
+  filterValidSceneIds,
+  countReferenceBlocksForDraft,
+  insertGenerationFlow,
+  maxMusicSortOrderForDraft,
   type StoryboardPipelineRow,
 } from '@/repositories/storyboardPipeline.repository.js';
 import {
@@ -51,6 +57,12 @@ import {
   REFERENCE_DEFAULT_CAPABILITY,
   REFERENCE_DEFAULT_PROVIDER,
 } from '@/services/storyboardReference.confirm.service.js';
+import {
+  buildReferenceCanvas,
+  buildReferenceOptions,
+  buildReferencePrompt,
+  type ProposalCastEntry,
+} from '@/services/storyboardPipeline.confirm.canvas.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────────
 
@@ -63,15 +75,6 @@ export type ConfirmCastParams = {
 
 /** confirmCast returns the resulting pipeline state projection (the run + phase). */
 export type ConfirmCastResult = StoryboardPipelineRow;
-
-/** One cast entry parsed out of the completed cast-extraction proposal_json. */
-type ProposalCastEntry = {
-  castType: 'character' | 'environment';
-  name: string;
-  description: string | null;
-  /** Scene-block UUIDs this reference covers (from the proposal; may be empty). */
-  sceneBlockIds: string[];
-};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -112,119 +115,6 @@ function parseProposalEntries(proposalJson: unknown): ProposalCastEntry[] {
   return entries;
 }
 
-/** Count existing reference blocks for a draft (defensive idempotency guard). */
-async function countReferenceBlocks(draftId: string): Promise<number> {
-  const [rows] = await pool.execute<RowDataPacket[]>(
-    `SELECT COUNT(*) AS cnt FROM storyboard_reference_blocks WHERE draft_id = ?`,
-    [draftId],
-  );
-  return Number((rows[0] as { cnt: number }).cnt);
-}
-
-/** MAX(music.sort_order) for a draft, or -1 when the draft has no music (AC-09). */
-async function maxMusicSortOrder(draftId: string): Promise<number> {
-  const [rows] = await pool.execute<RowDataPacket[]>(
-    `SELECT COALESCE(MAX(sort_order), -1) AS max_sort
-       FROM storyboard_music_blocks
-      WHERE draft_id = ?`,
-    [draftId],
-  );
-  return Number((rows[0] as { max_sort: number }).max_sort);
-}
-
-function buildReferencePrompt(entry: ProposalCastEntry): string {
-  return entry.description?.trim() || entry.name;
-}
-
-function buildReferenceOptions(entry: ProposalCastEntry): Record<string, unknown> {
-  return {
-    prompt: buildReferencePrompt(entry),
-    image_size: 'square_hd',
-    num_images: 1,
-    output_format: 'png',
-    sync_mode: false,
-  };
-}
-
-/**
- * Builds the base-flow canvas for a pipeline-confirmed reference.
- *
- * Seeds the full visible chain — (optional) text-content → generation → result —
- * so opening the flow shows the auto-generated output instead of an empty canvas.
- * Mirrors storyboardReference.confirm.service.buildReferenceCanvas, but without
- * imageFileIds (pipeline proposals carry only description/name).
- */
-function buildReferenceCanvas(entry: ProposalCastEntry): {
-  canvas: { blocks: unknown[]; edges: unknown[] };
-  genBlockId: string;
-} {
-  const blocks: unknown[] = [];
-  const edges: unknown[] = [];
-
-  if (entry.description?.trim()) {
-    const contentId = randomUUID();
-    blocks.push({
-      blockId: contentId,
-      type: 'content',
-      position: { x: 0, y: 0 },
-      params: { contentType: 'text', text: entry.description.trim(), modality: 'text' },
-    });
-    const genBlockId = randomUUID();
-    blocks.push({
-      blockId: genBlockId,
-      type: 'generation',
-      position: { x: 340, y: 0 },
-      params: { modelId: REFERENCE_DEFAULT_MODEL_ID },
-    });
-    edges.push({
-      edgeId: randomUUID(),
-      sourceBlockId: contentId,
-      sourceHandle: 'out',
-      targetBlockId: genBlockId,
-      targetHandle: 'prompt',
-    });
-    const resultBlockId = randomUUID();
-    blocks.push({
-      blockId: resultBlockId,
-      type: 'result',
-      position: { x: 680, y: 0 },
-      params: { sourceBlockId: genBlockId },
-    });
-    edges.push({
-      edgeId: randomUUID(),
-      sourceBlockId: genBlockId,
-      sourceHandle: 'out',
-      targetBlockId: resultBlockId,
-      targetHandle: 'in',
-    });
-    return { canvas: { blocks, edges }, genBlockId };
-  }
-
-  // No description — just generation → result.
-  const genBlockId = randomUUID();
-  blocks.push({
-    blockId: genBlockId,
-    type: 'generation',
-    position: { x: 340, y: 0 },
-    params: { modelId: REFERENCE_DEFAULT_MODEL_ID },
-  });
-  const resultBlockId = randomUUID();
-  blocks.push({
-    blockId: resultBlockId,
-    type: 'result',
-    position: { x: 680, y: 0 },
-    params: { sourceBlockId: genBlockId },
-  });
-  edges.push({
-    edgeId: randomUUID(),
-    sourceBlockId: genBlockId,
-    sourceHandle: 'out',
-    targetBlockId: resultBlockId,
-    targetHandle: 'in',
-  });
-  return { canvas: { blocks, edges }, genBlockId };
-}
-
 // ── confirmCast ───────────────────────────────────────────────────────────────
 
 /**
@@ -261,7 +151,7 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmCas
 
   // 3b. Defensive idempotency: if reference blocks already exist for the draft
   //     (a prior confirm completed and released the marker), never recreate them.
-  if ((await countReferenceBlocks(draftId)) > 0) {
+  if ((await countReferenceBlocksForDraft(draftId)) > 0) {
     return row;
   }
 
@@ -311,7 +201,7 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmCas
   //    rows from the proposal entry's scene_block_ids (AC-10 prep for T12).
   //    Only scene blocks that exist for this draft are linked (bad ids are skipped
   //    to prevent FK violations from stale proposal data — the FK would rollback).
-  const baseSort = (await maxMusicSortOrder(draftId)) + 1;
+  const baseSort = (await maxMusicSortOrderForDraft(draftId)) + 1;
   type CreatedBlock = { blockId: string; flowId: string; genBlockId: string; entry: ProposalCastEntry };
   const created: CreatedBlock[] = [];
   for (let i = 0; i < entries.length; i++) {
@@ -321,11 +211,7 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmCas
 
     // Create the generation_flow row with a pre-seeded base canvas.
     const { canvas, genBlockId } = buildReferenceCanvas(entry);
-    await pool.execute(
-      `INSERT INTO generation_flows (flow_id, user_id, title, canvas)
-       VALUES (?, ?, ?, ?)`,
-      [flowId, userId, entry.name, JSON.stringify(canvas)],
-    );
+    await insertGenerationFlow({ flowId, userId, title: entry.name, canvas });
 
     await pool.execute(
       `INSERT INTO storyboard_reference_blocks
@@ -335,13 +221,31 @@ export async function confirmCast(params: ConfirmCastParams): Promise<ConfirmCas
     );
     // Insert reference → scene links (AC-10; matches shipped insert shape from
     // storyboardReference.confirm.service / migration 054).
-    for (const sceneBlockId of entry.sceneBlockIds) {
-      await pool.execute(
-        `INSERT IGNORE INTO storyboard_reference_scene_links
-           (reference_block_id, scene_block_id)
-         VALUES (?, ?)`,
-        [blockId, sceneBlockId],
+    // Pre-filter to only valid scene IDs: INSERT IGNORE suppresses duplicate-key
+    // errors (1062) but NOT FK violations (1452), which would abort the statement.
+    // Filtering up front ensures a clean insert and allows us to log stale ids.
+    if (entry.sceneBlockIds.length === 0) {
+      console.warn(
+        `[confirmCast] entry "${entry.name}" (${entry.castType}) has no scene_block_ids — block created with zero links`,
+        { draftId, blockId },
       );
+    } else {
+      const validIds = await filterValidSceneIds(draftId, entry.sceneBlockIds);
+      const droppedIds = entry.sceneBlockIds.filter((id) => !validIds.includes(id));
+      if (droppedIds.length > 0) {
+        console.warn(
+          `[confirmCast] ${droppedIds.length} stale scene_block_id(s) in proposal entry "${entry.name}" skipped (not found in storyboard_blocks for draft)`,
+          { draftId, blockId, droppedIds },
+        );
+      }
+      for (const sceneBlockId of validIds) {
+        await pool.execute(
+          `INSERT IGNORE INTO storyboard_reference_scene_links
+             (reference_block_id, scene_block_id)
+           VALUES (?, ?)`,
+          [blockId, sceneBlockId],
+        );
+      }
     }
     created.push({ blockId, flowId, genBlockId, entry });
   }
